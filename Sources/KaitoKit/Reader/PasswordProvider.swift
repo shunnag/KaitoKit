@@ -23,19 +23,27 @@ public struct ReaderOptions: Sendable {
     /// Whether ZIP local headers are validated only when their entry is first read.
     public var lazyLocalHeaders: Bool
 
+    /// Maximum iterated-SHA-256 cycle power accepted from 7zAES metadata.
+    ///
+    /// The special direct-key value `0x3f` remains accepted. The default of 24
+    /// permits normal 7-Zip archives while bounding attacker-controlled work.
+    public var maxSevenZipAESCyclesPower: UInt8
+
     /// Creates reader options.
     public init(
         encodingPolicy: EncodingPolicy = .automatic(),
         limits: ReadLimits = ReadLimits(),
         password: String? = nil,
         passwordProvider: (any PasswordProvider)? = nil,
-        lazyLocalHeaders: Bool = true
+        lazyLocalHeaders: Bool = true,
+        maxSevenZipAESCyclesPower: UInt8 = 24
     ) {
         self.encodingPolicy = encodingPolicy
         self.limits = limits
         self.password = password
         self.passwordProvider = passwordProvider
         self.lazyLocalHeaders = lazyLocalHeaders
+        self.maxSevenZipAESCyclesPower = min(maxSevenZipAESCyclesPower, 62)
     }
 }
 

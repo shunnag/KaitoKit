@@ -46,7 +46,12 @@ public final class ArchiveReader {
             let zip = try ZipReader(source: source, options: options)
             reader = zip
             entries = zip.entries
-        case .rar, .sevenZip, .lha, .gzip, .bzip2, .xz:
+        case .sevenZip:
+            let sevenZip = try SevenZipReader(source: source, options: options)
+            reader = sevenZip
+            entries = sevenZip.entries
+            password = sevenZip.resolvedPassword
+        case .rar, .lha, .gzip, .bzip2, .xz:
             throw KaitoError.unsupportedFormat
         }
     }

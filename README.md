@@ -1,13 +1,13 @@
 # KaitoKit (解凍Kit)
 
 KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。ustar、pax、GNU 拡張
-tar に加え、M1 では ZIP / ZIP64 を実装しています。書庫の検出から列挙、ストリーミング
-読み取り、安全な展開までを一つのパイプラインとして提供します。RAR / 7z / LHA と圧縮
-tar は後続マイルストーンで追加します。
+tar、ZIP / ZIP64 に加え、M2 では 7z を実装しています。書庫の検出から列挙、
+ストリーミング読み取り、安全な展開までを一つのパイプラインとして提供します。
+RAR / LHA と圧縮 tar は後続マイルストーンで追加します。
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon / Intel
 - 外部依存: なし。zlib、libbz2 など OS 同梱ライブラリだけを使用
-- ライセンス: MIT。XADMaster / The Unarchiver のソースは参照も流用もしていません
+- ライセンス: MIT。XADMaster / The Unarchiver のコードは実装へ取り込んでいません
 
 ## SwiftPM
 
@@ -65,10 +65,22 @@ for entry in directories {
 | ZIP メタデータ | ZIP64、extended timestamp、NTFS timestamp、UNIX symlink・permission |
 | ZIP 整合性 | 展開後 CRC32、WinZip AES authentication code |
 | ZIP 非対応 | multi-disk / spanned、zstd (93)、xz (95)、JPEG (96)、PPMd (98) |
+| 7z コンテナ | signature / start / next header CRC、plain / encoded header、UTF-16LE 名、日時・Windows / UNIX 属性、empty / anti item |
+| 7z 圧縮方式 | Copy、LZMA1、LZMA2、PPMd7 (var.H)、Deflate、BZip2 |
+| 7z フィルタ | Delta、BCJ (x86 / ARM / ARMT / ARM64 / PPC)、BCJ2 |
+| 7z 暗号化 | 7zAES (AES-256-CBC + SHA-256 KDF)、data / header encryption、派生鍵 cache |
+| 7z solid | folder stream の継続利用、`solidGroup`、block-split、pure LZMA2 の後方 seek 用 dictionary-reset index |
+| 7z 整合性 | start / next header、packed stream、folder、substream の CRC32 |
+| 7z 非対応 | IA64 / SPARC filter |
 
 ZIP の DOS 日時にはタイムゾーン情報がないため、現在のローカルタイムゾーンとして解釈します。
 Extended timestamp と NTFS timestamp は UTC の時刻として扱います。ZIP のローカルヘッダを
 open 時にすべて検証したい場合は `ReaderOptions(lazyLocalHeaders: false)` を指定してください。
+
+7zAES には独立した認証 tag がないため、KaitoKit は最初に復号した stream の CRC 不一致、
+または復号後の coder 構造が不正な場合を `wrongPassword` と判定します。このため、暗号化
+stream 自体の破損も `wrongPassword` として報告される場合があります。KDF の計算量上限は
+`ReaderOptions.maxSevenZipAESCyclesPower` で設定できます。
 
 ## コマンドライン
 
@@ -82,13 +94,17 @@ $ swift run kaito extract samples/book.tar -o /tmp/book
 $ swift run kaito sha samples/book.tar
 $ swift run kaito bench samples/book.tar 5
 $ swift run kaito bench --data samples/book.tar 5
+$ swift run kaito bench --random samples/book-solid.7z 5
 ```
 
 `sha` はエントリ順の SHA-256 と総合ダイジェストを出力し、別の展開実装との
 差分テストに利用できます。`list` は index、size、kind、method、暗号方式 (`plain`、
-`ZipCrypto`、`AES-128/192/256`)、name の順でタブ区切り表示し、`--raw` は名前の元バイト列を
-末尾へ 16 進数で併記します。`bench --data` は `mappedIfSafe` で作った `Data`
-から書庫を開き、map 作成を含む `open-median-ms` を表示します。
+`ZipCrypto`、`AES-128/192/256`、`7zAES-256`)、name の順でタブ区切り表示し、`--raw` は
+名前の元バイト列を末尾へ 16 進数で併記します。`bench --data` は `mappedIfSafe` で作った `Data`
+から書庫を開き、map 作成を含む `open-median-ms` を表示します。`bench --random` は
+固定 seed で選んだ最大 20 件の非ディレクトリエントリをランダム順に読み、solid 書庫の
+後方シークを含むアクセスを再現可能な条件で計測します。表示する `bytes` は選択した
+エントリの合計です。
 
 ## 開発
 

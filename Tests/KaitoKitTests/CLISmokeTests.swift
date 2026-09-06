@@ -89,6 +89,11 @@ final class CLISmokeTests: XCTestCase {
             runKaito(executable, arguments: ["bench", archive.path, "1"]),
             runKaito(executable, arguments: ["bench", "--data", archive.path, "1"]),
             runKaito(executable, arguments: ["bench", archive.path, "1", "--data"]),
+            runKaito(executable, arguments: ["bench", "--random", archive.path, "1"]),
+            runKaito(
+                executable,
+                arguments: ["bench", archive.path, "1", "--random", "--data"]
+            ),
         ]
 
         for output in outputs {
@@ -100,6 +105,88 @@ final class CLISmokeTests: XCTestCase {
             XCTAssertTrue(lines[2].hasPrefix("extract-median-ms\t"))
             XCTAssertEqual(lines[3], "bytes\t\(contents.count)")
         }
+    }
+
+    func testBenchRandomReadsAtMostTwentyNonDirectoryEntries() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let archive = temporary.appendingPathComponent("cli-bench-random.tar")
+        var entries = [HandTarEntry(name: "folder/", type: 0x35)]
+        entries.append(contentsOf: (0..<25).map { index in
+            HandTarEntry(
+                name: String(format: "folder/page-%02d.bin", index),
+                contents: Data(repeating: UInt8(index), count: 1_000 + index)
+            )
+        })
+        try TarTestSupport.makeTar(entries: entries).write(to: archive)
+
+        let executable = try findKaitoExecutable()
+        let outputs = try (0..<2).map { _ in
+            try runKaito(
+                executable,
+                arguments: ["bench", "--random", archive.path, "1"]
+            )
+        }
+        let lines = outputs.map { $0.split(separator: "\n") }
+        guard lines.allSatisfy({ $0.count == 4 }) else {
+            return XCTFail("bench output must keep its four-line format")
+        }
+        XCTAssertTrue(lines.allSatisfy { $0[0] == "reps\t1" })
+        XCTAssertTrue(lines.allSatisfy { $0[2].hasPrefix("extract-median-ms\t") })
+        XCTAssertEqual(lines[0][3], lines[1][3], "the fixed sample must be reproducible")
+        let byteCount = try XCTUnwrap(Int(lines[0][3].dropFirst("bytes\t".count)))
+        XCTAssertTrue((20_000..<21_000).contains(byteCount), "exactly 20 files are read")
+    }
+
+    func testBenchRandomReadsTwentyEntriesFromSolidSevenZip() throws {
+        try SevenZipTestSupport.requireSevenZip()
+        let temporary = try SevenZipTestSupport.temporaryDirectory(label: "cli-7z-random")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let source = temporary.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+        var paths: [String] = []
+        for index in 0..<25 {
+            let name = String(format: "page-%02d.bin", index)
+            paths.append(name)
+            _ = try SevenZipTestSupport.write(
+                Data(repeating: UInt8(index), count: 1_000 + index),
+                relativePath: name,
+                below: source
+            )
+        }
+        let archive = temporary.appendingPathComponent("solid.7z")
+        try SevenZipTestSupport.makeArchive(
+            sourceDirectory: source,
+            paths: paths,
+            archiveURL: archive,
+            options: ["-m0=LZMA2", "-ms=on"]
+        )
+
+        let executable = try findKaitoExecutable()
+        XCTAssertEqual(
+            try runKaito(executable, arguments: ["detect", archive.path])
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            "7z"
+        )
+        let listed = try runKaito(executable, arguments: ["list", archive.path])
+            .split(separator: "\n")
+        XCTAssertEqual(listed.count, paths.count)
+        XCTAssertTrue(listed.allSatisfy { $0.contains("\tLZMA2\t") })
+        let hashes = try runKaito(executable, arguments: ["sha", archive.path])
+            .split(separator: "\n")
+        XCTAssertEqual(hashes.count, paths.count + 1)
+        XCTAssertTrue(hashes.last?.hasPrefix("total\t25\t") == true)
+
+        let output = try runKaito(
+            executable,
+            arguments: ["bench", "--random", archive.path, "1"]
+        )
+        let lines = output.split(separator: "\n")
+        guard lines.count == 4 else {
+            return XCTFail("bench output must keep its four-line format")
+        }
+        let byteCount = try XCTUnwrap(Int(lines[3].dropFirst("bytes\t".count)))
+        XCTAssertTrue((20_000..<21_000).contains(byteCount), "exactly 20 files are read")
     }
 
     func testExtractDefersRestrictiveDirectoryMetadataUntilAfterChildren() throws {

@@ -11,6 +11,7 @@ public final class EntryStream {
     private let expectedCRC32: UInt32?
     private let entryIndex: Int
     private let completionCheck: (() throws -> Void)?
+    private let checksumMismatchIsWrongPassword: Bool
     private var checksum = CRC32()
     private var completionWasVerified = false
 
@@ -34,6 +35,7 @@ public final class EntryStream {
         self.expectedCRC32 = nil
         self.entryIndex = -1
         self.completionCheck = nil
+        self.checksumMismatchIsWrongPassword = false
         if length == 0 {
             try verifyCompletion()
         }
@@ -45,7 +47,8 @@ public final class EntryStream {
         expectedCRC32: UInt32?,
         entryIndex: Int,
         limits: ReadLimits,
-        completionCheck: (() throws -> Void)? = nil
+        completionCheck: (() throws -> Void)? = nil,
+        checksumMismatchIsWrongPassword: Bool = false
     ) throws {
         try Checked.size(length, limit: limits.maxEntrySize)
         self.decompressor = decompressor
@@ -54,6 +57,7 @@ public final class EntryStream {
         self.expectedCRC32 = expectedCRC32
         self.entryIndex = entryIndex
         self.completionCheck = completionCheck
+        self.checksumMismatchIsWrongPassword = checksumMismatchIsWrongPassword
         if length == 0 {
             try verifyCompletion()
         }
@@ -171,6 +175,10 @@ public final class EntryStream {
 
         try completionCheck?()
         if let expectedCRC32, checksum.value != expectedCRC32 {
+            if checksumMismatchIsWrongPassword {
+                // 7zAES は独立した認証 tag を持たないため CRC を password 判定に使う。
+                throw KaitoError.wrongPassword
+            }
             throw KaitoError.checksumMismatch(entry: entryIndex)
         }
         completionWasVerified = true

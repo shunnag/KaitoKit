@@ -21,7 +21,7 @@ usage:
   kaito list <archive> [--raw]
   kaito extract <archive> -o <directory> [-p <password>]
   kaito sha <archive>
-  kaito bench [--data] <archive> [reps]
+  kaito bench [--data] [--random] <archive> [reps]
 """
 
 private func formatName(_ format: ArchiveFormat) -> String {
@@ -232,15 +232,20 @@ private struct BenchArguments {
     let archive: String
     let repetitions: Int
     let useMappedData: Bool
+    let useRandomAccess: Bool
 }
 
 private func parseBench(_ arguments: [String]) throws -> BenchArguments {
     var positionals: [String] = []
     var useMappedData = false
+    var useRandomAccess = false
     for argument in arguments {
         if argument == "--data" {
             guard !useMappedData else { throw CLIError.usage(usage) }
             useMappedData = true
+        } else if argument == "--random" {
+            guard !useRandomAccess else { throw CLIError.usage(usage) }
+            useRandomAccess = true
         } else {
             positionals.append(argument)
         }
@@ -261,8 +266,45 @@ private func parseBench(_ arguments: [String]) throws -> BenchArguments {
     return BenchArguments(
         archive: positionals[0],
         repetitions: repetitions,
-        useMappedData: useMappedData
+        useMappedData: useMappedData,
+        useRandomAccess: useRandomAccess
     )
+}
+
+private struct BenchmarkRandomNumberGenerator: RandomNumberGenerator {
+    private var state: UInt64 = 0x4B61_6974_6F4B_6974
+
+    mutating func next() -> UInt64 {
+        // SplitMix64 の合同算術は擬似乱数生成のため意図的に 64 bit で折り返す。
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var value = state
+        value = (value ^ (value >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        value = (value ^ (value >> 27)) &* 0x94D0_49BB_1331_11EB
+        return value ^ (value >> 31)
+    }
+}
+
+private func randomBenchmarkEntries(_ entries: [ArchiveEntry]) -> [ArchiveEntry] {
+    let sampleLimit = 20
+    var generator = BenchmarkRandomNumberGenerator()
+    var sample: [ArchiveEntry] = []
+    sample.reserveCapacity(min(sampleLimit, entries.count))
+    var eligibleCount = 0
+
+    // 全エントリ配列を複製せず、最大 20 件の一様な reservoir sample を作る。
+    for entry in entries where entry.kind != .directory {
+        eligibleCount += 1 // `entries.count` 以下なので Int の範囲内。
+        if sample.count < sampleLimit {
+            sample.append(entry)
+        } else {
+            let replacement = Int.random(in: 0..<eligibleCount, using: &generator)
+            if replacement < sampleLimit {
+                sample[replacement] = entry
+            }
+        }
+    }
+    sample.shuffle(using: &generator)
+    return sample
 }
 
 private func runBench(_ arguments: [String]) throws {
@@ -290,11 +332,14 @@ private func runBench(_ arguments: [String]) throws {
         let openEnd = DispatchTime.now().uptimeNanoseconds
         openTimes.append(elapsedMilliseconds(since: openStart, until: openEnd))
 
+        let benchmarkEntries = parsed.useRandomAccess
+            ? randomBenchmarkEntries(reader.entries)
+            : reader.entries
         var extracted: [Data] = []
-        extracted.reserveCapacity(reader.entries.count)
+        extracted.reserveCapacity(benchmarkEntries.count)
         var byteCount = 0
         let extractStart = DispatchTime.now().uptimeNanoseconds
-        for entry in reader.entries {
+        for entry in benchmarkEntries {
             let data = try entryData(entry, reader: reader)
             let sum = byteCount.addingReportingOverflow(data.count)
             guard !sum.overflow else {

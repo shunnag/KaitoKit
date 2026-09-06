@@ -15,10 +15,10 @@ public final class LZMADecoder: Decompressor {
     fileprivate static let maximumPositionStates = 1 << 4
 
     private var rangeDecoder: LZMARangeDecoder?
-    private let expectedSize: UInt64?
-    private let literalContextBits: Int
-    private let literalPositionBits: Int
-    private let positionStateMask: UInt64
+    private var expectedSize: UInt64?
+    private var literalContextBits: Int
+    private var literalPositionBits: Int
+    private var positionStateMask: UInt64
 
     // 各確率配列の添字は仕様で定義された有限範囲だけを使う。
     private var isMatch: [UInt16]
@@ -36,7 +36,11 @@ public final class LZMADecoder: Decompressor {
 
     private var dictionary: [UInt8]
     private var dictionaryPosition = 0
+    private var dictionaryBytesAvailable: UInt64 = 0
     private var previousByte: UInt8 = 0
+    // literal/position context は dictionary reset からの連続出力位置を使う。
+    // LZMA2 の coding-state reset だけではこの位置を巻き戻さない。
+    private var processedPosition: UInt64 = 0
     private var outputPosition: UInt64 = 0
 
     private var state = 0
@@ -57,7 +61,7 @@ public final class LZMADecoder: Decompressor {
     ///   - properties: Exactly five LZMA1 property bytes.
     ///   - expectedSize: Known output size, or `nil` to require an end marker.
     ///   - dictionarySizeLimit: Maximum accepted dictionary allocation.
-    public init(
+    public convenience init(
         source: any ByteSource,
         offset: UInt64,
         compressedSize: UInt64,
@@ -68,15 +72,10 @@ public final class LZMADecoder: Decompressor {
         guard properties.count == 5 else {
             throw KaitoError.malformed("LZMA properties must contain five bytes")
         }
-
-        let packedProperties = Int(properties[0])
-        guard packedProperties < 9 * 5 * 5 else {
-            throw KaitoError.malformed("invalid LZMA lc/lp/pb properties")
-        }
-        let literalContextBits = packedProperties % 9
-        let remainder = packedProperties / 9
-        let literalPositionBits = remainder % 5
-        let positionBits = remainder / 5
+        let configuration = try LZMAProperties(
+            packed: properties[0],
+            requireLZMA2LiteralLimit: false
+        )
 
         // LZMA1 は 4 KiB 未満の宣言値を最小辞書サイズへ正規化する。
         let declaredDictionarySize = UInt64(properties[1])
@@ -96,25 +95,50 @@ public final class LZMADecoder: Decompressor {
         } else {
             retainedDictionarySize = effectiveDictionarySize
         }
-        let dictionaryCount = try Checked.toInt(retainedDictionarySize)
-
         let compressedEnd = try Checked.add(offset, compressedSize)
         guard compressedEnd <= source.length else {
             throw KaitoError.truncated
         }
 
-        let literalTableShift = try Checked.add(
-            UInt64(literalContextBits),
-            UInt64(literalPositionBits)
+        try self.init(
+            configuration: configuration,
+            retainedDictionarySize: retainedDictionarySize,
+            expectedSize: expectedSize
         )
-        let literalContextCount = try Checked.shiftLeft(1, by: literalTableShift)
-        let literalProbabilityCount = try Checked.mul(0x300, literalContextCount)
-        let literalCount = try Checked.toInt(literalProbabilityCount)
 
+        // 既知サイズ 0 でも range-coder 初期値を読み、空または切れた入力を受理しない。
+        if expectedSize == 0 {
+            rangeDecoder = try LZMARangeDecoder(
+                source: source,
+                offset: offset,
+                endOffset: compressedEnd
+            )
+            finished = true
+        } else {
+            rangeDecoder = try LZMARangeDecoder(
+                source: source,
+                offset: offset,
+                endOffset: compressedEnd
+            )
+        }
+    }
+
+    private init(
+        configuration: LZMAProperties,
+        retainedDictionarySize: UInt64,
+        expectedSize: UInt64?
+    ) throws {
+        let dictionaryCount = try Checked.toInt(retainedDictionarySize)
+        guard dictionaryCount > 0 else {
+            throw KaitoError.malformed("LZMA dictionary must not be empty")
+        }
+        let literalCount = try configuration.literalProbabilityCount()
+
+        self.rangeDecoder = nil
         self.expectedSize = expectedSize
-        self.literalContextBits = literalContextBits
-        self.literalPositionBits = literalPositionBits
-        self.positionStateMask = (UInt64(1) << UInt64(positionBits)) - 1
+        self.literalContextBits = configuration.literalContextBits
+        self.literalPositionBits = configuration.literalPositionBits
+        self.positionStateMask = configuration.positionStateMask
         self.dictionary = [UInt8](repeating: 0, count: dictionaryCount)
 
         self.isMatch = Self.initialProbabilities(Self.stateCount * Self.maximumPositionStates)
@@ -127,22 +151,35 @@ public final class LZMADecoder: Decompressor {
         self.positionModels = Self.initialProbabilities((1 << 7) - 14)
         self.alignment = Self.initialProbabilities(1 << 4)
         self.literals = Self.initialProbabilities(literalCount)
+    }
 
-        // 既知サイズ 0 でも range-coder 初期値を読み、空または切れた入力を受理しない。
-        if expectedSize == 0 {
-            self.rangeDecoder = try LZMARangeDecoder(
-                source: source,
-                offset: offset,
-                endOffset: compressedEnd
+    // LZMA2 の外側が保持する辞書を一度だけ確保し、各 chunk の range coder を
+    // beginLZMA2Chunk で差し替える。expectedSize は辞書保持量の縮小だけに使う。
+    convenience init(
+        lzma2DictionarySize: UInt64,
+        expectedSize: UInt64?,
+        dictionarySizeLimit: UInt64
+    ) throws {
+        try Checked.size(lzma2DictionarySize, limit: dictionarySizeLimit)
+        let retainedDictionarySize: UInt64
+        if let expectedSize {
+            retainedDictionarySize = min(
+                lzma2DictionarySize,
+                max(UInt64(1), expectedSize)
             )
-            self.finished = true
         } else {
-            self.rangeDecoder = try LZMARangeDecoder(
-                source: source,
-                offset: offset,
-                endOffset: compressedEnd
-            )
+            retainedDictionarySize = lzma2DictionarySize
         }
+        let defaultConfiguration = try LZMAProperties(
+            packed: 0x5D,
+            requireLZMA2LiteralLimit: true
+        )
+        try self.init(
+            configuration: defaultConfiguration,
+            retainedDictionarySize: retainedDictionarySize,
+            expectedSize: nil
+        )
+        finished = true
     }
 
     /// Indicates whether the known output size or LZMA end marker was reached.
@@ -186,12 +223,167 @@ public final class LZMADecoder: Decompressor {
         [UInt16](repeating: probabilityInitialValue, count: count)
     }
 
+    // LZMA2 chunk は range coder だけを毎回初期化し、reset flag に応じて
+    // 確率状態を初期化する。dictionary は別 flag のときだけ捨てる。
+    func beginLZMA2Chunk(
+        source: any ByteSource,
+        offset: UInt64,
+        compressedSize: UInt64,
+        unpackedSize: UInt64,
+        resetState: Bool,
+        properties: UInt8?
+    ) throws {
+        guard unpackedSize > 0, unpackedSize <= 2 * 1_024 * 1_024 else {
+            throw KaitoError.malformed("invalid LZMA2 unpacked chunk size")
+        }
+        guard compressedSize > 0, compressedSize <= 64 * 1_024 else {
+            throw KaitoError.malformed("invalid LZMA2 packed chunk size")
+        }
+        guard properties == nil || resetState else {
+            throw KaitoError.malformed("LZMA2 properties require a state reset")
+        }
+
+        if let properties {
+            let configuration = try LZMAProperties(
+                packed: properties,
+                requireLZMA2LiteralLimit: true
+            )
+            try apply(configuration)
+        }
+        if resetState {
+            resetCodingState()
+        }
+
+        let compressedEnd = try Checked.add(offset, compressedSize)
+        guard compressedEnd <= source.length else {
+            throw KaitoError.truncated
+        }
+        expectedSize = try Checked.add(outputPosition, unpackedSize)
+        rangeDecoder = try LZMARangeDecoder(
+            source: source,
+            offset: offset,
+            endOffset: compressedEnd
+        )
+        pendingMatchLength = 0
+        finished = false
+    }
+
+    func resetLZMA2Dictionary() {
+        dictionaryPosition = 0
+        dictionaryBytesAvailable = 0
+        previousByte = 0
+        processedPosition = 0
+    }
+
+    func preloadLZMA2Properties(_ properties: UInt8) throws {
+        let configuration = try LZMAProperties(
+            packed: properties,
+            requireLZMA2LiteralLimit: true
+        )
+        try apply(configuration)
+        resetCodingState()
+    }
+
+    func finishLZMA2Chunk() throws {
+        guard finished, pendingMatchLength == 0,
+              let rangeDecoder else {
+            throw KaitoError.malformed("LZMA2 chunk ended before its declared output size")
+        }
+        guard rangeDecoder.isFinishedOK else {
+            throw KaitoError.malformed("LZMA2 range coder has a nonzero terminal code")
+        }
+        guard rangeDecoder.consumedAllInput else {
+            throw KaitoError.malformed("LZMA2 packed chunk has unused bytes")
+        }
+    }
+
+    func appendLZMA2Uncompressed(_ bytes: ArraySlice<UInt8>) throws {
+        // 直前の compressed chunk の終端値は raw chunk には適用しない。
+        expectedSize = nil
+        rangeDecoder = nil
+        pendingMatchLength = 0
+        finished = true
+        guard !bytes.isEmpty else { return }
+
+        // raw chunk は最大 64 KiB だが、byte ごとの checked arithmetic は
+        // 非圧縮主体の巨大書庫で支配的になる。ring に残る末尾だけを 2 区間で写し、
+        // 位置と履歴量は chunk 単位で一度だけ更新する。
+        let amount = bytes.count
+        let dictionaryCount = dictionary.count
+        let amountModuloDictionary = amount % dictionaryCount
+        let newPosition = (dictionaryPosition + amountModuloDictionary) % dictionaryCount
+        let retainedCount = min(amount, dictionaryCount)
+        let retained = bytes.suffix(retainedCount)
+        let writeStart = amount >= dictionaryCount ? newPosition : dictionaryPosition
+        let firstCount = min(retainedCount, dictionaryCount - writeStart)
+        let secondCount = retainedCount - firstCount
+        try dictionary.withUnsafeMutableBytes { destination in
+            try retained.withUnsafeBytes { source in
+                guard let destinationBase = destination.baseAddress,
+                      let sourceBase = source.baseAddress else {
+                    throw KaitoError.malformed("LZMA2 raw dictionary storage is unavailable")
+                }
+                // 不変条件: retainedCount <= dictionaryCount、firstCount と
+                // secondCount の和は retainedCount なので、両 copy は source と
+                // dictionary の検証済み範囲内にあり、領域も相互に alias しない。
+                if firstCount > 0 {
+                    destinationBase.advanced(by: writeStart).copyMemory(
+                        from: sourceBase,
+                        byteCount: firstCount
+                    )
+                }
+                if secondCount > 0 {
+                    destinationBase.copyMemory(
+                        from: sourceBase.advanced(by: firstCount),
+                        byteCount: secondCount
+                    )
+                }
+            }
+        }
+        dictionaryPosition = newPosition
+        dictionaryBytesAvailable = min(
+            UInt64(dictionaryCount),
+            try Checked.add(dictionaryBytesAvailable, UInt64(amount))
+        )
+        previousByte = bytes.last!
+        processedPosition = try Checked.add(processedPosition, UInt64(amount))
+        outputPosition = try Checked.add(outputPosition, UInt64(amount))
+    }
+
+    private func apply(_ configuration: LZMAProperties) throws {
+        literalContextBits = configuration.literalContextBits
+        literalPositionBits = configuration.literalPositionBits
+        positionStateMask = configuration.positionStateMask
+        literals = Self.initialProbabilities(try configuration.literalProbabilityCount())
+    }
+
+    private func resetCodingState() {
+        isMatch = Self.initialProbabilities(Self.stateCount * Self.maximumPositionStates)
+        isRep = Self.initialProbabilities(Self.stateCount)
+        isRepG0 = Self.initialProbabilities(Self.stateCount)
+        isRepG1 = Self.initialProbabilities(Self.stateCount)
+        isRepG2 = Self.initialProbabilities(Self.stateCount)
+        isRep0Long = Self.initialProbabilities(Self.stateCount * Self.maximumPositionStates)
+        positionSlot = Self.initialProbabilities(4 * 64)
+        positionModels = Self.initialProbabilities((1 << 7) - 14)
+        alignment = Self.initialProbabilities(1 << 4)
+        literals = Self.initialProbabilities(literals.count)
+        matchLength = LZMALengthDecoder()
+        repeatedLength = LZMALengthDecoder()
+        state = 0
+        rep0 = 0
+        rep1 = 0
+        rep2 = 0
+        rep3 = 0
+        pendingMatchLength = 0
+    }
+
     private func decodeSymbol(into output: inout [UInt8], capacity: Int) throws {
         guard var decoder = rangeDecoder else {
             throw KaitoError.malformed("LZMA range decoder is unavailable")
         }
 
-        let positionState = Int(outputPosition & positionStateMask)
+        let positionState = Int(processedPosition & positionStateMask)
         let statePositionIndex = state * Self.maximumPositionStates + positionState
 
         if try decoder.decodeBit(&isMatch[statePositionIndex]) == 0 {
@@ -283,7 +475,7 @@ public final class LZMADecoder: Decompressor {
             positionPart = 0
         } else {
             let mask = (UInt64(1) << UInt64(literalPositionBits)) - 1
-            positionPart = outputPosition & mask
+            positionPart = processedPosition & mask
         }
         let previousPart: UInt64
         if literalContextBits == 0 {
@@ -385,7 +577,7 @@ public final class LZMADecoder: Decompressor {
 
     private func validateDistance(_ distance: UInt32) throws {
         let byteDistance = try Checked.add(UInt64(distance), 1)
-        guard byteDistance <= outputPosition else {
+        guard byteDistance <= dictionaryBytesAvailable else {
             throw KaitoError.malformed("LZMA match refers before the output start")
         }
         guard byteDistance <= UInt64(dictionary.count) else {
@@ -418,18 +610,26 @@ public final class LZMADecoder: Decompressor {
             throw KaitoError.malformed("LZMA output exceeds the expected size")
         }
 
+        try storeInDictionary(byte)
+        output.append(byte)
+
+        if let expectedSize, outputPosition == expectedSize {
+            finished = true
+        }
+    }
+
+    private func storeInDictionary(_ byte: UInt8) throws {
         dictionary[dictionaryPosition] = byte
         dictionaryPosition += 1
         if dictionaryPosition == dictionary.count {
             dictionaryPosition = 0
         }
-        previousByte = byte
-        output.append(byte)
-        outputPosition = try Checked.add(outputPosition, 1)
-
-        if let expectedSize, outputPosition == expectedSize {
-            finished = true
+        if dictionaryBytesAvailable < UInt64(dictionary.count) {
+            dictionaryBytesAvailable += 1
         }
+        previousByte = byte
+        processedPosition = try Checked.add(processedPosition, 1)
+        outputPosition = try Checked.add(outputPosition, 1)
     }
 
     private func updateStateAfterLiteral() {
@@ -452,6 +652,41 @@ public final class LZMADecoder: Decompressor {
 
     private func updateStateAfterShortRepetition() {
         state = state < 7 ? 9 : 11
+    }
+}
+
+private struct LZMAProperties {
+    let literalContextBits: Int
+    let literalPositionBits: Int
+    let positionBits: Int
+
+    var positionStateMask: UInt64 {
+        (UInt64(1) << UInt64(positionBits)) - 1
+    }
+
+    init(packed: UInt8, requireLZMA2LiteralLimit: Bool) throws {
+        let value = Int(packed)
+        guard value < 9 * 5 * 5 else {
+            throw KaitoError.malformed("invalid LZMA lc/lp/pb properties")
+        }
+        literalContextBits = value % 9
+        let remainder = value / 9
+        literalPositionBits = remainder % 5
+        positionBits = remainder / 5
+        if requireLZMA2LiteralLimit,
+           literalContextBits + literalPositionBits > 4 {
+            throw KaitoError.malformed("invalid LZMA2 literal properties")
+        }
+    }
+
+    func literalProbabilityCount() throws -> Int {
+        let shift = try Checked.add(
+            UInt64(literalContextBits),
+            UInt64(literalPositionBits)
+        )
+        let contextCount = try Checked.shiftLeft(1, by: shift)
+        let probabilityCount = try Checked.mul(0x300, contextCount)
+        return try Checked.toInt(probabilityCount)
     }
 }
 
@@ -512,6 +747,9 @@ private struct LZMARangeDecoder {
     private let endOffset: UInt64
     private var range: UInt32 = UInt32.max
     private var code: UInt32 = 0
+
+    var isFinishedOK: Bool { code == 0 }
+    var consumedAllInput: Bool { reader.offset == endOffset }
 
     init(source: any ByteSource, offset: UInt64, endOffset: UInt64) throws {
         guard offset <= endOffset, endOffset <= source.length else {
@@ -590,7 +828,7 @@ private struct LZMARangeDecoder {
     }
 }
 
-private struct LZMABoundedByteSource: ByteSource {
+struct LZMABoundedByteSource: ByteSource {
     let source: any ByteSource
     let length: UInt64
 

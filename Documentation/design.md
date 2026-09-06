@@ -114,8 +114,8 @@
 
 ## 10. 出自(プロベナンス)と参照の規則
 
-- XADMaster のソースは**参照しない**(ブラックボックスの展開オラクルとしてのみ使う)。ユーザー指示。
+- XADMaster のコードは実装資料として**参照・流用しない**。比較する場合もブラックボックスの展開オラクルに限る。ユーザー指示。
 - 復号器ごとに参照した資料を design.md と該当ソースの先頭コメントに記録する。
-- 読んでよい一次資料(公開ドメイン/公式): LZMA SDK の `lzma-specification.txt`・`7zFormat.txt`、Shkarin の PPMd var.H / var.I、RARLab の RAR 5.0 technote、LHa for UNIX の `header.doc`、PKWARE APPNOTE、POSIX tar、RFC 1951/1952。
+- 読んでよい一次資料(公開ドメイン/公式): LZMA SDK の `lzma-specification.txt`・`7zFormat.txt`・`C/Ppmd7.c`・`C/Ppmd7.h`・`C/Ppmd7Dec.c`、Shkarin の PPMd var.H / var.I、RARLab の RAR 5.0 technote、LHa for UNIX の `header.doc`、PKWARE APPNOTE、POSIX tar、RFC 1951/1952。
 - RAR 2.9/3.x は **7-Zip の Rar29 復号器を参照しない**(unRAR 制限付きコードから派生すると MIT を汚す)。挙動の参照は libarchive の `archive_read_support_format_rar.c`(BSD-2)と非公式のフォーマットノートに限り、`unrar` はブラックボックスのオラクルとしてのみ使う。
 - 参照はいずれも「挙動と仕様」を学ぶためで、コードを写さない。ライセンスは MIT 単一。

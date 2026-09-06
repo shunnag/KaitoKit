@@ -7,5 +7,15 @@
 ## [0.1.0] - Unreleased
 
 ### 追加
-- 設計書(Documentation/design.md): 要件、XADMaster フォークの経験から引き継ぐ規則、
-  実装方式の比較と純 Swift 採用の判断、API の 3 層構成、検証・計測方針、マイルストーン。
+
+- Swift 6 strict-concurrency 対応の SwiftPM パッケージと、静的・動的ライブラリ製品。
+- 境界検査付き `ByteSource` / `ByteReader` / `BitReader`、checked 算術、CRC32、読み取り上限。
+- 生の名前を保持する文字コード判定と、書庫・エントリの公開モデル。
+- copy、raw deflate、bzip2 のストリーミング復号基盤。
+- ustar、pax (`x` / Solaris `X`)、GNU long name/link を扱う tar reader。
+- 検出、一覧、展開、SHA-256 差分 oracle、ベンチマークを提供する `kaito` CLI。
+- XADArchive の cooViewer 利用面を覆う薄い `KaitoKitCompat` 層。
+- archive member に結び付けた hard link、安全な dirfd ベースのパス展開、単体・CLI テスト。
+- エントリ・PAX・パス・総メタデータの上限と、ASan/UBSan ミュータント実行スクリプト。
+- ユニバーサル `KaitoKit.framework` を組み立てるスクリプトと移行ガイド。
+- 設計書: 要件、安全規則、実装方式、API 層、検証方針、マイルストーン。

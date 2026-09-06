@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    # ラベルが利用できない場合は macos-15 へ一時的に戻す。
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build -v
+      - name: Test
+        run: swift test

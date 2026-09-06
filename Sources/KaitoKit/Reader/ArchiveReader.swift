@@ -17,6 +17,15 @@ public final class ArchiveReader {
     /// Entries in archive order.
     public let entries: [ArchiveEntry]
 
+    /// The archive-wide encoding selected for otherwise undeclared entry names.
+    ///
+    /// With automatic detection this is `nil` when every name was declared by
+    /// the format or was valid UTF-8 without guessing. A fixed policy is
+    /// reported whenever it applies to an undeclared name.
+    public var nameEncoding: String.Encoding? {
+        reader.nameEncoding
+    }
+
     /// The password used for subsequent encrypted-entry operations.
     public var password: String?
 

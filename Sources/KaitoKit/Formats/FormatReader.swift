@@ -4,12 +4,16 @@ import Foundation
 protocol FormatReader: AnyObject {
     var format: ArchiveFormat { get }
     var entries: [ArchiveEntry] { get }
+    var nameEncoding: String.Encoding? { get }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream
     func setPassword(_ password: String?)
 }
 
 extension FormatReader {
+    // 名前 encoding を持たない形式向けの既定値。
+    var nameEncoding: String.Encoding? { nil }
+
     // 暗号を持たない形式は password 更新を無視する。
     func setPassword(_ password: String?) {}
 }

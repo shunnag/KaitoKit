@@ -9,6 +9,67 @@ public typealias EncodingDetection = (
 
 /// Detects and decodes archive entry names without sending valid UTF-8 to a guesser.
 public enum EncodingDetector {
+    /// Chooses one encoding for the undecorated names in an archive.
+    ///
+    /// Strict UTF-8 names do not participate in automatic detection, which
+    /// returns `nil` when every supplied name is strict UTF-8. A fixed policy
+    /// returns its encoding for every nonempty input so it applies consistently
+    /// to every undecorated name. An empty input always returns `nil`.
+    public static func detectArchiveEncoding(
+        names: [[UInt8]],
+        policy: EncodingPolicy = .automatic(),
+        fromWindows: Bool = false
+    ) -> String.Encoding? {
+        detectArchiveEncodingImpl(
+            names: names,
+            policy: policy,
+            fromWindows: fromWindows,
+            maximumBatchByteCount: nil
+        )
+    }
+
+    // 名前全体が一つの形式 metadata 領域に収まらない reader 向けの
+    // 内部用上限付き経路。
+    static func detectArchiveEncoding(
+        names: [[UInt8]],
+        policy: EncodingPolicy,
+        fromWindows: Bool = false,
+        maximumBatchByteCount: Int
+    ) -> String.Encoding? {
+        detectArchiveEncodingImpl(
+            names: names,
+            policy: policy,
+            fromWindows: fromWindows,
+            maximumBatchByteCount: max(0, maximumBatchByteCount)
+        )
+    }
+
+    private static func detectArchiveEncodingImpl(
+        names: [[UInt8]],
+        policy: EncodingPolicy,
+        fromWindows: Bool,
+        maximumBatchByteCount: Int?
+    ) -> String.Encoding? {
+        guard !names.isEmpty else { return nil }
+
+        switch policy {
+        case let .fixed(encoding):
+            // 固定ポリシーは、従来どおり未宣言名すべてに適用する。
+            return encoding
+        case .utf8Only:
+            return names.contains(where: { !isStrictUTF8($0) }) ? .utf8 : nil
+        case let .automatic(likelyLanguage):
+            let legacyNames = names.filter { !isStrictUTF8($0) }
+            guard !legacyNames.isEmpty else { return nil }
+            return automaticallyDetectArchiveEncoding(
+                names: legacyNames,
+                likelyLanguage: likelyLanguage,
+                fromWindows: fromWindows,
+                maximumBatchByteCount: maximumBatchByteCount
+            )
+        }
+    }
+
     /// Detects and decodes name bytes according to a policy.
     public static func detect(
         bytes: [UInt8],
@@ -40,6 +101,430 @@ public enum EncodingDetector {
     /// Strictly decodes bytes using a caller-selected encoding.
     public static func decode(bytes: [UInt8], as encoding: String.Encoding) -> String? {
         String(data: Data(bytes), encoding: encoding)
+    }
+
+    // 各入力と同じ並びを保ちながら、書庫名をまとめて変換する。
+    // 結合変換に失敗した範囲は分割し、変換できない単名だけを nil にする。
+    static func decodeArchiveNames(
+        _ names: [[UInt8]],
+        as encoding: String.Encoding
+    ) -> [String?] {
+        decodeArchiveNamesImpl(
+            names,
+            as: encoding,
+            maximumBatchByteCount: nil
+        )
+    }
+
+    // 複数の metadata record から名前を集める形式向けの上限付き経路。
+    static func decodeArchiveNames(
+        _ names: [[UInt8]],
+        as encoding: String.Encoding,
+        maximumBatchByteCount: Int
+    ) -> [String?] {
+        decodeArchiveNamesImpl(
+            names,
+            as: encoding,
+            maximumBatchByteCount: max(0, maximumBatchByteCount)
+        )
+    }
+
+    private static func decodeArchiveNamesImpl(
+        _ names: [[UInt8]],
+        as encoding: String.Encoding,
+        maximumBatchByteCount: Int?
+    ) -> [String?] {
+        guard !names.isEmpty else { return [] }
+        let canCombine = encoding == .shiftJIS ||
+            encoding == .japaneseEUC ||
+            encoding == .utf8 ||
+            encoding == .windowsCP1252 ||
+            encoding == .isoLatin1
+        guard canCombine, names.allSatisfy({ !$0.contains(0) }) else {
+            return names.map { decode(bytes: $0, as: encoding) }
+        }
+
+        var results = [String?](repeating: nil, count: names.count)
+        guard let maximumBatchByteCount else {
+            decodeArchiveRange(
+                names,
+                range: names.indices,
+                encoding: encoding,
+                results: &results
+            )
+            return results
+        }
+
+        var batchStart = names.startIndex
+        while let batch = nextArchiveNameBatch(
+            names,
+            from: batchStart,
+            maximumByteCount: maximumBatchByteCount
+        ) {
+            if batch.combinedByteCount == nil || batch.range.count == 1 {
+                let index = batch.range.lowerBound
+                results[index] = decode(bytes: names[index], as: encoding)
+            } else {
+                decodeArchiveRange(
+                    names,
+                    range: batch.range,
+                    encoding: encoding,
+                    results: &results
+                )
+            }
+            batchStart = batch.range.upperBound
+        }
+        return results
+    }
+
+    // 区切り付きの一バッファを共有できる次の範囲を返す。
+    // byte 数が nil なら、上限を超える単名として処理する。
+    static func nextArchiveNameBatch(
+        _ names: [[UInt8]],
+        from start: Int,
+        maximumByteCount: Int
+    ) -> (range: Range<Int>, combinedByteCount: Int?)? {
+        guard names.indices.contains(start) else { return nil }
+        let limit = max(0, maximumByteCount)
+        let firstByteCount = names[start].count
+        guard firstByteCount <= limit else {
+            return (start..<(start + 1), nil)
+        }
+
+        var byteCount = firstByteCount
+        var end = start + 1
+        while end < names.endIndex {
+            // 2 個目以降の名前は区切り 1 byte も必要。減算で判定し、
+            // Int.max を上限とする場合も加算 overflow を避ける。
+            let remaining = limit - byteCount
+            guard remaining > 0,
+                  names[end].count <= remaining - 1 else {
+                break
+            }
+            byteCount += 1 + names[end].count
+            end += 1
+        }
+        return (start..<end, byteCount)
+    }
+
+    private static func decodeArchiveRange(
+        _ names: [[UInt8]],
+        range: Range<Int>,
+        encoding: String.Encoding,
+        results: inout [String?]
+    ) {
+        guard !range.isEmpty else { return }
+        let combined = concatenate(names, range: range, separator: 0)
+        if let decoded = decode(bytes: combined, as: encoding) {
+            let pieces = decoded.utf8.split(separator: 0, omittingEmptySubsequences: false)
+            if pieces.count == range.count {
+                for (index, piece) in zip(range, pieces) {
+                    results[index] = String(decoding: piece, as: UTF8.self)
+                }
+                return
+            }
+        }
+
+        if range.count == 1 {
+            results[range.lowerBound] = decode(
+                bytes: names[range.lowerBound],
+                as: encoding
+            )
+            return
+        }
+        let middle = range.lowerBound + range.count / 2
+        decodeArchiveRange(
+            names,
+            range: range.lowerBound..<middle,
+            encoding: encoding,
+            results: &results
+        )
+        decodeArchiveRange(
+            names,
+            range: middle..<range.upperBound,
+            encoding: encoding,
+            results: &results
+        )
+    }
+
+    // 形式 reader が archive 単位で選んだ encoding を使い、失敗した名前だけ
+    // 従来の単名 detector に戻すための共通経路。
+    static func resolveUndeclaredName(
+        bytes: [UInt8],
+        policy: EncodingPolicy,
+        archiveEncoding: String.Encoding?,
+        fromWindows: Bool = false
+    ) -> EncodingDetection {
+        if case .automatic = policy, isStrictUTF8(bytes) {
+            return (.utf8, String(decoding: bytes, as: UTF8.self), 1.0)
+        }
+        if let archiveEncoding,
+           let decoded = decode(bytes: bytes, as: archiveEncoding) {
+            return (archiveEncoding, decoded, 0.9)
+        }
+        return detect(bytes: bytes, policy: policy, fromWindows: fromWindows)
+    }
+
+    // String の生成なしで RFC 3629 の最短形・scalar 範囲まで検証する。
+    static func isStrictUTF8(_ bytes: [UInt8]) -> Bool {
+        var index = 0
+        while index < bytes.count {
+            let first = bytes[index]
+            if first <= 0x7F {
+                index += 1
+                continue
+            }
+
+            switch first {
+            case 0xC2...0xDF:
+                guard index + 1 < bytes.count,
+                      isUTF8Continuation(bytes[index + 1]) else { return false }
+                index += 2
+            case 0xE0:
+                guard index + 2 < bytes.count,
+                      (0xA0...0xBF).contains(bytes[index + 1]),
+                      isUTF8Continuation(bytes[index + 2]) else { return false }
+                index += 3
+            case 0xE1...0xEC, 0xEE...0xEF:
+                guard index + 2 < bytes.count,
+                      isUTF8Continuation(bytes[index + 1]),
+                      isUTF8Continuation(bytes[index + 2]) else { return false }
+                index += 3
+            case 0xED:
+                guard index + 2 < bytes.count,
+                      (0x80...0x9F).contains(bytes[index + 1]),
+                      isUTF8Continuation(bytes[index + 2]) else { return false }
+                index += 3
+            case 0xF0:
+                guard index + 3 < bytes.count,
+                      (0x90...0xBF).contains(bytes[index + 1]),
+                      isUTF8Continuation(bytes[index + 2]),
+                      isUTF8Continuation(bytes[index + 3]) else { return false }
+                index += 4
+            case 0xF1...0xF3:
+                guard index + 3 < bytes.count,
+                      isUTF8Continuation(bytes[index + 1]),
+                      isUTF8Continuation(bytes[index + 2]),
+                      isUTF8Continuation(bytes[index + 3]) else { return false }
+                index += 4
+            case 0xF4:
+                guard index + 3 < bytes.count,
+                      (0x80...0x8F).contains(bytes[index + 1]),
+                      isUTF8Continuation(bytes[index + 2]),
+                      isUTF8Continuation(bytes[index + 3]) else { return false }
+                index += 4
+            default:
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func automaticallyDetectArchiveEncoding(
+        names: [[UInt8]],
+        likelyLanguage: String?,
+        fromWindows: Bool,
+        maximumBatchByteCount: Int?
+    ) -> String.Encoding {
+        var ambiguousJapaneseNames: [[UInt8]] = []
+        var cp932Only = 0
+        var eucJPOnly = 0
+
+        for bytes in names {
+            let isCP932 = isStructurallyCP932(bytes)
+            let isEUCJP = isStructurallyEUCJP(bytes)
+            if isCP932, !isEUCJP {
+                cp932Only += 1
+            } else if isEUCJP, !isCP932 {
+                eucJPOnly += 1
+            } else if isCP932, isEUCJP {
+                ambiguousJapaneseNames.append(bytes)
+            }
+        }
+
+        let hasCP932Support = cp932Only > 0 || !ambiguousJapaneseNames.isEmpty
+        let hasEUCJPSupport = eucJPOnly > 0 || !ambiguousJapaneseNames.isEmpty
+        if hasCP932Support, !hasEUCJPSupport { return .shiftJIS }
+        if hasEUCJPSupport, !hasCP932Support { return .japaneseEUC }
+        if cp932Only > eucJPOnly + ambiguousJapaneseNames.count { return .shiftJIS }
+        if eucJPOnly > cp932Only + ambiguousJapaneseNames.count { return .japaneseEUC }
+
+        // 両構造を通る名前が勝敗を変え得る場合だけ、archive の代表列を
+        // Foundation に一度渡し、その hint を各名前の一票へ反映する。
+        var foundation: EncodingDetection?
+        var calledFoundation = false
+        if !ambiguousJapaneseNames.isEmpty {
+            let withoutEUCShift = ambiguousJapaneseNames.filter {
+                !containsEUCShiftPrefix($0)
+            }
+            let representativeNames = withoutEUCShift.count >
+                ambiguousJapaneseNames.count - withoutEUCShift.count
+                ? withoutEUCShift
+                : names
+            foundation = foundationDetection(
+                bytes: concatenate(
+                    representativeNames,
+                    separator: 0x0A,
+                    maximumByteCount: maximumBatchByteCount
+                ),
+                likelyLanguage: likelyLanguage,
+                fromWindows: fromWindows
+            )
+            calledFoundation = true
+        }
+
+        var cp932Votes = cp932Only
+        var eucJPVotes = eucJPOnly
+        var unresolvedVotes = ambiguousJapaneseNames.count
+        let cp932Decoded = decodeArchiveNamesImpl(
+            ambiguousJapaneseNames,
+            as: .shiftJIS,
+            maximumBatchByteCount: maximumBatchByteCount
+        )
+        let eucJPDecoded = decodeArchiveNamesImpl(
+            ambiguousJapaneseNames,
+            as: .japaneseEUC,
+            maximumBatchByteCount: maximumBatchByteCount
+        )
+        for index in ambiguousJapaneseNames.indices {
+            guard let cp932 = cp932Decoded[index],
+                  let eucJP = eucJPDecoded[index] else { continue }
+            let choice = chooseAmbiguousJapanese(
+                cp932: cp932,
+                eucJP: eucJP,
+                bytes: ambiguousJapaneseNames[index],
+                foundation: foundation
+            )
+            if choice.encoding == .japaneseEUC {
+                eucJPVotes += 1
+            } else {
+                cp932Votes += 1
+            }
+            unresolvedVotes -= 1
+        }
+
+        if unresolvedVotes == 0, cp932Votes != eucJPVotes {
+            return cp932Votes > eucJPVotes ? .shiftJIS : .japaneseEUC
+        }
+        if cp932Votes > eucJPVotes + unresolvedVotes { return .shiftJIS }
+        if eucJPVotes > cp932Votes + unresolvedVotes { return .japaneseEUC }
+
+        // 構造候補がない archive、または未解決票が残った archive だけがここへ来る。
+        if !calledFoundation {
+            foundation = foundationDetection(
+                bytes: concatenate(
+                    names,
+                    separator: 0x0A,
+                    maximumByteCount: maximumBatchByteCount
+                ),
+                likelyLanguage: likelyLanguage,
+                fromWindows: fromWindows
+            )
+        }
+        if !hasCP932Support, !hasEUCJPSupport {
+            return foundation?.encoding ?? .isoLatin1
+        }
+        if foundation?.encoding == .shiftJIS {
+            cp932Votes += unresolvedVotes
+            unresolvedVotes = 0
+        } else if foundation?.encoding == .japaneseEUC {
+            eucJPVotes += unresolvedVotes
+            unresolvedVotes = 0
+        }
+
+        if cp932Votes != eucJPVotes {
+            return cp932Votes > eucJPVotes ? .shiftJIS : .japaneseEUC
+        }
+        if foundation?.encoding == .japaneseEUC { return .japaneseEUC }
+        if foundation?.encoding == .shiftJIS { return .shiftJIS }
+        if hasCP932Support || hasEUCJPSupport {
+            // 日本語候補の同点時は単名 detector と同じく CP932 を優先する。
+            return .shiftJIS
+        }
+        return .isoLatin1
+    }
+
+    private static func concatenate(
+        _ names: [[UInt8]],
+        separator: UInt8,
+        maximumByteCount: Int?
+    ) -> [UInt8] {
+        guard let maximumByteCount else {
+            return concatenate(names, range: names.indices, separator: separator)
+        }
+        return boundedArchiveNameSample(
+            names,
+            separator: separator,
+            maximumByteCount: maximumByteCount
+        )
+    }
+
+    // 呼出側の byte 上限内で代表入力を作る。構造投票はすべての名前を
+    // 検査済みで、この sample は書庫で一度だけの Foundation hint に使う。
+    static func boundedArchiveNameSample(
+        _ names: [[UInt8]],
+        separator: UInt8,
+        maximumByteCount: Int
+    ) -> [UInt8] {
+        let limit = max(0, maximumByteCount)
+        guard limit > 0 else { return [] }
+
+        var byteCount = 0
+        var includedNameCount = 0
+        for name in names {
+            let separatorCount = includedNameCount == 0 ? 0 : 1
+            let remaining = limit - byteCount
+            guard separatorCount <= remaining,
+                  name.count <= remaining - separatorCount else {
+                continue
+            }
+            byteCount += separatorCount + name.count
+            includedNameCount += 1
+        }
+
+        var combined: [UInt8] = []
+        combined.reserveCapacity(byteCount)
+        var remainingByteCount = byteCount
+        var appendedNameCount = 0
+        for name in names where remainingByteCount > 0 {
+            let separatorCount = appendedNameCount == 0 ? 0 : 1
+            guard separatorCount <= remainingByteCount,
+                  name.count <= remainingByteCount - separatorCount else {
+                continue
+            }
+            if separatorCount == 1 { combined.append(separator) }
+            combined.append(contentsOf: name)
+            remainingByteCount -= separatorCount + name.count
+            appendedNameCount += 1
+        }
+        return combined
+    }
+
+    private static func concatenate(
+        _ names: [[UInt8]],
+        range: Range<Int>,
+        separator: UInt8
+    ) -> [UInt8] {
+        var combined: [UInt8] = []
+        var capacity = max(0, range.count - 1)
+        for index in range {
+            let next = capacity.addingReportingOverflow(names[index].count)
+            guard !next.overflow else {
+                capacity = 0
+                break
+            }
+            capacity = next.partialValue
+        }
+        if capacity > 0 { combined.reserveCapacity(capacity) }
+        for index in range {
+            if index > range.lowerBound { combined.append(separator) }
+            combined.append(contentsOf: names[index])
+        }
+        return combined
+    }
+
+    private static func isUTF8Continuation(_ byte: UInt8) -> Bool {
+        (0x80...0xBF).contains(byte)
     }
 
     private static func automaticallyDetect(
@@ -143,6 +628,11 @@ public enum EncodingDetector {
     }
 
     private static func cp932Candidate(_ bytes: [UInt8]) -> String? {
+        guard isStructurallyCP932(bytes) else { return nil }
+        return decode(bytes: bytes, as: .shiftJIS)
+    }
+
+    private static func isStructurallyCP932(_ bytes: [UInt8]) -> Bool {
         var index = 0
         while index < bytes.count {
             let byte = bytes[index]
@@ -153,19 +643,24 @@ public enum EncodingDetector {
 
             let isLead = (0x81...0x9F).contains(byte) || (0xE0...0xFC).contains(byte)
             guard isLead, index + 1 < bytes.count else {
-                return nil
+                return false
             }
             let trail = bytes[index + 1]
             let isTrail = (0x40...0x7E).contains(trail) || (0x80...0xFC).contains(trail)
             guard isTrail, trail != 0x7F else {
-                return nil
+                return false
             }
             index += 2
         }
-        return decode(bytes: bytes, as: .shiftJIS)
+        return true
     }
 
     private static func eucJPCandidate(_ bytes: [UInt8]) -> String? {
+        guard isStructurallyEUCJP(bytes) else { return nil }
+        return decode(bytes: bytes, as: .japaneseEUC)
+    }
+
+    private static func isStructurallyEUCJP(_ bytes: [UInt8]) -> Bool {
         var index = 0
         while index < bytes.count {
             let byte = bytes[index]
@@ -175,7 +670,7 @@ public enum EncodingDetector {
             }
             if byte == 0x8E {
                 guard index + 1 < bytes.count, (0xA1...0xDF).contains(bytes[index + 1]) else {
-                    return nil
+                    return false
                 }
                 index += 2
                 continue
@@ -185,7 +680,7 @@ public enum EncodingDetector {
                       (0xA1...0xFE).contains(bytes[index + 1]),
                       (0xA1...0xFE).contains(bytes[index + 2])
                 else {
-                    return nil
+                    return false
                 }
                 index += 3
                 continue
@@ -194,11 +689,11 @@ public enum EncodingDetector {
                   index + 1 < bytes.count,
                   (0xA1...0xFE).contains(bytes[index + 1])
             else {
-                return nil
+                return false
             }
             index += 2
         }
-        return decode(bytes: bytes, as: .japaneseEUC)
+        return true
     }
 
     private static func chooseAmbiguousJapanese(

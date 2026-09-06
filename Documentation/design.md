@@ -33,7 +33,7 @@
 - CRC32 は system zlib `crc32()`(M4 Max ~47 GB/s)。自前テーブルや 3 ストリーム HW 実装は不要。
 - AES は CommonCrypto/CryptoKit、派生鍵はプロセス内キャッシュ(7z 暗号化 645→21 ms)。
 - 展開結果は宣言サイズで**事前確保した不変バッファ**へ直接(Swift 側の NSMutableData→Data 橋渡しコピーを消す)。
-- I/O バッファは大きく(256 KB)。ビットリーダは 64bit リザーバ(RAR5 が記号ごとにオフセット照会)。
+- I/O バッファは大きく(通常 256 KB、既知長 stored の直接読みは 4 MB)。ビットリーダは 64bit リザーバ(RAR5 が記号ごとにオフセット照会)。
 - LZSS 窓コピーは非ラップ時 memcpy の高速経路。
 - ZIP は中央ディレクトリを一括メモリで解析、ローカルヘッダは初回展開まで遅延(2000 件 open 11〜14 ms)。
 - LZMA2 solid の後方シークはチャンク索引で再デコードを局所化。
@@ -42,7 +42,7 @@
 
 文字コード(#49、#64、bench sjis2000):
 - 厳密に有効な UTF-8 なら判定器を通さず UTF-8(短い日本語名の誤判定回避)。
-- CP932(Shift_JIS)・EUC-JP・UTF-8 の判定を本体で持つ(UniversalDetector 相当)。Foundation `NSString.stringEncoding(for:encodingOptions:)` を候補にし、実コーパスで比較する。
+- CP932(Shift_JIS)・EUC-JP・UTF-8 の判定を本体で持つ(UniversalDetector 相当)。未宣言の legacy 名を書庫全体で集約し、構造検査と必要な場合だけ一度の Foundation `NSString.stringEncoding(for:encodingOptions:)` で共通 encoding を選ぶ。その encoding で変換できない名前だけ単名判定へ戻し、実コーパスで比較する。
 - 表示名とは別に生バイト列を保持し、判定を後から差し替えられるようにする(XADString 相当)。
 
 ## 4. 性能の目標値(Scripts/bench results-2026-08-27、M4 Max、XADMaster final)
@@ -91,7 +91,7 @@
 ## 7. API 設計方針
 
 3 層:
-1. `KaitoKit`(モダン API、Swift 6・Sendable): `ArchiveReader`(URL / Data / ByteSource から open、形式自動判定)、`ArchiveEntry`(index、生バイト名+判定済み表示名、パス成分、サイズ(64bit)、圧縮サイズ、種別(file/dir/link/resource fork)、暗号化、日付、POSIX/DOS 属性、solidGroup、format 固有情報)、`read(entry) -> Data`(宣言サイズで事前確保)、`stream(entry)`(逐次読み)、`extract(entry, to:)`、`PasswordProvider`(同期/非同期)、`Progress`/キャンセル、`EncodingPolicy`(自動判定・固定・候補提示)。インスタンスは非スレッド安全(XADMaster と同じ契約)、`reopen()` で同じ ByteSource を共有した並列用の複製を安価に作る。
+1. `KaitoKit`(モダン API、Swift 6・Sendable): `ArchiveReader`(URL / Data / ByteSource から open、形式自動判定、書庫単位の `nameEncoding`)、`ArchiveEntry`(index、生バイト名+判定済み表示名、パス成分、サイズ(64bit)、圧縮サイズ、種別(file/dir/link/resource fork)、暗号化、日付、POSIX/DOS 属性、solidGroup、format 固有情報)、`read(entry) -> Data`(宣言サイズで事前確保)、`stream(entry)`(逐次読み)、`extract(entry, to:)`、`PasswordProvider`(同期/非同期)、`Progress`/キャンセル、`EncodingPolicy`(自動判定・固定・候補提示)。インスタンスは非スレッド安全(XADMaster と同じ契約)、`reopen()` で同じ ByteSource を共有した並列用の複製を安価に作る。
 2. `KaitoKitCompat`(XADMaster 互換 API): 実体は `KaitoArchive` で、`public typealias XADArchive = KaitoArchive` を提供し `XADArchive` と同じ Swift シグネチャ(`init?(file:)`, `init?(data:)`, `numberOfEntries()`, `name(ofEntry:)`, `contents(ofEntry:)`, `uncompressedSize(ofEntry:)`, `entryIsDirectory(_:)`, `entryHasSize(_:)`, `entryIsEncrypted(_:)`, `isEncrypted()`, `setPassword(_:)`, `solidGroup(ofEntry:)`, `extractEntry(_:to:)`, `attributesOfEntry(_:)`, `XADArchiveDelegate` 相当のプロトコル)。`import XADMaster` → `import KaitoKitCompat` で主要用途はそのまま動くことを目標にする(ObjC 公開を加える場合は `@objc(KKArchive)` のように `KK` 接頭辞で XADMaster と衝突させない)。
 3. 内部: `ByteSource`(file/mmap/Data、256 KB バッファ)、`BitReader`(64bit リザーバ、LE/BE)、`Checked` 演算、`Codec` プロトコル(ストリーム復号、window、フィルタ)、`FormatParser` レジストリ(シグネチャ判定)。
 

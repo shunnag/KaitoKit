@@ -101,6 +101,11 @@ public final class EntryStream {
             return Data()
         }
 
+        if size >= CopyDecompressor.directReadMinimumSize,
+           let copy = decompressor as? CopyDecompressor {
+            return try readAllDirectly(from: copy, size: size)
+        }
+
         var result = Data(count: size)
         var written = 0
         try result.withUnsafeMutableBytes { storage in
@@ -112,6 +117,36 @@ public final class EntryStream {
                 written += count
             }
         }
+        return result
+    }
+
+    private func readAllDirectly(
+        from decompressor: CopyDecompressor,
+        size: Int
+    ) throws -> Data {
+        // Data(count:) の初期化書込みを避ける。Data がこの一つの allocation を
+        // 引き取り、ByteSource は最終返却領域へ直接書き込む。
+        let allocation = UnsafeMutableRawPointer.allocate(
+            byteCount: size,
+            alignment: MemoryLayout<UInt64>.alignment
+        )
+        var result = Data(
+            bytesNoCopy: allocation,
+            count: size,
+            deallocator: .custom { pointer, _ in pointer.deallocate() }
+        )
+        let written = try result.withUnsafeMutableBytes { storage in
+            try decompressor.readDirectly(into: storage) { [self] bytes in
+                // bytes は result の初期化済み部分だけを指す。CRC は返却前に逐次更新する。
+                let remaining = try Checked.sub(bytesRemaining, UInt64(bytes.count))
+                checksum.update(bytes)
+                bytesRemaining = remaining
+            }
+        }
+        guard written == size else { throw KaitoError.truncated }
+
+        // Copy の範囲終端、暗号認証、CRC を Data の公開前に全て確定する。
+        try verifyCompletion()
         return result
     }
 

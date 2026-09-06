@@ -17,7 +17,10 @@
 - ZIP の stored、deflate、Deflate64、bzip2、raw LZMA1 圧縮方式と UNIX symlink。
 - Traditional PKWARE (ZipCrypto) と WinZip AES-128/192/256 (AE-1/AE-2) の復号・認証。
 - UTF-8 / Info-ZIP Unicode Path / 日本語文字コードの名前復元、ZIP timestamp、CRC32 検証。
+- ZIP / tar の書庫単位文字コード判定と `ArchiveReader.nameEncoding`。
+- 既知長の大きな stored entry を最終 `Data` へ直接読み込む高速経路。
 - 検出、一覧、展開、SHA-256 差分 oracle、ベンチマークを提供する `kaito` CLI。
+- memory-mapped `Data` 経路を計測する `kaito bench --data`。
 - 圧縮方式と暗号化状態を表示する `kaito list`。
 - XADArchive の cooViewer 利用面と ZIP 遅延ローカルヘッダ既定値 API を覆う薄い
   `KaitoKitCompat` 層。

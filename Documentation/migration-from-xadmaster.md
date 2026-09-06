@@ -40,7 +40,7 @@ throwing API なので、非対応形式、破損、上限超過、I/O エラー
 | `attributesOfEntry(_:)` | 未提供 | `ArchiveEntry` の日時・権限・属性 | 後続版 |
 | `entryIsLink(_:)` | 未提供 | `kind == .symlink/.hardlink` | modern API のみ |
 | `entryIsResourceFork(_:)` | 未提供 | 将来の属性 | 後続版 |
-| `nameEncoding` / encoding delegate | 未提供 | `ReaderOptions.encodingPolicy` | modern API のみ |
+| `nameEncoding` / encoding delegate | 未提供 | `nameEncoding` / `ReaderOptions.encodingPolicy` | 書庫単位判定を modern API で実装 |
 | password delegate | 未提供 | `PasswordProvider` | modern API のみ |
 | progress delegate / cancel | 未提供 | 未定 | 後続版 |
 | `XADSimpleUnarchiver` | 未提供 | `ArchiveReader` + `Extractor` | 後続版 |

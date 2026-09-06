@@ -3,12 +3,11 @@ import KaitoKit
 import XCTest
 
 final class EncodingDetectorCorpusTests: XCTestCase {
-    private struct LegacyStatistics {
+    private struct ArchiveCorpus {
+        var bytes: [[UInt8]] = []
+        var names: [String] = []
         var representable = 0
         var utf8Ambiguous = 0
-        var evaluated = 0
-        var correctOrigin = 0
-        var correctString = 0
     }
 
     private let japaneseNames = [
@@ -51,28 +50,162 @@ final class EncodingDetectorCorpusTests: XCTestCase {
         }
     }
 
-    func testCP932AndEUCJPCorpusAccuracyAndRoundTrip() throws {
+    func testArchiveLevelCP932AndEUCJPCorporaRoundTrip156LegacyNames() throws {
         // Darwin の shiftJIS は CP932 拡張を含むため、このラベルで評価する。
-        let cp932 = try evaluateLegacyCorpus(encoding: .shiftJIS, label: "CP932")
-        let eucJP = try evaluateLegacyCorpus(encoding: .japaneseEUC, label: "EUC-JP")
+        let cp932 = try makeArchiveCorpus(encoding: .shiftJIS, label: "CP932")
+        let eucJP = try makeArchiveCorpus(encoding: .japaneseEUC, label: "EUC-JP")
 
         XCTAssertGreaterThanOrEqual(cp932.representable, 60)
         XCTAssertGreaterThanOrEqual(eucJP.representable, 60)
-        XCTAssertEqual(cp932.correctString, cp932.evaluated)
-        XCTAssertEqual(eucJP.correctString, eucJP.evaluated)
-
-        let evaluated = cp932.evaluated + eucJP.evaluated
-        let correctOrigin = cp932.correctOrigin + eucJP.correctOrigin
-        XCTAssertGreaterThan(evaluated, 0)
-        XCTAssertGreaterThanOrEqual(
-            Double(correctOrigin) / Double(evaluated),
-            0.99,
-            "legacy origin accuracy was \(correctOrigin)/\(evaluated)"
+        XCTAssertEqual(cp932.bytes.count + eucJP.bytes.count, 156)
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(names: cp932.bytes),
+            .shiftJIS
+        )
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(names: eucJP.bytes),
+            .japaneseEUC
+        )
+        XCTAssertEqual(
+            try decodeArchive(cp932.bytes, encoding: .shiftJIS),
+            cp932.names
+        )
+        XCTAssertEqual(
+            try decodeArchive(eucJP.bytes, encoding: .japaneseEUC),
+            eucJP.names
         )
 
         // legacy バイト列自体が厳密 UTF-8 の場合、設計契約上 UTF-8 が必ず優先される。
-        // この相反するケースだけを legacy 起源精度と元文字列 round-trip の母数から除外する。
+        // この相反するケースだけを archive の legacy 候補から除外する。
         XCTAssertGreaterThan(cp932.utf8Ambiguous + eucJP.utf8Ambiguous, 0)
+    }
+
+    func testArchiveDetectionIgnoresStrictUTF8NamesInMixedList() throws {
+        let cp932 = try makeArchiveCorpus(encoding: .shiftJIS, label: "CP932")
+        let utf8Names = [
+            Array("表紙-UTF8.png".utf8),
+            Array("plain-ascii.txt".utf8),
+        ]
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(
+                names: utf8Names + cp932.bytes
+            ),
+            .shiftJIS
+        )
+        XCTAssertNil(EncodingDetector.detectArchiveEncoding(names: utf8Names))
+    }
+
+    func testOneOutlierDoesNotFlipArchiveMajority() throws {
+        let cp932 = try makeArchiveCorpus(encoding: .shiftJIS, label: "CP932")
+        let eucJP = try makeArchiveCorpus(encoding: .japaneseEUC, label: "EUC-JP")
+        let cp932Majority = Array(cp932.bytes.prefix(24)) + [try XCTUnwrap(eucJP.bytes.first)]
+        let eucJPMajority = Array(eucJP.bytes.prefix(24)) + [try XCTUnwrap(cp932.bytes.first)]
+
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(names: cp932Majority),
+            .shiftJIS
+        )
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(names: eucJPMajority),
+            .japaneseEUC
+        )
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(
+                names: Array(cp932.bytes.prefix(2)) + [try XCTUnwrap(eucJP.bytes.first)]
+            ),
+            .shiftJIS
+        )
+    }
+
+    func testAmbiguousEUCJPSingletonMatchesPerNameDetection() throws {
+        let bytes = Array(try XCTUnwrap(
+            "目次.txt".data(using: .japaneseEUC, allowLossyConversion: false)
+        ))
+        XCTAssertNotNil(EncodingDetector.decode(bytes: bytes, as: .shiftJIS))
+        XCTAssertEqual(
+            EncodingDetector.detect(bytes: bytes).encoding,
+            .japaneseEUC
+        )
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(names: [bytes]),
+            .japaneseEUC
+        )
+        XCTAssertEqual(
+            EncodingDetector.decode(bytes: bytes, as: .japaneseEUC),
+            "目次.txt"
+        )
+    }
+
+    func testEUCShiftPrefixOutlierDoesNotOverrideCP932Majority() throws {
+        let cp932: [UInt8] = [0xA1, 0xA6, 0x2E, 0x78]
+        let eucJP = Array(try XCTUnwrap(
+            "ﾃｽﾄ.txt".data(using: .japaneseEUC, allowLossyConversion: false)
+        ))
+        XCTAssertEqual(EncodingDetector.detect(bytes: cp932).encoding, .shiftJIS)
+        XCTAssertEqual(EncodingDetector.detect(bytes: eucJP).encoding, .japaneseEUC)
+
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(
+                names: Array(repeating: cp932, count: 4) + [eucJP]
+            ),
+            .shiftJIS
+        )
+    }
+
+    func testExactVoteTieUsesSingleArchiveGuess() throws {
+        let cp932 = Array(try XCTUnwrap(
+            "｡ﾃｽﾄｶ｡".data(using: .shiftJIS, allowLossyConversion: false)
+        ))
+        let eucJP = Array(try XCTUnwrap(
+            "ﾃｽﾄ.txt".data(using: .japaneseEUC, allowLossyConversion: false)
+        ))
+        XCTAssertNotNil(EncodingDetector.decode(bytes: cp932, as: .japaneseEUC))
+        XCTAssertNotNil(EncodingDetector.decode(bytes: eucJP, as: .shiftJIS))
+        XCTAssertEqual(EncodingDetector.detect(bytes: cp932).encoding, .shiftJIS)
+        XCTAssertEqual(EncodingDetector.detect(bytes: eucJP).encoding, .japaneseEUC)
+
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(names: [cp932, eucJP]),
+            .japaneseEUC
+        )
+    }
+
+    func testArchivePoliciesAndNonJapaneseFallback() throws {
+        // C3 A9 は厳密 UTF-8 だが、固定ポリシーでは従来どおり Shift-JIS を優先する。
+        let validUTF8 = Array("é.txt".utf8)
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(
+                names: [validUTF8],
+                policy: .fixed(.shiftJIS)
+            ),
+            .shiftJIS
+        )
+        XCTAssertNil(
+            EncodingDetector.detectArchiveEncoding(
+                names: [validUTF8],
+                policy: .utf8Only
+            )
+        )
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(
+                names: [[0xFF]],
+                policy: .utf8Only
+            ),
+            .utf8
+        )
+
+        let cp1252 = Array(try XCTUnwrap(
+            "price-€-quote.txt".data(using: .windowsCP1252)
+        ))
+        XCTAssertNil(String(data: Data(cp1252), encoding: .utf8))
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(
+                names: [cp1252],
+                policy: .automatic(likelyLanguage: nil),
+                fromWindows: true
+            ),
+            .windowsCP1252
+        )
     }
 
     func testAmbiguousLegacyBytesStillHonorStrictUTF8Precedence() throws {
@@ -144,11 +277,11 @@ final class EncodingDetectorCorpusTests: XCTestCase {
         XCTAssertEqual(ascii.string, "cover01.jpg")
     }
 
-    private func evaluateLegacyCorpus(
+    private func makeArchiveCorpus(
         encoding: String.Encoding,
         label: String
-    ) throws -> LegacyStatistics {
-        var statistics = LegacyStatistics()
+    ) throws -> ArchiveCorpus {
+        var corpus = ArchiveCorpus()
 
         for name in japaneseNames {
             guard let encoded = name.data(
@@ -157,7 +290,7 @@ final class EncodingDetectorCorpusTests: XCTestCase {
             ) else {
                 continue
             }
-            statistics.representable += 1
+            corpus.representable += 1
             XCTAssertEqual(
                 String(data: encoded, encoding: encoding),
                 name,
@@ -165,7 +298,7 @@ final class EncodingDetectorCorpusTests: XCTestCase {
             )
 
             if let strictUTF8 = String(data: encoded, encoding: .utf8) {
-                statistics.utf8Ambiguous += 1
+                corpus.utf8Ambiguous += 1
                 let detection = EncodingDetector.detect(
                     bytes: Array(encoded),
                     policy: .automatic()
@@ -174,26 +307,20 @@ final class EncodingDetectorCorpusTests: XCTestCase {
                 XCTAssertEqual(detection.string, strictUTF8)
                 continue
             }
-
-            statistics.evaluated += 1
-            let detection = EncodingDetector.detect(
-                bytes: Array(encoded),
-                policy: .automatic()
-            )
-            if detection.encoding == encoding {
-                statistics.correctOrigin += 1
-            }
-            if detection.string == name {
-                statistics.correctString += 1
-            }
-            XCTAssertEqual(
-                detection.string,
-                name,
-                "\(label) detector round-trip failed for \(name)"
-            )
+            corpus.bytes.append(Array(encoded))
+            corpus.names.append(name)
         }
 
-        return statistics
+        return corpus
+    }
+
+    private func decodeArchive(
+        _ names: [[UInt8]],
+        encoding: String.Encoding
+    ) throws -> [String] {
+        try names.map { bytes in
+            try XCTUnwrap(EncodingDetector.decode(bytes: bytes, as: encoding))
+        }
     }
 
     private func containsHalfWidthKatakana(_ name: String) -> Bool {

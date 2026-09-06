@@ -75,6 +75,33 @@ final class CLISmokeTests: XCTestCase {
         XCTAssertTrue(lines[1].hasPrefix("total\t1\t"))
     }
 
+    func testBenchSupportsMappedDataAndLegacyArgumentOrder() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let archive = temporary.appendingPathComponent("cli-bench.tar")
+        let contents = Data("mapped benchmark payload".utf8)
+        try TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "page.txt", contents: contents),
+        ]).write(to: archive)
+
+        let executable = try findKaitoExecutable()
+        let outputs = try [
+            runKaito(executable, arguments: ["bench", archive.path, "1"]),
+            runKaito(executable, arguments: ["bench", "--data", archive.path, "1"]),
+            runKaito(executable, arguments: ["bench", archive.path, "1", "--data"]),
+        ]
+
+        for output in outputs {
+            let lines = output.split(separator: "\n")
+            XCTAssertEqual(lines.count, 4)
+            XCTAssertEqual(lines[0], "reps\t1")
+            XCTAssertTrue(lines[1].hasPrefix("open-median-ms\t"))
+            XCTAssertNotNil(Double(lines[1].dropFirst("open-median-ms\t".count)))
+            XCTAssertTrue(lines[2].hasPrefix("extract-median-ms\t"))
+            XCTAssertEqual(lines[3], "bytes\t\(contents.count)")
+        }
+    }
+
     func testExtractDefersRestrictiveDirectoryMetadataUntilAfterChildren() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
         let output = temporary.appendingPathComponent("output", isDirectory: true)

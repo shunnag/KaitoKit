@@ -11,8 +11,24 @@ final class TarReader: FormatReader {
         let size: UInt64
     }
 
+    private struct PendingText {
+        let bytes: [UInt8]
+        let declaredEncoding: String.Encoding?
+    }
+
+    private struct PendingEntry {
+        let name: PendingText
+        let link: PendingText?
+        let kind: EntryKind
+        let size: UInt64
+        let modificationDate: Date?
+        let permissions: UInt16
+        let formatSpecific: [String: String]
+    }
+
     let format: ArchiveFormat = .tar
     private(set) var entries: [ArchiveEntry]
+    private(set) var nameEncoding: String.Encoding?
     private let records: [Record]
     private let source: any ByteSource
 
@@ -24,6 +40,7 @@ final class TarReader: FormatReader {
             limits: options.limits
         )
         entries = parsed.entries
+        nameEncoding = parsed.nameEncoding
         records = parsed.records
     }
 
@@ -45,8 +62,12 @@ final class TarReader: FormatReader {
         source: any ByteSource,
         policy: EncodingPolicy,
         limits: ReadLimits
-    ) throws -> (entries: [ArchiveEntry], records: [Record]) {
-        var entries: [ArchiveEntry] = []
+    ) throws -> (
+        entries: [ArchiveEntry],
+        records: [Record],
+        nameEncoding: String.Encoding?
+    ) {
+        var pendingEntries: [PendingEntry] = []
         var records: [Record] = []
         var offset: UInt64 = 0
         var globalPAX: [String: [UInt8]] = [:]
@@ -54,10 +75,9 @@ final class TarReader: FormatReader {
         var hasLocalPAX = false
         var longName: [UInt8]?
         var longLink: [UInt8]?
-        var retainedMetadataSize: UInt64 = 0
+        var pendingMetadataFloor: UInt64 = 0
         var foundTerminator = false
         var byteReader = try ByteReader(source: source)
-        var lastEntryByNormalizedPath: [String: Int] = [:]
 
         while offset < source.length {
             let remaining = try Checked.sub(source.length, offset)
@@ -156,7 +176,7 @@ final class TarReader: FormatReader {
                 source: source
             )
 
-            guard entries.count < limits.maxEntryCount else {
+            guard pendingEntries.count < limits.maxEntryCount else {
                 throw KaitoError.limitExceeded("archive entry count")
             }
 
@@ -183,18 +203,10 @@ final class TarReader: FormatReader {
             let declaredEncoding: String.Encoding? = nameIsPAX && !isBinaryHeaderCharset(pax)
                 ? .utf8
                 : nil
-            let nameDetection: EncodingDetection
             if let declaredEncoding {
-                guard let decoded = EncodingDetector.decode(bytes: selectedName, as: declaredEncoding) else {
+                guard EncodingDetector.decode(bytes: selectedName, as: declaredEncoding) != nil else {
                     throw KaitoError.malformed("pax path is not valid UTF-8")
                 }
-                nameDetection = (declaredEncoding, decoded, 1.0)
-            } else {
-                nameDetection = EncodingDetector.detect(bytes: selectedName, policy: policy)
-            }
-            let resolvedName = nameDetection.string
-            guard !resolvedName.isEmpty else {
-                throw KaitoError.malformed("tar entry name cannot be decoded")
             }
 
             let kind = entryKind(for: typeByte)
@@ -243,6 +255,7 @@ final class TarReader: FormatReader {
                let value = String(bytes: charset, encoding: .utf8) {
                 specific["hdrcharset"] = value
             }
+            let pendingLink: PendingText?
             if let selectedLink {
                 guard !selectedLink.contains(0) else {
                     throw KaitoError.malformed("tar link contains NUL")
@@ -250,25 +263,152 @@ final class TarReader: FormatReader {
                 let linkEncoding: String.Encoding? = linkIsPAX && !isBinaryHeaderCharset(pax)
                     ? .utf8
                     : nil
-                let link: String
                 if let linkEncoding {
-                    guard let decoded = EncodingDetector.decode(
+                    guard EncodingDetector.decode(
                         bytes: selectedLink,
                         as: linkEncoding
-                    ) else {
+                    ) != nil else {
                         throw KaitoError.malformed("pax linkpath is not valid UTF-8")
                     }
-                    link = decoded
-                } else {
-                    link = EncodingDetector.detect(bytes: selectedLink, policy: policy).string
                 }
+                pendingLink = PendingText(
+                    bytes: selectedLink,
+                    declaredEncoding: linkEncoding
+                )
+            } else {
+                pendingLink = nil
+            }
+
+            var metadataFloor = try Checked.add(256, UInt64(selectedName.count))
+            if let selectedLink {
+                metadataFloor = try Checked.add(metadataFloor, UInt64(selectedLink.count))
+            }
+            for (key, value) in specific {
+                metadataFloor = try Checked.add(metadataFloor, UInt64(key.utf8.count))
+                metadataFloor = try Checked.add(metadataFloor, UInt64(value.utf8.count))
+            }
+            pendingMetadataFloor = try Checked.add(
+                pendingMetadataFloor,
+                metadataFloor
+            )
+            try Checked.size(
+                pendingMetadataFloor,
+                limit: limits.maxTotalMetadataSize
+            )
+            pendingEntries.append(PendingEntry(
+                name: PendingText(
+                    bytes: selectedName,
+                    declaredEncoding: declaredEncoding
+                ),
+                link: pendingLink,
+                kind: kind,
+                size: storedSize,
+                modificationDate: modificationDate,
+                permissions: UInt16(mode & 0o7777),
+                formatSpecific: specific
+            ))
+            records.append(Record(dataOffset: dataOffset, size: storedSize))
+
+            localPAX.removeAll(keepingCapacity: true)
+            hasLocalPAX = false
+            longName = nil
+            longLink = nil
+            offset = nextOffset
+        }
+
+        guard foundTerminator else { throw KaitoError.truncated }
+        guard !hasLocalPAX, longName == nil, longLink == nil else {
+            throw KaitoError.malformed("tar ends after an extension header")
+        }
+        var undecoratedNames: [[UInt8]] = []
+        undecoratedNames.reserveCapacity(pendingEntries.count)
+        for pending in pendingEntries {
+            if pending.name.declaredEncoding == nil {
+                switch policy {
+                case .fixed:
+                    undecoratedNames.append(pending.name.bytes)
+                case .automatic, .utf8Only:
+                    if !EncodingDetector.isStrictUTF8(pending.name.bytes) {
+                        undecoratedNames.append(pending.name.bytes)
+                    }
+                }
+            }
+        }
+        let archiveEncoding = EncodingDetector.detectArchiveEncoding(
+            names: undecoratedNames,
+            policy: policy,
+            maximumBatchByteCount: Int(clamping: limits.maxMetadataSize)
+        )
+        var archiveDecodedNames: [[UInt8]: String] = [:]
+        if let archiveEncoding {
+            let decodedNames = EncodingDetector.decodeArchiveNames(
+                undecoratedNames,
+                as: archiveEncoding,
+                maximumBatchByteCount: Int(clamping: limits.maxMetadataSize)
+            )
+            archiveDecodedNames.reserveCapacity(undecoratedNames.count)
+            for (bytes, string) in zip(undecoratedNames, decodedNames) {
+                if let string { archiveDecodedNames[bytes] = string }
+            }
+        }
+        let entries = try finalizeEntries(
+            pendingEntries,
+            policy: policy,
+            archiveEncoding: archiveEncoding,
+            archiveDecodedNames: archiveDecodedNames,
+            limits: limits
+        )
+        return (entries, records, archiveEncoding)
+    }
+
+    private static func finalizeEntries(
+        _ pendingEntries: [PendingEntry],
+        policy: EncodingPolicy,
+        archiveEncoding: String.Encoding?,
+        archiveDecodedNames: [[UInt8]: String],
+        limits: ReadLimits
+    ) throws -> [ArchiveEntry] {
+        var entries: [ArchiveEntry] = []
+        entries.reserveCapacity(pendingEntries.count)
+        var retainedMetadataSize: UInt64 = 0
+        var lastEntryByNormalizedPath: [String: Int] = [:]
+
+        for pending in pendingEntries {
+            let resolvedName = try resolve(
+                pending.name,
+                policy: policy,
+                archiveEncoding: archiveEncoding,
+                archiveDecodedNames: archiveDecodedNames,
+                invalidDeclaredMessage: "pax path is not valid UTF-8"
+            )
+            guard !resolvedName.isEmpty else {
+                throw KaitoError.malformed("tar entry name cannot be decoded")
+            }
+            try validatePathComponentCount(
+                in: resolvedName,
+                limit: limits.maxPathComponentCount,
+                fieldName: "entry path"
+            )
+            let pathComponents = resolvedName
+                .split(separator: "/", omittingEmptySubsequences: true)
+                .map(String.init)
+
+            var specific = pending.formatSpecific
+            if let pendingLink = pending.link {
+                let link = try resolve(
+                    pendingLink,
+                    policy: policy,
+                    archiveEncoding: archiveEncoding,
+                    archiveDecodedNames: archiveDecodedNames,
+                    invalidDeclaredMessage: "pax linkpath is not valid UTF-8"
+                )
                 try validatePathComponentCount(
                     in: link,
                     limit: limits.maxPathComponentCount,
                     fieldName: "link"
                 )
                 specific["linkPath"] = link
-                if kind == .hardlink,
+                if pending.kind == .hardlink,
                    let normalizedTarget = normalizedExtractionPath(link),
                    let targetIndex = lastEntryByNormalizedPath[normalizedTarget],
                    entries.indices.contains(targetIndex) {
@@ -282,37 +422,29 @@ final class TarReader: FormatReader {
             }
 
             let rawName = RawName(
-                bytes: selectedName,
-                declaredEncoding: declaredEncoding,
-                isDirectoryHint: kind == .directory || resolvedName.hasSuffix("/")
+                bytes: pending.name.bytes,
+                declaredEncoding: pending.name.declaredEncoding,
+                isDirectoryHint: pending.kind == .directory || resolvedName.hasSuffix("/")
             )
-            try validatePathComponentCount(
-                in: resolvedName,
-                limit: limits.maxPathComponentCount,
-                fieldName: "entry path"
-            )
-            let pathComponents = resolvedName
-                .split(separator: "/", omittingEmptySubsequences: true)
-                .map(String.init)
             let entryMetadataSize = try retainedMetadataCost(
-                rawName: selectedName,
+                rawName: pending.name.bytes,
                 resolvedName: resolvedName,
                 pathComponents: pathComponents,
                 formatSpecific: specific
             )
             retainedMetadataSize = try Checked.add(retainedMetadataSize, entryMetadataSize)
             try Checked.size(retainedMetadataSize, limit: limits.maxTotalMetadataSize)
-            let permissions = UInt16(mode & 0o7777)
+
             let entry = ArchiveEntry(
                 index: entries.count,
                 rawName: rawName,
                 name: resolvedName,
                 pathComponents: pathComponents,
-                kind: kind,
-                uncompressedSize: storedSize,
-                compressedSize: storedSize,
-                modificationDate: modificationDate,
-                posixPermissions: permissions,
+                kind: pending.kind,
+                uncompressedSize: pending.size,
+                compressedSize: pending.size,
+                modificationDate: pending.modificationDate,
+                posixPermissions: pending.permissions,
                 isEncrypted: false,
                 solidGroup: -1,
                 crc32: nil,
@@ -320,24 +452,38 @@ final class TarReader: FormatReader {
                 formatSpecific: specific
             )
             entries.append(entry)
-            records.append(Record(dataOffset: dataOffset, size: storedSize))
             if let normalizedName = normalizedExtractionPath(resolvedName) {
                 // hard link の解決後に挿入し、参照先を必ず過去の member に限定する。
                 lastEntryByNormalizedPath[normalizedName] = entry.index
             }
-
-            localPAX.removeAll(keepingCapacity: true)
-            hasLocalPAX = false
-            longName = nil
-            longLink = nil
-            offset = nextOffset
         }
+        return entries
+    }
 
-        guard foundTerminator else { throw KaitoError.truncated }
-        guard !hasLocalPAX, longName == nil, longLink == nil else {
-            throw KaitoError.malformed("tar ends after an extension header")
+    private static func resolve(
+        _ text: PendingText,
+        policy: EncodingPolicy,
+        archiveEncoding: String.Encoding?,
+        archiveDecodedNames: [[UInt8]: String],
+        invalidDeclaredMessage: String
+    ) throws -> String {
+        if let declaredEncoding = text.declaredEncoding {
+            guard let decoded = EncodingDetector.decode(
+                bytes: text.bytes,
+                as: declaredEncoding
+            ) else {
+                throw KaitoError.malformed(invalidDeclaredMessage)
+            }
+            return decoded
         }
-        return (entries, records)
+        if let decoded = archiveDecodedNames[text.bytes] {
+            return decoded
+        }
+        return EncodingDetector.resolveUndeclaredName(
+            bytes: text.bytes,
+            policy: policy,
+            archiveEncoding: archiveEncoding
+        ).string
     }
 
     private static func readPayload(

@@ -49,6 +49,9 @@ for entry in directories {
 `ArchiveReader` はスレッドセーフではありません。並列展開では `reopen()` で同じ
 `ByteSource` を共有する独立 reader を作ってください。既存 XADMaster 利用コード向けには
 `KaitoKitCompat` の `KaitoArchive` と `XADArchive` typealias もあります。
+自動判定が必要な未宣言名を持つ書庫では、`nameEncoding` から書庫全体に選択された
+文字コードを取得できます。自動判定時にすべての名前が形式で宣言済みまたは
+厳密に有効な UTF-8 なら `nil` です。
 
 ## 対応状況
 
@@ -58,7 +61,7 @@ for entry in directories {
 | ZIP コンテナ | 中央ディレクトリ、ZIP64、SFX prefix、遅延ローカルヘッダ |
 | ZIP 圧縮方式 | stored (0)、deflate (8)、Deflate64 (9)、bzip2 (12)、LZMA (14) |
 | ZIP 暗号化 | Traditional PKWARE (ZipCrypto)、WinZip AES-128/192/256 (AE-1/AE-2) |
-| ZIP ファイル名 | UTF-8 flag、Info-ZIP Unicode Path、CP932 / EUC-JP / UTF-8 自動判定 |
+| ZIP ファイル名 | UTF-8 flag、Info-ZIP Unicode Path、CP932 / EUC-JP / UTF-8 の書庫単位自動判定 |
 | ZIP メタデータ | ZIP64、extended timestamp、NTFS timestamp、UNIX symlink・permission |
 | ZIP 整合性 | 展開後 CRC32、WinZip AES authentication code |
 | ZIP 非対応 | multi-disk / spanned、zstd (93)、xz (95)、JPEG (96)、PPMd (98) |
@@ -78,12 +81,14 @@ $ swift run kaito list samples/book.zip --raw
 $ swift run kaito extract samples/book.tar -o /tmp/book
 $ swift run kaito sha samples/book.tar
 $ swift run kaito bench samples/book.tar 5
+$ swift run kaito bench --data samples/book.tar 5
 ```
 
 `sha` はエントリ順の SHA-256 と総合ダイジェストを出力し、別の展開実装との
 差分テストに利用できます。`list` は index、size、kind、method、暗号方式 (`plain`、
 `ZipCrypto`、`AES-128/192/256`)、name の順でタブ区切り表示し、`--raw` は名前の元バイト列を
-末尾へ 16 進数で併記します。
+末尾へ 16 進数で併記します。`bench --data` は `mappedIfSafe` で作った `Data`
+から書庫を開き、map 作成を含む `open-median-ms` を表示します。
 
 ## 開発
 

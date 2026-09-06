@@ -21,7 +21,7 @@ usage:
   kaito list <archive> [--raw]
   kaito extract <archive> -o <directory> [-p <password>]
   kaito sha <archive>
-  kaito bench <archive> [reps]
+  kaito bench [--data] <archive> [reps]
 """
 
 private func formatName(_ format: ArchiveFormat) -> String {
@@ -228,29 +228,65 @@ private func elapsedMilliseconds(since start: UInt64, until end: UInt64) -> Doub
     return Double(nanoseconds) / 1_000_000
 }
 
-private func runBench(_ arguments: [String]) throws {
-    guard (1...2).contains(arguments.count), let path = arguments.first else {
+private struct BenchArguments {
+    let archive: String
+    let repetitions: Int
+    let useMappedData: Bool
+}
+
+private func parseBench(_ arguments: [String]) throws -> BenchArguments {
+    var positionals: [String] = []
+    var useMappedData = false
+    for argument in arguments {
+        if argument == "--data" {
+            guard !useMappedData else { throw CLIError.usage(usage) }
+            useMappedData = true
+        } else {
+            positionals.append(argument)
+        }
+    }
+
+    guard (1...2).contains(positionals.count) else {
         throw CLIError.usage(usage)
     }
     let repetitions: Int
-    if arguments.count == 2 {
-        guard let parsed = Int(arguments[1]), (1...10_000).contains(parsed) else {
+    if positionals.count == 2 {
+        guard let parsed = Int(positionals[1]), (1...10_000).contains(parsed) else {
             throw CLIError.usage("reps must be between 1 and 10000\n\(usage)")
         }
         repetitions = parsed
     } else {
         repetitions = 5
     }
+    return BenchArguments(
+        archive: positionals[0],
+        repetitions: repetitions,
+        useMappedData: useMappedData
+    )
+}
+
+private func runBench(_ arguments: [String]) throws {
+    let parsed = try parseBench(arguments)
 
     var openTimes: [Double] = []
     var extractTimes: [Double] = []
-    openTimes.reserveCapacity(repetitions)
-    extractTimes.reserveCapacity(repetitions)
+    openTimes.reserveCapacity(parsed.repetitions)
+    extractTimes.reserveCapacity(parsed.repetitions)
     var lastByteCount = 0
 
-    for _ in 0..<repetitions {
+    for _ in 0..<parsed.repetitions {
         let openStart = DispatchTime.now().uptimeNanoseconds
-        let reader = try openArchive(path)
+        let reader: ArchiveReader
+        if parsed.useMappedData {
+            // cooViewer の初回 open と同じく、map 作成も Data 経路の時間に含める。
+            let mappedData = try Data(
+                contentsOf: URL(fileURLWithPath: parsed.archive),
+                options: .mappedIfSafe
+            )
+            reader = try ArchiveReader.open(data: mappedData)
+        } else {
+            reader = try openArchive(parsed.archive)
+        }
         let openEnd = DispatchTime.now().uptimeNanoseconds
         openTimes.append(elapsedMilliseconds(since: openStart, until: openEnd))
 
@@ -273,7 +309,7 @@ private func runBench(_ arguments: [String]) throws {
         withExtendedLifetime(extracted) {}
     }
 
-    print("reps\t\(repetitions)")
+    print("reps\t\(parsed.repetitions)")
     print(String(format: "open-median-ms\t%.3f", median(openTimes)))
     print(String(format: "extract-median-ms\t%.3f", median(extractTimes)))
     print("bytes\t\(lastByteCount)")

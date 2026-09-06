@@ -41,6 +41,11 @@ final class ZipReader: FormatReader {
         let entryCount: Int
     }
 
+    private struct ArchiveNames {
+        let encoding: String.Encoding?
+        let decoded: [String?]
+    }
+
     private struct EndRecord {
         let offset: UInt64
         let diskNumber: UInt16
@@ -53,6 +58,7 @@ final class ZipReader: FormatReader {
 
     let format: ArchiveFormat = .zip
     private(set) var entries: [ArchiveEntry]
+    private(set) var nameEncoding: String.Encoding?
 
     private let source: any ByteSource
     private let centralDirectoryOffset: UInt64
@@ -77,6 +83,7 @@ final class ZipReader: FormatReader {
         )
         self.centralDirectoryOffset = directory.offset
         self.entries = parsed.entries
+        self.nameEncoding = parsed.nameEncoding
         self.records = parsed.records
         self.localRecords = Array(repeating: nil, count: parsed.records.count)
 
@@ -546,7 +553,11 @@ final class ZipReader: FormatReader {
         location: DirectoryLocation,
         policy: EncodingPolicy,
         limits: ReadLimits
-    ) throws -> (entries: [ArchiveEntry], records: [Record]) {
+    ) throws -> (
+        entries: [ArchiveEntry],
+        records: [Record],
+        nameEncoding: String.Encoding?
+    ) {
         let bytes = try readExactly(
             source: source,
             offset: location.offset,
@@ -567,12 +578,19 @@ final class ZipReader: FormatReader {
             minimumRetainedMetadata,
             limit: limits.maxTotalMetadataSize
         )
+        let archiveNames = try archiveNames(
+            in: bytes,
+            entryCount: location.entryCount,
+            policy: policy,
+            recordLimit: limits.maxMetadataRecordCount
+        )
         var cursor = ZipByteCursor(bytes)
         var entries: [ArchiveEntry] = []
         var records: [Record] = []
         entries.reserveCapacity(location.entryCount)
         records.reserveCapacity(location.entryCount)
         var retainedMetadataSize: UInt64 = 0
+        var archiveNameIndex = 0
 
         for index in 0..<location.entryCount {
             guard cursor.remaining >= 46 else {
@@ -681,11 +699,23 @@ final class ZipReader: FormatReader {
             } else if let unicodeName {
                 name = unicodeName
             } else {
-                name = EncodingDetector.detect(
-                    bytes: rawName,
-                    policy: policy,
-                    fromWindows: hostOS == 0
-                ).string
+                let archiveDecodedName: String?
+                if participatesInArchiveDetection(rawName, policy: policy) {
+                    guard archiveNameIndex < archiveNames.decoded.count else {
+                        throw KaitoError.malformed("ZIP archive-name index is inconsistent")
+                    }
+                    archiveDecodedName = archiveNames.decoded[archiveNameIndex]
+                    archiveNameIndex += 1
+                } else {
+                    archiveDecodedName = nil
+                }
+                name = archiveDecodedName ??
+                    EncodingDetector.resolveUndeclaredName(
+                        bytes: rawName,
+                        policy: policy,
+                        archiveEncoding: archiveNames.encoding,
+                        fromWindows: hostOS == 0
+                    ).string
             }
             guard !name.isEmpty, !name.utf8.contains(0) else {
                 throw KaitoError.malformed("ZIP entry name cannot be decoded safely")
@@ -779,7 +809,91 @@ final class ZipReader: FormatReader {
         guard cursor.remaining == 0 else {
             throw KaitoError.malformed("ZIP central-directory count does not match its data")
         }
-        return (entries, records)
+        guard archiveNameIndex == archiveNames.decoded.count else {
+            throw KaitoError.malformed("ZIP archive-name count is inconsistent")
+        }
+        return (entries, records, archiveNames.encoding)
+    }
+
+    private static func archiveNames(
+        in bytes: [UInt8],
+        entryCount: Int,
+        policy: EncodingPolicy,
+        recordLimit: Int
+    ) throws -> ArchiveNames {
+        var cursor = ZipByteCursor(bytes)
+        var undecoratedNames: [[UInt8]] = []
+        undecoratedNames.reserveCapacity(entryCount)
+        var windowsNameCount = 0
+
+        for _ in 0..<entryCount {
+            guard cursor.remaining >= 46,
+                  try cursor.readUInt32LE() == centralHeaderSignature else {
+                throw KaitoError.malformed("invalid ZIP central-header signature")
+            }
+            let versionMadeBy = try cursor.readUInt16LE()
+            try cursor.skip(2) // 展開に必要なバージョン
+            let flags = try cursor.readUInt16LE()
+            try cursor.skip(18) // method から uncompressed size まで
+            let nameLength = Int(try cursor.readUInt16LE())
+            let extraLength = Int(try cursor.readUInt16LE())
+            let commentLength = Int(try cursor.readUInt16LE())
+            try cursor.skip(12) // disk number から local-header offset まで
+
+            guard nameLength > 0 else {
+                throw KaitoError.malformed("ZIP entry has an empty name")
+            }
+            let variableLength = try Checked.add(UInt64(nameLength), UInt64(extraLength))
+            let fullVariableLength = try Checked.add(variableLength, UInt64(commentLength))
+            guard fullVariableLength <= UInt64(cursor.remaining) else {
+                throw KaitoError.malformed("ZIP central variable fields overrun the directory")
+            }
+            let rawName = try cursor.readBytes(nameLength)
+            let extra = try cursor.readBytes(extraLength)
+            try cursor.skip(commentLength)
+            guard !rawName.contains(0) else {
+                throw KaitoError.malformed("ZIP entry name contains NUL")
+            }
+
+            guard flags & 0x0800 == 0 else { continue }
+            let extraFields = try parseExtraFields(extra, recordLimit: recordLimit)
+            guard unicodePath(from: extraFields, rawName: rawName) == nil else { continue }
+            guard participatesInArchiveDetection(rawName, policy: policy) else { continue }
+            undecoratedNames.append(rawName)
+            if UInt8(truncatingIfNeeded: versionMadeBy >> 8) == 0 {
+                windowsNameCount += 1
+            }
+        }
+
+        guard cursor.remaining == 0 else {
+            throw KaitoError.malformed("ZIP central-directory count does not match its data")
+        }
+        let fromWindows = windowsNameCount >= undecoratedNames.count - windowsNameCount
+        let encoding = EncodingDetector.detectArchiveEncoding(
+            names: undecoratedNames,
+            policy: policy,
+            fromWindows: fromWindows
+        )
+        guard let encoding else {
+            return ArchiveNames(encoding: nil, decoded: [])
+        }
+        let decodedNames = EncodingDetector.decodeArchiveNames(
+            undecoratedNames,
+            as: encoding
+        )
+        return ArchiveNames(encoding: encoding, decoded: decodedNames)
+    }
+
+    private static func participatesInArchiveDetection(
+        _ rawName: [UInt8],
+        policy: EncodingPolicy
+    ) -> Bool {
+        switch policy {
+        case .fixed:
+            return true
+        case .automatic, .utf8Only:
+            return !EncodingDetector.isStrictUTF8(rawName)
+        }
     }
 
     private struct ZIP64Values {

@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # SwiftPM のユニバーサル dylib と公開モジュールを KaitoKit.framework にまとめる。
+# 複数の --arch を同時に指定すると SwiftBuild 経由になり .swiftinterface が
+# 出力されないため、各トリプルをネイティブの SwiftPM で個別にビルドして結合する。
+# SwiftPM を介さない利用側では、ネストした KaitoKitCompat を解決するため
+# `-I KaitoKit.framework/Modules` も指定する必要がある。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,97 +39,91 @@ fi
 
 cd "$ROOT_DIR"
 # library evolution を有効にし、異なる Swift コンパイラ用の interface も残す。
-run_swift build -c release --product KaitoKitDynamic \
-    --arch arm64 --arch x86_64 \
-    -Xswiftc -enable-library-evolution \
-    -Xswiftc -emit-module-interface
-BIN_DIR="$(run_swift build -c release --arch arm64 --arch x86_64 \
-    --show-bin-path | tail -n 1)"
-DYLIB="$BIN_DIR/libKaitoKitDynamic.dylib"
+for build_triple in arm64-apple-macosx x86_64-apple-macosx; do
+    run_swift build -c release --triple "$build_triple" \
+        --product KaitoKitDynamic \
+        -Xswiftc -enable-library-evolution \
+        -Xswiftc -emit-module-interface
+done
 
-if [[ ! -f "$DYLIB" ]]; then
-    echo "error: dynamic library not found: $DYLIB" >&2
-    exit 1
-fi
-if ! lipo -info "$DYLIB" | grep -q 'arm64' || \
-        ! lipo -info "$DYLIB" | grep -q 'x86_64'; then
-    echo "error: KaitoKitDynamic is not a universal arm64/x86_64 binary" >&2
-    exit 1
-fi
+ARM64_BIN_DIR="$ROOT_DIR/.build/arm64-apple-macosx/release"
+X86_64_BIN_DIR="$ROOT_DIR/.build/x86_64-apple-macosx/release"
+ARM64_DYLIB="$ARM64_BIN_DIR/libKaitoKitDynamic.dylib"
+X86_64_DYLIB="$X86_64_BIN_DIR/libKaitoKitDynamic.dylib"
+
+for dylib in "$ARM64_DYLIB" "$X86_64_DYLIB"; do
+    if [[ ! -f "$dylib" ]]; then
+        echo "error: dynamic library not found: $dylib" >&2
+        exit 1
+    fi
+done
 
 rm -rf "$FRAMEWORK"
 MODULES_DIR="$FRAMEWORK/Versions/A/Modules"
 RESOURCES_DIR="$FRAMEWORK/Versions/A/Resources"
 mkdir -p "$MODULES_DIR" "$RESOURCES_DIR"
-cp "$DYLIB" "$EXECUTABLE"
+lipo -create "$X86_64_DYLIB" "$ARM64_DYLIB" -output "$EXECUTABLE"
 
-copy_first() {
-    local destination="$1"
-    shift
+if ! lipo -info "$EXECUTABLE" | grep -q 'arm64' || \
+        ! lipo -info "$EXECUTABLE" | grep -q 'x86_64'; then
+    echo "error: KaitoKit is not a universal arm64/x86_64 binary" >&2
+    exit 1
+fi
+
+find_latest_interface() {
+    local bin_dir="$1"
+    local name="$2"
+    local latest=""
     local candidate
-    for candidate in "$@"; do
-        if [[ -f "$candidate" ]]; then
-            cp "$candidate" "$destination"
-            return 0
+
+    while IFS= read -r -d '' candidate; do
+        if [[ -z "$latest" || "$candidate" -nt "$latest" ]]; then
+            latest="$candidate"
         fi
-    done
-    return 1
+    done < <(find "$bin_dir" -name "$name.swiftinterface" \
+        -not -path '*ModuleCache*' -print0 2>/dev/null)
+
+    [[ -n "$latest" ]] || return 1
+    printf '%s\n' "$latest"
 }
 
 install_arch_artifacts() {
     local name="$1"
-    local arch="$2"
+    local build_triple="$2"
     local destination="$3"
+    local arch="${build_triple%%-*}"
     local triple="$arch-apple-macos"
-    local triple_x="$arch-apple-macosx"
-    local legacy="$ROOT_DIR/.build/$triple_x/release/Modules"
-    local intermediates="$ROOT_DIR/.build/out/Intermediates.noindex/KaitoKit.build/Release/${name}-t.build/Objects-normal/$arch"
+    local bin_dir="$ROOT_DIR/.build/$build_triple/release"
+    local modules_dir="$bin_dir/Modules"
+    local interface
+    local extension
 
-    copy_first "$destination/$triple.swiftmodule" \
-        "$BIN_DIR/$name.swiftmodule/$triple.swiftmodule" \
-        "$BIN_DIR/$name.swiftmodule/$triple_x.swiftmodule" \
-        "$intermediates/$name.swiftmodule" \
-        "$legacy/$name.swiftmodule" || {
-            echo "error: $name $arch swiftmodule not found" >&2
+    for extension in swiftmodule swiftdoc; do
+        if [[ ! -f "$modules_dir/$name.$extension" ]]; then
+            echo "error: $name $arch $extension not found" >&2
             exit 1
-        }
-    cp "$destination/$triple.swiftmodule" \
-        "$destination/$triple_x.swiftmodule"
+        fi
+        cp "$modules_dir/$name.$extension" \
+            "$destination/$triple.$extension"
+        cp "$destination/$triple.$extension" \
+            "$destination/$build_triple.$extension"
+    done
 
-    if copy_first "$destination/$triple.swiftdoc" \
-            "$BIN_DIR/$name.swiftmodule/$triple.swiftdoc" \
-            "$BIN_DIR/$name.swiftmodule/$triple_x.swiftdoc" \
-            "$intermediates/$name.swiftdoc" \
-            "$legacy/$name.swiftdoc"; then
-        cp "$destination/$triple.swiftdoc" "$destination/$triple_x.swiftdoc"
+    if ! interface="$(find_latest_interface "$bin_dir" "$name")"; then
+        echo "error: $name $arch swiftinterface not emitted" >&2
+        exit 1
     fi
-
-    copy_first "$destination/$triple.swiftinterface" \
-        "$BIN_DIR/$name.swiftmodule/$triple.swiftinterface" \
-        "$BIN_DIR/$name.swiftmodule/$triple_x.swiftinterface" \
-        "$intermediates/$name.swiftinterface" \
-        "$legacy/$name.swiftinterface" || {
-            echo "error: $name $arch swiftinterface not emitted" >&2
-            exit 1
-        }
+    cp "$interface" "$destination/$triple.swiftinterface"
     cp "$destination/$triple.swiftinterface" \
-        "$destination/$triple_x.swiftinterface"
-
-    if copy_first "$destination/$triple.abi.json" \
-            "$BIN_DIR/$name.swiftmodule/$triple.abi.json" \
-            "$BIN_DIR/$name.swiftmodule/$triple_x.abi.json" \
-            "$intermediates/$name.abi.json" \
-            "$legacy/$name.abi.json"; then
-        cp "$destination/$triple.abi.json" "$destination/$triple_x.abi.json"
-    fi
+        "$destination/$build_triple.swiftinterface"
 }
 
 install_module() {
     local name="$1"
     local destination="$MODULES_DIR/$name.swiftmodule"
     mkdir -p "$destination"
-    install_arch_artifacts "$name" arm64 "$destination"
-    install_arch_artifacts "$name" x86_64 "$destination"
+    install_arch_artifacts "$name" arm64-apple-macosx "$destination"
+    install_arch_artifacts "$name" x86_64-apple-macosx "$destination"
 }
 
 # Compat の interface が import KaitoKit を含むため両モジュールが必要。

@@ -6,10 +6,13 @@ on:
 
 jobs:
   build-and-test:
+    strategy:
+      matrix:
+        os: [macos-26, macos-26-intel]
     # ラベルが利用できない場合は macos-15 へ一時的に戻す。
-    runs-on: macos-26
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build
         run: swift build -v
       - name: Test

@@ -76,6 +76,8 @@ bash -n Scripts/build-framework.sh Scripts/fuzz/*.sh
 python3 -m py_compile Scripts/fuzz/mutate.py
 ```
 
+`Scripts/build-framework.sh` は Apple Silicon / Intel 両対応のユニバーサル `KaitoKit.framework` を生成します。SwiftPM を介さず利用する場合は、ネストされた `KaitoKitCompat` モジュールを見つけられるよう `-I Frameworks/KaitoKit.framework/Modules` も指定してください。
+
 設計判断、安全規則、参照可能な仕様は [Documentation/design.md](Documentation/design.md)、
 XADMaster からの移行状況は
 [Documentation/migration-from-xadmaster.md](Documentation/migration-from-xadmaster.md) を参照してください。

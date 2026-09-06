@@ -86,18 +86,18 @@
 | (c) システム libarchive | dlopen/tbd リンク | 実装ゼロで多形式 | ヘッダ未提供・App Store 審査リスク、rar/7z の暗号化非対応、ランダムアクセスとエントリ生バイト名の扱いが弱い、Apple のビルド構成不明 |
 | (d) 既存 C ライブラリ同梱 | LZMA SDK(公開ドメイン)、unrar(UnRAR ライセンス)、lhasa(ISC)、libdeflate(MIT) | 成熟・高速 | XADMaster と同じ C の危険性(今回の 48 件の教訓)、ライセンス混在、"新しい安全な設計" という目的に反する |
 
-判断: **(a) 純 Swift + システムライブラリ**を採用し、コーデック層を差し替え可能な設計にする(将来、性能上どうしても必要なコーデックだけ Rust/C を差し込める)。RAR はクリーンルーム(RAR5 は RARLab technote、RAR3 は unrar/libarchive/7-Zip の**挙動**を仕様として扱い、コードは写さない。標準フィルタ(E8/E8E9/Delta/ARM/RGB/Audio)のみをネイティブ実装し VM は持たない= unrar 5 以降と同じ方針)。
+判断: **(a) 純 Swift + システムライブラリ**を採用し、コーデック層を差し替え可能な設計にする(将来、性能上どうしても必要なコーデックだけ Rust/C を差し込める)。RAR はクリーンルームとし、RAR5 は RARLab technote、RAR4 は bitplane/rar-research の非公式ノートと libarchive `archive_read_support_format_rar.c` の挙動だけを形式固有の参照資料にする。標準フィルタ(E8/E8E9/Delta/ARM/RGB/Audio)はネイティブ実装し、custom VM は実行しない。
 
 ## 7. API 設計方針
 
 3 層:
-1. `KaitoKit`(モダン API、Swift 6・Sendable): `ArchiveReader`(URL / Data / ByteSource から open、形式自動判定、書庫単位の `nameEncoding`)、`ArchiveEntry`(index、生バイト名+判定済み表示名、パス成分、サイズ(64bit)、圧縮サイズ、種別(file/dir/link/resource fork)、暗号化、日付、POSIX/DOS 属性、solidGroup、format 固有情報)、`read(entry) -> Data`(宣言サイズで事前確保)、`stream(entry)`(逐次読み)、`extract(entry, to:)`、`PasswordProvider`(同期/非同期)、`Progress`/キャンセル、`EncodingPolicy`(自動判定・固定・候補提示)。インスタンスは非スレッド安全(XADMaster と同じ契約)、`reopen()` で同じ ByteSource を共有した並列用の複製を安価に作る。
+1. `KaitoKit`(モダン API、Swift 6・Sendable): `ArchiveReader`(URL / Data / ByteSource から open、形式自動判定、書庫単位の `nameEncoding`)、`ArchiveEntry`(index、生バイト名+判定済み表示名、パス成分、サイズ(64bit)、圧縮サイズ、種別(file/dir/link/resource fork)、暗号化、日付、POSIX/DOS 属性、solidGroup、format 固有情報)、`read(entry) -> Data`(既知なら宣言サイズで事前確保、サイズ不明なら上限内で段階的に拡張)、`stream(entry)`(逐次読み)、`extract(entry, to:)`、`PasswordProvider`(同期/非同期)、`Progress`/キャンセル、`EncodingPolicy`(自動判定・固定・候補提示)。インスタンスは非スレッド安全(XADMaster と同じ契約)、`reopen()` で同じ ByteSource を共有した並列用の複製を安価に作る。
 2. `KaitoKitCompat`(XADMaster 互換 API): 実体は `KaitoArchive` で、`public typealias XADArchive = KaitoArchive` を提供し `XADArchive` と同じ Swift シグネチャ(`init?(file:)`, `init?(data:)`, `numberOfEntries()`, `name(ofEntry:)`, `contents(ofEntry:)`, `uncompressedSize(ofEntry:)`, `entryIsDirectory(_:)`, `entryHasSize(_:)`, `entryIsEncrypted(_:)`, `isEncrypted()`, `setPassword(_:)`, `solidGroup(ofEntry:)`, `extractEntry(_:to:)`, `attributesOfEntry(_:)`, `XADArchiveDelegate` 相当のプロトコル)。`import XADMaster` → `import KaitoKitCompat` で主要用途はそのまま動くことを目標にする(ObjC 公開を加える場合は `@objc(KKArchive)` のように `KK` 接頭辞で XADMaster と衝突させない)。
 3. 内部: `ByteSource`(file/mmap/Data、256 KB バッファ)、`BitReader`(64bit リザーバ、LE/BE)、`Checked` 演算、`Codec` プロトコル(ストリーム復号、window、フィルタ)、`FormatParser` レジストリ(シグネチャ判定)。
 
 ## 8. 検証・計測
 
-- 差分テスト: 同一書庫を KaitoKit と XADMaster(cooViewer の Frameworks)/7zz/unrar/lhasa/bsdtar で展開し SHA-256 を比較(CLI `kaito` に diff モード)。
+- 差分テスト: 同一書庫を KaitoKit と XADMaster(cooViewer の Frameworks)/7zz/unrar/lhasa/bsdtar で展開し、外部実装をブラックボックスとして SHA-256 を比較(CLI `kaito` に diff モード)。
 - フィクスチャ生成: 7zz・rar 7.23(RAR5)・lha(作成には LHa for UNIX が必要、lhasa は展開のみ)・bsdtar・zip(Info-ZIP)+ makesjiszip.py。RAR4 は rar 6.x が必要(要相談)。
 - 安全: ASan/UBSan ビルド + ミュータント(makemutants.py)+ 決定的な破損ケース、巨大宣言サイズ・爆弾・循環参照の単体テスト。
 - 性能: Scripts/bench の方法論(交互実行、同一ハーネス、SHA 相互検証)を kaito CLI に移植し、XADMaster final と比較。目標 1.3 倍以内。
@@ -107,7 +107,7 @@
 - M0 リポジトリ・パッケージ骨格・コア基盤(ByteSource/BitReader/Checked/Entry/文字コード判定/エラー/CLI/テスト基盤/CI/ベンチ・ファズ台)
 - M1 ZIP(中央ディレクトリ駆動、ZIP64、遅延ローカルヘッダ、stored/deflate/deflate64/bzip2/LZMA、ZipCrypto/WinZip AES、CP932 名、拡張フィールド)
 - M2 LZMA/LZMA2 + 7z(全コーダ、BCJ/BCJ2/Delta、AES-256、solid、group id、辞書リセット索引)
-- M3 RAR3 + RAR5(PPMd H 共有、標準フィルタ、分割、暗号化)
+- M3 RAR4 + RAR5(段階実装中。実装範囲と明示的な非対応は §11)
 - M4 LHA(lh0/lh1/lh4〜7/lz4/lz5/lzs、ヘッダ 0/1/2、SJIS、0x46)
 - M5 tar/gz/bz2/xz、形式判定の網羅、KaitoKitCompat 完成、移行ガイド
 - M6 cooViewer で ArchiveSource を KaitoKit に差し替える PoC(設定フラグ)、差分/ベンチ報告
@@ -117,7 +117,8 @@
 - XADMaster のコードは実装資料として**参照・流用しない**。比較する場合もブラックボックスの展開オラクルに限る。ユーザー指示。
 - 復号器ごとに参照した資料を design.md と該当ソースの先頭コメントに記録する。
 - 読んでよい一次資料(公開ドメイン/公式): LZMA SDK の `lzma-specification.txt`・`7zFormat.txt`・`C/Ppmd7.c`・`C/Ppmd7.h`・`C/Ppmd7Dec.c`、Shkarin の PPMd var.H / var.I、RARLab の RAR 5.0 technote、LHa for UNIX の `header.doc`、PKWARE APPNOTE、POSIX tar、RFC 1951/1952。
-- RAR 2.9/3.x は **7-Zip の Rar29 復号器を参照しない**(unRAR 制限付きコードから派生すると MIT を汚す)。挙動の参照は libarchive の `archive_read_support_format_rar.c`(BSD-2)と非公式のフォーマットノートに限り、`unrar` はブラックボックスのオラクルとしてのみ使う。
+- RAR5 の形式固有の参照資料は **RARLab の RAR 5.0 technote だけ**とする。`rar` / `unrar` executable は生成・展開結果を照合するブラックボックスの oracle としてだけ使い、その source は参照しない。
+- RAR 1.5-4.x の形式固有の参照は bitplane/rar-research の非公式ノートと libarchive の BSD-2 `archive_read_support_format_rar.c` の挙動に限る。7-Zip の Rar29 復号器、unrar、XADMaster、The Unarchiver の source は参照しない。
 - 参照はいずれも「挙動と仕様」を学ぶためで、コードを写さない。ライセンスは MIT 単一。
 
 ## 11. 実装記録(2026-09-06)
@@ -127,6 +128,51 @@
   sjis2000.zip の open 46 → 9 ms(XADMaster 14 ms)。stored 展開は宣言サイズの最終バッファへ直接読み。
 - M2(29a04e8 + 本コミット): LZMA/LZMA2・PPMd7・BCJ/BCJ2/Delta・7zAES・7z リーダ。PPMd7 は公開ドメインの
   LZMA SDK(Ppmd7.c / Ppmd7Dec.c)を参照して再実装(7zz 生成 7,424 ケースで一致)。
+- M3(本コミット、段階実装):
+  - RAR4 は main / file / end header、header CRC、64-bit packed / unpacked size、RAR Unicode 名と
+    legacy 名判定、DOS 日時 / `EXT_TIME`、stored、展開後 CRC32 を実装した。unpack version 29 の
+    独立 RAR 2.9/3.x LZ は部分実装で、実 sample 19 file 中 3 file の SHA-256 が一致した。4 file は
+    descriptor / program 未接続のため standard / custom の識別前に generic filter token で停止し、
+    12 file は空 Huffman table として拒否する。
+    PPMd、custom VM、standard filter の decoder 接続、圧縮 solid state、
+    unpack version 29 以外 (15 / 20 / 26 を含む)、multi-volume continuation、encrypted header は未対応。
+  - RAR5 は CRC 付き main / file / service / end header、vint / extra record、stored、圧縮アルゴリズム
+    version 0 の独立 LZ (method 1〜5)を実装した。URL-backed multi-volume は同じディレクトリの
+    volume の signature / main-header CRC / zero-based number を検証し、非暗号化 stored / method 1〜5
+    の分割 stream と後続 volume で始まる entry を結合・列挙する。非最終 file part は、存在する packed
+    CRC32 と、`verifyRAR5Blake2sp` が true (既定) のとき存在する BLAKE2sp を復号開始前に検証する。
+    continuation は保持した directory descriptor から
+    symlink を追わず regular file として開き、既定 128 volume に制限する。`reopen()` は検証済みの
+    volume handle 一式を共有し path を再解決しない。Delta filter は TIFF 実コーパスで
+    SHA-256 一致を確認し、E8 / E8E9 / ARM は復号コードを実装したが実コーパス検証待ち。
+    圧縮アルゴリズム version 1、圧縮 solid continuation、header encryption、Data / 任意 `ByteSource`
+    および暗号化 entry の volume 継続は未対応。
+  - RAR5 per-file AES-256-CBC / PBKDF2-HMAC-SHA256、password check、暗号化 CRC / BLAKE2sp
+    HashMAC は rar 7.23 の stored / method 5 で end-to-end 検証した。RAR4 per-file AES-128-CBC は
+    KDF / CBC の primitive test 済みだが、実暗号化 RAR4 oracle がなく未検証の限定対応とする。
+  - RAR4 / RAR5 とも solid dependency を `solidGroup` として列挙する。group 先頭も同じ id を持つが、
+    per-header の continuation flag は後続 entry だけに立つ。圧縮 solid stream の復号は未対応で、
+    後方 entry を読む際に group 先頭から再復号する target semantics はまだ実装しない。
+  - RAR5 のサイズ不明 entry は復号終端まで streaming し、`uncompressedSize` を `nil` のまま公開する。
+    codec 辞書は `ReadLimits.maxDictionarySize` で制限し、既定上限は 1 GiB。サイズ不明の暗号化
+    stored entry は AES padding と論理長を安全に区別できないため未対応。
+  - RAR5 release benchmark (`kaito bench ... 7`) は `book-rar5.cbr` が open 3.696 ms / extract
+    30.939 ms、`book-tiff-rar5.cbr` が open 1.699 ms / extract 521.802 ms。指定された XADMaster
+    extract 基準 34 ms / 352 ms に対して 0.910 倍 / 1.482 倍で、RAR 固有の 1.5 倍目標内。
+  - RAR5 の差分確認は上記 2 corpus と `rm43-320-rs.rar`、`Aquantia 10G 2.2.1.0.rar`、
+    `B-CAS CardToolマニュアル全部入りver.4.rar` の全 431 file stream (915,433,332 bytes)を
+    black-box `rar p -inul` と比較し、SHA-256 が全件一致した。RAR4 の `st1200-pts.rar` は
+    19 file 中 3 file が一致し、16 file は誤データを返さず明示的な filter / Huffman error とした。
+    最小の非対応 case は 157,891 packed / 191,702 unpacked bytes の `st1200-pts-6.jpg`。
+  - プロベナンス: RAR5 の外部 format 固有資料は RARLab technote だけで、RAR4 は
+    bitplane/rar-research の非公式ノートと libarchive `archive_read_support_format_rar.c` の挙動だけを
+    format 固有資料とした。公開されていない RAR5 圧縮 grammar と fixed filter にはユーザー提示の
+    clean-room 要件を使用した。非 format 固有資料として既存の汎用 KaitoKit BCJ / Delta、XZ Utils の
+    0BSD IA-64 branch encoding 解説、RFC 7693 / 8018、BLAKE2 / AES / NIST の公開仕様を参照した。
+    `rar` / `unrar` executable は black-box oracle に限った。作業途中に禁止対象の libarchive RAR5
+    source を誤って開いた incident が一度あり、その時点の filter file は全削除した。現在の
+    `RARStandardFilters.swift` は上記の許可資料と入力だけから新規に再実装しており、incident 前の
+    コードや構造は残していない。
 - **ホットループの方針(確定)**: 復号器のホットループは、辞書(窓)・確率表・入力を一度だけ確保した生バッファで
   持ち、状態はループ内ローカルに保持し、算術検証はチャンク/ブロック境界で行う(ループ内で throw しない、
   番兵で物理的読み越しを防ぐ)。安全性は境界での検証と不変条件のコメントで担保する。バイト単位の安全な

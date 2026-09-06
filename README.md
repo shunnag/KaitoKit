@@ -1,9 +1,9 @@
 # KaitoKit (解凍Kit)
 
 KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。ustar、pax、GNU 拡張
-tar、ZIP / ZIP64 に加え、M2 では 7z を実装しています。書庫の検出から列挙、
-ストリーミング読み取り、安全な展開までを一つのパイプラインとして提供します。
-RAR / LHA と圧縮 tar は後続マイルストーンで追加します。
+tar、ZIP / ZIP64、7z に加え、M3 では RAR4 / RAR5 を段階的に実装しています。
+書庫の検出から列挙、ストリーミング読み取り、安全な展開までを一つのパイプラインとして
+提供します。LHA と圧縮 tar は後続マイルストーンで追加します。
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon / Intel
 - 外部依存: なし。zlib、libbz2 など OS 同梱ライブラリだけを使用
@@ -72,6 +72,37 @@ for entry in directories {
 | 7z solid | folder stream の継続利用、`solidGroup`、block-split、pure LZMA2 の後方 seek 用 dictionary-reset index |
 | 7z 整合性 | start / next header、packed stream、folder、substream の CRC32 |
 | 7z 非対応 | IA64 / SPARC filter |
+| RAR4 コンテナ | main / file / end header、header CRC、64-bit size、RAR Unicode 名、legacy 名の書庫単位判定、DOS 日時 / `EXT_TIME` |
+| RAR4 圧縮方式 | stored (`0x30`)。unpack version 29 の独立 RAR 2.9/3.x LZ (`0x31`〜`0x35`) は部分対応 |
+| RAR4 暗号化 | per-file RAR3 AES-128-CBC の KDF / 復号を実装。primitive test 済み、実暗号化 RAR4 oracle は未検証 |
+| RAR4 整合性 | header CRC、展開後 CRC32 |
+| RAR4 非対応 | encrypted header、unpack version 29 以外 (15 / 20 / 26 を含む) の圧縮、PPMd、custom VM、standard filter の decoder 接続、圧縮データの solid 辞書継続、multi-volume continuation |
+| RAR5 コンテナ | main / file / service / end header、header CRC32、vint、UTF-8 名、64-bit size、日時・属性・extra record、URL からの同一ディレクトリ multi-volume 列挙・結合 |
+| RAR5 圧縮方式 | stored (method 0)、圧縮アルゴリズム version 0 の独立 LZ (method 1〜5) |
+| RAR5 filter | Delta は TIFF 実コーパスで SHA-256 検証済み。E8 / E8E9 / ARM は復号コードあり、実コーパス検証待ち |
+| RAR5 暗号化 | per-file AES-256-CBC、PBKDF2-HMAC-SHA256、password check、暗号化 CRC / BLAKE2sp HashMAC。rar 7.23 の stored / method 5 で検証済み |
+| RAR5 整合性 | header CRC32、展開後 CRC32、任意の BLAKE2sp-256 (既定で検証)、分割 entry の非最終 volume に存在する packed CRC32 / BLAKE2sp |
+| RAR5 非対応 | 圧縮アルゴリズム version 1、圧縮データの solid continuation、header encryption、Data / 任意 `ByteSource` からの volume 継続、暗号化 entry の volume 継続、サイズ不明の暗号化 stored entry |
+
+RAR4 の圧縮対応は部分実装です。現在の実 RAR4 サンプルは 19 file 中 3 file の SHA-256 が
+black-box oracle と一致しました。4 file は filter token で停止しますが、descriptor / program
+をまだ接続していないため standard / custom の識別前に `RAR3 filter block decoding` として返します。
+残る 12 file は空 Huffman table として明示的に拒否し、誤った展開結果は返しません。
+RAR4 / RAR5 の `solidGroup` は依存関係を列挙できますが、RAR の圧縮 solid stream 自体は
+まだ展開できません。
+
+RAR5 の非暗号化 multi-volume は、`.part1.rar` を URL から開いた場合に同じディレクトリの
+`.partN.rar` を検証しながらたどり、stored と圧縮 method 1〜5 の分割 entry を一つの
+stream として読みます。continuation は固定した directory descriptor から symlink を追わず
+regular file として開き、既定 128 volume の `ReadLimits.maxVolumeCount` で制限します。
+`reopen()` は検証済みの全 volume handle を共有し、path を再解決しません。Data / 任意
+`ByteSource` は sibling volume を安全に特定できないため、分割 entry の読み取り時に
+`unsupportedMethod("multi-volume from Data")` を返します。
+
+RAR5 のサイズ不明 entry は `uncompressedSize == nil` のまま、復号器の終端まで逐次
+streaming します。`read(_:)` も宣言サイズを仮定せず、安全上限内で段階的にバッファを
+増やします。codec の辞書サイズ上限は `ReadLimits.maxDictionarySize` で設定し、既定値は
+1 GiB です。
 
 ZIP の DOS 日時にはタイムゾーン情報がないため、現在のローカルタイムゾーンとして解釈します。
 Extended timestamp と NTFS timestamp は UTC の時刻として扱います。ZIP のローカルヘッダを

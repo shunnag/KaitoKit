@@ -14,14 +14,79 @@ public protocol ByteSource: Sendable {
 
 /// A byte source backed by a file descriptor and `pread(2)`.
 public final class FileByteSource: ByteSource {
+    final class DirectoryAnchor: @unchecked Sendable {
+        let descriptor: Int32
+
+        init(path: String) throws {
+            descriptor = Darwin.open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+            guard descriptor >= 0 else { throw KaitoError.io(errno) }
+        }
+
+        deinit {
+            _ = Darwin.close(descriptor)
+        }
+    }
+
+    struct AnchoredOpen: Sendable {
+        let source: FileByteSource
+        let directory: DirectoryAnchor
+    }
+
+    private struct OpenedDescriptor {
+        let descriptor: Int32
+        let length: UInt64
+        let directory: DirectoryAnchor
+    }
+
     private let descriptor: Int32
 
     /// Total number of bytes captured when the file was opened.
     public let length: UInt64
 
+    // The caller has already validated the descriptor and transfers its sole
+    // ownership here. Keeping this internal preserves the public path-opening
+    // behavior while allowing race-free openat/fstat callers.
+    init(takingOwnershipOfValidatedDescriptor descriptor: Int32, length: UInt64) {
+        precondition(descriptor >= 0)
+        self.descriptor = descriptor
+        self.length = length
+    }
+
     /// Opens a file for read-only random access.
     public init(url: URL) throws {
-        let descriptor = Darwin.open(url.path, O_RDONLY)
+        let opened = try Self.openDescriptorAnchoredToParent(url: url)
+        self.descriptor = opened.descriptor
+        self.length = opened.length
+    }
+
+    /// Opens the parent before the leaf and returns both owned handles. Archive
+    /// readers pass the exact parent handle to sibling-file locators.
+    static func openAnchored(url: URL) throws -> AnchoredOpen {
+        let opened = try openDescriptorAnchoredToParent(url: url)
+        return AnchoredOpen(
+            source: FileByteSource(
+                takingOwnershipOfValidatedDescriptor: opened.descriptor,
+                length: opened.length
+            ),
+            directory: opened.directory
+        )
+    }
+
+    private static func openDescriptorAnchoredToParent(
+        url: URL
+    ) throws -> OpenedDescriptor {
+        let standardized = url.standardizedFileURL
+        let parent = standardized.deletingLastPathComponent().standardizedFileURL
+        let directory = try DirectoryAnchor(path: parent.path)
+
+        // O_NONBLOCK prevents a hostile FIFO path from hanging before fstat can
+        // reject it. Explicit archive leaves may still be symbolic links; RAR
+        // volume-set lookup applies its stricter no-follow policy separately.
+        let descriptor = Darwin.openat(
+            directory.descriptor,
+            standardized.lastPathComponent,
+            O_RDONLY | O_CLOEXEC | O_NONBLOCK
+        )
         guard descriptor >= 0 else {
             throw KaitoError.io(errno)
         }
@@ -37,9 +102,15 @@ public final class FileByteSource: ByteSource {
             Darwin.close(descriptor)
             throw KaitoError.malformed("file has a negative size")
         }
-
-        self.descriptor = descriptor
-        self.length = UInt64(information.st_size)
+        guard (information.st_mode & S_IFMT) == S_IFREG else {
+            Darwin.close(descriptor)
+            throw KaitoError.malformed("file is not a regular file")
+        }
+        return OpenedDescriptor(
+            descriptor: descriptor,
+            length: UInt64(information.st_size),
+            directory: directory
+        )
     }
 
     /// Opens a file-system path for read-only random access.
@@ -49,6 +120,19 @@ public final class FileByteSource: ByteSource {
 
     deinit {
         Darwin.close(descriptor)
+    }
+
+    /// Compares the stable kernel identity of this open file with another
+    /// descriptor. Used to anchor a parsed first volume to a retained dirfd.
+    func hasSameFileIdentity(as otherDescriptor: Int32) -> Bool {
+        var ownInformation = stat()
+        var otherInformation = stat()
+        guard Darwin.fstat(descriptor, &ownInformation) == 0,
+              Darwin.fstat(otherDescriptor, &otherInformation) == 0 else {
+            return false
+        }
+        return ownInformation.st_dev == otherInformation.st_dev
+            && ownInformation.st_ino == otherInformation.st_ino
     }
 
     /// Reads bytes with `pread(2)` while respecting the captured file length.

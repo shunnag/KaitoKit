@@ -6,6 +6,10 @@ import Foundation
 /// an inexpensive independent reader that shares the immutable byte source.
 public final class ArchiveReader {
     private let source: any ByteSource
+    // Retained only for formats whose continuation volumes are resolved beside
+    // the original file. Data and arbitrary ByteSource readers deliberately
+    // have no filesystem provenance.
+    private let sourceURL: URL?
     private let reader: any FormatReader
     private let options: ReaderOptions
     private var extractionRootKey: String?
@@ -29,8 +33,14 @@ public final class ArchiveReader {
     /// The password used for subsequent encrypted-entry operations.
     public var password: String?
 
-    private init(source: any ByteSource, options: ReaderOptions) throws {
+    private init(
+        source: any ByteSource,
+        sourceURL: URL? = nil,
+        sourceDirectoryAnchor: FileByteSource.DirectoryAnchor? = nil,
+        options: ReaderOptions
+    ) throws {
         self.source = source
+        self.sourceURL = sourceURL
         self.options = options
         self.password = options.password
 
@@ -51,9 +61,49 @@ public final class ArchiveReader {
             reader = sevenZip
             entries = sevenZip.entries
             password = sevenZip.resolvedPassword
-        case .rar, .lha, .gzip, .bzip2, .xz:
+        case .rar:
+            let prefixCount = try Checked.toInt(min(source.length, UInt64(8)))
+            let prefix = try readByteRange(source: source, offset: 0, count: prefixCount)
+            if prefix == RAR5Reader.signature {
+                let rar = try RAR5Reader(
+                    source: source,
+                    options: options,
+                    sourceURL: sourceURL,
+                    sourceDirectoryAnchor: sourceDirectoryAnchor
+                )
+                reader = rar
+                entries = rar.entries
+                password = rar.resolvedPassword
+            } else if prefix.count >= RAR4Reader.signature.count,
+                      Array(prefix.prefix(RAR4Reader.signature.count)) == RAR4Reader.signature {
+                let rar = try RAR4Reader(source: source, options: options)
+                reader = rar
+                entries = rar.entries
+            } else {
+                throw KaitoError.unsupportedFormat
+            }
+        case .lha, .gzip, .bzip2, .xz:
             throw KaitoError.unsupportedFormat
         }
+    }
+
+    /// Builds a reader around an already parsed format reader. This is used by
+    /// formats whose immutable source graph contains more than the primary
+    /// `ByteSource`, such as a RAR5 volume set. The format reader passed here
+    /// must itself provide independent mutable decoder/password state.
+    private init(
+        sharing source: any ByteSource,
+        sourceURL: URL?,
+        options: ReaderOptions,
+        parsedReader: any FormatReader
+    ) {
+        self.source = source
+        self.sourceURL = sourceURL
+        self.options = options
+        self.reader = parsedReader
+        self.format = parsedReader.format
+        self.entries = parsedReader.entries
+        self.password = options.password
     }
 
     /// Opens an archive stored at a file URL.
@@ -61,7 +111,13 @@ public final class ArchiveReader {
         url: URL,
         options: ReaderOptions = ReaderOptions()
     ) throws -> ArchiveReader {
-        try ArchiveReader(source: FileByteSource(url: url), options: options)
+        let opened = try FileByteSource.openAnchored(url: url)
+        return try ArchiveReader(
+            source: opened.source,
+            sourceURL: url.standardizedFileURL,
+            sourceDirectoryAnchor: opened.directory,
+            options: options
+        )
     }
 
     /// Opens an archive from `Data` without intentionally copying its storage.
@@ -131,7 +187,19 @@ public final class ArchiveReader {
     public func reopen() throws -> ArchiveReader {
         var reopenedOptions = options
         reopenedOptions.password = password
-        return try ArchiveReader(source: source, options: reopenedOptions)
+        if let rar5 = reader as? RAR5Reader {
+            return ArchiveReader(
+                sharing: source,
+                sourceURL: sourceURL,
+                options: reopenedOptions,
+                parsedReader: rar5.reopened(options: reopenedOptions)
+            )
+        }
+        return try ArchiveReader(
+            source: source,
+            sourceURL: sourceURL,
+            options: reopenedOptions
+        )
     }
 
     private func validate(_ entry: ArchiveEntry) throws {

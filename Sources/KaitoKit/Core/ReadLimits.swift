@@ -21,8 +21,11 @@ public struct ReadLimits: Sendable, Equatable {
     /// Maximum aggregate logical metadata retained for all entries.
     public var maxTotalMetadataSize: UInt64
 
-    /// Maximum LZMA dictionary allocation accepted from compressed metadata.
+    /// Maximum dictionary allocation accepted from compressed metadata.
     public var maxDictionarySize: UInt64
+
+    /// Maximum number of volumes accepted in one multi-volume archive.
+    public var maxVolumeCount: Int
 
     /// Creates a set of archive resource limits.
     ///
@@ -34,7 +37,8 @@ public struct ReadLimits: Sendable, Equatable {
     ///   - maxMetadataRecordCount: Maximum retained metadata records. The default is 65,536.
     ///   - maxPathComponentCount: Maximum components in one path. The default is 1,024.
     ///   - maxTotalMetadataSize: Maximum aggregate retained metadata. The default is 256 MiB.
-    ///   - maxDictionarySize: Maximum LZMA dictionary size. The default is 64 MiB.
+    ///   - maxDictionarySize: Maximum codec dictionary size. The default is 1 GiB.
+    ///   - maxVolumeCount: Maximum volumes in one archive. The default is 128.
     public init(
         maxEntrySize: UInt64 = 4 * 1_024 * 1_024 * 1_024,
         maxInMemorySize: UInt64 = 1 * 1_024 * 1_024 * 1_024,
@@ -43,7 +47,8 @@ public struct ReadLimits: Sendable, Equatable {
         maxMetadataRecordCount: Int = 65_536,
         maxPathComponentCount: Int = 1_024,
         maxTotalMetadataSize: UInt64 = 256 * 1_024 * 1_024,
-        maxDictionarySize: UInt64 = 64 * 1_024 * 1_024
+        maxDictionarySize: UInt64 = 1 * 1_024 * 1_024 * 1_024,
+        maxVolumeCount: Int = 128
     ) {
         self.maxEntrySize = maxEntrySize
         self.maxInMemorySize = maxInMemorySize
@@ -53,5 +58,6 @@ public struct ReadLimits: Sendable, Equatable {
         self.maxPathComponentCount = max(0, maxPathComponentCount)
         self.maxTotalMetadataSize = maxTotalMetadataSize
         self.maxDictionarySize = maxDictionarySize
+        self.maxVolumeCount = max(0, maxVolumeCount)
     }
 }

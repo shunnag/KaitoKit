@@ -29,6 +29,16 @@ public struct ReaderOptions: Sendable {
     /// permits normal 7-Zip archives while bounding attacker-controlled work.
     public var maxSevenZipAESCyclesPower: UInt8
 
+    /// Maximum binary logarithm of PBKDF2 iterations accepted from RAR5 metadata.
+    ///
+    /// RAR5 stores an attacker-controlled iteration exponent. The default of 24
+    /// matches the milestone's resource ceiling while allowing normal archives.
+    /// Values above 24 are clamped to that non-raiseable safety ceiling.
+    public var maxRAR5KDFCountPower: UInt8
+
+    /// Whether optional RAR5 BLAKE2sp digests are verified when present.
+    public var verifyRAR5Blake2sp: Bool
+
     /// Creates reader options.
     public init(
         encodingPolicy: EncodingPolicy = .automatic(),
@@ -36,7 +46,9 @@ public struct ReaderOptions: Sendable {
         password: String? = nil,
         passwordProvider: (any PasswordProvider)? = nil,
         lazyLocalHeaders: Bool = true,
-        maxSevenZipAESCyclesPower: UInt8 = 24
+        maxSevenZipAESCyclesPower: UInt8 = 24,
+        maxRAR5KDFCountPower: UInt8 = 24,
+        verifyRAR5Blake2sp: Bool = true
     ) {
         self.encodingPolicy = encodingPolicy
         self.limits = limits
@@ -44,6 +56,8 @@ public struct ReaderOptions: Sendable {
         self.passwordProvider = passwordProvider
         self.lazyLocalHeaders = lazyLocalHeaders
         self.maxSevenZipAESCyclesPower = min(maxSevenZipAESCyclesPower, 62)
+        self.maxRAR5KDFCountPower = min(maxRAR5KDFCountPower, 24)
+        self.verifyRAR5Blake2sp = verifyRAR5Blake2sp
     }
 }
 

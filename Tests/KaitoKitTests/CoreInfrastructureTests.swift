@@ -142,6 +142,29 @@ final class CoreInfrastructureTests: XCTestCase {
         XCTAssertEqual(atEnd, 0)
     }
 
+    func testFileByteSourceURLStillFollowsAnExplicitLeafSymlink() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "KaitoKit-FileByteSource-Symlink-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let target = directory.appendingPathComponent("target.bin")
+        let link = directory.appendingPathComponent("link.bin")
+        try Data([0x11, 0x22, 0x33]).write(to: target)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let source = try FileByteSource(url: link)
+        XCTAssertEqual(
+            try readByteRange(source: source, offset: 0, count: 3),
+            [0x11, 0x22, 0x33]
+        )
+    }
+
     func testByteReaderEndianReadsAcrossPartialSourceReads() throws {
         let bytes: [UInt8] = [
             0xAB,

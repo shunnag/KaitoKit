@@ -108,7 +108,7 @@ enum Extractor {
             guard targetComponents != components else {
                 throw KaitoError.malformed("hard-link target refers to itself")
             }
-            let hasLinkData = entry.uncompressedSize ?? 0 > 0
+            let hasLinkData = (entry.compressedSize ?? entry.uncompressedSize ?? 0) > 0
             guard let trustedTargetIdentity = trustedTargets[archivedTarget.index] else {
                 guard hasLinkData else {
                     throw KaitoError.malformed(

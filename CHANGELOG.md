@@ -30,6 +30,26 @@
   dictionary reset からの後方再開。
 - 7zAES の AES-256-CBC / SHA-256 KDF、header encryption、派生鍵 cache、KDF 計算量上限。
   独立した認証 tag がないため、最初の CRC 不一致または coder 構造不正を誤 password と判定。
+- M3 の RAR4 reader。main / file / end header と header CRC、64-bit size、RAR Unicode 名、
+  legacy 名判定、`EXT_TIME`、stored、展開後 CRC32 を実装。独立した unpack version 29 の
+  RAR 2.9/3.x LZ は部分対応で、実 sample 19 file 中 3 file が一致。PPMd / filter descriptor と
+  standard filter の decoder 接続 / custom VM / solid 辞書継続、unpack version 29 以外
+  (15 / 20 / 26 を含む)、
+  multi-volume continuation、encrypted header は明示的に非対応。
+- M3 の RAR5 reader。CRC 付き header / vint / extra record、サイズ不明 entry の streaming、
+  stored と圧縮アルゴリズム version 0 の独立 LZ、`solidGroup` の列挙、URL-backed RAR5
+  multi-volume の検証・列挙・分割 stream 結合を実装。非最終 part に存在する packed CRC32 / BLAKE2sp、
+  race-free な sibling open、既定 128 volume 上限、path を再解決しない `reopen()` を含む。
+  Delta filter は TIFF 実コーパスで検証し、E8 / E8E9 / ARM は復号コードを実装して実コーパス検証待ち。
+- RAR5 per-file AES-256-CBC / PBKDF2-HMAC-SHA256、password check、暗号化 CRC と
+  BLAKE2sp HashMAC。rar 7.23 の stored / method 5 と誤 password を end-to-end 検証。
+  RAR4 per-file AES-128-CBC は primitive test 済みだが、実暗号化 RAR4 oracle は未検証。
+- RAR5 の圧縮アルゴリズム version 1、圧縮 solid continuation、header encryption、
+  Data / 任意 `ByteSource` からの volume 継続、暗号化 entry の volume 継続、サイズ不明の
+  暗号化 stored entry は明示的に非対応。codec 辞書の既定上限は 1 GiB。
+- RAR5 実書庫 5 本、431 file stream、915,433,332 bytes を black-box `rar` と SHA-256
+  差分確認。RAR4 実書庫は 19 file 中 3 file が一致し、残りは明示的な非対応 / malformed。
+  RAR4 / RAR5 の決定的 mutant を合計 544 件実行。
 - test 時に 7zz で生成する各 7z method / AES / solid fixture、10 MiB streaming、cooViewer
   fixture の SHA-256 差分テスト (`/opt/homebrew/bin/7zz` がない環境では明示的に skip)。
 - 検出、一覧、展開、SHA-256 差分 oracle、ベンチマークを提供する `kaito` CLI。

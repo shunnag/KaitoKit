@@ -108,10 +108,15 @@ private func runList(_ arguments: [String]) throws {
     let reader = try openArchive(path)
     for entry in reader.entries {
         let size = entry.uncompressedSize.map { String($0) } ?? "-"
+        let encryption = entry.formatSpecific["encryption"].flatMap {
+            $0 == "none" ? nil : $0
+        } ?? (entry.isEncrypted ? "encrypted" : "plain")
         var fields = [
             String(entry.index),
             size,
             kindName(entry.kind),
+            oneLine(entry.methodDescription),
+            oneLine(encryption),
             oneLine(entry.name),
         ]
         if printRaw {

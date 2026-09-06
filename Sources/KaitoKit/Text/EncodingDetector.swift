@@ -12,7 +12,8 @@ public enum EncodingDetector {
     /// Detects and decodes name bytes according to a policy.
     public static func detect(
         bytes: [UInt8],
-        policy: EncodingPolicy = .automatic()
+        policy: EncodingPolicy = .automatic(),
+        fromWindows: Bool = false
     ) -> EncodingDetection {
         switch policy {
         case let .fixed(encoding):
@@ -28,7 +29,11 @@ public enum EncodingDetector {
             return (.utf8, String(decoding: bytes, as: UTF8.self), 0.0)
 
         case let .automatic(likelyLanguage):
-            return automaticallyDetect(bytes: bytes, likelyLanguage: likelyLanguage)
+            return automaticallyDetect(
+                bytes: bytes,
+                likelyLanguage: likelyLanguage,
+                fromWindows: fromWindows
+            )
         }
     }
 
@@ -39,7 +44,8 @@ public enum EncodingDetector {
 
     private static func automaticallyDetect(
         bytes: [UInt8],
-        likelyLanguage: String?
+        likelyLanguage: String?,
+        fromWindows: Bool
     ) -> EncodingDetection {
         // 空列と ASCII は曖昧さがなく、推測器へ渡さない。
         if bytes.isEmpty || bytes.allSatisfy({ $0 < 0x80 }) {
@@ -52,7 +58,11 @@ public enum EncodingDetector {
         }
 
         // Foundation の結果は先に取得し、構造検査が両方通る曖昧列では品質評価のヒントにも使う。
-        let foundation = foundationDetection(bytes: bytes, likelyLanguage: likelyLanguage)
+        let foundation = foundationDetection(
+            bytes: bytes,
+            likelyLanguage: likelyLanguage,
+            fromWindows: fromWindows
+        )
         let cp932 = cp932Candidate(bytes)
         let eucJP = eucJPCandidate(bytes)
         if let cp932, let eucJP {
@@ -87,7 +97,8 @@ public enum EncodingDetector {
 
     private static func foundationDetection(
         bytes: [UInt8],
-        likelyLanguage: String?
+        likelyLanguage: String?,
+        fromWindows: Bool
     ) -> EncodingDetection? {
         let candidates: [UInt] = [
             String.Encoding.shiftJIS.rawValue,
@@ -103,6 +114,9 @@ public enum EncodingDetector {
         ]
         if let likelyLanguage {
             options[.likelyLanguageKey] = likelyLanguage
+        }
+        if fromWindows {
+            options[.fromWindowsKey] = true
         }
 
         var converted: NSString?

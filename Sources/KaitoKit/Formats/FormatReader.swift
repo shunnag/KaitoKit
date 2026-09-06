@@ -6,4 +6,10 @@ protocol FormatReader: AnyObject {
     var entries: [ArchiveEntry] { get }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream
+    func setPassword(_ password: String?)
+}
+
+extension FormatReader {
+    // 暗号を持たない形式は password 更新を無視する。
+    func setPassword(_ password: String?) {}
 }

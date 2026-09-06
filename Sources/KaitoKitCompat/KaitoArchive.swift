@@ -1,6 +1,7 @@
 private import Darwin
 import Foundation
 import KaitoKit
+import Synchronization
 
 /// A thin, failure-tolerant compatibility facade for the XADArchive surface used by cooViewer.
 ///
@@ -8,12 +9,32 @@ import KaitoKit
 /// boolean extraction results, mutable passwords, and independent/solid group reporting.
 /// Detailed errors and streaming are intentionally available only through `ArchiveReader`.
 public final class KaitoArchive {
+    private static let zipLazyLocalHeaders = Mutex(true)
+
     private let reader: ArchiveReader
+
+    /// Whether newly opened ZIP archives defer local-header validation until first read.
+    ///
+    /// This process-wide default is concurrency-safe and initially `true`. Use
+    /// ``setDefaultZipLazyLocalHeaders(_:)`` to change it for subsequently created archives.
+    public static var defaultZipLazyLocalHeaders: Bool {
+        zipLazyLocalHeaders.withLock { $0 }
+    }
+
+    /// Changes local-header validation behavior for subsequently opened ZIP archives.
+    public static func setDefaultZipLazyLocalHeaders(_ enabled: Bool) {
+        zipLazyLocalHeaders.withLock { $0 = enabled }
+    }
 
     /// Opens an archive at a file-system path, returning `nil` when it cannot be opened.
     public init?(file path: String) {
         do {
-            reader = try ArchiveReader.open(url: URL(fileURLWithPath: path))
+            reader = try ArchiveReader.open(
+                url: URL(fileURLWithPath: path),
+                options: ReaderOptions(
+                    lazyLocalHeaders: Self.defaultZipLazyLocalHeaders
+                )
+            )
         } catch {
             return nil
         }
@@ -22,7 +43,12 @@ public final class KaitoArchive {
     /// Opens an archive backed by `Data`, returning `nil` when it cannot be opened.
     public init?(data: Data) {
         do {
-            reader = try ArchiveReader.open(data: data)
+            reader = try ArchiveReader.open(
+                data: data,
+                options: ReaderOptions(
+                    lazyLocalHeaders: Self.defaultZipLazyLocalHeaders
+                )
+            )
         } catch {
             return nil
         }
@@ -148,7 +174,15 @@ public final class KaitoArchive {
         below destinationParent: URL
     ) throws {
         guard entry.kind == .symlink else { return }
-        guard let target = entry.formatSpecific["linkPath"],
+        let target: String?
+        if let storedTarget = entry.formatSpecific["linkPath"] {
+            target = storedTarget
+        } else if entry.formatSpecific["linkTargetStoredAsData"] == "true" {
+            target = String(data: try reader.read(entry), encoding: .utf8)
+        } else {
+            target = nil
+        }
+        guard let target,
               !target.isEmpty,
               !target.hasPrefix("/"),
               !target.utf8.contains(0) else {

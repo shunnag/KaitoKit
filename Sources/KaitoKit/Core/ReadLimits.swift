@@ -21,6 +21,9 @@ public struct ReadLimits: Sendable, Equatable {
     /// Maximum aggregate logical metadata retained for all entries.
     public var maxTotalMetadataSize: UInt64
 
+    /// Maximum LZMA dictionary allocation accepted from compressed metadata.
+    public var maxDictionarySize: UInt64
+
     /// Creates a set of archive resource limits.
     ///
     /// - Parameters:
@@ -31,6 +34,7 @@ public struct ReadLimits: Sendable, Equatable {
     ///   - maxMetadataRecordCount: Maximum retained metadata records. The default is 65,536.
     ///   - maxPathComponentCount: Maximum components in one path. The default is 1,024.
     ///   - maxTotalMetadataSize: Maximum aggregate retained metadata. The default is 256 MiB.
+    ///   - maxDictionarySize: Maximum LZMA dictionary size. The default is 64 MiB.
     public init(
         maxEntrySize: UInt64 = 4 * 1_024 * 1_024 * 1_024,
         maxInMemorySize: UInt64 = 1 * 1_024 * 1_024 * 1_024,
@@ -38,7 +42,8 @@ public struct ReadLimits: Sendable, Equatable {
         maxMetadataSize: UInt64 = 16 * 1_024 * 1_024,
         maxMetadataRecordCount: Int = 65_536,
         maxPathComponentCount: Int = 1_024,
-        maxTotalMetadataSize: UInt64 = 256 * 1_024 * 1_024
+        maxTotalMetadataSize: UInt64 = 256 * 1_024 * 1_024,
+        maxDictionarySize: UInt64 = 64 * 1_024 * 1_024
     ) {
         self.maxEntrySize = maxEntrySize
         self.maxInMemorySize = maxInMemorySize
@@ -47,5 +52,6 @@ public struct ReadLimits: Sendable, Equatable {
         self.maxMetadataRecordCount = max(0, maxMetadataRecordCount)
         self.maxPathComponentCount = max(0, maxPathComponentCount)
         self.maxTotalMetadataSize = maxTotalMetadataSize
+        self.maxDictionarySize = maxDictionarySize
     }
 }

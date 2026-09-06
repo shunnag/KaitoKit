@@ -2,6 +2,58 @@ import Foundation
 import XCTest
 
 final class CLISmokeTests: XCTestCase {
+    func testListShowsMethodEncryptionAndOptionalRawName() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let archive = temporary.appendingPathComponent("cli-list.tar")
+        let name = "page.txt"
+        try TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: name, contents: Data("payload".utf8)),
+        ]).write(to: archive)
+
+        let executable = try findKaitoExecutable()
+        let ordinary = try runKaito(executable, arguments: ["list", archive.path])
+        let raw = try runKaito(executable, arguments: ["list", archive.path, "--raw"])
+        let expectedRawName = name.utf8.map { String(format: "%02x", $0) }.joined()
+
+        XCTAssertEqual(
+            ordinary.trimmingCharacters(in: .newlines).components(separatedBy: "\t"),
+            ["0", "7", "file", "tar (stored)", "plain", "page.txt"]
+        )
+        XCTAssertEqual(
+            raw.trimmingCharacters(in: .newlines).components(separatedBy: "\t"),
+            ["0", "7", "file", "tar (stored)", "plain", "page.txt", expectedRawName]
+        )
+    }
+
+    func testListNamesTheZIPEncryptionMethod() throws {
+        let temporary = try ZipTestSupport.temporaryDirectory(label: "cli-list-encryption")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let source = temporary.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+        _ = try ZipTestSupport.write(
+            Data("encrypted list payload".utf8),
+            relativePath: "secret.txt",
+            below: source
+        )
+        let archive = temporary.appendingPathComponent("encrypted.zip")
+        try ZipTestSupport.makeInfoZip(
+            sourceDirectory: source,
+            paths: ["secret.txt"],
+            archiveURL: archive,
+            options: ["-0", "-e", "-P", "fixed-password"]
+        )
+
+        let output = try runKaito(
+            findKaitoExecutable(),
+            arguments: ["list", archive.path]
+        )
+        XCTAssertEqual(
+            output.trimmingCharacters(in: .newlines).components(separatedBy: "\t"),
+            ["0", "22", "file", "stored", "ZipCrypto", "secret.txt"]
+        )
+    }
+
     func testSHAOutputIsStableAcrossRuns() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }

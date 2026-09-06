@@ -25,12 +25,6 @@ enum Extractor {
     ) throws -> ExtractionResult {
         let fileManager = FileManager.default
         let root = directory.standardizedFileURL
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-
-        let rootDescriptor = Darwin.open(root.path, directoryOpenFlags)
-        guard rootDescriptor >= 0 else { throw KaitoError.io(errno) }
-        defer { _ = Darwin.close(rootDescriptor) }
-
         let components = try safeComponents(
             for: entry.name,
             allowArchiveRoot: entry.kind == .directory
@@ -42,6 +36,18 @@ enum Extractor {
               destination.path != root.path || entry.kind == .directory else {
             throw KaitoError.malformed("entry path escapes the extraction directory")
         }
+
+        if entry.kind == .directory {
+            // 暗号化ディレクトリも password / HMAC / CRC 検証を省略しない。
+            // 展開ルートや中間ディレクトリを作る前に本体を最後まで消費する。
+            try drain(reader.stream(entry))
+        }
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let rootDescriptor = Darwin.open(root.path, directoryOpenFlags)
+        guard rootDescriptor >= 0 else { throw KaitoError.io(errno) }
+        defer { _ = Darwin.close(rootDescriptor) }
 
         var extractedIdentity: ExtractedFileIdentity?
         switch entry.kind {
@@ -81,7 +87,7 @@ enum Extractor {
             )
             defer { _ = Darwin.close(parent) }
             let leaf = components[components.count - 1]
-            let targetPath = try linkPath(for: entry)
+            let targetPath = try linkPath(for: entry, reader: reader)
             try validateSymbolicLinkTarget(targetPath, below: parent)
             try removeLeafIfRequested(leaf, below: parent, options: options)
             guard Darwin.symlinkat(targetPath, parent, leaf) == 0 else {
@@ -89,7 +95,7 @@ enum Extractor {
             }
 
         case .hardlink:
-            let targetPath = try linkPath(for: entry)
+            let targetPath = try linkPath(for: entry, reader: reader)
             let targetComponents = try safeRelativeLinkComponents(targetPath)
             let archivedTarget = try archivedHardLinkTarget(entry, in: reader)
             let archivedTargetComponents = try safeComponents(
@@ -203,18 +209,47 @@ enum Extractor {
         )
         defer { _ = Darwin.close(parent) }
         let leaf = components[components.count - 1]
-        try removeLeafIfRequested(leaf, below: parent, options: options)
+        // CRC/HMAC は stream 終端まで確定しない。既存 destination を先に消さず、
+        // 同じ directory の一時 inode を完全検証してから不可分に公開する。
+        let temporaryLeaf = ".kaitokit-\(UUID().uuidString)"
         let descriptor = Darwin.openat(
             parent,
-            leaf,
+            temporaryLeaf,
             O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
             mode_t(0o600)
         )
         guard descriptor >= 0 else { throw KaitoError.io(errno) }
-        defer { _ = Darwin.close(descriptor) }
+        var published = false
+        defer {
+            _ = Darwin.close(descriptor)
+            if !published {
+                _ = Darwin.unlinkat(parent, temporaryLeaf, 0)
+            }
+        }
+
         try write(reader.stream(entry), to: descriptor)
         try restoreMetadata(entry, descriptor: descriptor, options: options)
-        return try regularIdentity(descriptor: descriptor)
+        let extractedIdentity = try regularIdentity(descriptor: descriptor)
+
+        if options.overwriteExisting {
+            // renameat は同一 directory 内の通常ファイル/リンク置換を不可分に行い、
+            // directory は再帰削除せず失敗する。
+            guard Darwin.renameat(parent, temporaryLeaf, parent, leaf) == 0 else {
+                throw KaitoError.io(errno)
+            }
+        } else {
+            // linkat は既存 leaf を置換しない。公開後に一時名だけを外す。
+            guard Darwin.linkat(parent, temporaryLeaf, parent, leaf, 0) == 0 else {
+                throw KaitoError.io(errno)
+            }
+            guard Darwin.unlinkat(parent, temporaryLeaf, 0) == 0 else {
+                let code = errno
+                _ = Darwin.unlinkat(parent, leaf, 0)
+                throw KaitoError.io(code)
+            }
+        }
+        published = true
+        return extractedIdentity
     }
 
     private static func replaceHardLinkedContents(
@@ -351,12 +386,12 @@ enum Extractor {
 
     private static func write(_ stream: EntryStream, to descriptor: Int32) throws {
         var buffer = [UInt8](repeating: 0, count: copyBufferSize)
-        while stream.remaining > 0 {
+        while true {
             let count = try buffer.withUnsafeMutableBytes { storage -> Int in
                 // 不変条件: storage は配列の全確保領域で、EntryStream はその範囲を越えて書かない。
                 try stream.read(into: storage)
             }
-            guard count > 0 else { throw KaitoError.truncated }
+            if count == 0 { break }
 
             var written = 0
             while written < count {
@@ -376,8 +411,31 @@ enum Extractor {
         }
     }
 
-    private static func linkPath(for entry: ArchiveEntry) throws -> String {
-        guard let linkPath = entry.formatSpecific["linkPath"],
+    private static func drain(_ stream: EntryStream) throws {
+        var buffer = [UInt8](repeating: 0, count: copyBufferSize)
+        while try buffer.withUnsafeMutableBytes({ storage in
+            try stream.read(into: storage)
+        }) > 0 {}
+    }
+
+    private static func linkPath(
+        for entry: ArchiveEntry,
+        reader: ArchiveReader
+    ) throws -> String {
+        let linkPath: String
+        if let retained = entry.formatSpecific["linkPath"] {
+            linkPath = retained
+        } else if entry.kind == .symlink,
+                  entry.formatSpecific["linkTargetStoredAsData"] == "true" {
+            let bytes = try reader.read(entry)
+            guard let decoded = String(data: bytes, encoding: .utf8) else {
+                throw KaitoError.malformed("symbolic-link target is not valid UTF-8")
+            }
+            linkPath = decoded
+        } else {
+            throw KaitoError.malformed("link target is missing or absolute")
+        }
+        guard
               !linkPath.isEmpty,
               !linkPath.hasPrefix("/"),
               !linkPath.utf8.contains(0) else {
@@ -550,8 +608,10 @@ enum Extractor {
     }
 
     private static func isDescendant(_ candidate: URL, of root: URL) -> Bool {
-        let rootPath = root.standardizedFileURL.path
-        let candidatePath = candidate.standardizedFileURL.path
+        // 呼出側で同じ root から組み立てて標準化済み。存在する root だけを再標準化すると、
+        // `/private/tmp` のような symlink prefix が未作成の leaf と非対称に解決され得る。
+        let rootPath = root.path
+        let candidatePath = candidate.path
         let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
         return candidatePath.hasPrefix(prefix)
     }

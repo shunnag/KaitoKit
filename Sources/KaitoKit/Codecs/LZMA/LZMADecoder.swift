@@ -1,0 +1,658 @@
+import Foundation
+
+// 参照仕様: LZMA SDK の lzma-specification.txt。
+// 確率モデルとレンジ復号器はストリームごとに保持し、出力全体は保持しない。
+
+/// A streaming decoder for raw LZMA1 data.
+///
+/// The five property bytes contain `lc`, `lp`, `pb`, and the little-endian
+/// dictionary size. The compressed range starts with the standard five-byte
+/// LZMA range-coder initialization sequence.
+public final class LZMADecoder: Decompressor {
+    private static let outputChunkSize = 256 * 1_024
+    fileprivate static let probabilityInitialValue: UInt16 = 1 << 10
+    private static let stateCount = 12
+    fileprivate static let maximumPositionStates = 1 << 4
+
+    private var rangeDecoder: LZMARangeDecoder?
+    private let expectedSize: UInt64?
+    private let literalContextBits: Int
+    private let literalPositionBits: Int
+    private let positionStateMask: UInt64
+
+    // 各確率配列の添字は仕様で定義された有限範囲だけを使う。
+    private var isMatch: [UInt16]
+    private var isRep: [UInt16]
+    private var isRepG0: [UInt16]
+    private var isRepG1: [UInt16]
+    private var isRepG2: [UInt16]
+    private var isRep0Long: [UInt16]
+    private var positionSlot: [UInt16]
+    private var positionModels: [UInt16]
+    private var alignment: [UInt16]
+    private var literals: [UInt16]
+    private var matchLength = LZMALengthDecoder()
+    private var repeatedLength = LZMALengthDecoder()
+
+    private var dictionary: [UInt8]
+    private var dictionaryPosition = 0
+    private var previousByte: UInt8 = 0
+    private var outputPosition: UInt64 = 0
+
+    private var state = 0
+    // repN は実距離 - 1 を保持する。
+    private var rep0: UInt32 = 0
+    private var rep1: UInt32 = 0
+    private var rep2: UInt32 = 0
+    private var rep3: UInt32 = 0
+    private var pendingMatchLength = 0
+    private var finished = false
+
+    /// Creates a raw LZMA1 decoder over a validated byte-source range.
+    ///
+    /// - Parameters:
+    ///   - source: Source containing the compressed range.
+    ///   - offset: Absolute offset of the LZMA range-coder bytes.
+    ///   - compressedSize: Number of compressed range-coder bytes.
+    ///   - properties: Exactly five LZMA1 property bytes.
+    ///   - expectedSize: Known output size, or `nil` to require an end marker.
+    ///   - dictionarySizeLimit: Maximum accepted dictionary allocation.
+    public init(
+        source: any ByteSource,
+        offset: UInt64,
+        compressedSize: UInt64,
+        properties: [UInt8],
+        expectedSize: UInt64?,
+        dictionarySizeLimit: UInt64
+    ) throws {
+        guard properties.count == 5 else {
+            throw KaitoError.malformed("LZMA properties must contain five bytes")
+        }
+
+        let packedProperties = Int(properties[0])
+        guard packedProperties < 9 * 5 * 5 else {
+            throw KaitoError.malformed("invalid LZMA lc/lp/pb properties")
+        }
+        let literalContextBits = packedProperties % 9
+        let remainder = packedProperties / 9
+        let literalPositionBits = remainder % 5
+        let positionBits = remainder / 5
+
+        // LZMA1 は 4 KiB 未満の宣言値を最小辞書サイズへ正規化する。
+        let declaredDictionarySize = UInt64(properties[1])
+            | (UInt64(properties[2]) << 8)
+            | (UInt64(properties[3]) << 16)
+            | (UInt64(properties[4]) << 24)
+        let effectiveDictionarySize = max(UInt64(4_096), declaredDictionarySize)
+        try Checked.size(effectiveDictionarySize, limit: dictionarySizeLimit)
+        // 既知の出力全体より古い byte を参照することはできないため、その場合は
+        // 宣言辞書を全量確保せずに同じ復号結果を得られる。
+        let retainedDictionarySize: UInt64
+        if let expectedSize {
+            retainedDictionarySize = min(
+                effectiveDictionarySize,
+                max(UInt64(1), expectedSize)
+            )
+        } else {
+            retainedDictionarySize = effectiveDictionarySize
+        }
+        let dictionaryCount = try Checked.toInt(retainedDictionarySize)
+
+        let compressedEnd = try Checked.add(offset, compressedSize)
+        guard compressedEnd <= source.length else {
+            throw KaitoError.truncated
+        }
+
+        let literalTableShift = try Checked.add(
+            UInt64(literalContextBits),
+            UInt64(literalPositionBits)
+        )
+        let literalContextCount = try Checked.shiftLeft(1, by: literalTableShift)
+        let literalProbabilityCount = try Checked.mul(0x300, literalContextCount)
+        let literalCount = try Checked.toInt(literalProbabilityCount)
+
+        self.expectedSize = expectedSize
+        self.literalContextBits = literalContextBits
+        self.literalPositionBits = literalPositionBits
+        self.positionStateMask = (UInt64(1) << UInt64(positionBits)) - 1
+        self.dictionary = [UInt8](repeating: 0, count: dictionaryCount)
+
+        self.isMatch = Self.initialProbabilities(Self.stateCount * Self.maximumPositionStates)
+        self.isRep = Self.initialProbabilities(Self.stateCount)
+        self.isRepG0 = Self.initialProbabilities(Self.stateCount)
+        self.isRepG1 = Self.initialProbabilities(Self.stateCount)
+        self.isRepG2 = Self.initialProbabilities(Self.stateCount)
+        self.isRep0Long = Self.initialProbabilities(Self.stateCount * Self.maximumPositionStates)
+        self.positionSlot = Self.initialProbabilities(4 * 64)
+        self.positionModels = Self.initialProbabilities((1 << 7) - 14)
+        self.alignment = Self.initialProbabilities(1 << 4)
+        self.literals = Self.initialProbabilities(literalCount)
+
+        // 既知サイズ 0 でも range-coder 初期値を読み、空または切れた入力を受理しない。
+        if expectedSize == 0 {
+            self.rangeDecoder = try LZMARangeDecoder(
+                source: source,
+                offset: offset,
+                endOffset: compressedEnd
+            )
+            self.finished = true
+        } else {
+            self.rangeDecoder = try LZMARangeDecoder(
+                source: source,
+                offset: offset,
+                endOffset: compressedEnd
+            )
+        }
+    }
+
+    /// Indicates whether the known output size or LZMA end marker was reached.
+    public var isFinished: Bool {
+        finished
+    }
+
+    /// Decodes at most one 256 KiB output chunk into `buffer`.
+    public func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+        guard !buffer.isEmpty, !finished else {
+            return 0
+        }
+        guard buffer.baseAddress != nil else {
+            throw KaitoError.malformed("LZMA output buffer has no storage")
+        }
+
+        let capacity = min(buffer.count, Self.outputChunkSize)
+        var output: [UInt8] = []
+        output.reserveCapacity(capacity)
+
+        while output.count < capacity, !finished {
+            if pendingMatchLength > 0 {
+                try copyPendingMatch(into: &output, capacity: capacity)
+                continue
+            }
+
+            let before = outputPosition
+            try decodeSymbol(into: &output, capacity: capacity)
+            if !finished, pendingMatchLength == 0, outputPosition == before {
+                throw KaitoError.malformed("LZMA stream made no progress")
+            }
+        }
+
+        if !output.isEmpty {
+            buffer.copyBytes(from: output)
+        }
+        return output.count
+    }
+
+    private static func initialProbabilities(_ count: Int) -> [UInt16] {
+        [UInt16](repeating: probabilityInitialValue, count: count)
+    }
+
+    private func decodeSymbol(into output: inout [UInt8], capacity: Int) throws {
+        guard var decoder = rangeDecoder else {
+            throw KaitoError.malformed("LZMA range decoder is unavailable")
+        }
+
+        let positionState = Int(outputPosition & positionStateMask)
+        let statePositionIndex = state * Self.maximumPositionStates + positionState
+
+        if try decoder.decodeBit(&isMatch[statePositionIndex]) == 0 {
+            let byte = try decodeLiteral(using: &decoder)
+            updateStateAfterLiteral()
+            try emit(byte, into: &output)
+            rangeDecoder = decoder
+            return
+        }
+
+        if try decoder.decodeBit(&isRep[state]) != 0 {
+            if try decoder.decodeBit(&isRepG0[state]) == 0 {
+                if try decoder.decodeBit(&isRep0Long[statePositionIndex]) == 0 {
+                    updateStateAfterShortRepetition()
+                    try validateDistance(rep0)
+                    pendingMatchLength = 1
+                    rangeDecoder = decoder
+                    try copyPendingMatch(into: &output, capacity: capacity)
+                    return
+                }
+            } else {
+                let distance: UInt32
+                if try decoder.decodeBit(&isRepG1[state]) == 0 {
+                    distance = rep1
+                } else {
+                    if try decoder.decodeBit(&isRepG2[state]) == 0 {
+                        distance = rep2
+                    } else {
+                        distance = rep3
+                        rep3 = rep2
+                    }
+                    rep2 = rep1
+                }
+                rep1 = rep0
+                rep0 = distance
+            }
+
+            let lengthSymbol = try repeatedLength.decode(
+                positionState: positionState,
+                rangeDecoder: &decoder
+            )
+            let length = try checkedMatchLength(lengthSymbol)
+            updateStateAfterRepetition()
+            try beginMatch(length: length, distance: rep0)
+            rangeDecoder = decoder
+            try copyPendingMatch(into: &output, capacity: capacity)
+            return
+        }
+
+        rep3 = rep2
+        rep2 = rep1
+        rep1 = rep0
+
+        let lengthSymbol = try matchLength.decode(
+            positionState: positionState,
+            rangeDecoder: &decoder
+        )
+        let length = try checkedMatchLength(lengthSymbol)
+        updateStateAfterMatch()
+
+        let lengthToPositionState = min(length - 2, 3)
+        let slotBase = lengthToPositionState * 64
+        let slot = try decodeBitTree(
+            probabilities: &positionSlot,
+            base: slotBase,
+            bitCount: 6,
+            rangeDecoder: &decoder
+        )
+        let distance = try decodeDistance(slot: slot, rangeDecoder: &decoder)
+
+        if distance == UInt32.max {
+            guard expectedSize == nil else {
+                throw KaitoError.malformed("LZMA end marker precedes the expected size")
+            }
+            finished = true
+            rangeDecoder = decoder
+            return
+        }
+
+        rep0 = distance
+        try beginMatch(length: length, distance: distance)
+        rangeDecoder = decoder
+        try copyPendingMatch(into: &output, capacity: capacity)
+    }
+
+    private func decodeLiteral(using decoder: inout LZMARangeDecoder) throws -> UInt8 {
+        let positionPart: UInt64
+        if literalPositionBits == 0 {
+            positionPart = 0
+        } else {
+            let mask = (UInt64(1) << UInt64(literalPositionBits)) - 1
+            positionPart = outputPosition & mask
+        }
+        let previousPart: UInt64
+        if literalContextBits == 0 {
+            previousPart = 0
+        } else {
+            previousPart = UInt64(previousByte >> UInt8(8 - literalContextBits))
+        }
+        let context = (positionPart << UInt64(literalContextBits)) | previousPart
+        let base = try Checked.toInt(try Checked.mul(context, 0x300))
+
+        var symbol = 1
+        if state >= 7 {
+            try validateDistance(rep0)
+            var matchByte = dictionaryByte(distance: rep0)
+            while symbol < 0x100 {
+                let matchBit = Int((matchByte >> 7) & 1)
+                matchByte <<= 1
+                let index = base + ((1 + matchBit) << 8) + symbol
+                let bit = Int(try decoder.decodeBit(&literals[index]))
+                symbol = (symbol << 1) | bit
+                if matchBit != bit {
+                    while symbol < 0x100 {
+                        let plainBit = Int(try decoder.decodeBit(&literals[base + symbol]))
+                        symbol = (symbol << 1) | plainBit
+                    }
+                    break
+                }
+            }
+        } else {
+            while symbol < 0x100 {
+                let bit = Int(try decoder.decodeBit(&literals[base + symbol]))
+                symbol = (symbol << 1) | bit
+            }
+        }
+        return UInt8(symbol - 0x100)
+    }
+
+    private func decodeDistance(
+        slot: Int,
+        rangeDecoder decoder: inout LZMARangeDecoder
+    ) throws -> UInt32 {
+        guard slot >= 0, slot < 64 else {
+            throw KaitoError.malformed("invalid LZMA position slot")
+        }
+        if slot < 4 {
+            return UInt32(slot)
+        }
+
+        let directBitCount = (slot >> 1) - 1
+        let prefix = UInt64(2 | (slot & 1)) << UInt64(directBitCount)
+        var distance = prefix
+
+        if slot < 14 {
+            // base は slot 4 のとき -1 だが、木の最初の添字 1 と相殺される。
+            let modelBase = Int(prefix) - slot - 1
+            let suffix = try decodeReverseBitTree(
+                probabilities: &positionModels,
+                base: modelBase,
+                bitCount: directBitCount,
+                rangeDecoder: &decoder
+            )
+            distance = try Checked.add(distance, UInt64(suffix))
+        } else {
+            let direct = try decoder.decodeDirectBits(directBitCount - 4)
+            let shiftedDirect = try Checked.shiftLeft(UInt64(direct), by: 4)
+            distance = try Checked.add(distance, shiftedDirect)
+            let suffix = try decodeReverseBitTree(
+                probabilities: &alignment,
+                base: 0,
+                bitCount: 4,
+                rangeDecoder: &decoder
+            )
+            distance = try Checked.add(distance, UInt64(suffix))
+        }
+
+        guard distance <= UInt64(UInt32.max) else {
+            throw KaitoError.malformed("LZMA distance overflow")
+        }
+        return UInt32(distance)
+    }
+
+    private func beginMatch(length: Int, distance: UInt32) throws {
+        try validateDistance(distance)
+        if let expectedSize {
+            let matchEnd = try Checked.add(outputPosition, UInt64(length))
+            guard matchEnd <= expectedSize else {
+                throw KaitoError.malformed("LZMA output exceeds the expected size")
+            }
+        }
+        pendingMatchLength = length
+    }
+
+    private func checkedMatchLength(_ symbol: Int) throws -> Int {
+        guard symbol >= 0, symbol <= 271 else {
+            throw KaitoError.malformed("invalid LZMA match length")
+        }
+        return symbol + 2
+    }
+
+    private func validateDistance(_ distance: UInt32) throws {
+        let byteDistance = try Checked.add(UInt64(distance), 1)
+        guard byteDistance <= outputPosition else {
+            throw KaitoError.malformed("LZMA match refers before the output start")
+        }
+        guard byteDistance <= UInt64(dictionary.count) else {
+            throw KaitoError.malformed("LZMA match exceeds the declared dictionary")
+        }
+    }
+
+    private func copyPendingMatch(into output: inout [UInt8], capacity: Int) throws {
+        while pendingMatchLength > 0, output.count < capacity {
+            let byte = dictionaryByte(distance: rep0)
+            try emit(byte, into: &output)
+            pendingMatchLength -= 1
+        }
+    }
+
+    private func dictionaryByte(distance: UInt32) -> UInt8 {
+        // 呼び出し前の validateDistance により Int 変換とリング範囲が保証される。
+        let byteDistance = Int(distance) + 1
+        let index: Int
+        if dictionaryPosition >= byteDistance {
+            index = dictionaryPosition - byteDistance
+        } else {
+            index = dictionary.count - (byteDistance - dictionaryPosition)
+        }
+        return dictionary[index]
+    }
+
+    private func emit(_ byte: UInt8, into output: inout [UInt8]) throws {
+        if let expectedSize, outputPosition >= expectedSize {
+            throw KaitoError.malformed("LZMA output exceeds the expected size")
+        }
+
+        dictionary[dictionaryPosition] = byte
+        dictionaryPosition += 1
+        if dictionaryPosition == dictionary.count {
+            dictionaryPosition = 0
+        }
+        previousByte = byte
+        output.append(byte)
+        outputPosition = try Checked.add(outputPosition, 1)
+
+        if let expectedSize, outputPosition == expectedSize {
+            finished = true
+        }
+    }
+
+    private func updateStateAfterLiteral() {
+        if state < 4 {
+            state = 0
+        } else if state < 10 {
+            state -= 3
+        } else {
+            state -= 6
+        }
+    }
+
+    private func updateStateAfterMatch() {
+        state = state < 7 ? 7 : 10
+    }
+
+    private func updateStateAfterRepetition() {
+        state = state < 7 ? 8 : 11
+    }
+
+    private func updateStateAfterShortRepetition() {
+        state = state < 7 ? 9 : 11
+    }
+}
+
+private struct LZMALengthDecoder {
+    private var choice = [UInt16](
+        repeating: LZMADecoder.probabilityInitialValue,
+        count: 2
+    )
+    private var low = [UInt16](
+        repeating: LZMADecoder.probabilityInitialValue,
+        count: LZMADecoder.maximumPositionStates * 8
+    )
+    private var middle = [UInt16](
+        repeating: LZMADecoder.probabilityInitialValue,
+        count: LZMADecoder.maximumPositionStates * 8
+    )
+    private var high = [UInt16](
+        repeating: LZMADecoder.probabilityInitialValue,
+        count: 256
+    )
+
+    mutating func decode(
+        positionState: Int,
+        rangeDecoder: inout LZMARangeDecoder
+    ) throws -> Int {
+        guard positionState >= 0, positionState < LZMADecoder.maximumPositionStates else {
+            throw KaitoError.malformed("invalid LZMA position state")
+        }
+        if try rangeDecoder.decodeBit(&choice[0]) == 0 {
+            return try decodeBitTree(
+                probabilities: &low,
+                base: positionState * 8,
+                bitCount: 3,
+                rangeDecoder: &rangeDecoder
+            )
+        }
+        if try rangeDecoder.decodeBit(&choice[1]) == 0 {
+            let value = try decodeBitTree(
+                probabilities: &middle,
+                base: positionState * 8,
+                bitCount: 3,
+                rangeDecoder: &rangeDecoder
+            )
+            return 8 + value
+        }
+        let value = try decodeBitTree(
+            probabilities: &high,
+            base: 0,
+            bitCount: 8,
+            rangeDecoder: &rangeDecoder
+        )
+        return 16 + value
+    }
+}
+
+private struct LZMARangeDecoder {
+    private var reader: ByteReader
+    private let endOffset: UInt64
+    private var range: UInt32 = UInt32.max
+    private var code: UInt32 = 0
+
+    init(source: any ByteSource, offset: UInt64, endOffset: UInt64) throws {
+        guard offset <= endOffset, endOffset <= source.length else {
+            throw KaitoError.truncated
+        }
+        // ByteReader は最大 256 KiB を補充するため、元 source を上限付きで包む。
+        // これにより物理的な read 要求も検証済み圧縮範囲を越えて後続 ZIP record を読まない。
+        self.reader = try ByteReader(
+            source: LZMABoundedByteSource(source: source, endOffset: endOffset),
+            offset: offset
+        )
+        self.endOffset = endOffset
+
+        let first = try readByte()
+        guard first == 0 else {
+            throw KaitoError.malformed("invalid LZMA range-coder initialization")
+        }
+        for _ in 0..<4 {
+            code = (code << 8) | UInt32(try readByte())
+        }
+    }
+
+    mutating func decodeBit(_ probability: inout UInt16) throws -> UInt32 {
+        guard probability > 0, probability < 2_048 else {
+            throw KaitoError.malformed("invalid LZMA probability state")
+        }
+
+        let bound = (range >> 11) * UInt32(probability)
+        let bit: UInt32
+        if code < bound {
+            range = bound
+            probability += UInt16((2_048 - UInt32(probability)) >> 5)
+            bit = 0
+        } else {
+            range -= bound
+            code -= bound
+            probability -= probability >> 5
+            bit = 1
+        }
+        try normalize()
+        return bit
+    }
+
+    mutating func decodeDirectBits(_ count: Int) throws -> UInt32 {
+        guard count >= 0, count <= 26 else {
+            throw KaitoError.malformed("invalid LZMA direct-bit count")
+        }
+        var result: UInt32 = 0
+        for _ in 0..<count {
+            range >>= 1
+            result <<= 1
+            if code >= range {
+                code -= range
+                result |= 1
+            }
+            try normalize()
+        }
+        return result
+    }
+
+    private mutating func normalize() throws {
+        guard range != 0 else {
+            throw KaitoError.malformed("LZMA range coder reached a zero range")
+        }
+        if range < 0x0100_0000 {
+            range <<= 8
+            code = (code << 8) | UInt32(try readByte())
+        }
+    }
+
+    private mutating func readByte() throws -> UInt8 {
+        guard reader.offset < endOffset else {
+            throw KaitoError.truncated
+        }
+        return try reader.readUInt8()
+    }
+}
+
+private struct LZMABoundedByteSource: ByteSource {
+    let source: any ByteSource
+    let length: UInt64
+
+    init(source: any ByteSource, endOffset: UInt64) {
+        self.source = source
+        self.length = endOffset
+    }
+
+    func read(
+        into buffer: UnsafeMutableRawBufferPointer,
+        at offset: UInt64
+    ) throws -> Int {
+        guard !buffer.isEmpty, offset < length else { return 0 }
+        let remaining = try Checked.sub(length, offset)
+        let count = try Checked.toInt(min(UInt64(buffer.count), remaining))
+        let destination = UnsafeMutableRawBufferPointer(rebasing: buffer[..<count])
+        return try source.read(into: destination, at: offset)
+    }
+}
+
+private func decodeBitTree(
+    probabilities: inout [UInt16],
+    base: Int,
+    bitCount: Int,
+    rangeDecoder: inout LZMARangeDecoder
+) throws -> Int {
+    guard base >= 0, bitCount >= 0, bitCount <= 8 else {
+        throw KaitoError.malformed("invalid LZMA bit tree")
+    }
+    let treeSize = 1 << bitCount
+    guard base <= probabilities.count, treeSize <= probabilities.count - base else {
+        throw KaitoError.malformed("LZMA bit tree exceeds its probability table")
+    }
+
+    var symbol = 1
+    for _ in 0..<bitCount {
+        let bit = Int(try rangeDecoder.decodeBit(&probabilities[base + symbol]))
+        symbol = (symbol << 1) | bit
+    }
+    return symbol - treeSize
+}
+
+private func decodeReverseBitTree(
+    probabilities: inout [UInt16],
+    base: Int,
+    bitCount: Int,
+    rangeDecoder: inout LZMARangeDecoder
+) throws -> Int {
+    guard bitCount >= 0, bitCount <= 8 else {
+        throw KaitoError.malformed("invalid LZMA reverse bit tree")
+    }
+
+    var symbol = 1
+    var result = 0
+    for bitIndex in 0..<bitCount {
+        let index = base + symbol
+        guard index >= 0, index < probabilities.count else {
+            throw KaitoError.malformed("LZMA reverse bit tree exceeds its probability table")
+        }
+        let bit = Int(try rangeDecoder.decodeBit(&probabilities[index]))
+        symbol = (symbol << 1) | bit
+        result |= bit << bitIndex
+    }
+    return result
+}

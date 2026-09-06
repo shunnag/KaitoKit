@@ -20,17 +20,22 @@ public struct ReaderOptions: Sendable {
     /// A fallback password provider.
     public var passwordProvider: (any PasswordProvider)?
 
+    /// Whether ZIP local headers are validated only when their entry is first read.
+    public var lazyLocalHeaders: Bool
+
     /// Creates reader options.
     public init(
         encodingPolicy: EncodingPolicy = .automatic(),
         limits: ReadLimits = ReadLimits(),
         password: String? = nil,
-        passwordProvider: (any PasswordProvider)? = nil
+        passwordProvider: (any PasswordProvider)? = nil,
+        lazyLocalHeaders: Bool = true
     ) {
         self.encodingPolicy = encodingPolicy
         self.limits = limits
         self.password = password
         self.passwordProvider = passwordProvider
+        self.lazyLocalHeaders = lazyLocalHeaders
     }
 }
 

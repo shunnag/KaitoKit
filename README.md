@@ -1,9 +1,9 @@
 # KaitoKit (解凍Kit)
 
-KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。M0 は ustar、pax、
-GNU 拡張 tar を実装し、書庫の検出から列挙、ストリーミング読み取り、安全な展開までを
-一つのパイプラインとして提供します。ZIP / RAR / 7z / LHA と圧縮 tar は後続マイルストーンで
-追加します。
+KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。ustar、pax、GNU 拡張
+tar に加え、M1 では ZIP / ZIP64 を実装しています。書庫の検出から列挙、ストリーミング
+読み取り、安全な展開までを一つのパイプラインとして提供します。RAR / 7z / LHA と圧縮
+tar は後続マイルストーンで追加します。
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon / Intel
 - 外部依存: なし。zlib、libbz2 など OS 同梱ライブラリだけを使用
@@ -50,21 +50,40 @@ for entry in directories {
 `ByteSource` を共有する独立 reader を作ってください。既存 XADMaster 利用コード向けには
 `KaitoKitCompat` の `KaitoArchive` と `XADArchive` typealias もあります。
 
+## 対応状況
+
+| 形式・機能 | 対応状況 |
+|---|---|
+| tar | ustar、pax、GNU long name/link |
+| ZIP コンテナ | 中央ディレクトリ、ZIP64、SFX prefix、遅延ローカルヘッダ |
+| ZIP 圧縮方式 | stored (0)、deflate (8)、Deflate64 (9)、bzip2 (12)、LZMA (14) |
+| ZIP 暗号化 | Traditional PKWARE (ZipCrypto)、WinZip AES-128/192/256 (AE-1/AE-2) |
+| ZIP ファイル名 | UTF-8 flag、Info-ZIP Unicode Path、CP932 / EUC-JP / UTF-8 自動判定 |
+| ZIP メタデータ | ZIP64、extended timestamp、NTFS timestamp、UNIX symlink・permission |
+| ZIP 整合性 | 展開後 CRC32、WinZip AES authentication code |
+| ZIP 非対応 | multi-disk / spanned、zstd (93)、xz (95)、JPEG (96)、PPMd (98) |
+
+ZIP の DOS 日時にはタイムゾーン情報がないため、現在のローカルタイムゾーンとして解釈します。
+Extended timestamp と NTFS timestamp は UTC の時刻として扱います。ZIP のローカルヘッダを
+open 時にすべて検証したい場合は `ReaderOptions(lazyLocalHeaders: false)` を指定してください。
+
 ## コマンドライン
 
 ```console
 $ swift run kaito detect samples/book.tar
 tar
-$ swift run kaito list samples/book.tar
-0\t12345\tfile\t表紙.jpg
-$ swift run kaito list samples/book.tar --raw
+$ swift run kaito list samples/book.zip
+0\t12345\tfile\tdeflate\tplain\t表紙.jpg
+$ swift run kaito list samples/book.zip --raw
 $ swift run kaito extract samples/book.tar -o /tmp/book
 $ swift run kaito sha samples/book.tar
 $ swift run kaito bench samples/book.tar 5
 ```
 
 `sha` はエントリ順の SHA-256 と総合ダイジェストを出力し、別の展開実装との
-差分テストに利用できます。`--raw` は名前の元バイト列を 16 進数で併記します。
+差分テストに利用できます。`list` は index、size、kind、method、暗号方式 (`plain`、
+`ZipCrypto`、`AES-128/192/256`)、name の順でタブ区切り表示し、`--raw` は名前の元バイト列を
+末尾へ 16 進数で併記します。
 
 ## 開発
 

@@ -46,7 +46,8 @@ public struct CRC32: Sendable {
         return checksum.value
     }
 
-    private mutating func update(_ buffer: UnsafeRawBufferPointer) {
+    // 同一 module のストリームが、コピーせず caller 所有範囲を加算する。
+    mutating func update(_ buffer: UnsafeRawBufferPointer) {
         guard let baseAddress = buffer.baseAddress else {
             return
         }

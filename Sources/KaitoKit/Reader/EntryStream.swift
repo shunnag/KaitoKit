@@ -5,10 +5,14 @@ import Foundation
 /// Instances are stateful and are not thread-safe. A stream enforces the
 /// reader's per-entry and in-memory limits independently of archive metadata.
 public final class EntryStream {
-    private let source: any ByteSource
-    private var offset: UInt64
+    private let decompressor: any Decompressor
     private var bytesRemaining: UInt64
     private let inMemoryLimit: UInt64
+    private let expectedCRC32: UInt32?
+    private let entryIndex: Int
+    private let completionCheck: (() throws -> Void)?
+    private var checksum = CRC32()
+    private var completionWasVerified = false
 
     /// The number of bytes that have not yet been read.
     public var remaining: UInt64 { bytesRemaining }
@@ -20,35 +24,68 @@ public final class EntryStream {
         limits: ReadLimits
     ) throws {
         try Checked.size(length, limit: limits.maxEntrySize)
-        let end = try Checked.add(offset, length)
-        guard end <= source.length else {
-            throw KaitoError.truncated
-        }
-        self.source = source
-        self.offset = offset
+        self.decompressor = try CopyDecompressor(
+            source: source,
+            offset: offset,
+            compressedSize: length
+        )
         self.bytesRemaining = length
         self.inMemoryLimit = limits.maxInMemorySize
+        self.expectedCRC32 = nil
+        self.entryIndex = -1
+        self.completionCheck = nil
+        if length == 0 {
+            try verifyCompletion()
+        }
+    }
+
+    init(
+        decompressor: any Decompressor,
+        length: UInt64,
+        expectedCRC32: UInt32?,
+        entryIndex: Int,
+        limits: ReadLimits,
+        completionCheck: (() throws -> Void)? = nil
+    ) throws {
+        try Checked.size(length, limit: limits.maxEntrySize)
+        self.decompressor = decompressor
+        self.bytesRemaining = length
+        self.inMemoryLimit = limits.maxInMemorySize
+        self.expectedCRC32 = expectedCRC32
+        self.entryIndex = entryIndex
+        self.completionCheck = completionCheck
+        if length == 0 {
+            try verifyCompletion()
+        }
     }
 
     /// Reads up to `buffer.count` bytes and returns the number read.
     public func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
-        guard !buffer.isEmpty, bytesRemaining > 0 else { return 0 }
+        guard !buffer.isEmpty else { return 0 }
+        if bytesRemaining == 0 {
+            try verifyCompletion()
+            return 0
+        }
         let requested = min(UInt64(buffer.count), bytesRemaining)
         let count = try Checked.toInt(requested)
 
-        // 不変条件: count は buffer.count 以下で、渡す領域は必ず呼出側バッファ内に収まる。
+        // 不変条件: count は buffer.count 以下で、復号器へ公開する領域は呼出側バッファ内だけ。
         let destination = UnsafeMutableRawBufferPointer(rebasing: buffer[..<count])
-        let actual = try source.read(into: destination, at: offset)
+        let actual = try decompressor.read(into: destination)
         guard actual >= 0, actual <= count else {
-            throw KaitoError.malformed("ByteSource returned an invalid byte count")
+            throw KaitoError.malformed("decompressor returned an invalid byte count")
         }
         guard actual > 0 else {
             throw KaitoError.truncated
         }
 
         let amount = UInt64(actual)
-        offset = try Checked.add(offset, amount)
         bytesRemaining = try Checked.sub(bytesRemaining, amount)
+        checksum.update(UnsafeRawBufferPointer(rebasing: buffer[..<actual]))
+        if bytesRemaining == 0 {
+            // 最終チャンクを呼出側へ渡す前に、終端・認証・CRC を全て確定する。
+            try verifyCompletion()
+        }
         return actual
     }
 
@@ -56,7 +93,13 @@ public final class EntryStream {
     public func readAll() throws -> Data {
         try Checked.size(bytesRemaining, limit: inMemoryLimit)
         let size = try Checked.toInt(bytesRemaining)
-        guard size > 0 else { return Data() }
+        guard size > 0 else {
+            var byte: UInt8 = 0
+            _ = try withUnsafeMutableBytes(of: &byte) { storage in
+                try read(into: storage)
+            }
+            return Data()
+        }
 
         var result = Data(count: size)
         var written = 0
@@ -70,5 +113,31 @@ public final class EntryStream {
             }
         }
         return result
+    }
+
+    private func verifyCompletion() throws {
+        guard !completionWasVerified else { return }
+
+        if !decompressor.isFinished {
+            var byte: UInt8 = 0
+            let additional = try withUnsafeMutableBytes(of: &byte) { storage in
+                try decompressor.read(into: storage)
+            }
+            guard additional >= 0, additional <= 1 else {
+                throw KaitoError.malformed("decompressor returned an invalid byte count")
+            }
+            guard additional == 0 else {
+                throw KaitoError.malformed("entry output exceeds its declared size")
+            }
+            guard decompressor.isFinished else {
+                throw KaitoError.truncated
+            }
+        }
+
+        try completionCheck?()
+        if let expectedCRC32, checksum.value != expectedCRC32 {
+            throw KaitoError.checksumMismatch(entry: entryIndex)
+        }
+        completionWasVerified = true
     }
 }

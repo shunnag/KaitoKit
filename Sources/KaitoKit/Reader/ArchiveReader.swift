@@ -33,8 +33,11 @@ public final class ArchiveReader {
             let tar = try TarReader(source: source, options: options)
             reader = tar
             entries = tar.entries
-        case .zip, .rar, .sevenZip, .lha, .gzip, .bzip2, .xz:
-            // M0 は検出結果を返せるが、読み取りパイプラインは tar のみを実装する。
+        case .zip:
+            let zip = try ZipReader(source: source, options: options)
+            reader = zip
+            entries = zip.entries
+        case .rar, .sevenZip, .lha, .gzip, .bzip2, .xz:
             throw KaitoError.unsupportedFormat
         }
     }
@@ -66,6 +69,7 @@ public final class ArchiveReader {
     /// Returns a forward-only stream for an entry.
     public func stream(_ entry: ArchiveEntry) throws -> EntryStream {
         try validate(entry)
+        try preparePassword(for: entry)
         return try reader.stream(for: entry, limits: options.limits)
     }
 
@@ -75,7 +79,7 @@ public final class ArchiveReader {
         if let declared = entry.uncompressedSize {
             try Checked.size(declared, limit: options.limits.maxInMemorySize)
         }
-        return try reader.stream(for: entry, limits: options.limits).readAll()
+        return try stream(entry).readAll()
     }
 
     /// Safely extracts one entry below `directory` and returns its destination.
@@ -124,5 +128,12 @@ public final class ArchiveReader {
         guard canonical == entry else {
             throw KaitoError.notFound("archive entry \(entry.index)")
         }
+    }
+
+    private func preparePassword(for entry: ArchiveEntry) throws {
+        if entry.isEncrypted, password == nil, let provider = options.passwordProvider {
+            password = try provider.password(for: format)
+        }
+        reader.setPassword(password)
     }
 }

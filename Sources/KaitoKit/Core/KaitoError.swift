@@ -38,7 +38,7 @@ extension KaitoError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .unsupportedFormat:
-            "Unsupported archive format (KaitoKit M0 reads tar archives only)"
+            "Unsupported archive format"
         case let .unsupportedMethod(method):
             "Unsupported archive method: \(method)"
         case let .malformed(reason):

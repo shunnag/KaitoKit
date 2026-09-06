@@ -18,10 +18,10 @@ private enum CLIError: Error, CustomStringConvertible {
 private let usage = """
 usage:
   kaito detect <archive>
-  kaito list <archive> [--raw]
+  kaito list <archive> [--raw] [-p <password>]
   kaito extract <archive> -o <directory> [-p <password>]
-  kaito sha <archive>
-  kaito bench [--data] [--random] <archive> [reps]
+  kaito sha <archive> [-p <password>]
+  kaito bench [--data] [--random] <archive> [reps] [-p <password>]
 """
 
 private func formatName(_ format: ArchiveFormat) -> String {
@@ -93,11 +93,22 @@ private func runDetect(_ arguments: [String]) throws {
 private func runList(_ arguments: [String]) throws {
     var path: String?
     var printRaw = false
-    for argument in arguments {
+    var password: String?
+    var index = arguments.startIndex
+    while index != arguments.endIndex {
+        let argument = arguments[index]
+        arguments.formIndex(after: &index)
         if argument == "--raw" {
             guard !printRaw else { throw CLIError.usage(usage) }
             printRaw = true
+        } else if argument == "-p" {
+            guard password == nil, index != arguments.endIndex else {
+                throw CLIError.usage(usage)
+            }
+            password = arguments[index]
+            arguments.formIndex(after: &index)
         } else if path == nil {
+            guard !argument.hasPrefix("-") else { throw CLIError.usage(usage) }
             path = argument
         } else {
             throw CLIError.usage(usage)
@@ -105,7 +116,7 @@ private func runList(_ arguments: [String]) throws {
     }
     guard let path else { throw CLIError.usage(usage) }
 
-    let reader = try openArchive(path)
+    let reader = try openArchive(path, password: password)
     for entry in reader.entries {
         let size = entry.uncompressedSize.map { String($0) } ?? "-"
         let encryption = entry.formatSpecific["encryption"].flatMap {
@@ -195,10 +206,27 @@ private func entryData(_ entry: ArchiveEntry, reader: ArchiveReader) throws -> D
 }
 
 private func runSHA(_ arguments: [String]) throws {
-    guard arguments.count == 1, let path = arguments.first else {
-        throw CLIError.usage(usage)
+    var path: String?
+    var password: String?
+    var index = arguments.startIndex
+    while index != arguments.endIndex {
+        let argument = arguments[index]
+        arguments.formIndex(after: &index)
+        if argument == "-p" {
+            guard password == nil, index != arguments.endIndex else {
+                throw CLIError.usage(usage)
+            }
+            password = arguments[index]
+            arguments.formIndex(after: &index)
+        } else {
+            guard !argument.hasPrefix("-"), path == nil else {
+                throw CLIError.usage(usage)
+            }
+            path = argument
+        }
     }
-    let reader = try openArchive(path)
+    guard let path else { throw CLIError.usage(usage) }
+    let reader = try openArchive(path, password: password)
     var total = SHA256()
 
     for entry in reader.entries {
@@ -233,20 +261,32 @@ private struct BenchArguments {
     let repetitions: Int
     let useMappedData: Bool
     let useRandomAccess: Bool
+    let password: String?
 }
 
 private func parseBench(_ arguments: [String]) throws -> BenchArguments {
     var positionals: [String] = []
     var useMappedData = false
     var useRandomAccess = false
-    for argument in arguments {
+    var password: String?
+    var index = arguments.startIndex
+    while index != arguments.endIndex {
+        let argument = arguments[index]
+        arguments.formIndex(after: &index)
         if argument == "--data" {
             guard !useMappedData else { throw CLIError.usage(usage) }
             useMappedData = true
         } else if argument == "--random" {
             guard !useRandomAccess else { throw CLIError.usage(usage) }
             useRandomAccess = true
+        } else if argument == "-p" {
+            guard password == nil, index != arguments.endIndex else {
+                throw CLIError.usage(usage)
+            }
+            password = arguments[index]
+            arguments.formIndex(after: &index)
         } else {
+            guard !argument.hasPrefix("-") else { throw CLIError.usage(usage) }
             positionals.append(argument)
         }
     }
@@ -267,7 +307,8 @@ private func parseBench(_ arguments: [String]) throws -> BenchArguments {
         archive: positionals[0],
         repetitions: repetitions,
         useMappedData: useMappedData,
-        useRandomAccess: useRandomAccess
+        useRandomAccess: useRandomAccess,
+        password: password
     )
 }
 
@@ -325,9 +366,12 @@ private func runBench(_ arguments: [String]) throws {
                 contentsOf: URL(fileURLWithPath: parsed.archive),
                 options: .mappedIfSafe
             )
-            reader = try ArchiveReader.open(data: mappedData)
+            reader = try ArchiveReader.open(
+                data: mappedData,
+                options: ReaderOptions(password: parsed.password)
+            )
         } else {
-            reader = try openArchive(parsed.archive)
+            reader = try openArchive(parsed.archive, password: parsed.password)
         }
         let openEnd = DispatchTime.now().uptimeNanoseconds
         openTimes.append(elapsedMilliseconds(since: openStart, until: openEnd))

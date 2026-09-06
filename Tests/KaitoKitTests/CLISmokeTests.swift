@@ -189,6 +189,52 @@ final class CLISmokeTests: XCTestCase {
         XCTAssertTrue((20_000..<21_000).contains(byteCount), "exactly 20 files are read")
     }
 
+    func testListSHAAndBenchPassPasswordToHeaderEncryptedSevenZip() throws {
+        try SevenZipTestSupport.requireSevenZip()
+        let temporary = try SevenZipTestSupport.temporaryDirectory(label: "cli-7z-password")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let source = temporary.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+        let name = "secret.txt"
+        let contents = Data("header-encrypted CLI payload".utf8)
+        let password = "cli-fixed-password"
+        _ = try SevenZipTestSupport.write(contents, relativePath: name, below: source)
+        let archive = temporary.appendingPathComponent("encrypted.7z")
+        try SevenZipTestSupport.makeArchive(
+            sourceDirectory: source,
+            paths: [name],
+            archiveURL: archive,
+            options: ["-m0=Copy", "-ms=off", "-p\(password)", "-mhe=on"]
+        )
+
+        let executable = try findKaitoExecutable()
+        let listed = try runKaito(
+            executable,
+            arguments: ["list", "--raw", "-p", password, archive.path]
+        ).trimmingCharacters(in: .newlines).components(separatedBy: "\t")
+        XCTAssertEqual(listed.count, 7)
+        XCTAssertEqual(listed[1], String(contents.count))
+        XCTAssertEqual(listed[4], "7zAES-256")
+        XCTAssertEqual(listed[5], name)
+
+        let hashes = try runKaito(
+            executable,
+            arguments: ["sha", archive.path, "-p", password]
+        ).split(separator: "\n")
+        XCTAssertEqual(hashes.count, 2)
+        XCTAssertTrue(hashes[0].hasPrefix("0\t\(contents.count)\t"))
+        XCTAssertTrue(hashes[0].hasSuffix("\t\(name)"))
+        XCTAssertTrue(hashes[1].hasPrefix("total\t1\t"))
+
+        let benchmark = try runKaito(
+            executable,
+            arguments: ["bench", "-p", password, "--data", archive.path, "1"]
+        ).split(separator: "\n")
+        XCTAssertEqual(benchmark.count, 4)
+        XCTAssertEqual(benchmark[0], "reps\t1")
+        XCTAssertEqual(benchmark[3], "bytes\t\(contents.count)")
+    }
+
     func testExtractDefersRestrictiveDirectoryMetadataUntilAfterChildren() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
         let output = temporary.appendingPathComponent("output", isDirectory: true)

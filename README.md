@@ -90,11 +90,14 @@ tar
 $ swift run kaito list samples/book.zip
 0\t12345\tfile\tdeflate\tplain\t表紙.jpg
 $ swift run kaito list samples/book.zip --raw
+$ swift run kaito list samples/book-encrypted.7z -p secret
 $ swift run kaito extract samples/book.tar -o /tmp/book
 $ swift run kaito sha samples/book.tar
+$ swift run kaito sha samples/book-encrypted.7z -p secret
 $ swift run kaito bench samples/book.tar 5
 $ swift run kaito bench --data samples/book.tar 5
 $ swift run kaito bench --random samples/book-solid.7z 5
+$ swift run kaito bench --random samples/book-encrypted.7z 5 -p secret
 ```
 
 `sha` はエントリ順の SHA-256 と総合ダイジェストを出力し、別の展開実装との
@@ -105,6 +108,9 @@ $ swift run kaito bench --random samples/book-solid.7z 5
 固定 seed で選んだ最大 20 件の非ディレクトリエントリをランダム順に読み、solid 書庫の
 後方シークを含むアクセスを再現可能な条件で計測します。表示する `bytes` は選択した
 エントリの合計です。
+
+`list`、`extract`、`sha`、`bench` は `-p <password>` を受け付けます。ヘッダも暗号化された
+7z は、一覧やベンチマークの開始時にも password が必要です。
 
 ## 開発
 

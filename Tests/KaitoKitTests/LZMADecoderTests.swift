@@ -47,6 +47,24 @@ final class LZMADecoderTests: XCTestCase {
         XCTAssertTrue(decoder.isFinished)
     }
 
+    func testLiteralRunTransfersConsumedMatchHeadWithinOneRead() throws {
+        let compressed = try decodeHex("00309888aa02a643ebffffb580")
+        let expected = Data("abcabcabcabcabcabc".utf8)
+        let decoder = try makeDecoder(
+            compressed,
+            dictionarySize: 65_536,
+            expectedSize: UInt64(expected.count)
+        )
+        var output = [UInt8](repeating: 0, count: expected.count)
+
+        let count = try output.withUnsafeMutableBytes { storage in
+            try decoder.read(into: storage)
+        }
+        XCTAssertEqual(count, expected.count)
+        XCTAssertEqual(Data(output), expected)
+        XCTAssertTrue(decoder.isFinished)
+    }
+
     func testEndMarkerBeforeKnownSizeIsMalformed() throws {
         let compressed = try decodeHex("0083fffbffffc0000000")
         let decoder = try makeDecoder(
@@ -123,6 +141,23 @@ final class LZMADecoderTests: XCTestCase {
         }
     }
 
+    func testHugeLogicalCompressedRangeDoesNotTrapDuringRefillSizing() throws {
+        let source = EmptyHugeLogicalByteSource()
+        XCTAssertThrowsError(
+            try LZMADecoder(
+                source: source,
+                offset: 0,
+                compressedSize: UInt64.max,
+                properties: [0x5D, 0x00, 0x00, 0x01, 0x00],
+                expectedSize: 1,
+                dictionarySizeLimit: 1 << 20
+            )
+        ) { error in
+            XCTAssertEqual(error as? KaitoError, .truncated)
+        }
+        XCTAssertEqual(source.maximumRequestedCount, 256 * 1_024)
+    }
+
     private func makeDecoder(
         _ compressed: Data,
         dictionarySize: UInt32,
@@ -181,5 +216,28 @@ final class LZMADecoderTests: XCTestCase {
             index = next
         }
         return result
+    }
+}
+
+private final class EmptyHugeLogicalByteSource: ByteSource, @unchecked Sendable {
+    let length = UInt64.max
+
+    private let lock = NSLock()
+    private var requestedCount = 0
+
+    var maximumRequestedCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestedCount
+    }
+
+    func read(
+        into buffer: UnsafeMutableRawBufferPointer,
+        at offset: UInt64
+    ) throws -> Int {
+        lock.lock()
+        requestedCount = max(requestedCount, buffer.count)
+        lock.unlock()
+        return 0
     }
 }

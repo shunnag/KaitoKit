@@ -3,6 +3,82 @@ import KaitoKit
 import XCTest
 
 final class ZipCodecByteSourceBoundaryTests: XCTestCase {
+    func testLZMARefillsLargeRawStreamAndRejectsTruncatedTail() throws {
+        let xzPath = "/opt/homebrew/bin/xz"
+        try ZipTestSupport.requireExecutable(
+            xzPath,
+            reason: "xz is unavailable; large raw LZMA refill fixture skipped"
+        )
+        let temporary = try ZipTestSupport.temporaryDirectory(label: "lzma-refill")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        var payload = Data(count: 400_000)
+        payload.withUnsafeMutableBytes { storage in
+            guard let bytes = storage.bindMemory(to: UInt8.self).baseAddress else { return }
+            var value: UInt64 = 0x4B_61_69_74_6F_4B_69_74
+            for index in 0..<storage.count {
+                value ^= value << 13
+                value ^= value >> 7
+                value ^= value << 17
+                bytes[index] = UInt8(truncatingIfNeeded: value)
+            }
+        }
+        let payloadURL = try ZipTestSupport.write(
+            payload,
+            relativePath: "payload.bin",
+            below: temporary
+        )
+        let encoded = try ZipTestSupport.checkedRun(
+            xzPath,
+            arguments: [
+                "--format=raw",
+                "--lzma1=dict=1MiB,lc=3,lp=0,pb=2",
+                "--stdout",
+                payloadURL.path,
+            ]
+        ).standardOutput
+        XCTAssertGreaterThan(encoded.count, 256 * 1_024 + 64)
+
+        let maximumReadSize = 4_093
+        let initialFillReadCount = (256 * 1_024 + maximumReadSize - 1) / maximumReadSize
+        let validSource = try RangeCheckingShortByteSource(
+            prefix: Data(repeating: 0xC3, count: 17),
+            compressed: encoded,
+            suffix: Data(repeating: 0x3C, count: 257),
+            maximumReadSize: maximumReadSize
+        )
+        let validDecoder = try LZMADecoder(
+            source: validSource,
+            offset: validSource.compressedOffset,
+            compressedSize: UInt64(encoded.count),
+            properties: [0x5D, 0x00, 0x00, 0x10, 0x00],
+            expectedSize: nil,
+            dictionarySizeLimit: 2 * 1_024 * 1_024
+        )
+        XCTAssertEqual(try drain(validDecoder, bufferSize: 31_337), payload)
+        XCTAssertGreaterThan(validSource.readCount, initialFillReadCount)
+
+        let truncated = Data(encoded.dropLast(8))
+        let truncatedSource = try RangeCheckingShortByteSource(
+            prefix: Data(repeating: 0xA5, count: 19),
+            compressed: truncated,
+            suffix: Data(repeating: 0x5A, count: 263),
+            maximumReadSize: maximumReadSize
+        )
+        let truncatedDecoder = try LZMADecoder(
+            source: truncatedSource,
+            offset: truncatedSource.compressedOffset,
+            compressedSize: UInt64(truncated.count),
+            properties: [0x5D, 0x00, 0x00, 0x10, 0x00],
+            expectedSize: nil,
+            dictionarySizeLimit: 2 * 1_024 * 1_024
+        )
+        XCTAssertThrowsError(try drain(truncatedDecoder, bufferSize: 31_337)) { error in
+            XCTAssertEqual(error as? KaitoError, .truncated)
+        }
+        XCTAssertGreaterThan(truncatedSource.readCount, initialFillReadCount)
+    }
+
     func testDeflate64KeepsShortReadsInsideCompressedRange() throws {
         // "abc" を格納した最終 stored block。
         let compressed = Data([0x01, 0x03, 0x00, 0xFC, 0xFF, 0x61, 0x62, 0x63])

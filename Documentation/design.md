@@ -119,3 +119,18 @@
 - 読んでよい一次資料(公開ドメイン/公式): LZMA SDK の `lzma-specification.txt`・`7zFormat.txt`・`C/Ppmd7.c`・`C/Ppmd7.h`・`C/Ppmd7Dec.c`、Shkarin の PPMd var.H / var.I、RARLab の RAR 5.0 technote、LHa for UNIX の `header.doc`、PKWARE APPNOTE、POSIX tar、RFC 1951/1952。
 - RAR 2.9/3.x は **7-Zip の Rar29 復号器を参照しない**(unRAR 制限付きコードから派生すると MIT を汚す)。挙動の参照は libarchive の `archive_read_support_format_rar.c`(BSD-2)と非公式のフォーマットノートに限り、`unrar` はブラックボックスのオラクルとしてのみ使う。
 - 参照はいずれも「挙動と仕様」を学ぶためで、コードを写さない。ライセンスは MIT 単一。
+
+## 11. 実装記録(2026-09-06)
+
+- M0(コミット da98a9f, 16d27f8): 骨格・コア・tar・互換層・CLI・fuzz 基盤。CI は macos-26 / macos-26-intel。
+- M1(592b230, d05da82): ZIP 一式。名前の文字コード判定は **書庫単位**(XADMaster と同じ契約)に変更し、
+  sjis2000.zip の open 46 → 9 ms(XADMaster 14 ms)。stored 展開は宣言サイズの最終バッファへ直接読み。
+- M2(29a04e8 + 本コミット): LZMA/LZMA2・PPMd7・BCJ/BCJ2/Delta・7zAES・7z リーダ。PPMd7 は公開ドメインの
+  LZMA SDK(Ppmd7.c / Ppmd7Dec.c)を参照して再実装(7zz 生成 7,424 ケースで一致)。
+- **ホットループの方針(確定)**: 復号器のホットループは、辞書(窓)・確率表・入力を一度だけ確保した生バッファで
+  持ち、状態はループ内ローカルに保持し、算術検証はチャンク/ブロック境界で行う(ループ内で throw しない、
+  番兵で物理的読み越しを防ぐ)。安全性は境界での検証と不変条件のコメントで担保する。バイト単位の安全な
+  配列アクセスは排他検査と COW 検査で 8 倍遅くなることを実測した(book-tiff.7z 4.9 s → 0.64〜0.94 s)。
+- 性能(release、M4 Max、`kaito sha` のプロセス全体 / XADMaster 同条件): stored cbz 0.17 / 0.18 s、deflate cbz
+  0.82 / 0.84 s、book-tiff.7z 0.94 / 0.57 s、book-solid.7z 10.1 / 7.65 s。§4 の目標 1.3 倍以内を LZMA2 solid は
+  わずかに超過(1.32 倍)。

@@ -93,7 +93,35 @@ public final class ArchiveReader {
                 password = rar.resolvedPassword
             }
         case .lha:
-            let lha = try LHAReader(source: source, options: options)
+            let signatures = try FormatDetector.findLHASignatures(source: source)
+            guard !signatures.isEmpty else {
+                throw KaitoError.unsupportedFormat
+            }
+            var parsedReader: LHAReader?
+            var candidateError: KaitoError?
+            for signature in signatures {
+                do {
+                    parsedReader = try LHAReader(
+                        source: source,
+                        options: options,
+                        headerOffset: signature.offset
+                    )
+                    break
+                } catch let error as KaitoError {
+                    switch error {
+                    case .malformed, .truncated, .checksumMismatch:
+                        // An authenticated base header can still be an
+                        // executable byte pattern. Try the next bounded SFX
+                        // candidate only for structural parse failures.
+                        candidateError = candidateError ?? error
+                    default:
+                        throw error
+                    }
+                }
+            }
+            guard let lha = parsedReader else {
+                throw candidateError ?? KaitoError.unsupportedFormat
+            }
             reader = lha
             entries = lha.entries
         case .gzip, .bzip2, .xz:

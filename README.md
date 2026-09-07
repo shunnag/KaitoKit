@@ -58,12 +58,12 @@ for entry in directories {
 | 形式・機能 | 対応状況 |
 |---|---|
 | tar | ustar、pax、GNU long name/link |
-| LHA コンテナ | header level 0 / 1 / 2、独立 member (`solidGroup == -1`)、`-lhd-` directory |
-| LHA 圧縮方式 | stored: `-lh0-` / `-lz4-` / `-pm0-`、compressed: `-lh1-` / `-lh4-` / `-lh5-` / `-lh6-` / `-lh7-` / `-lz5-` / `-lzs-` |
-| LHA ファイル名 | legacy 名の書庫単位判定、level 0 / 1 の `\` 区切り、0x01 / 0x02、0x46 codepage 932 / 65001 / 936 |
-| LHA メタデータ | DOS / Unix / Windows 日時、64-bit size、MS-DOS 属性、Unix permission / uid / gid / group / user、comment |
-| LHA 整合性 | level 0 / 1 header byte sum、level 2 の 0x00 header CRC16 (存在時)、展開後 CRC16、拡張 header の件数・サイズ・前進上限 |
-| LHA 非対応 | header level 3、`-pm2-`、`-lh2-` / `-lh3-` ほか上記 matrix 外の method |
+| LHA コンテナ | header level 0 / 1 / 2 / 3、独立 member (`solidGroup == -1`)、`-lhd-` / 属性付き directory、認証済み header を探す上限 1 MiB の SFX prefix |
+| LHA 圧縮方式 | stored: `-lh0-` / `-lz4-` / `-pm0-`、compressed: `-lh1-` / `-lh4-` / `-lh5-` / `-lh6-` / `-lh7-` / `-lhx-` (1 MiB 辞書) / `-lz5-` / `-lzs-`。OS marker が示す LHArk 形式の `-lh7-` も扱う |
+| LHA ファイル名 | legacy 名の書庫単位判定、level 0 / 1 の `\` 区切り、0x01 / 0x02、0x46 codepage 932 / 65001 / 936、末尾 separator の directory 判定、先頭 slash / drive prefix の相対化、NUL 終端 |
+| LHA メタデータ | DOS / Unix / Windows 日時、64-bit size、MS-DOS 属性、Unix permission / uid / gid / group / user、comment。無効な DOS 日時は `nil` |
+| LHA 整合性・互換性 | level 0 / 1 header byte sum、level 2 / 3 の 0x00 header CRC16 (存在時)、展開後 CRC16、拡張 header の件数・サイズ・前進上限、OS-9 LHA 2.01 が raw creator ID に 0x4B (OS/68K marker) を記録する level-2 size の 2-byte 不足、zero terminator がなく最終の境界検証済み payload 直後で exact EOF となり、最終 member が LArc、または書庫内に構造検証済み匿名通常 member を少なくとも 1 件含む場合に限定した終端互換性 |
+| LHA 非対応 | `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` と上記 matrix 外の method |
 | ZIP コンテナ | 中央ディレクトリ、ZIP64、SFX prefix、遅延ローカルヘッダ |
 | ZIP 圧縮方式 | stored (0)、deflate (8)、Deflate64 (9)、bzip2 (12)、LZMA (14) |
 | ZIP 暗号化 | Traditional PKWARE (ZipCrypto)、WinZip AES-128/192/256 (AE-1/AE-2) |
@@ -90,6 +90,17 @@ for entry in directories {
 | RAR5 暗号化 | per-file AES-256-CBC、archive `-hp` header encryption、PBKDF2-HMAC-SHA256、password check、CRC / BLAKE2sp HashMAC、暗号化 multi-volume |
 | RAR5 整合性 | header CRC32、展開後 CRC32、任意の BLAKE2sp-256 (既定で検証)、分割 entry の非最終 volume に存在する packed CRC32 / BLAKE2sp |
 | RAR5 非対応 | ユーザー指定により圧縮アルゴリズム version 1 はすべて明示的に拒否、file-copy redirection、RAR5 SFX、Data / 任意 `ByteSource` からの volume 継続、サイズ不明の暗号化 stored entry |
+
+LHA の directory 属性は method だけでなく末尾 separator と MS-DOS directory bit からも判定します。
+このため OS/2 の extended-attribute payload を持つ subdirectory も子 entry の親として扱えます。
+先頭 slash と drive prefix は除いて相対名にしますが、`..` は解決せず、安全な展開層で従来どおり
+拒否します。古い writer が filename field の NUL より後ろへ付けた metadata は pathname に含めません。
+
+MacLHA の Macintosh OS marker を持つ member は、MacBinary / MacBinary II standard proposals に基づいて
+復号後の header が有効と確認できた場合だけ、data fork を `stream(_:)` / `read(_:)` に公開します。
+LHA CRC16 は padding と resource fork を含む MacBinary 全体と compatible trailing extension について検証し、
+MacBinary ではない member はそのまま返します。公開 `uncompressedSize` は互換性のため LHA header が
+宣言した envelope size を保持します。
 
 cooViewer の `book.lzh` は level 2 の `-lh0-` 4 member をすべて lhasa の black-box
 出力と SHA-256 比較しています。`-lh5-` の literal / match / preset-window vector も、

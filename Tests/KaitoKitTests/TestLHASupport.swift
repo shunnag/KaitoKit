@@ -149,6 +149,14 @@ enum LHATestSupport {
                 originalSize: originalSize,
                 crc: crc
             )
+        case 3:
+            header = try level3Header(
+                entry: entry,
+                method: Array(method),
+                packedSize: packedSize,
+                originalSize: originalSize,
+                crc: crc
+            )
         default:
             throw KaitoError.unsupportedMethod("test LHA header level")
         }
@@ -165,7 +173,7 @@ enum LHATestSupport {
         originalSize: UInt32,
         crc: UInt16
     ) throws -> Data {
-        guard !entry.rawName.isEmpty, entry.rawName.count <= 230 else {
+        guard entry.rawName.count <= 230 else {
             throw KaitoError.malformed("test level-0 LHA name length")
         }
         var bytes: [UInt8] = [0, 0]
@@ -274,6 +282,53 @@ enum LHATestSupport {
         return Data(bytes)
     }
 
+    private static func level3Header(
+        entry: HandLHAEntry,
+        method: [UInt8],
+        packedSize: UInt32,
+        originalSize: UInt32,
+        crc: UInt16
+    ) throws -> Data {
+        var extensions: [HandLHAExtendedHeader] = []
+        if entry.includeLevel2HeaderCRC {
+            extensions.append(HandLHAExtendedHeader(0x00, [0, 0]))
+        }
+        extensions.append(contentsOf: extensionRecords(for: entry, includeFilename: true))
+        let chain = try makeExtendedHeaderChain(extensions, sizeFieldBytes: 4)
+
+        var bytes: [UInt8] = []
+        appendUInt16LE(4, to: &bytes)
+        bytes.append(contentsOf: method)
+        appendUInt32LE(packedSize, to: &bytes)
+        appendUInt32LE(originalSize, to: &bytes)
+        appendUInt32LE(unixTimestamp, to: &bytes)
+        bytes.append(0x20)
+        bytes.append(3)
+        appendUInt16LE(crc, to: &bytes)
+        bytes.append(entry.creatorOS ?? 0x55) // UNIX by default
+        appendUInt32LE(0, to: &bytes)
+        appendUInt32LE(UInt32(chain.firstSize), to: &bytes)
+        bytes.append(contentsOf: chain.bytes)
+
+        guard bytes.count <= Int(UInt32.max) else {
+            throw KaitoError.limitExceeded("test level-3 LHA header size")
+        }
+        writeUInt32LE(UInt32(bytes.count), in: &bytes, at: 24)
+
+        if entry.includeLevel2HeaderCRC {
+            // The first common extension starts at byte 32. Its CRC payload is
+            // the following two bytes, independent of the four-byte chain size.
+            guard bytes.count >= 35, bytes[32] == 0 else {
+                throw KaitoError.malformed("test level-3 common header layout")
+            }
+            bytes[33] = 0
+            bytes[34] = 0
+            let headerCRC = CRC16.checksum(bytes)
+            writeUInt16LE(headerCRC, in: &bytes, at: 33)
+        }
+        return Data(bytes)
+    }
+
     private static func extensionRecords(
         for entry: HandLHAEntry,
         includeFilename: Bool
@@ -303,19 +358,26 @@ enum LHATestSupport {
         _ records: [HandLHAExtendedHeader],
         sizeFieldBytes: Int
     ) throws -> (firstSize: Int, bytes: [UInt8]) {
-        guard sizeFieldBytes == 2 else {
+        guard sizeFieldBytes == 2 || sizeFieldBytes == 4 else {
             throw KaitoError.unsupportedMethod("test LHA extended-header size field")
         }
         var nextSize = 0
         var chain: [UInt8] = []
         for record in records.reversed() {
             let recordSize = 1 + record.payload.count + sizeFieldBytes
-            guard recordSize <= Int(UInt16.max) else {
+            let maximumSize = sizeFieldBytes == 2
+                ? UInt64(UInt16.max)
+                : UInt64(UInt32.max)
+            guard UInt64(recordSize) <= maximumSize else {
                 throw KaitoError.limitExceeded("test LHA extended header")
             }
             var encoded = [record.type]
             encoded.append(contentsOf: record.payload)
-            appendUInt16LE(UInt16(nextSize), to: &encoded)
+            if sizeFieldBytes == 2 {
+                appendUInt16LE(UInt16(nextSize), to: &encoded)
+            } else {
+                appendUInt32LE(UInt32(nextSize), to: &encoded)
+            }
             encoded.append(contentsOf: chain)
             chain = encoded
             nextSize = recordSize
@@ -351,5 +413,16 @@ enum LHATestSupport {
     ) {
         bytes[offset] = UInt8(truncatingIfNeeded: value)
         bytes[offset + 1] = UInt8(truncatingIfNeeded: value >> 8)
+    }
+
+    private static func writeUInt32LE(
+        _ value: UInt32,
+        in bytes: inout [UInt8],
+        at offset: Int
+    ) {
+        bytes[offset] = UInt8(truncatingIfNeeded: value)
+        bytes[offset + 1] = UInt8(truncatingIfNeeded: value >> 8)
+        bytes[offset + 2] = UInt8(truncatingIfNeeded: value >> 16)
+        bytes[offset + 3] = UInt8(truncatingIfNeeded: value >> 24)
     }
 }

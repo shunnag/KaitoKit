@@ -9,7 +9,7 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
     }
 
     func testConstantLiteralBlocksDecodeForEveryMethodAndTinyReads() throws {
-        for method in ["-lh4-", "-lh5-", "-lh6-", "-lh7-"] {
+        for method in ["-lh4-", "-lh5-", "-lh6-", "-lh7-", "-lhx-"] {
             var writer = StaticLHABitWriter()
             appendConstantBlock(
                 commandCount: 257,
@@ -63,6 +63,176 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
             try drain(decoder, bufferSize: 3),
             Data("ABCDEFGHABCDEFGH".utf8)
         )
+    }
+
+    func testLHArkSixBitPositionTreeAndExtendedLengthCodes() throws {
+        var writer = StaticLHABitWriter()
+        for byte in "ABCDEFGH".utf8 {
+            appendConstantBlock(
+                commandCount: 1,
+                commandSymbol: Int(byte),
+                method: "-lh7-",
+                lhark: true,
+                to: &writer
+            )
+        }
+        // LHArk command 264 plus suffix zero means an 11-byte match. Its
+        // position symbol 5 plus suffix one means encoded offset seven, or an
+        // eight-byte backward distance.
+        appendConstantBlock(
+            commandCount: 1,
+            commandSymbol: 264,
+            positionSymbol: 5,
+            method: "-lh7-",
+            lhark: true,
+            to: &writer
+        )
+        writer.append(0, bitCount: 1)
+        writer.append(1, bitCount: 1)
+
+        let decoder = try makeDecoder(
+            method: "-lh7-",
+            packed: writer.finish(),
+            outputSize: 19,
+            lhark: true
+        )
+        XCTAssertEqual(
+            try drain(decoder, bufferSize: 2),
+            Data("ABCDEFGHABCDEFGHABC".utf8)
+        )
+    }
+
+    func testLHArkPositionAlphabetAccepts31AndRejects32() throws {
+        var boundaryWriter = StaticLHABitWriter()
+        appendConstantBlock(
+            commandCount: 1,
+            commandSymbol: 256,
+            positionSymbol: 31,
+            method: "-lh7-",
+            lhark: true,
+            to: &boundaryWriter
+        )
+        // Position symbol 31 followed by its largest fourteen-bit suffix
+        // addresses the full 64 KiB backward distance.
+        boundaryWriter.append((1 << 14) - 1, bitCount: 14)
+        let boundary = try makeDecoder(
+            method: "-lh7-",
+            packed: boundaryWriter.finish(),
+            outputSize: 3,
+            lhark: true
+        )
+        XCTAssertEqual(
+            try drain(boundary, bufferSize: 3),
+            Data(repeating: 0x20, count: 3)
+        )
+
+        var invalidWriter = StaticLHABitWriter()
+        appendConstantBlock(
+            commandCount: 1,
+            commandSymbol: Int(UInt8(ascii: "A")),
+            positionSymbol: 32,
+            method: "-lh7-",
+            lhark: true,
+            to: &invalidWriter
+        )
+        let invalid = try makeDecoder(
+            method: "-lh7-",
+            packed: invalidWriter.finish(),
+            outputSize: 1,
+            lhark: true
+        )
+        XCTAssertThrowsError(try drain(invalid, bufferSize: 1)) { error in
+            guard case let KaitoError.malformed(reason) = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertTrue(reason.contains("constant Huffman symbol"))
+        }
+    }
+
+    func testLHArkRejectsPositionLengthCountAboveItsAlphabet() throws {
+        var writer = StaticLHABitWriter()
+        writer.append(1, bitCount: 16)
+        writer.append(0, bitCount: 5)
+        writer.append(0, bitCount: 5)
+        writer.append(0, bitCount: 9)
+        writer.append(Int(UInt8(ascii: "A")), bitCount: 9)
+        writer.append(33, bitCount: 6)
+
+        let decoder = try makeDecoder(
+            method: "-lh7-",
+            packed: writer.finish(),
+            outputSize: 1,
+            lhark: true
+        )
+        XCTAssertThrowsError(try drain(decoder, bufferSize: 1)) { error in
+            guard case let KaitoError.malformed(reason) = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertTrue(reason.contains("length count exceeds"))
+        }
+    }
+
+    func testLHArkMaximumCommandProduces514ByteMatch() throws {
+        var writer = StaticLHABitWriter()
+        appendConstantBlock(
+            commandCount: 1,
+            commandSymbol: 288,
+            positionSymbol: 0,
+            method: "-lh7-",
+            lhark: true,
+            to: &writer
+        )
+        let decoder = try makeDecoder(
+            method: "-lh7-",
+            packed: writer.finish(),
+            outputSize: 514,
+            lhark: true
+        )
+        XCTAssertEqual(
+            try drain(decoder, bufferSize: 37),
+            Data(repeating: 0x20, count: 514)
+        )
+    }
+
+    func testLHXPositionAlphabetReachesOneMiBAndRejectsSymbol21() throws {
+        var boundaryWriter = StaticLHABitWriter()
+        appendConstantBlock(
+            commandCount: 1,
+            commandSymbol: 256,
+            positionSymbol: 20,
+            method: "-lhx-",
+            to: &boundaryWriter
+        )
+        boundaryWriter.append((1 << 19) - 1, bitCount: 19)
+        let boundary = try makeDecoder(
+            method: "-lhx-",
+            packed: boundaryWriter.finish(),
+            outputSize: 3
+        )
+        XCTAssertEqual(
+            try drain(boundary, bufferSize: 3),
+            Data(repeating: 0x20, count: 3)
+        )
+
+        var invalidWriter = StaticLHABitWriter()
+        appendConstantBlock(
+            commandCount: 1,
+            commandSymbol: Int(UInt8(ascii: "A")),
+            positionSymbol: 21,
+            method: "-lhx-",
+            to: &invalidWriter
+        )
+        let invalid = try makeDecoder(
+            method: "-lhx-",
+            packed: invalidWriter.finish(),
+            outputSize: 1
+        )
+        XCTAssertThrowsError(try drain(invalid, bufferSize: 1)) { error in
+            guard case let KaitoError.malformed(reason) = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertTrue(reason.contains("constant Huffman symbol"))
+        }
     }
 
     func testInitialDictionaryContainsSpaces() throws {
@@ -434,6 +604,22 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
                 return XCTFail("unexpected error: \(error)")
             }
         }
+
+        limits.maxDictionarySize = 1_048_575
+        XCTAssertThrowsError(
+            try LZSStaticHuffmanDecoder(
+                method: "-lhx-",
+                source: DataByteSource(Data()),
+                offset: 0,
+                compressedSize: 0,
+                uncompressedSize: 0,
+                limits: limits
+            )
+        ) { error in
+            guard case .limitExceeded = error as? KaitoError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
     }
 
     func testSharedWindowCopyCapsOneCallToOneRingTurn() {
@@ -480,6 +666,7 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
         method: String,
         packed: Data,
         outputSize: UInt64,
+        lhark: Bool = false,
         limits: ReadLimits = ReadLimits()
     ) throws -> LZSStaticHuffmanDecoder {
         try LZSStaticHuffmanDecoder(
@@ -488,6 +675,7 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
             offset: 0,
             compressedSize: UInt64(packed.count),
             uncompressedSize: outputSize,
+            lhark: lhark,
             limits: limits
         )
     }
@@ -516,6 +704,7 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
         commandSymbol: Int,
         positionSymbol: Int = 0,
         method: String,
+        lhark: Bool = false,
         to writer: inout StaticLHABitWriter
     ) {
         writer.append(commandCount, bitCount: 16)
@@ -526,6 +715,7 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
         appendConstantPositionTree(
             method: method,
             symbol: positionSymbol,
+            lhark: lhark,
             to: &writer
         )
     }
@@ -638,9 +828,12 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
     private func appendConstantPositionTree(
         method: String,
         symbol: Int,
+        lhark: Bool = false,
         to writer: inout StaticLHABitWriter
     ) {
-        let bitCount = method == "-lh4-" || method == "-lh5-" ? 4 : 5
+        let bitCount = lhark
+            ? 6
+            : (method == "-lh4-" || method == "-lh5-" ? 4 : 5)
         writer.append(0, bitCount: bitCount)
         writer.append(symbol, bitCount: bitCount)
     }
@@ -658,7 +851,7 @@ private struct StaticLHABitWriter {
     }
 
     mutating func append(_ value: Int, bitCount: Int) {
-        precondition((0...16).contains(bitCount))
+        precondition((0...31).contains(bitCount))
         precondition(value >= 0)
         if bitCount < Int.bitWidth {
             precondition(value < 1 << bitCount || bitCount == 0)

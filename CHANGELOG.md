@@ -13,16 +13,34 @@
 - 生の名前を保持する文字コード判定と、書庫・エントリの公開モデル。
 - copy、raw deflate、bzip2 のストリーミング復号基盤。
 - ustar、pax (`x` / Solaris `X`)、GNU long name/link を扱う tar reader。
-- M4 の LHA / LZH reader。header level 0 / 1 / 2、level 0 / 1 の byte sum、level 2 の
+- M4 の LHA / LZH reader。header level 0 / 1 / 2 / 3、level 0 / 1 の byte sum、level 2 / 3 の
   optional 0x00 header CRC16、拡張 header 0x00 / 0x01 / 0x02 / 0x3f / 0x40〜0x42 / 0x46 /
-  0x50〜0x54、32 / 64-bit size、DOS / Unix / Windows 日時、directory を扱う。
+  0x50〜0x54、32 / 64-bit size、DOS / Unix / Windows 日時、directory を扱う。認証済み
+  member header を最大 1 MiB まで探す bounded SFX prefix にも対応する。
 - LHA の `-lh0-` / `-lz4-` / `-pm0-` stored、`-lh1-` adaptive Huffman、
-  `-lh4-`〜`-lh7-` static Huffman、`-lz5-` / `-lzs-` LArc を実装し、member ごとの
-  CRC16 を検証する。`-pm2-` と header level 3 は明示的に非対応。
+  `-lh4-`〜`-lh7-` static Huffman、1 MiB 辞書の `-lhx-`、OS marker 付き `-lh7-` の
+  LHArk dialect、`-lz5-` / `-lzs-` LArc を実装し、member ごとの CRC16 を検証する。
+  `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` は明示的に非対応。
 - LHA legacy 名を書庫単位で判定し、0x46 codepage の 932 / 65001 / 936 は宣言済み
-  encoding として扱う。各 member は独立しており `solidGroup == -1`。
+  encoding として扱う。末尾 separator の directory 判定、先頭 slash / drive prefix の相対化、
+  filename field の NUL 終端、空名 member、OS/2 extended-attribute subdirectory を通常の
+  安全な entry traversal と両立させる。各 member は独立しており `solidGroup == -1`。
+- OS-9 LHA 2.01 が raw creator ID に 0x4B (既存 mapping では OS/68K marker) を記録し、2 bytes
+  少なく宣言する level-2 header と、無効な DOS timestamp (`nil`) を、境界が一意に検証できる場合に
+  受理する。zero terminator がなく、最終の境界検証済み payload の直後で exact EOF に達する archive は、
+  最終 member が LArc の場合、または書庫内に構造検証済みの匿名通常 member を少なくとも 1 件含む場合だけ
+  受理する。
+- MacLHA の Macintosh OS marker を持つ member は、MacBinary / MacBinary II standard proposals に
+  基づく有効な envelope の data fork だけを公開しながら、padding、resource fork、compatible trailing
+  extension を含む全出力の LHA CRC16 を検証する。MacBinary ではない Macintosh member は変更せずに返す。
 - hand-built level 0 / 1 / 2、codepage、metadata、static / legacy decoder vector、
-  384 deterministic mutant、cooViewer `book.lzh` と lhasa の SHA-256 差分を追加。
+  cooViewer `book.lzh` と lhasa の SHA-256 差分を追加。Swift 6.4 AddressSanitizer では
+  parser / container 384 件と実 archive seed の method 320 件、計 704 deterministic mutant を実行し、
+  test / sanitizer failure は 0 件だった。
+- 供給された corpus directory の 227 archive は、203 件が lhasa と byte-identical、8 件が Unix symlink
+  semantics の差、9 件が KaitoKit 側の想定内 failure (PM1 系 4 件: 非対応 3 / truncated 1、PM2 非対応
+  3 件、4.5 GiB member に対する既定 4 GiB 上限 1 件、parent traversal 拒否 1 件)、7 件が
+  lhasa / oracle 側の failure (LH2 / LH3 2、malformed PM2 1、truncated 1、unusual link / EA 3) だった。
 - 中央ディレクトリ駆動、ZIP64、SFX prefix、遅延ローカルヘッダ検証に対応した ZIP reader。
 - ZIP の stored、deflate、Deflate64、bzip2、raw LZMA1 圧縮方式と UNIX symlink。
 - Traditional PKWARE (ZipCrypto) と WinZip AES-128/192/256 (AE-1/AE-2) の復号・認証。

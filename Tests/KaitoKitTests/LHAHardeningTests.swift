@@ -27,6 +27,66 @@ final class LHAHardeningTests: XCTestCase {
         assertMalformed(tryResult { try self.openDirect(bytes) }, contains: "CRC")
     }
 
+    func testLevel3HeaderCRC16MismatchIsRejected() throws {
+        var bytes = Array(try LHATestSupport.makeArchive(entries: [
+            HandLHAEntry(
+                name: "level-three-crc.txt",
+                contents: Data("payload".utf8),
+                headerLevel: 3
+            ),
+        ]))
+        bytes[15] ^= 0x01
+        assertMalformed(tryResult { try self.openDirect(bytes) }, contains: "CRC")
+    }
+
+    func testPortableLevel3MemberUsesFourByteHeaderAndExtensionSizes() throws {
+        let payload = Data("portable level three".utf8)
+        let bytes = try LHATestSupport.makeArchive(entries: [
+            HandLHAEntry(
+                name: "entry.txt",
+                contents: payload,
+                headerLevel: 3,
+                directoryBytes: Array("nested".utf8) + [0xFF],
+                permissions: 0o640
+            ),
+        ])
+        let reader = try openDirect(Array(bytes))
+        let entry = try XCTUnwrap(reader.entries.first)
+        XCTAssertEqual(entry.name, "nested/entry.txt")
+        XCTAssertEqual(entry.formatSpecific["headerLevel"], "3")
+        XCTAssertEqual(entry.posixPermissions, 0o640)
+        XCTAssertEqual(
+            try reader.stream(for: entry, limits: compactLimits).readAll(),
+            payload
+        )
+    }
+
+    func testLevel3SizeWidthAndExtensionChainOverrunAreRejected() throws {
+        let archive = Array(try LHATestSupport.makeArchive(entries: [
+            HandLHAEntry(name: "level-three.txt", headerLevel: 3),
+        ]))
+
+        var invalidWidth = archive
+        invalidWidth[0] = 2
+        invalidWidth[1] = 0
+        assertMalformed(
+            tryResult { try self.openDirect(invalidWidth) },
+            contains: "size-field width"
+        )
+
+        let headerSize = Int(archive[24])
+            | (Int(archive[25]) << 8)
+            | (Int(archive[26]) << 16)
+            | (Int(archive[27]) << 24)
+        XCTAssertGreaterThanOrEqual(headerSize, 36)
+        var unterminatedChain = archive
+        unterminatedChain[headerSize - 4] = 5
+        assertMalformed(
+            tryResult { try self.openDirect(unterminatedChain) },
+            contains: "overruns"
+        )
+    }
+
     func testTruncatedMemberPayloadIsRejectedWhileOpening() throws {
         var bytes = Array(try LHATestSupport.makeArchive(entries: [
             HandLHAEntry(
@@ -51,31 +111,114 @@ final class LHAHardeningTests: XCTestCase {
         )
     }
 
-    func testDirectoryPathCannotStandInForAnEmptyFileName() throws {
-        let pathOnlyFile = try LHATestSupport.makeArchive(entries: [
-            HandLHAEntry(
-                rawName: [],
-                method: "-lh0-",
-                headerLevel: 2,
-                directoryBytes: Array("dir".utf8) + [0xFF]
-            ),
-        ])
-        assertMalformed(
-            tryResult { try self.openDirect(Array(pathOnlyFile)) },
-            contains: "empty filename"
+    func testDirectoryExtensionWithEmptyLeafInfersDirectory() throws {
+        for method in ["-lh0-", "-lhd-"] {
+            let archive = try LHATestSupport.makeArchive(entries: [
+                HandLHAEntry(
+                    rawName: [],
+                    method: method,
+                    headerLevel: 2,
+                    directoryBytes: Array("dir".utf8) + [0xFF]
+                ),
+            ])
+            let reader = try openDirect(Array(archive))
+            XCTAssertEqual(reader.entries.first?.name, "dir/")
+            XCTAssertEqual(reader.entries.first?.kind, EntryKind.directory)
+        }
+    }
+
+    func testDOSAttributeExtensionInfersDirectoryAtEveryExtendedHeaderLevel() throws {
+        for level: UInt8 in [1, 2, 3] {
+            let archive = try LHATestSupport.makeArchive(entries: [
+                HandLHAEntry(
+                    name: "attribute-directory-\(level)",
+                    headerLevel: level,
+                    permissions: nil,
+                    extraHeaders: [
+                        HandLHAExtendedHeader(0x40, [0x10, 0x00]),
+                    ]
+                ),
+            ])
+            let reader = try openDirect(Array(archive))
+            XCTAssertEqual(reader.entries.first?.kind, .directory, "level \(level)")
+        }
+    }
+
+    func testOnlyDocumentedLArcOrAnonymousCompatibilityMayOmitArchiveTerminator() throws {
+        for method in ["-lzs-", "-lz4-", "-lz5-"] {
+            let member = try LHATestSupport.makeMember(HandLHAEntry(
+                name: "legacy.bin",
+                contents: Data(),
+                method: method,
+                headerLevel: 0,
+                permissions: nil
+            ))
+            let reader = try openDirect(Array(member))
+            XCTAssertEqual(reader.entries.first?.methodDescription, method)
+        }
+
+        var anonymousCompatibilityArchive = Data()
+        anonymousCompatibilityArchive.append(try LHATestSupport.makeMember(HandLHAEntry(
+            rawName: [],
+            method: "-lh0-",
+            headerLevel: 0,
+            permissions: nil
+        )))
+        anonymousCompatibilityArchive.append(try LHATestSupport.makeMember(HandLHAEntry(
+            name: "named.bin",
+            method: "-lh0-",
+            headerLevel: 0,
+            permissions: nil
+        )))
+        let compatibilityReader = try openDirect(Array(anonymousCompatibilityArchive))
+        XCTAssertEqual(compatibilityReader.entries.map(\.name), ["named.bin"])
+
+        let unterminated = try LHATestSupport.makeMember(HandLHAEntry(
+            name: "ordinary.bin",
+            contents: Data(),
+            method: "-lh0-",
+            headerLevel: 0,
+            permissions: nil
+        ))
+        XCTAssertThrowsError(try openDirect(Array(unterminated))) { error in
+            XCTAssertEqual(error as? KaitoError, .truncated)
+        }
+    }
+
+    func testOS9Level2TwoByteUndercountRequiresCreator4B() throws {
+        let payload = Data("OS-68K undercount".utf8)
+        let accepted = try undercountedLevel2Archive(
+            creatorOS: 0x4B,
+            contents: payload
+        )
+        let reader = try openDirect(accepted)
+        let entry = try XCTUnwrap(reader.entries.first)
+        XCTAssertEqual(
+            try reader.stream(for: entry, limits: compactLimits).readAll(),
+            payload
         )
 
-        let pathOnlyDirectory = try LHATestSupport.makeArchive(entries: [
-            HandLHAEntry(
-                rawName: [],
-                method: "-lhd-",
-                headerLevel: 2,
-                directoryBytes: Array("dir".utf8) + [0xFF]
-            ),
-        ])
-        let reader = try openDirect(Array(pathOnlyDirectory))
-        XCTAssertEqual(reader.entries.first?.name, "dir/")
-        XCTAssertEqual(reader.entries.first?.kind, EntryKind.directory)
+        let wrongCreator = try undercountedLevel2Archive(
+            creatorOS: 0x55,
+            contents: payload
+        )
+        assertMalformed(
+            tryResult { try self.openDirect(wrongCreator) },
+            contains: "overruns"
+        )
+    }
+
+    func testOS9Creator4BUndercountRequiresZeroExtensionTerminator() throws {
+        var bytes = try undercountedLevel2Archive(
+            creatorOS: 0x4B,
+            contents: Data()
+        )
+        let declaredSize = Int(bytes[0]) | (Int(bytes[1]) << 8)
+        bytes[declaredSize] = 5
+        assertMalformed(
+            tryResult { try self.openDirect(bytes) },
+            contains: "overruns"
+        )
     }
 
     func testUndersizedExtendedHeaderCannotLoop() throws {
@@ -87,6 +230,17 @@ final class LHAHardeningTests: XCTestCase {
         bytes[24] = 2
         bytes[25] = 0
         assertMalformed(tryResult { try self.openDirect(bytes) }, contains: "envelope")
+    }
+
+    func testTruncatedLevel2FixedHeaderIsRejectedWithoutTrap() throws {
+        let archive = try LHATestSupport.makeArchive(entries: [
+            HandLHAEntry(name: "truncated.txt", headerLevel: 2),
+        ])
+        let bytes = Array(archive.prefix(23))
+
+        XCTAssertThrowsError(try openDirect(bytes)) { error in
+            XCTAssertEqual(error as? KaitoError, KaitoError.truncated)
+        }
     }
 
     func testExtendedHeaderCountLimitIsAppliedAcrossMembers() throws {
@@ -230,14 +384,16 @@ final class LHAHardeningTests: XCTestCase {
         }
     }
 
-    func testHeaderLevel3IsExplicitlyUnsupported() throws {
-        var bytes = Array(try LHATestSupport.makeArchive(entries: [
-            HandLHAEntry(name: "level3.txt", headerLevel: 2),
-        ]))
-        bytes[20] = 3
-        XCTAssertThrowsError(try ArchiveReader.open(data: Data(bytes))) { error in
-            XCTAssertEqual(error as? KaitoError, .unsupportedMethod("LHA header level 3"))
-        }
+    func testLongLeadingSlashRunIsTrimmedToARelativeName() throws {
+        let archive = try LHATestSupport.makeArchive(entries: [
+            HandLHAEntry(
+                name: String(repeating: "/", count: 2_048) + "linear.txt",
+                headerLevel: 2,
+                permissions: nil
+            ),
+        ])
+        let reader = try openDirect(Array(archive))
+        XCTAssertEqual(reader.entries.first?.name, "linear.txt")
     }
 
     func testLevel2HeaderSizeWithZeroLowByteIsNotDetectedAsAnEmptyArchive() throws {
@@ -334,6 +490,37 @@ final class LHAHardeningTests: XCTestCase {
             source: DataByteSource(data: Data(bytes)),
             options: ReaderOptions(limits: compactLimits)
         )
+    }
+
+    private func undercountedLevel2Archive(
+        creatorOS: UInt8,
+        contents: Data
+    ) throws -> [UInt8] {
+        var bytes = Array(try LHATestSupport.makeArchive(entries: [
+            HandLHAEntry(
+                name: "undercounted.bin",
+                contents: contents,
+                headerLevel: 2,
+                creatorOS: creatorOS
+            ),
+        ]))
+        let actualHeaderSize = Int(bytes[0]) | (Int(bytes[1]) << 8)
+        guard actualHeaderSize >= 29,
+              bytes[26] == 0,
+              bytes[actualHeaderSize - 2] == 0,
+              bytes[actualHeaderSize - 1] == 0 else {
+            throw KaitoError.malformed("unexpected test level-2 header layout")
+        }
+
+        let declaredHeaderSize = actualHeaderSize - 2
+        bytes[0] = UInt8(truncatingIfNeeded: declaredHeaderSize)
+        bytes[1] = UInt8(truncatingIfNeeded: declaredHeaderSize >> 8)
+        bytes[27] = 0
+        bytes[28] = 0
+        let headerCRC = CRC16.checksum(Array(bytes[..<actualHeaderSize]))
+        bytes[27] = UInt8(truncatingIfNeeded: headerCRC)
+        bytes[28] = UInt8(truncatingIfNeeded: headerCRC >> 8)
+        return bytes
     }
 
     private func tryResult<T>(_ operation: () throws -> T) -> Result<T, Error> {

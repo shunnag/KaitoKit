@@ -3,7 +3,7 @@ import Foundation
 
 // Clean-room container parser based on Masaru Oki's public LHa for UNIX
 // `header.doc` (translated by Koji Arai), the same project's public README
-// extension notes, and the task's clean-room grammar. These define levels 0-2,
+// extension notes, and the task's clean-room grammar. These define levels 0-3,
 // the portable/Unix extension chain, and the interoperable Windows-time and
 // 64-bit-size extensions. Lhasa was used only as a black-box oracle.
 
@@ -53,6 +53,8 @@ enum LHAHeaderParser {
     private static let level0MinimumHeaderSize = 24
     private static let level1MinimumHeaderSize = 27
     private static let level2MinimumHeaderSize = 26
+    private static let level3MinimumHeaderSize = 32
+    private static let larcMethods: Set<String> = ["-lzs-", "-lz4-", "-lz5-"]
 
     private struct ExtendedFields {
         var headerCRC16: UInt16?
@@ -109,6 +111,7 @@ enum LHAHeaderParser {
         let osID: UInt8?
         let fromWindows: Bool
         let attribute: UInt8
+        let directoryHint: Bool
         let extended: ExtendedFields
         let headerOffset: UInt64
         let dataOffset: UInt64
@@ -126,6 +129,7 @@ enum LHAHeaderParser {
             osID: UInt8?,
             fromWindows: Bool,
             attribute: UInt8,
+            directoryHint: Bool,
             extended: ExtendedFields,
             headerOffset: UInt64,
             dataOffset: UInt64
@@ -142,6 +146,7 @@ enum LHAHeaderParser {
             self.osID = osID
             self.fromWindows = fromWindows
             self.attribute = attribute
+            self.directoryHint = directoryHint
             self.extended = extended
             self.headerOffset = headerOffset
             self.dataOffset = dataOffset
@@ -151,12 +156,15 @@ enum LHAHeaderParser {
     static func parse(
         source: any ByteSource,
         policy: EncodingPolicy,
-        limits: ReadLimits
+        limits: ReadLimits,
+        startOffset: UInt64 = 0
     ) throws -> LHAParsedArchive {
         var pendingEntries: [PendingEntry?] = []
         var records: [LHAEntryRecord] = []
-        var offset: UInt64 = 0
+        guard startOffset <= source.length else { throw KaitoError.truncated }
+        var offset = startOffset
         var foundEndMarker = false
+        var sawAnonymousRegularMember = false
         var totalExtensionRecords = 0
         var retainedPendingMetadataSize: UInt64 = 0
         var reader = try ByteReader(source: source)
@@ -203,9 +211,25 @@ enum LHAHeaderParser {
                     limits: limits
                 )
             case 3:
-                throw KaitoError.unsupportedMethod("LHA header level 3")
+                parsed = try parseLevel3(
+                    source: source,
+                    offset: offset,
+                    limits: limits
+                )
             default:
                 throw KaitoError.malformed("unsupported LHA header level \(level)")
+            }
+
+            // Legacy readers treat an empty-name -lhd- member as a benign
+            // archive terminator. Two historical writers emitted such a root
+            // record before otherwise unreachable bytes; matching that rule
+            // avoids inventing a filesystem name or exposing the tail.
+            if parsed.pending.method == "-lhd-", parsed.pending.rawName.isEmpty {
+                foundEndMarker = true
+                break
+            }
+            if parsed.pending.rawName.isEmpty {
+                sawAnonymousRegularMember = true
             }
 
             guard pendingEntries.count < limits.maxEntryCount else {
@@ -235,6 +259,17 @@ enum LHAHeaderParser {
             offset = parsed.nextOffset
         }
 
+        // The documented LArc methods may end exactly after their final
+        // bounded payload instead of appending LHA's conventional zero byte.
+        // One historical compatibility archive also contains structurally
+        // valid, anonymous regular members that are deliberately omitted from
+        // publication and ends at a named non-LArc payload; preserve that
+        // narrow shape without accepting an ordinary unterminated LHA archive.
+        if offset == source.length,
+           let finalMethod = records.last?.method,
+           larcMethods.contains(finalMethod) || sawAnonymousRegularMember {
+            foundEndMarker = true
+        }
         guard foundEndMarker else { throw KaitoError.truncated }
         return try publish(
             pendingEntries: &pendingEntries,
@@ -288,8 +323,7 @@ enum LHAHeaderParser {
         let osID: UInt8? = osOffset < header.count ? header[osOffset] : nil
         let canonicalName = try canonicalRawName(
             filename: rawName,
-            directory: nil,
-            allowEmptyFilename: method == "-lhd-"
+            directory: nil
         )
         let modificationDate = try dosDate(littleUInt32(header, at: 15))
         let dataOffset = try Checked.add(offset, totalHeaderSize)
@@ -318,6 +352,7 @@ enum LHAHeaderParser {
             osID: osID,
             fromWindows: osID.map(isWindowsLikeOS) ?? true,
             attribute: header[19],
+            directoryHint: method == "-lhd-" || (header[19] & 0x10) != 0,
             extended: extended,
             headerOffset: offset,
             dataOffset: dataOffset
@@ -407,15 +442,14 @@ enum LHAHeaderParser {
         let filename = fields.filename ?? baseFilename
         let canonicalName = try canonicalRawName(
             filename: filename,
-            directory: fields.directory,
-            allowEmptyFilename: method == "-lhd-"
+            directory: fields.directory
         )
         let declaredEncoding = declaredEncoding(for: fields.codePage)
         let baseModificationDate = try dosDate(littleUInt32(base, at: 15))
         let modificationDate = fields.unixModificationDate
             ?? fields.windowsModificationDate
             ?? baseModificationDate
-        let permissions = fields.unixMode.map { $0 & 0o7777 }
+        let permissions = posixPermissions(fields.unixMode, osID: osID)
         let dataOffset = try Checked.add(baseEnd, extensionResult.totalSize)
         let nextOffset = try checkedPayloadEnd(
             dataOffset: dataOffset,
@@ -441,6 +475,9 @@ enum LHAHeaderParser {
             osID: osID,
             fromWindows: isWindowsLikeOS(osID),
             attribute: base[19],
+            directoryHint: method == "-lhd-"
+                || (base[19] & 0x10) != 0
+                || hasDOSDirectoryAttribute(fields),
             extended: fields,
             headerOffset: offset,
             dataOffset: dataOffset
@@ -466,33 +503,70 @@ enum LHAHeaderParser {
         limits: ReadLimits
     ) throws -> ParsedHeader {
         let sizeBytes = try readByteRange(source: source, offset: offset, count: 2)
-        let totalHeaderSize = UInt64(littleUInt16(sizeBytes, at: 0))
-        guard totalHeaderSize >= UInt64(level2MinimumHeaderSize) else {
+        let declaredHeaderSize = UInt64(littleUInt16(sizeBytes, at: 0))
+        guard declaredHeaderSize >= UInt64(level2MinimumHeaderSize) else {
             throw KaitoError.malformed("LHA level-2 header is too short")
         }
-        try Checked.size(totalHeaderSize, limit: limits.maxMetadataSize)
-        let header = try readHeaderBytes(
+        try Checked.size(declaredHeaderSize, limit: limits.maxMetadataSize)
+        let available = try Checked.sub(source.length, offset)
+        guard declaredHeaderSize <= available else { throw KaitoError.truncated }
+        let declaredHeader = try readHeaderBytes(
             source: source,
             offset: offset,
-            size: totalHeaderSize
+            size: declaredHeaderSize
         )
-        guard header[20] == 2 else {
+        guard declaredHeader[20] == 2 else {
             throw KaitoError.malformed("LHA header level changed inside its base header")
         }
 
-        let method = try parseMethod(header)
-        let packedSize32 = UInt64(littleUInt32(header, at: 7))
-        let originalSize32 = UInt64(littleUInt32(header, at: 11))
-        let crc16 = littleUInt16(header, at: 21)
-        let osID = header[23]
+        let method = try parseMethod(declaredHeader)
+        let packedSize32 = UInt64(littleUInt32(declaredHeader, at: 7))
+        let originalSize32 = UInt64(littleUInt32(declaredHeader, at: 11))
+        let crc16 = littleUInt16(declaredHeader, at: 21)
+        let osID = declaredHeader[23]
+        let toleratedHeaderSize = try Checked.add(declaredHeaderSize, 2)
+        let candidate: [UInt8]
+        if osID == 0x4B, toleratedHeaderSize <= available {
+            candidate = try readHeaderBytes(
+                source: source,
+                offset: offset,
+                size: toleratedHeaderSize
+            )
+        } else {
+            candidate = declaredHeader
+        }
         var fields = ExtendedFields()
-        let extensionRecordCount = try parseLevel2Extensions(
-            header,
+        let extensionResult = try parseLevel2Extensions(
+            candidate,
             fields: &fields,
             limits: limits
         )
+        let effectiveHeaderSize: UInt64
+        if UInt64(extensionResult.endOffset) <= declaredHeaderSize {
+            effectiveHeaderSize = declaredHeaderSize
+        } else {
+            // The supplied OS-9 LHA 2.01 archives use creator ID 'K' (0x4B,
+            // conventionally labeled OS/68K) and omit the terminating two-byte
+            // next-size field from level 2's declared total while writing it.
+            // Accept only that exact signature and boundary.
+            let declaredEnd = try Checked.toInt(declaredHeaderSize)
+            guard osID == 0x4B,
+                  UInt64(candidate.count) == toleratedHeaderSize,
+                  UInt64(extensionResult.endOffset) == toleratedHeaderSize,
+                  candidate[declaredEnd] == 0,
+                  candidate[declaredEnd + 1] == 0 else {
+                throw KaitoError.malformed(
+                    "LHA level-2 extension overruns the total header"
+                )
+            }
+            effectiveHeaderSize = toleratedHeaderSize
+            try Checked.size(effectiveHeaderSize, limit: limits.maxMetadataSize)
+        }
+        let authenticatedHeader = Array(
+            candidate.prefix(try Checked.toInt(effectiveHeaderSize))
+        )
         try validateHeaderCRCIfPresent(
-            header,
+            authenticatedHeader,
             fields: fields
         )
 
@@ -505,20 +579,19 @@ enum LHAHeaderParser {
         )
         let canonicalName = try canonicalRawName(
             filename: fields.filename ?? [],
-            directory: fields.directory,
-            allowEmptyFilename: method == "-lhd-"
+            directory: fields.directory
         )
         let declaredEncoding = declaredEncoding(for: fields.codePage)
         let baseModificationDate = Date(
-            timeIntervalSince1970: Double(littleUInt32(header, at: 15))
+            timeIntervalSince1970: Double(littleUInt32(candidate, at: 15))
         )
         // The Windows-time extension is defined as a level-1 override. At
         // level 2 the base field is already Unix time, so retain 0x41's
         // creation/access metadata but do not replace that modification time.
         let modificationDate = fields.unixModificationDate
             ?? baseModificationDate
-        let permissions = fields.unixMode.map { $0 & 0o7777 }
-        let dataOffset = try Checked.add(offset, totalHeaderSize)
+        let permissions = posixPermissions(fields.unixMode, osID: osID)
+        let dataOffset = try Checked.add(offset, effectiveHeaderSize)
         let nextOffset = try checkedPayloadEnd(
             dataOffset: dataOffset,
             compressedSize: compressedSize,
@@ -542,7 +615,10 @@ enum LHAHeaderParser {
             headerLevel: 2,
             osID: osID,
             fromWindows: isWindowsLikeOS(osID),
-            attribute: header[19],
+            attribute: declaredHeader[19],
+            directoryHint: method == "-lhd-"
+                || (declaredHeader[19] & 0x10) != 0
+                || hasDOSDirectoryAttribute(fields),
             extended: fields,
             headerOffset: offset,
             dataOffset: dataOffset
@@ -556,6 +632,108 @@ enum LHAHeaderParser {
                 uncompressedSize: uncompressedSize,
                 crc16: crc16,
                 headerLevel: 2
+            ),
+            nextOffset: nextOffset,
+            extensionRecordCount: extensionResult.recordCount
+        )
+    }
+
+    private static func parseLevel3(
+        source: any ByteSource,
+        offset: UInt64,
+        limits: ReadLimits
+    ) throws -> ParsedHeader {
+        let base = try readHeaderBytes(
+            source: source,
+            offset: offset,
+            size: UInt64(level3MinimumHeaderSize)
+        )
+        guard littleUInt16(base, at: 0) == 4 else {
+            throw KaitoError.malformed("invalid LHA level-3 size-field width")
+        }
+        guard base[20] == 3 else {
+            throw KaitoError.malformed("LHA header level changed inside its base header")
+        }
+        let totalHeaderSize = UInt64(littleUInt32(base, at: 24))
+        guard totalHeaderSize >= UInt64(level3MinimumHeaderSize) else {
+            throw KaitoError.malformed("LHA level-3 header is too short")
+        }
+        try Checked.size(totalHeaderSize, limit: limits.maxMetadataSize)
+        let header = try readHeaderBytes(
+            source: source,
+            offset: offset,
+            size: totalHeaderSize
+        )
+
+        let method = try parseMethod(header)
+        let packedSize32 = UInt64(littleUInt32(header, at: 7))
+        let originalSize32 = UInt64(littleUInt32(header, at: 11))
+        let crc16 = littleUInt16(header, at: 21)
+        let osID = header[23]
+        var fields = ExtendedFields()
+        let extensionRecordCount = try parseLevel3Extensions(
+            header,
+            fields: &fields,
+            limits: limits
+        )
+        try validateHeaderCRCIfPresent(header, fields: fields)
+
+        let compressedSize = fields.compressedSize64 ?? packedSize32
+        let uncompressedSize = fields.uncompressedSize64 ?? originalSize32
+        try validateEntrySizes(
+            compressed: compressedSize,
+            uncompressed: uncompressedSize,
+            limits: limits
+        )
+        let canonicalName = try canonicalRawName(
+            filename: fields.filename ?? [],
+            directory: fields.directory
+        )
+        let modificationDate = fields.unixModificationDate ?? Date(
+            timeIntervalSince1970: Double(littleUInt32(header, at: 15))
+        )
+        let permissions = posixPermissions(fields.unixMode, osID: osID)
+        let dataOffset = try Checked.add(offset, totalHeaderSize)
+        let nextOffset = try checkedPayloadEnd(
+            dataOffset: dataOffset,
+            compressedSize: compressedSize,
+            sourceLength: source.length
+        )
+        try validateDirectorySizes(
+            method: method,
+            compressedSize: compressedSize,
+            uncompressedSize: uncompressedSize
+        )
+
+        let pending = PendingEntry(
+            rawName: canonicalName,
+            declaredEncoding: declaredEncoding(for: fields.codePage),
+            method: method,
+            compressedSize: compressedSize,
+            uncompressedSize: uncompressedSize,
+            modificationDate: modificationDate,
+            permissions: permissions,
+            crc16: crc16,
+            headerLevel: 3,
+            osID: osID,
+            fromWindows: isWindowsLikeOS(osID),
+            attribute: header[19],
+            directoryHint: method == "-lhd-"
+                || (header[19] & 0x10) != 0
+                || hasDOSDirectoryAttribute(fields),
+            extended: fields,
+            headerOffset: offset,
+            dataOffset: dataOffset
+        )
+        return ParsedHeader(
+            pending: pending,
+            record: LHAEntryRecord(
+                method: method,
+                dataOffset: dataOffset,
+                compressedSize: compressedSize,
+                uncompressedSize: uncompressedSize,
+                crc16: crc16,
+                headerLevel: 3
             ),
             nextOffset: nextOffset,
             extensionRecordCount: extensionRecordCount
@@ -624,7 +802,7 @@ enum LHAHeaderParser {
         _ header: [UInt8],
         fields: inout ExtendedFields,
         limits: ReadLimits
-    ) throws -> Int {
+    ) throws -> (recordCount: Int, endOffset: Int) {
         var currentSize = Int(littleUInt16(header, at: 24))
         var cursor = level2MinimumHeaderSize
         var recordCount = 0
@@ -661,6 +839,46 @@ enum LHAHeaderParser {
         // total header size (and maxMetadataSize), and are authenticated when
         // the optional common-header CRC is present, so leave them
         // uninterpreted for compatibility.
+        return (recordCount, cursor)
+    }
+
+    private static func parseLevel3Extensions(
+        _ header: [UInt8],
+        fields: inout ExtendedFields,
+        limits: ReadLimits
+    ) throws -> Int {
+        var currentSize = UInt64(littleUInt32(header, at: 28))
+        var cursor = level3MinimumHeaderSize
+        var recordCount = 0
+
+        while currentSize != 0 {
+            guard currentSize >= 5 else {
+                throw KaitoError.malformed("LHA extended header is smaller than its envelope")
+            }
+            guard recordCount < limits.maxMetadataRecordCount else {
+                throw KaitoError.limitExceeded("LHA extended-header count")
+            }
+            let size = try Checked.toInt(currentSize)
+            guard cursor <= header.count, size <= header.count - cursor else {
+                throw KaitoError.malformed("LHA level-3 extension overruns the total header")
+            }
+            let end = cursor + size
+            let type = header[cursor]
+            let data = Array(header[(cursor + 1)..<(end - 4)])
+            try parseExtension(
+                type: type,
+                data: data,
+                crcFieldOffset: cursor + 1,
+                fields: &fields
+            )
+            let nextSize = littleUInt32(header, at: end - 4)
+            guard end > cursor else {
+                throw KaitoError.malformed("LHA extended-header loop made no progress")
+            }
+            cursor = end
+            currentSize = UInt64(nextSize)
+            recordCount += 1
+        }
         return recordCount
     }
 
@@ -765,12 +983,17 @@ enum LHAHeaderParser {
             // detection is complete, pending entries are released one by one
             // as their public entries are built.
             let undeclaredNames = pendingEntries.compactMap { pending -> [UInt8]? in
-                guard let pending, pending.declaredEncoding == nil else { return nil }
+                guard let pending,
+                      pending.declaredEncoding == nil,
+                      !pending.rawName.isEmpty else {
+                    return nil
+                }
                 return pending.rawName
             }
             let windowsCount = pendingEntries.reduce(into: 0) { count, pending in
                 if let pending,
                    pending.declaredEncoding == nil,
+                   !pending.rawName.isEmpty,
                    pending.fromWindows {
                     count += 1
                 }
@@ -787,6 +1010,8 @@ enum LHAHeaderParser {
 
         var entries: [ArchiveEntry] = []
         entries.reserveCapacity(pendingEntries.count)
+        var publishedRecords: [LHAEntryRecord] = []
+        publishedRecords.reserveCapacity(records.count)
         var retainedMetadataSize: UInt64 = 0
 
         for index in pendingEntries.indices {
@@ -815,10 +1040,26 @@ enum LHAHeaderParser {
             // multibyte character and must not be rewritten as a raw byte.
             // Only level 0/1 define backslash as a path separator. Level 2
             // carries directory boundaries as 0xFF in extension 0x02.
-            let name = pending.headerLevel <= 1
+            let separatorNormalizedName = pending.headerLevel <= 1
                 ? decodedName.replacingOccurrences(of: "\\", with: "/")
                 : decodedName
-            guard !name.isEmpty, !name.utf8.contains(0) else {
+            let isDirectory = pending.directoryHint
+                || separatorNormalizedName.hasSuffix("/")
+            var name = relativeArchivePath(separatorNormalizedName)
+            if name.isEmpty, isDirectory {
+                // Empty -lhd- names denote the archive root. Keeping a dot
+                // entry lets extraction drain/authenticate the member without
+                // inventing a filesystem leaf.
+                name = "."
+            }
+            if name.isEmpty {
+                // Some legacy archives contain unaddressable regular members
+                // with a zero-length filename. Lhasa ignores these on
+                // extraction; skip their public entry while retaining the
+                // already-validated member boundary for traversal.
+                continue
+            }
+            guard !name.utf8.contains(0) else {
                 throw KaitoError.malformed("LHA entry name cannot be decoded safely")
             }
             var componentCount = 0
@@ -842,7 +1083,7 @@ enum LHAHeaderParser {
             }
             assert(pathComponents.count == componentCount)
 
-            let kind: EntryKind = pending.method == "-lhd-" ? .directory : .file
+            let kind: EntryKind = isDirectory ? .directory : .file
             var specific: [String: String] = [
                 "attribute": String(format: "0x%02x", pending.attribute),
                 "dataCRC16": String(format: "%04x", pending.crc16),
@@ -910,8 +1151,9 @@ enum LHAHeaderParser {
             retainedMetadataSize = try Checked.add(retainedMetadataSize, metadataCost)
             try Checked.size(retainedMetadataSize, limit: limits.maxTotalMetadataSize)
 
+            let publishedIndex = entries.count
             entries.append(ArchiveEntry(
-                index: index,
+                index: publishedIndex,
                 rawName: RawName(
                     bytes: pending.rawName,
                     declaredEncoding: pending.declaredEncoding,
@@ -930,10 +1172,14 @@ enum LHAHeaderParser {
                 methodDescription: pending.method,
                 formatSpecific: specific
             ))
+            publishedRecords.append(records[index])
+        }
+        guard !entries.isEmpty || records.isEmpty else {
+            throw KaitoError.malformed("LHA file member has an empty filename")
         }
         return LHAParsedArchive(
             entries: entries,
-            records: records,
+            records: publishedRecords,
             nameEncoding: archiveEncoding
         )
     }
@@ -998,26 +1244,50 @@ enum LHAHeaderParser {
 
     private static func canonicalRawName(
         filename: [UInt8],
-        directory: [UInt8]?,
-        allowEmptyFilename: Bool
+        directory: [UInt8]?
     ) throws -> [UInt8] {
-        guard !filename.contains(0), directory?.contains(0) != true else {
-            throw KaitoError.malformed("LHA entry name contains NUL")
+        guard directory?.contains(0) != true else {
+            throw KaitoError.malformed("LHA entry directory contains NUL")
         }
-        guard allowEmptyFilename || !filename.isEmpty else {
-            throw KaitoError.malformed("LHA file member has an empty filename")
-        }
-        let normalizedFilename = normalizeFilenameSeparators(filename)
+        // MorphOS appends creator metadata after a NUL inside level-0/1 name
+        // fields. The pathname is the prefix, as in established readers.
+        let pathnameBytes = Array(filename.prefix { $0 != 0 })
+        let normalizedFilename = normalizeFilenameSeparators(pathnameBytes)
         let normalizedDirectory = directory.map(normalizeDirectorySeparators) ?? []
         var result = normalizedDirectory
         if !result.isEmpty, !normalizedFilename.isEmpty, result.last != 0x2F {
             result.append(0x2F)
         }
         result.append(contentsOf: normalizedFilename)
-        guard result.contains(where: { $0 != 0x2F }) else {
-            throw KaitoError.malformed("LHA entry has an empty name")
-        }
         return result
+    }
+
+    /// Makes absolute-looking legacy member names relative without resolving
+    /// any components. In particular, `..` remains present so Extractor's
+    /// existing traversal check still rejects it.
+    private static func relativeArchivePath(_ path: String) -> String {
+        let bytes = path.utf8
+        var start = bytes.startIndex
+
+        while start != bytes.endIndex, bytes[start] == 0x2F {
+            start = bytes.index(after: start)
+        }
+
+        if start != bytes.endIndex {
+            let colon = bytes.index(after: start)
+            if colon != bytes.endIndex {
+                let first = bytes[start]
+                let isDriveLetter = (0x41...0x5A).contains(first)
+                    || (0x61...0x7A).contains(first)
+                if isDriveLetter, bytes[colon] == 0x3A {
+                    start = bytes.index(after: colon)
+                    while start != bytes.endIndex, bytes[start] == 0x2F {
+                        start = bytes.index(after: start)
+                    }
+                }
+            }
+        }
+        return String(decoding: bytes[start...], as: UTF8.self)
     }
 
     private static func normalizeFilenameSeparators(_ bytes: [UInt8]) -> [UInt8] {
@@ -1048,6 +1318,20 @@ enum LHAHeaderParser {
         default:
             return nil
         }
+    }
+
+    private static func posixPermissions(_ mode: UInt16?, osID: UInt8) -> UInt16? {
+        // Extension type 0x50 is OS-dependent. Its payload is a POSIX mode for
+        // Unix ('U'), while OS-9/OS-68K uses a different permission bitfield.
+        // Do not apply those foreign bits as a host mode during extraction.
+        guard osID == 0x55 else { return nil }
+        return mode.map { $0 & 0o7777 }
+    }
+
+    private static func hasDOSDirectoryAttribute(_ fields: ExtendedFields) -> Bool {
+        // Extension type 0x40 carries the standard MS-DOS attribute word;
+        // bit 0x10 marks a directory even when the base attribute does not.
+        fields.dosAttributes.map { ($0 & 0x10) != 0 } ?? false
     }
 
     private static func validateEntrySizes(
@@ -1094,7 +1378,7 @@ enum LHAHeaderParser {
               (0...59).contains(second),
               (0...59).contains(minute),
               (0...23).contains(hour) else {
-            throw KaitoError.malformed("invalid LHA DOS timestamp")
+            return nil
         }
         var calendar = Calendar(identifier: Calendar.Identifier.gregorian)
         calendar.timeZone = TimeZone.current
@@ -1117,7 +1401,7 @@ enum LHAHeaderParser {
                 minute: minute,
                 second: second
             )) else {
-            throw KaitoError.malformed("invalid LHA DOS timestamp")
+            return nil
         }
         return result
     }

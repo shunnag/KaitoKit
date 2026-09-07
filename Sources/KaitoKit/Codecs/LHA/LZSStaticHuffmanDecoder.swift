@@ -6,6 +6,9 @@ import Foundation
 //   https://github.com/jca02266/lha/blob/master/header.doc.md
 // - Lhasa user documentation, compression-format notes:
 //   https://github.com/fragglet/lhasa/blob/master/doc/lha.1
+// - Jason Summers, "Notes on LHARK compression format", documenting the
+//   six-bit position-tree count and LHARK's length/offset post-processing:
+//   https://entropymine.wordpress.com/2020/12/24/notes-on-lhark-compression-format/
 // - Haruhiko Okumura, "History of Data Compression in Japan", describing the
 //   block-static, canonical Huffman scheme and recursively coded code lengths:
 //   https://okumuralab.org/~okumura/compression/history.html
@@ -17,12 +20,14 @@ import Foundation
 //   independently confirmed with task vectors and the lhasa black-box oracle.
 // XADMaster and The Unarchiver were not used.
 
-/// Block-static LZSS/Huffman decoder shared by LHA methods -lh4- through -lh7-.
+/// Block-static LZSS/Huffman decoder shared by LHA methods -lh4- through -lh7-
+/// and UNLHA32's -lhx-, including the OS-marked LHArk dialect of -lh7-.
 ///
 /// The packed stream is a sequence of blocks. Each block declares its command
 /// count, a Huffman tree that codes command-tree lengths, the command tree, and
-/// the position tree. Commands 0...255 are literals; commands 256...509 are
-/// length/distance matches of 3...256 bytes.
+/// the position tree. Standard commands 0...255 are literals and 256...509 are
+/// 3...256-byte matches; LHArk uses its documented 289-symbol alphabet and
+/// match-length mapping through 514 bytes.
 ///
 /// Hot-loop invariants:
 /// - the packed input is retained once with an eight-byte zero sentinel;
@@ -35,7 +40,6 @@ import Foundation
 /// - a logical bit bound remains separate from the physical sentinel, so a
 ///   padded lookup is never accepted as real compressed input.
 final class LZSStaticHuffmanDecoder: Decompressor {
-    private static let commandSymbolCount = 510
     private static let commandCountBitWidth = 9
     private static let codeLengthSymbolCount = 19
     private static let codeLengthCountBitWidth = 5
@@ -68,9 +72,13 @@ final class LZSStaticHuffmanDecoder: Decompressor {
         offset: UInt64,
         compressedSize: UInt64,
         uncompressedSize: UInt64,
+        lhark: Bool = false,
         limits: ReadLimits
     ) throws {
-        let configuration = try LHAStaticConfiguration(method: method)
+        let configuration = try LHAStaticConfiguration(
+            method: method,
+            lhark: lhark
+        )
         let endOffset = try Checked.add(offset, compressedSize)
         guard endOffset <= source.length else { throw KaitoError.truncated }
         try Checked.size(compressedSize, limit: limits.maxEntrySize)
@@ -100,8 +108,11 @@ final class LZSStaticHuffmanDecoder: Decompressor {
             count: configuration.dictionarySize
         )
         self.lengthStorage = try LHAStaticLengthStorage(
-            codeLengthCount: LZSStaticHuffmanDecoder.codeLengthSymbolCount,
-            commandCount: LZSStaticHuffmanDecoder.commandSymbolCount
+            codeLengthCount: max(
+                LZSStaticHuffmanDecoder.codeLengthSymbolCount,
+                configuration.positionSymbolCount
+            ),
+            commandCount: configuration.commandSymbolCount
         )
         self.codeLengthTable = try LHAStaticHuffmanTable(
             name: "code-length",
@@ -109,7 +120,7 @@ final class LZSStaticHuffmanDecoder: Decompressor {
         )
         self.commandTable = try LHAStaticHuffmanTable(
             name: "command",
-            maximumSymbolCount: LZSStaticHuffmanDecoder.commandSymbolCount
+            maximumSymbolCount: configuration.commandSymbolCount
         )
         self.positionTable = try LHAStaticHuffmanTable(
             name: "position",
@@ -191,11 +202,23 @@ final class LZSStaticHuffmanDecoder: Decompressor {
                 continue
             }
 
-            guard command < LZSStaticHuffmanDecoder.commandSymbolCount else {
+            guard command < configuration.commandSymbolCount else {
                 failure = KaitoError.malformed("LHA command symbol is out of range")
                 continue
             }
-            let length = command - 253
+            let length: Int
+            do {
+                length = try configuration.matchLength(
+                    command: command,
+                    bits: &localBits
+                )
+            } catch let error as KaitoError {
+                failure = error
+                continue
+            } catch {
+                failure = KaitoError.malformed("invalid LHA match length")
+                continue
+            }
             guard localProduced <= expectedSize,
                   UInt64(length) <= expectedSize - localProduced else {
                 failure = KaitoError.malformed(
@@ -216,16 +239,17 @@ final class LZSStaticHuffmanDecoder: Decompressor {
             }
 
             let encodedPosition: Int
-            if positionSymbol == 0 {
-                encodedPosition = 0
-            } else {
-                let extraBitCount = positionSymbol - 1
-                let suffix = Int(localBits.read(extraBitCount))
-                guard !localBits.overrun else {
-                    failure = KaitoError.truncated
-                    continue
-                }
-                encodedPosition = (1 << extraBitCount) + suffix
+            do {
+                encodedPosition = try configuration.position(
+                    symbol: positionSymbol,
+                    bits: &localBits
+                )
+            } catch let error as KaitoError {
+                failure = error
+                continue
+            } catch {
+                failure = KaitoError.malformed("invalid LHA match position")
+                continue
             }
             let distance = encodedPosition + 1
             guard distance > 0, distance <= configuration.dictionarySize else {
@@ -365,18 +389,18 @@ final class LZSStaticHuffmanDecoder: Decompressor {
         try table.build(lengths: lengths, symbolCount: symbolCount)
     }
 
-    /// Reads the 510 command-code lengths. Symbols 0, 1, and 2 from the first
-    /// tree represent bounded zero runs of 1, 3...18, and 20...531 entries.
+    /// Reads the configured command-code lengths. Symbols 0, 1, and 2 from
+    /// the first tree represent bounded zero runs.
     private func readCommandLengths(bits: inout LHAStaticBitCursor) throws {
         let lengths = lengthStorage.commandLengths
         lengths.update(
             repeating: 0,
-            count: LZSStaticHuffmanDecoder.commandSymbolCount
+            count: configuration.commandSymbolCount
         )
         let encodedCount = Int(
             bits.read(LZSStaticHuffmanDecoder.commandCountBitWidth)
         )
-        guard encodedCount <= LZSStaticHuffmanDecoder.commandSymbolCount else {
+        guard encodedCount <= configuration.commandSymbolCount else {
             throw KaitoError.malformed(
                 "LHA command length count exceeds its table"
             )
@@ -386,7 +410,7 @@ final class LZSStaticHuffmanDecoder: Decompressor {
             let symbol = Int(
                 bits.read(LZSStaticHuffmanDecoder.commandCountBitWidth)
             )
-            guard symbol < LZSStaticHuffmanDecoder.commandSymbolCount else {
+            guard symbol < configuration.commandSymbolCount else {
                 throw KaitoError.malformed(
                     "LHA constant command symbol is out of range"
                 )
@@ -418,7 +442,7 @@ final class LZSStaticHuffmanDecoder: Decompressor {
                     ) + 20
                 }
                 guard zeroCount <= encodedCount - index,
-                      zeroCount <= LZSStaticHuffmanDecoder.commandSymbolCount - index else {
+                      zeroCount <= configuration.commandSymbolCount - index else {
                     throw KaitoError.malformed(
                         "LHA command zero run exceeds its length table"
                     )
@@ -442,7 +466,7 @@ final class LZSStaticHuffmanDecoder: Decompressor {
         guard !bits.overrun else { throw KaitoError.truncated }
         try commandTable.build(
             lengths: lengths,
-            symbolCount: LZSStaticHuffmanDecoder.commandSymbolCount
+            symbolCount: configuration.commandSymbolCount
         )
     }
 }
@@ -451,9 +475,14 @@ private struct LHAStaticConfiguration {
     let dictionarySize: Int
     let positionSymbolCount: Int
     let positionCountBitWidth: Int
+    let commandSymbolCount: Int
+    let isLHArk: Bool
 
-    init(method: String) throws {
+    init(method: String, lhark: Bool) throws {
         let dictionaryBits: Int
+        if lhark, method != "-lh7-" {
+            throw KaitoError.malformed("LHArk marker used with a non-LH7 method")
+        }
         switch method {
         case "-lh4-":
             dictionaryBits = 12
@@ -466,12 +495,63 @@ private struct LHAStaticConfiguration {
             positionCountBitWidth = 5
         case "-lh7-":
             dictionaryBits = 16
+            positionCountBitWidth = lhark ? 6 : 5
+        case "-lhx-":
+            // The public Lhasa format note specifies a 1 MiB UNLHA32 window.
+            // The supplied archives resolve the otherwise undocumented
+            // position-table count as five bits: that interpretation produces
+            // complete canonical tables and byte-identical oracle output.
+            dictionaryBits = 20
             positionCountBitWidth = 5
         default:
             throw KaitoError.unsupportedMethod(method)
         }
         dictionarySize = 1 << dictionaryBits
-        positionSymbolCount = dictionaryBits + 1
+        // LHArk encodes the count in six bits but defines only offset-code
+        // symbols 0...31. Standard static LHA trees need the symbols that can
+        // address their dictionary.
+        positionSymbolCount = lhark ? 32 : dictionaryBits + 1
+        commandSymbolCount = lhark ? 289 : 510
+        isLHArk = lhark
+    }
+
+    func matchLength(
+        command: Int,
+        bits: inout LHAStaticBitCursor
+    ) throws -> Int {
+        guard isLHArk else { return command - 253 }
+        if command < 264 {
+            return command - 253
+        }
+        if command == 288 {
+            return 514
+        }
+        guard command < 288 else {
+            throw KaitoError.malformed("LHArk match symbol is out of range")
+        }
+        let extraBitCount = (command - 260) / 4
+        let suffix = Int(bits.read(extraBitCount))
+        guard !bits.overrun else { throw KaitoError.truncated }
+        return ((4 + command % 4) << extraBitCount) + suffix + 3
+    }
+
+    func position(
+        symbol: Int,
+        bits: inout LHAStaticBitCursor
+    ) throws -> Int {
+        if !isLHArk {
+            guard symbol > 0 else { return 0 }
+            let extraBitCount = symbol - 1
+            let suffix = Int(bits.read(extraBitCount))
+            guard !bits.overrun else { throw KaitoError.truncated }
+            return (1 << extraBitCount) + suffix
+        }
+
+        guard symbol >= 4 else { return symbol }
+        let extraBitCount = (symbol - 2) / 2
+        let suffix = Int(bits.read(extraBitCount))
+        guard !bits.overrun else { throw KaitoError.truncated }
+        return ((2 + symbol % 2) << extraBitCount) + suffix
     }
 }
 

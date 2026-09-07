@@ -70,11 +70,32 @@ source を共有しつつ別の password / decoder state を持つ reader を作
 
 ## LHA / LZH
 
-M4 は header level 0 / 1 / 2 と `-lh0-` / `-lh1-` / `-lh4-`〜`-lh7-` /
-`-lz4-` / `-lz5-` / `-lzs-` / `-pm0-` / `-lhd-` を扱います。LHA member は独立しているため、
-`solidGroup(ofEntry:)` は `-1` です。legacy 名は ZIP / RAR4 と同じ書庫単位の判定を使い、
-0x46 codepage が 932 / 65001 / 936 を宣言した名前は推測しません。`-pm2-` は一覧できますが
-読み取り時に `KaitoError.unsupportedMethod` となり、header level 3 は open 時に同エラーとなります。
+M4 は header level 0 / 1 / 2 / 3 と `-lh0-` / `-lh1-` / `-lh4-`〜`-lh7-` /
+`-lhx-` / `-lz4-` / `-lz5-` / `-lzs-` / `-pm0-` / `-lhd-` を扱います。`-lhx-` の
+dictionary は 1 MiB で、OS marker が示す `-lh7-` の LHArk dialect も復号します。LHA member は
+独立しているため、`solidGroup(ofEntry:)` は `-1` です。最大 1 MiB の executable prefix 内で
+認証できる member header を探す LHA SFX にも対応します。
+
+legacy 名は ZIP / RAR4 と同じ書庫単位の判定を使い、0x46 codepage が 932 / 65001 / 936 を
+宣言した名前は推測しません。末尾 separator と directory 属性を entry 種別へ反映し、先頭 slash
+または drive prefix は相対化します。`..` は残すため安全な展開層で拒否されます。filename field は
+最初の NUL までを pathname として扱います。これにより、OS/2 extended-attribute payload を持つ
+subdirectory や古い writer の unusual な名前も、子 entry を失わず列挙できます。
+
+OS-9 LHA 2.01 が raw creator ID に 0x4B (既存 mapping では OS/68K marker) を記録する level-2
+header size の 2-byte 不足は、extension chain が一意に完結する場合だけ許容します。無効な DOS timestamp は
+`modificationDate == nil` とします。zero terminator がなく、最終の境界検証済み payload の直後で
+exact EOF に達する archive は、最終 member が LArc の場合、または書庫内に構造検証済みの匿名通常 member を
+少なくとも 1 件含む場合だけ受理します。この条件を満たさない non-LArc archive には許容しません。
+`-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` は一覧できますが、読み取り時に
+`KaitoError.unsupportedMethod` となります。
+
+MacLHA の Macintosh OS marker を持つ member は、MacBinary / MacBinary II standard proposals に基づく
+有効な header を確認できた場合だけ、`contents(ofEntry:)` / `read(_:)` から data fork を返します。
+LHA CRC16 は header、padding、resource fork、compatible trailing extension を含む全出力について検証し、
+MacBinary ではない Macintosh member はそのまま返します。`ArchiveEntry.uncompressedSize` と互換層の
+`uncompressedSize(ofEntry:)` は LHA header の envelope size を保持するため、data fork の実バイト数とは
+異なる場合があります。
 
 ## サイズ不明の RAR5 entry
 
@@ -142,9 +163,10 @@ unpack version 15 / 20 / 26、custom RAR VM program、RAR5 compression version 1
 redirection と SFX、および RAR4 の SFX prefix と multi-volume の組合せは明示的に
 `KaitoError.unsupportedMethod` を返します。Data / 任意
 `ByteSource` では continuation volume を検索できません。ZIP と LHA header level 0 / 1 の
-DOS 日時にはタイムゾーン情報がないため、現在のローカルタイムゾーンとして解釈します。LHA の header level 3 と
-`-pm2-` は `KaitoError.unsupportedMethod`、gzip、bzip2、xz はシグネチャ検出だけを行い、
-reader は `KaitoError.unsupportedFormat` を返します。
+有効な DOS 日時にはタイムゾーン情報がないため、現在のローカルタイムゾーンとして解釈します。
+LHA の `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` は読み取り時に
+`KaitoError.unsupportedMethod`、gzip、bzip2、xz はシグネチャ検出だけを行い、reader は
+`KaitoError.unsupportedFormat` を返します。
 
 通常の tar hard link member はデータ本体を持たないため、`contents(ofEntry:)` は空の
 `Data` を返します。PAX linkdata member では、書庫が持つ本文を返します。

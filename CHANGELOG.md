@@ -118,7 +118,8 @@
   envelope と後続切断を `.truncated` として区別する。`ReaderOptions.maxRAR5KDFCountPower` /
   `maxSevenZipAESCyclesPower` は代入時にも 24 / 62 へ clamp する。
 - Scripts/fuzz: RAR4 LZ / PPMd-H、RAR5 LZ、LHA lh4 / lh6 / lh7 の packed-range locator と
-  compressed seed 生成、`--require-payload-ranges`。corpus 依存テストは
+  compressed seed 生成、`--require-payload-ranges`。RAR5 LZ seed は同梱の project-generated
+  fixture(`Tests/Fixtures/rar5/lz-small.rar.b64`)から復元し、`rar` は明示指定時だけ使う。corpus 依存テストは
   `KAITOKIT_RAR4_CORPUS` / `KAITOKIT_LHA_CORPUS` などの環境変数で指定し、libarchive
   (BSD-2-Clause)/ ISC 由来の小さな fixture を `Tests/Fixtures` に base64 で固定する
   (`Tests/Fixtures/NOTICE`)。

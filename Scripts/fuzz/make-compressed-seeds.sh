@@ -23,10 +23,10 @@ fi
 RAR5_LZ_SEED="${KAITOKIT_RAR5_LZ_SEED:-}"
 RAR_BIN="${KAITOKIT_RAR_EXECUTABLE:-${KAITOKIT_RAR_BIN:-}}"
 if [[ -z "$RAR5_LZ_SEED" && -z "$RAR_BIN" ]]; then
-    RAR_BIN="$(command -v rar || true)"
+    RAR5_LZ_SEED="$ROOT_DIR/Tests/Fixtures/rar5/lz-small.rar.b64"
 fi
 if [[ -z "$RAR5_LZ_SEED" && ( -z "$RAR_BIN" || ! -x "$RAR_BIN" ) ]]; then
-    echo "error: set KAITOKIT_RAR_EXECUTABLE, put rar on PATH, or set KAITOKIT_RAR5_LZ_SEED" >&2
+    echo "error: KAITOKIT_RAR_EXECUTABLE or KAITOKIT_RAR_BIN is not executable" >&2
     exit 2
 fi
 

@@ -154,7 +154,7 @@ streaming 検証契約:
   archive は `KAITOKIT_RAR4_PPMD_SOLID_ARCHIVE` / `KAITOKIT_RAR4_FILTER_ARCHIVE` で指定する。
   oracle executable は `KAITOKIT_RAR_EXECUTABLE` / `KAITOKIT_LHA_EXECUTABLE` を優先し、ホスト固有の
   scratch path をテストの前提にしない。
-- フィクスチャ生成: 7zz、RAR 7.23 の RAR5、RAR 3.00 の RAR4/PPMd-H、lha(作成には LHa for UNIX が必要、lhasa は展開のみ)、bsdtar、zip(Info-ZIP)+ makesjiszip.py。生成済み binary は review 可能な base64 として固定する。`Tests/Fixtures/rar4` の libarchive 由来フィクスチャは BSD-2-Clause、`Tests/Fixtures/lha` の小さな lh4 / lh6 / lh7 フィクスチャは ISC で、出自とライセンスは `Tests/Fixtures/NOTICE` に記録する。
+- フィクスチャ生成: 7zz、RAR 7.23 の RAR5、RAR 3.00 の RAR4/PPMd-H、lha(作成には LHa for UNIX が必要、lhasa は展開のみ)、bsdtar、zip(Info-ZIP)+ makesjiszip.py。生成済み binary は review 可能な base64 として固定する。RAR5 LZ seed はプロジェクト所有の決定的 payload bytes から RAR 7.23 で生成する。`Tests/Fixtures/rar4` の libarchive 由来フィクスチャは BSD-2-Clause、`Tests/Fixtures/lha` の小さな lh4 / lh6 / lh7 フィクスチャは ISC で、出自とライセンスは `Tests/Fixtures/NOTICE` に記録する。
 - 堅牢性: ASan/UBSan ビルド + ミュータント(`Scripts/fuzz/mutate.py`)+ malformed / unusual archive、巨大宣言サイズ・循環参照の回帰テスト。`make-compressed-seeds.sh` は ZIP の
   Deflate / Deflate64 / BZip2 / LZMA / AES、7z の LZMA2 / PPMd / BCJ2 / AES に加え、RAR4 LZ / PPMd-H、
   RAR5 LZ、LHA lh4 / lh6 / lh7 の compressed seed を用意する。ZIP / 7z / RAR4 / RAR5 / LHA の

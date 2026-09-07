@@ -771,15 +771,29 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
             entries: ambiguousNames.map { HandZipEntry(rawName: $0) }
         )
 
-        let start = Date()
+        let start = ProcessInfo.processInfo.systemUptime
         let reader = try ArchiveReader.open(data: archive)
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
         XCTAssertEqual(reader.entries.count, ambiguousNames.count)
         XCTAssertTrue(reader.nameEncoding == .shiftJIS || reader.nameEncoding == .japaneseEUC)
         XCTAssertLessThan(
-            Date().timeIntervalSince(start),
-            15,
-            "16 MiB of ambiguous names should have bounded scoring cost"
+            elapsed,
+            120,
+            "16 MiB of ambiguous names should not hang while opening"
         )
+
+        // 513 names cross the sample-name cap without repeating the full 16 MiB
+        // detection pass. The metrics come from the production scoring path.
+        let detection = EncodingDetector.detectArchiveEncodingWithMetrics(
+            names: Array(ambiguousNames.prefix(513))
+        )
+        XCTAssertEqual(detection.metrics.ambiguousNameCount, 513)
+        XCTAssertEqual(detection.metrics.scoredAmbiguousNameCount, 1)
+        XCTAssertEqual(detection.metrics.foundationSampleCandidateCount, 512)
+        XCTAssertEqual(detection.metrics.foundationSampleNameCount, 32)
+        XCTAssertEqual(detection.metrics.foundationSampleByteCount, 256_031)
+        XCTAssertEqual(detection.metrics.plausibilityScalarCount, 512)
+        XCTAssertEqual(detection.metrics.halfWidthScalarCount, 256)
 
         let cp932 = Array(try XCTUnwrap(
             "表紙.txt".data(using: .shiftJIS, allowLossyConversion: false)

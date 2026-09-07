@@ -16,6 +16,16 @@ public enum EncodingDetector {
     private static let maximumAutomaticDetectionSampleNameCount = 512
     private static let maximumJapaneseScoringScalarCount = 256
 
+    final class ArchiveEncodingDetectionMetrics {
+        fileprivate(set) var ambiguousNameCount = 0
+        fileprivate(set) var scoredAmbiguousNameCount = 0
+        fileprivate(set) var foundationSampleCandidateCount = 0
+        fileprivate(set) var foundationSampleNameCount = 0
+        fileprivate(set) var foundationSampleByteCount = 0
+        fileprivate(set) var plausibilityScalarCount = 0
+        fileprivate(set) var halfWidthScalarCount = 0
+    }
+
     private struct ArchiveNameFrequency {
         var bytes: [UInt8]
         var count: Int
@@ -43,7 +53,8 @@ public enum EncodingDetector {
             names: names,
             policy: policy,
             fromWindows: fromWindows,
-            maximumBatchByteCount: nil
+            maximumBatchByteCount: nil,
+            metrics: nil
         )
     }
 
@@ -59,15 +70,34 @@ public enum EncodingDetector {
             names: names,
             policy: policy,
             fromWindows: fromWindows,
-            maximumBatchByteCount: max(0, maximumBatchByteCount)
+            maximumBatchByteCount: max(0, maximumBatchByteCount),
+            metrics: nil
         )
+    }
+
+    // Internal diagnostics for deterministic complexity assertions in tests.
+    static func detectArchiveEncodingWithMetrics(
+        names: [[UInt8]],
+        policy: EncodingPolicy = .automatic(),
+        fromWindows: Bool = false
+    ) -> (encoding: String.Encoding?, metrics: ArchiveEncodingDetectionMetrics) {
+        let metrics = ArchiveEncodingDetectionMetrics()
+        let encoding = detectArchiveEncodingImpl(
+            names: names,
+            policy: policy,
+            fromWindows: fromWindows,
+            maximumBatchByteCount: nil,
+            metrics: metrics
+        )
+        return (encoding, metrics)
     }
 
     private static func detectArchiveEncodingImpl(
         names: [[UInt8]],
         policy: EncodingPolicy,
         fromWindows: Bool,
-        maximumBatchByteCount: Int?
+        maximumBatchByteCount: Int?,
+        metrics: ArchiveEncodingDetectionMetrics?
     ) -> String.Encoding? {
         guard !names.isEmpty else { return nil }
 
@@ -84,7 +114,8 @@ public enum EncodingDetector {
                 names: legacyNames,
                 likelyLanguage: likelyLanguage,
                 fromWindows: fromWindows,
-                maximumBatchByteCount: maximumBatchByteCount
+                maximumBatchByteCount: maximumBatchByteCount,
+                metrics: metrics
             )
         }
     }
@@ -343,7 +374,8 @@ public enum EncodingDetector {
         names: [[UInt8]],
         likelyLanguage: String?,
         fromWindows: Bool,
-        maximumBatchByteCount: Int?
+        maximumBatchByteCount: Int?,
+        metrics: ArchiveEncodingDetectionMetrics?
     ) -> String.Encoding {
         var ambiguousJapaneseNames: [[UInt8]] = []
         var cp932Only = 0
@@ -360,6 +392,7 @@ public enum EncodingDetector {
                 ambiguousJapaneseNames.append(bytes)
             }
         }
+        metrics?.ambiguousNameCount = ambiguousJapaneseNames.count
 
         let hasCP932Support = cp932Only > 0 || !ambiguousJapaneseNames.isEmpty
         let hasEUCJPSupport = eucJPOnly > 0 || !ambiguousJapaneseNames.isEmpty
@@ -380,12 +413,14 @@ public enum EncodingDetector {
                 ambiguousJapaneseNames.count - withoutEUCShift.count
                 ? withoutEUCShift
                 : names
+            let sample = concatenate(
+                representativeNames,
+                separator: 0x0A,
+                maximumByteCount: maximumBatchByteCount,
+                metrics: metrics
+            )
             foundation = foundationDetection(
-                bytes: concatenate(
-                    representativeNames,
-                    separator: 0x0A,
-                    maximumByteCount: maximumBatchByteCount
-                ),
+                bytes: sample,
                 likelyLanguage: likelyLanguage,
                 fromWindows: fromWindows
             )
@@ -413,11 +448,13 @@ public enum EncodingDetector {
         for index in uniqueAmbiguousNames.indices {
             guard let cp932 = cp932Decoded[index],
                   let eucJP = eucJPDecoded[index] else { continue }
+            metrics?.scoredAmbiguousNameCount += 1
             let choice = chooseAmbiguousJapanese(
                 cp932: cp932,
                 eucJP: eucJP,
                 bytes: uniqueAmbiguousNames[index],
-                foundation: foundation
+                foundation: foundation,
+                metrics: metrics
             )
             let occurrenceCount = ambiguousNameFrequencies[index].count
             if choice.encoding == .japaneseEUC {
@@ -436,12 +473,14 @@ public enum EncodingDetector {
 
         // 構造候補がない archive、または未解決票が残った archive だけがここへ来る。
         if !calledFoundation {
+            let sample = concatenate(
+                names,
+                separator: 0x0A,
+                maximumByteCount: maximumBatchByteCount,
+                metrics: metrics
+            )
             foundation = foundationDetection(
-                bytes: concatenate(
-                    names,
-                    separator: 0x0A,
-                    maximumByteCount: maximumBatchByteCount
-                ),
+                bytes: sample,
                 likelyLanguage: likelyLanguage,
                 fromWindows: fromWindows
             )
@@ -472,13 +511,15 @@ public enum EncodingDetector {
     private static func concatenate(
         _ names: [[UInt8]],
         separator: UInt8,
-        maximumByteCount: Int?
+        maximumByteCount: Int?,
+        metrics: ArchiveEncodingDetectionMetrics?
     ) -> [UInt8] {
         orderStableArchiveNameSample(
             names,
             separator: separator,
             maximumByteCount: maximumByteCount
-                ?? maximumAutomaticDetectionSampleByteCount
+                ?? maximumAutomaticDetectionSampleByteCount,
+            metrics: metrics
         )
     }
 
@@ -488,13 +529,15 @@ public enum EncodingDetector {
     private static func orderStableArchiveNameSample(
         _ names: [[UInt8]],
         separator: UInt8,
-        maximumByteCount: Int
+        maximumByteCount: Int,
+        metrics: ArchiveEncodingDetectionMetrics?
     ) -> [UInt8] {
         let byteLimit = max(0, maximumByteCount)
         guard byteLimit > 0, !names.isEmpty else { return [] }
 
         let frequencies = archiveNameFrequencies(names)
         let sampleCount = min(names.count, maximumAutomaticDetectionSampleNameCount)
+        metrics?.foundationSampleCandidateCount += sampleCount
 
         var result: [UInt8] = []
         result.reserveCapacity(byteLimit)
@@ -520,6 +563,8 @@ public enum EncodingDetector {
             result.append(contentsOf: name)
             appendedCount += 1
         }
+        metrics?.foundationSampleNameCount += appendedCount
+        metrics?.foundationSampleByteCount += result.count
         return result
     }
 
@@ -802,7 +847,8 @@ public enum EncodingDetector {
         cp932: String,
         eucJP: String,
         bytes: [UInt8],
-        foundation: EncodingDetection?
+        foundation: EncodingDetection?,
+        metrics: ArchiveEncodingDetectionMetrics? = nil
     ) -> EncodingDetection {
         // EUC-JP の補助面・半角カナ接頭辞は CP932 の偶然一致より強い証拠になる。
         if containsEUCShiftPrefix(bytes) {
@@ -811,13 +857,13 @@ public enum EncodingDetector {
 
         let eucHasOneCharacter = !eucJP.isEmpty
             && eucJP.index(after: eucJP.startIndex) == eucJP.endIndex
-        let likelyHalfWidthName = isLikelyHalfWidthName(cp932)
+        let likelyHalfWidthName = isLikelyHalfWidthName(cp932, metrics: metrics)
         if eucHasOneCharacter, likelyHalfWidthName {
             return (.shiftJIS, cp932, 0.8)
         }
 
-        var cpScore = japanesePlausibility(cp932)
-        var eucScore = japanesePlausibility(eucJP)
+        var cpScore = japanesePlausibility(cp932, metrics: metrics)
+        var eucScore = japanesePlausibility(eucJP, metrics: metrics)
         if foundation?.encoding == .shiftJIS {
             cpScore += 0.15
         } else if foundation?.encoding == .japaneseEUC {
@@ -845,7 +891,10 @@ public enum EncodingDetector {
         return false
     }
 
-    private static func japanesePlausibility(_ string: String) -> Double {
+    private static func japanesePlausibility(
+        _ string: String,
+        metrics: ArchiveEncodingDetectionMetrics?
+    ) -> Double {
         var score = 0.0
         var count = 0.0
         for scalar in string.unicodeScalars.prefix(maximumJapaneseScoringScalarCount) {
@@ -865,14 +914,21 @@ public enum EncodingDetector {
                 score -= 0.25
             }
         }
+        metrics?.plausibilityScalarCount += Int(count)
         return count > 0 ? score / count : 0
     }
 
-    private static func isLikelyHalfWidthName(_ string: String) -> Bool {
+    private static func isLikelyHalfWidthName(
+        _ string: String,
+        metrics: ArchiveEncodingDetectionMetrics?
+    ) -> Bool {
         var sawKana = false
         var sampledScalars: [Unicode.Scalar] = []
         sampledScalars.reserveCapacity(maximumJapaneseScoringScalarCount)
+        var inspectedScalarCount = 0
+        defer { metrics?.halfWidthScalarCount += inspectedScalarCount }
         for scalar in string.unicodeScalars.prefix(maximumJapaneseScoringScalarCount) {
+            inspectedScalarCount += 1
             if (0xFF61...0xFF9F).contains(scalar.value) {
                 sawKana = true
             } else if !(0x20...0x7E).contains(scalar.value) {

@@ -86,6 +86,16 @@ final class ZipEncryptionPrimitiveTests: XCTestCase {
 
         var wholeCTR = try WinZipAESCTR(encryptionKey: key)
         let whole = try wholeCTR.transform(input)
+        // Independent anchor: AES-128-ECB encrypt little-endian counters 1...4
+        // with `/usr/bin/openssl enc -aes-128-ecb -nopad`, then XOR bytes 0...48.
+        XCTAssertEqual(
+            whole,
+            try decodeHex(
+                "47701a15ed1869f751b2b520f98301dc" +
+                "ace064b4feb89692f3b5f02d387fbc9e" +
+                "6fdd4b540af08511dc48716e2fee663b8a"
+            )
+        )
 
         var splitCTR = try WinZipAESCTR(encryptionKey: key)
         var split = try splitCTR.transform(Data(input.prefix(3)))
@@ -465,10 +475,11 @@ final class ZipEncryptionPrimitiveTests: XCTestCase {
     }
 
     func testWinZipAES256Against7Zip() throws {
-        let sevenZip = URL(fileURLWithPath: "/opt/homebrew/bin/7zz")
-        guard FileManager.default.isExecutableFile(atPath: sevenZip.path) else {
-            throw XCTSkip("/opt/homebrew/bin/7zz is unavailable; WinZip AES fixture skipped")
-        }
+        try ZipTestSupport.requireExecutable(
+            ZipTestSupport.sevenZipPath,
+            reason: "7zz is unavailable at \(ZipTestSupport.sevenZipPath); WinZip AES fixture skipped"
+        )
+        let sevenZip = URL(fileURLWithPath: ZipTestSupport.sevenZipPath)
 
         let fixture = try makeFixtureDirectory(label: "winzip-aes")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }

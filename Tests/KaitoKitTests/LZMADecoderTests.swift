@@ -9,6 +9,9 @@ final class LZMADecoderTests: XCTestCase {
     }
 
     func testEndMarkedStreamWithDictionaryWrapAndTinyReads() throws {
+        // xz 5.8.3: `xz --format=raw --lzma1=dict=4KiB,lc=3,lp=0,pb=2`.
+        // The complete raw output below has SHA-256
+        // 79571bd455af60fab49756c278c50ef38aa28637cc31baef113603f8af6ef5f8.
         let compressed = try decodeHex(
             "002598492777f6198bfb55ec9f9870645187a7c68eabd4c78b5b16ef162410c2" +
             "4140807bfabb0caa78f7675954c402235e482aa24588f9b0fa9e349dfb09dd9a" +
@@ -34,7 +37,9 @@ final class LZMADecoderTests: XCTestCase {
     }
 
     func testKnownSizeDoesNotRequireEndMarker() throws {
-        // 最後の end marker とレンジ符号化終端を除いた raw LZMA1 データ。
+        // xz 5.8.3: `xz --format=raw --lzma1=dict=64KiB,lc=3,lp=0,pb=2`。
+        // 出力 `00309888aa02a643ebffffb5800000` から最後の end marker / range
+        // coder 終端を除いた raw LZMA1 data。
         let compressed = try decodeHex("00309888aa02a643ebffffb580")
         let expected = Data("abcabcabcabcabcabc".utf8)
         let decoder = try makeDecoder(

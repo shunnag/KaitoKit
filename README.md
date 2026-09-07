@@ -196,6 +196,25 @@ bash -n Scripts/build-framework.sh Scripts/fuzz/*.sh
 python3 -m py_compile Scripts/fuzz/mutate.py
 ```
 
+7zz / xz を使う差分テストは、`KAITO_7ZZ` / `KAITO_XZ`、`PATH`、既知の Homebrew path
+の順で executable を探します。通常は tool が無ければ該当テストを skip します。CI と同じく
+不足を failure にする場合は次のように実行します。
+
+```console
+brew install sevenzip xz
+KAITO_REQUIRE_7ZZ=1 KAITO_REQUIRE_XZ=1 swift test
+```
+
+圧縮 payload を含む ZIP / 7z seed を実際の 7zz で作り、malformed / unusual archive の
+robustness mutant を ASan/UBSan build で走らせる手順は次のとおりです。AES seed の password は
+`KaitoFuzz` で、`--password` は暗号化されていない seed と同じ directory に対しても指定できます。
+
+```console
+Scripts/fuzz/make-compressed-seeds.sh /tmp/kaito-compressed-seeds
+Scripts/fuzz/run-mutants.sh --count 200 --password KaitoFuzz \
+  --require-payload-ranges /tmp/kaito-compressed-seeds
+```
+
 `Scripts/build-framework.sh` は Apple Silicon / Intel 両対応のユニバーサル `KaitoKit.framework` を生成します。SwiftPM を介さず利用する場合は、ネストされた `KaitoKitCompat` モジュールを見つけられるよう `-I Frameworks/KaitoKit.framework/Modules` も指定してください。
 
 設計判断、安全規則、参照可能な仕様は [Documentation/design.md](Documentation/design.md)、

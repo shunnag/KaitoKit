@@ -171,7 +171,9 @@ final class SevenZipReader: FormatReader {
         }
 
         let coordinator: SevenZipFolderCoordinator
-        if let cached = coordinators[substream.folderIndex] {
+        let folderHasMultipleSubstreams = entry.solidGroup >= 0
+        if folderHasMultipleSubstreams,
+           let cached = coordinators[substream.folderIndex] {
             coordinator = cached
         } else {
             let factory = try SevenZipFolderDecoderFactory(
@@ -185,7 +187,9 @@ final class SevenZipReader: FormatReader {
                 packedStreamVerifier: packedStreamVerifier
             )
             coordinator = SevenZipFolderCoordinator(factory: factory)
-            coordinators[substream.folderIndex] = coordinator
+            if folderHasMultipleSubstreams {
+                coordinators[substream.folderIndex] = coordinator
+            }
         }
         let decompressor = try coordinator.stream(
             offset: substream.offset,

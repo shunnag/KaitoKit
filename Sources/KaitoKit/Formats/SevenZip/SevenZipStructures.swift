@@ -3,6 +3,12 @@ import Foundation
 // 参照仕様: LZMA SDK DOC/7zFormat.txt (18.06) と DOC/Methods.txt。
 // ヘッダ内の全長・個数は、配列を確保する前に入力残量と ReadLimits の双方で検証する。
 
+enum SevenZipFormatLimits {
+    // 7zz が生成する BCJ2 + AES の複合 folder を受理しつつ、
+    // graph 走査の再帰深度と decoder 構築コストを一定に抑える。
+    static let maxFolderCodersAndStreams = 64
+}
+
 enum SevenZipNID: UInt8 {
     case end = 0x00
     case header = 0x01
@@ -244,6 +250,11 @@ enum SevenZipStreamsParser {
     private static let packStreamMetadataBytes: UInt64 = 64
     private static let folderMetadataBytes: UInt64 = 256
     private static let substreamMetadataBytes: UInt64 = 64
+    private static let coderMetadataBytes: UInt64 = 64
+    private static let coderStreamMetadataBytes: UInt64 = 16
+    private static let bindPairMetadataBytes: UInt64 = 32
+    private static let packedIndexMetadataBytes: UInt64 = 16
+    private static let unpackSizeMetadataBytes: UInt64 = 16
 
     static func parse(
         cursor: inout SevenZipHeaderCursor,
@@ -437,6 +448,11 @@ enum SevenZipStreamsParser {
             throw KaitoError.malformed("7z UnpackInfo is missing coder output sizes")
         }
         for index in folders.indices {
+            try budget.reserve(
+                count: folders[index].outputCount,
+                bytesPerRecord: unpackSizeMetadataBytes,
+                description: "7z coder unpack-size metadata"
+            )
             var sizes: [UInt64] = []
             sizes.reserveCapacity(folders[index].outputCount)
             for _ in 0..<folders[index].outputCount {
@@ -467,12 +483,17 @@ enum SevenZipStreamsParser {
         let coderCount = try boundedCount(
             try cursor.readNumber(),
             remaining: cursor.remaining,
-            limit: 4,
+            limit: SevenZipFormatLimits.maxFolderCodersAndStreams,
             description: "7z coder count"
         )
         guard coderCount > 0 else {
             throw KaitoError.malformed("7z folder has no coders")
         }
+        try budget.reserve(
+            count: coderCount,
+            bytesPerRecord: coderMetadataBytes,
+            description: "7z coder metadata"
+        )
 
         var coders: [SevenZipCoder] = []
         coders.reserveCapacity(coderCount)
@@ -487,6 +508,10 @@ enum SevenZipStreamsParser {
             guard (1...8).contains(idSize), idSize <= cursor.remaining else {
                 throw KaitoError.malformed("invalid 7z coder method-id size")
             }
+            try budget.reserve(
+                UInt64(idSize),
+                description: "7z coder method-id metadata"
+            )
             let method = try cursor.readBytes(idSize)
             let inputCount: Int
             let outputCount: Int
@@ -494,13 +519,13 @@ enum SevenZipStreamsParser {
                 inputCount = try boundedCount(
                     try cursor.readNumber(),
                     remaining: cursor.remaining,
-                    limit: 8,
+                    limit: SevenZipFormatLimits.maxFolderCodersAndStreams,
                     description: "7z coder input count"
                 )
                 outputCount = try boundedCount(
                     try cursor.readNumber(),
                     remaining: cursor.remaining,
-                    limit: 8,
+                    limit: SevenZipFormatLimits.maxFolderCodersAndStreams,
                     description: "7z coder output count"
                 )
             } else {
@@ -508,10 +533,15 @@ enum SevenZipStreamsParser {
                 outputCount = 1
             }
             guard inputCount > 0, outputCount > 0,
-                  totalInputs <= 8 - inputCount,
-                  totalOutputs <= 8 - outputCount else {
+                  totalInputs <= SevenZipFormatLimits.maxFolderCodersAndStreams - inputCount,
+                  totalOutputs <= SevenZipFormatLimits.maxFolderCodersAndStreams - outputCount else {
                 throw KaitoError.limitExceeded("7z folder stream count")
             }
+            try budget.reserve(
+                count: inputCount + outputCount,
+                bytesPerRecord: coderStreamMetadataBytes,
+                description: "7z coder-stream metadata"
+            )
 
             let properties: [UInt8]
             if flags & 0x20 != 0 {
@@ -543,6 +573,11 @@ enum SevenZipStreamsParser {
             throw KaitoError.malformed("7z folder has no output stream")
         }
         let bindCount = totalOutputs - 1
+        try budget.reserve(
+            count: bindCount,
+            bytesPerRecord: bindPairMetadataBytes,
+            description: "7z bind-pair metadata"
+        )
         var bindPairs: [SevenZipBindPair] = []
         bindPairs.reserveCapacity(bindCount)
         var usedInputs = Set<Int>()
@@ -564,9 +599,15 @@ enum SevenZipStreamsParser {
         }
 
         let packedCount = totalInputs - bindCount
-        guard packedCount > 0, packedCount <= 8 else {
+        guard packedCount > 0,
+              packedCount <= SevenZipFormatLimits.maxFolderCodersAndStreams else {
             throw KaitoError.malformed("invalid 7z packed-stream count")
         }
+        try budget.reserve(
+            count: packedCount,
+            bytesPerRecord: packedIndexMetadataBytes,
+            description: "7z packed-stream index metadata"
+        )
         let packedIndices: [Int]
         if packedCount == 1 {
             guard let index = (0..<totalInputs).first(where: { !usedInputs.contains($0) }) else {

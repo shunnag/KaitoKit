@@ -61,7 +61,7 @@ final class ZipHardeningTests: XCTestCase {
         assertMalformed { try ArchiveReader.open(data: archive) }
     }
 
-    func testCentralNameAndExtraLengthsCannotOverrunDirectoryBuffer() throws {
+    func testCentralVariableLengthsCannotOverrunAndUnparsableExtraTailIsIgnored() throws {
         let valid = try ZipTestSupport.makeArchive(entries: [
             HandZipEntry(name: "short.txt", uncompressedData: Data("value".utf8)),
         ])
@@ -79,10 +79,11 @@ final class ZipHardeningTests: XCTestCase {
         let badNestedExtra = try ZipTestSupport.makeArchive(entries: [
             HandZipEntry(name: "extra.txt", centralExtra: malformedExtra),
         ])
-        assertMalformed { try ArchiveReader.open(data: badNestedExtra) }
+        let reader = try ArchiveReader.open(data: badNestedExtra)
+        XCTAssertEqual(reader.entries.map(\.name), ["extra.txt"])
     }
 
-    func testImpossibleDOSCalendarDateIsRejectedInsteadOfNormalized() throws {
+    func testImpossibleDOSCalendarDateDegradesToMissingDate() throws {
         var archive = try ZipTestSupport.makeArchive(entries: [
             HandZipEntry(name: "invalid-date.txt"),
         ])
@@ -91,7 +92,8 @@ final class ZipHardeningTests: XCTestCase {
         )
         // 2020-02-31。Foundation Calendar は検証しなければ 3 月へ正規化する。
         try ZipTestSupport.writeUInt16(0x505F, to: &archive, at: central + 14)
-        assertMalformed { try ArchiveReader.open(data: archive) }
+        let reader = try ArchiveReader.open(data: archive)
+        XCTAssertNil(reader.entries[0].modificationDate)
     }
 
     func testZIP64SignedHighBitAndOversizedDirectoryValuesAreRejected() throws {
@@ -254,6 +256,20 @@ final class ZipHardeningTests: XCTestCase {
         assertSpanned { try ArchiveReader.open(data: zip64) }
     }
 
+    func testZIP32AndZIP64EndRecordCountsMustAgree() throws {
+        var archive = try ZipTestSupport.makeArchive(
+            entries: [HandZipEntry(name: "one.txt")],
+            forceZIP64End: true
+        )
+        let end = try ZipTestSupport.layout(of: archive).endRecordOffset
+        // Keep the remaining ZIP32 fields as sentinels so the ZIP64 path is
+        // selected, but make the non-sentinel count contradict the ZIP64 count.
+        try ZipTestSupport.writeUInt16(2, to: &archive, at: end + 8)
+        try ZipTestSupport.writeUInt16(2, to: &archive, at: end + 10)
+
+        assertMalformed { try ArchiveReader.open(data: archive) }
+    }
+
     func testDuplicateNamesRemainDistinctIndexAddressableEntries() throws {
         let archive = try ZipTestSupport.makeArchive(entries: [
             HandZipEntry(name: "duplicate.txt", uncompressedData: Data("first".utf8)),
@@ -319,7 +335,7 @@ final class ZipHardeningTests: XCTestCase {
         }
     }
 
-    func testOverlappingEntryIsDeferredInLazyModeAndRejectedEagerly() throws {
+    func testCentralDirectoryOverlapIsDeferredInLazyModeAndRejectedEagerly() throws {
         let payload = Data("overlap".utf8)
         let archive = try ZipTestSupport.makeArchive(entries: [
             HandZipEntry(
@@ -336,6 +352,88 @@ final class ZipHardeningTests: XCTestCase {
         XCTAssertEqual(lazy.entries.count, 1)
         assertMalformed { try lazy.read(lazy.entries[0]) }
 
+        assertMalformed {
+            try ArchiveReader.open(
+                data: archive,
+                options: ReaderOptions(lazyLocalHeaders: false)
+            )
+        }
+    }
+
+    func testEntryPayloadCannotOverlapAnotherLocalHeader() throws {
+        let firstPayload = Data("first".utf8)
+        let secondPayload = Data("second".utf8)
+        let archive = try ZipTestSupport.makeArchive(entries: [
+            HandZipEntry(
+                name: "first.txt",
+                uncompressedData: firstPayload,
+                centralCompressedSize: UInt32(firstPayload.count + 1)
+            ),
+            HandZipEntry(name: "second.txt", uncompressedData: secondPayload),
+        ])
+
+        let lazy = try ArchiveReader.open(
+            data: archive,
+            options: ReaderOptions(lazyLocalHeaders: true)
+        )
+        assertMalformed { try lazy.read(lazy.entries[1]) }
+        assertMalformed { try lazy.read(lazy.entries[0]) }
+
+        assertMalformed {
+            try ArchiveReader.open(
+                data: archive,
+                options: ReaderOptions(lazyLocalHeaders: false)
+            )
+        }
+    }
+
+    func testAliasedLocalHeaderIsDetectedInLazyAndEagerModes() throws {
+        var archive = try ZipTestSupport.makeArchive(entries: [
+            HandZipEntry(name: "first.txt", uncompressedData: Data("one".utf8)),
+            HandZipEntry(name: "alias.txt", uncompressedData: Data("two".utf8)),
+        ])
+        let layout = try ZipTestSupport.layout(of: archive)
+        let firstLocalOffset = layout.localHeaderOffsets[0] - layout.archiveBase
+        try ZipTestSupport.writeUInt32(
+            UInt32(firstLocalOffset),
+            to: &archive,
+            at: layout.centralEntryOffsets[1] + 42
+        )
+
+        let lazy = try ArchiveReader.open(
+            data: archive,
+            options: ReaderOptions(lazyLocalHeaders: true)
+        )
+        assertMalformed { try lazy.read(lazy.entries[0]) }
+        assertMalformed { try lazy.read(lazy.entries[1]) }
+
+        assertMalformed {
+            try ArchiveReader.open(
+                data: archive,
+                options: ReaderOptions(lazyLocalHeaders: false)
+            )
+        }
+    }
+
+    func testSameNamedEntriesCannotAliasOneLocalHeader() throws {
+        var archive = try ZipTestSupport.makeArchive(entries: [
+            HandZipEntry(name: "same.txt", uncompressedData: Data("one".utf8)),
+            HandZipEntry(name: "same.txt", uncompressedData: Data("two".utf8)),
+        ])
+        let layout = try ZipTestSupport.layout(of: archive)
+        let firstLocalOffset = layout.localHeaderOffsets[0] - layout.archiveBase
+        try ZipTestSupport.writeUInt32(
+            UInt32(firstLocalOffset),
+            to: &archive,
+            at: layout.centralEntryOffsets[1] + 42
+        )
+
+        let lazy = try ArchiveReader.open(
+            data: archive,
+            options: ReaderOptions(lazyLocalHeaders: true)
+        )
+        assertMalformed { try lazy.read(lazy.entries[0]) }
+        assertMalformed { try lazy.read(lazy.entries[1]) }
         assertMalformed {
             try ArchiveReader.open(
                 data: archive,

@@ -5,6 +5,7 @@ public enum FormatDetector {
     private static let tarBlockSize = 512
     private static let zipEOCDMinimumSize = 22
     private static let zipMaximumCommentSize = 65_535
+    private static let zipMaximumTrailingDataSize = 1 * 1_024 * 1_024
     /// RARLab bounds an SFX module to one MiB. Include the longest signature
     /// so a marker beginning at the final permitted byte remains visible.
     static let maximumRARSFXSize: UInt64 = 1 * 1_024 * 1_024
@@ -390,7 +391,9 @@ public enum FormatDetector {
             return false
         }
 
-        let maximumSearch = zipMaximumCommentSize + zipEOCDMinimumSize
+        let maximumSearch = zipMaximumCommentSize
+            + zipEOCDMinimumSize
+            + zipMaximumTrailingDataSize
         let searchLength = try Checked.toInt(min(source.length, UInt64(maximumSearch)))
         let searchOffset = try Checked.sub(source.length, UInt64(searchLength))
         let tail = try read(source: source, at: searchOffset, count: searchLength)
@@ -417,7 +420,8 @@ public enum FormatDetector {
             let commentLength = UInt64(tail[index + 20]) | highCommentLength
             let recordLength = try Checked.add(UInt64(zipEOCDMinimumSize), commentLength)
             let recordEnd = try Checked.add(UInt64(index), recordLength)
-            if recordEnd == UInt64(tail.count) {
+            if recordEnd <= UInt64(tail.count),
+               UInt64(tail.count) - recordEnd <= UInt64(zipMaximumTrailingDataSize) {
                 return true
             }
         }

@@ -1,5 +1,61 @@
 import Foundation
 
+private final class ArchiveOutputBudget {
+    private let limit: UInt64
+    private var total: UInt64
+    private var unknownEntrySizes: [Int: UInt64] = [:]
+    private var limitWasExceeded = false
+
+    init(entries: [ArchiveEntry], limit: UInt64) throws {
+        self.limit = limit
+        var declaredTotal: UInt64 = 0
+        for entry in entries {
+            guard let size = entry.uncompressedSize else { continue }
+            let next = declaredTotal.addingReportingOverflow(size)
+            guard !next.overflow, next.partialValue <= limit else {
+                throw KaitoError.limitExceeded("total uncompressed size")
+            }
+            declaredTotal = next.partialValue
+        }
+        self.total = declaredTotal
+    }
+
+    func ensureUsable() throws {
+        guard !limitWasExceeded else {
+            throw KaitoError.limitExceeded("total uncompressed size")
+        }
+    }
+
+    func availableAdditionalSize(index: Int, producedSize: UInt64) throws -> UInt64 {
+        try ensureUsable()
+        let previouslyRecorded = unknownEntrySizes[index] ?? 0
+        let replayAllowance = previouslyRecorded > producedSize
+            ? previouslyRecorded - producedSize
+            : 0
+        let unallocatedAllowance = limit - total
+        return try Checked.add(replayAllowance, unallocatedAllowance)
+    }
+
+    func recordUnknownEntry(index: Int, producedSize: UInt64) throws {
+        try ensureUsable()
+        let previous = unknownEntrySizes[index] ?? 0
+        guard producedSize > previous else { return }
+        let additional = try Checked.sub(producedSize, previous)
+        guard additional <= limit - total else {
+            limitWasExceeded = true
+            throw KaitoError.limitExceeded("total uncompressed size")
+        }
+        let nextTotal = total + additional
+        unknownEntrySizes[index] = producedSize
+        total = nextTotal
+    }
+
+    func recordLimitExceeded() throws {
+        limitWasExceeded = true
+        throw KaitoError.limitExceeded("total uncompressed size")
+    }
+}
+
 /// Opens an archive, lists its entries, and reads or extracts their contents.
 ///
 /// `ArchiveReader` is deliberately not thread-safe. Call ``reopen()`` to make
@@ -12,6 +68,7 @@ public final class ArchiveReader {
     private let sourceURL: URL?
     private let reader: any FormatReader
     private let options: ReaderOptions
+    private let outputBudget: ArchiveOutputBudget
     private var extractionRootKey: String?
     private var extractedFiles: [Int: ExtractedFileIdentity] = [:]
 
@@ -127,6 +184,11 @@ public final class ArchiveReader {
         case .gzip, .bzip2, .xz:
             throw KaitoError.unsupportedFormat
         }
+
+        self.outputBudget = try ArchiveOutputBudget(
+            entries: entries,
+            limit: options.limits.maxTotalUncompressedSize
+        )
     }
 
     /// Builds a reader around an already parsed format reader. This is used by
@@ -138,7 +200,7 @@ public final class ArchiveReader {
         sourceURL: URL?,
         options: ReaderOptions,
         parsedReader: any FormatReader
-    ) {
+    ) throws {
         self.source = source
         self.sourceURL = sourceURL
         self.options = options
@@ -146,6 +208,10 @@ public final class ArchiveReader {
         self.format = parsedReader.format
         self.entries = parsedReader.entries
         self.password = options.password
+        self.outputBudget = try ArchiveOutputBudget(
+            entries: parsedReader.entries,
+            limit: options.limits.maxTotalUncompressedSize
+        )
     }
 
     /// Opens an archive stored at a file URL.
@@ -179,10 +245,37 @@ public final class ArchiveReader {
     }
 
     /// Returns a forward-only stream for an entry.
+    ///
+    /// Checksums and format verification that cover the complete entry are
+    /// finalized by the last `read`. Earlier chunks may therefore be returned
+    /// before a malformed final checksum or tag is reported.
     public func stream(_ entry: ArchiveEntry) throws -> EntryStream {
         try validate(entry)
+        if entry.uncompressedSize == nil {
+            try outputBudget.ensureUsable()
+        }
         try preparePassword(for: entry)
-        return try reader.stream(for: entry, limits: options.limits)
+        let stream = try reader.stream(for: entry, limits: options.limits)
+        if entry.uncompressedSize == nil {
+            stream.observeProducedSize(
+                availableAdditionalSize: { [outputBudget] producedSize in
+                    try outputBudget.availableAdditionalSize(
+                        index: entry.index,
+                        producedSize: producedSize
+                    )
+                },
+                didProduce: { [outputBudget] producedSize in
+                    try outputBudget.recordUnknownEntry(
+                        index: entry.index,
+                        producedSize: producedSize
+                    )
+                },
+                didExceedLimit: { [outputBudget] in
+                    try outputBudget.recordLimitExceeded()
+                }
+            )
+        }
+        return stream
     }
 
     /// Reads one entry into an exactly sized in-memory buffer.
@@ -230,7 +323,7 @@ public final class ArchiveReader {
         var reopenedOptions = options
         reopenedOptions.password = password
         if let rar5 = reader as? RAR5Reader {
-            return ArchiveReader(
+            return try ArchiveReader(
                 sharing: source,
                 sourceURL: sourceURL,
                 options: reopenedOptions,
@@ -238,7 +331,7 @@ public final class ArchiveReader {
             )
         }
         if let rar4 = reader as? RAR4Reader {
-            return ArchiveReader(
+            return try ArchiveReader(
                 sharing: source,
                 sourceURL: sourceURL,
                 options: reopenedOptions,
@@ -268,4 +361,5 @@ public final class ArchiveReader {
         }
         reader.setPassword(password)
     }
+
 }

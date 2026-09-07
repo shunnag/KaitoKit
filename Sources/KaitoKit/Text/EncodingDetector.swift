@@ -9,6 +9,25 @@ public typealias EncodingDetection = (
 
 /// Detects and decodes archive entry names without sending valid UTF-8 to a guesser.
 public enum EncodingDetector {
+    // Archive-wide guessing is a heuristic. Bound both its representative
+    // input and per-name scoring so unusually long central-directory names do
+    // not make open time grow through repeated Foundation normalization.
+    private static let maximumAutomaticDetectionSampleByteCount = 256 * 1_024
+    private static let maximumAutomaticDetectionSampleNameCount = 512
+    private static let maximumJapaneseScoringScalarCount = 256
+
+    private struct ArchiveNameFrequency {
+        var bytes: [UInt8]
+        var count: Int
+        var stableHash: UInt64
+
+        init(bytes: [UInt8], count: Int, stableHash: UInt64) {
+            self.bytes = bytes
+            self.count = count
+            self.stableHash = stableHash
+        }
+    }
+
     /// Chooses one encoding for the undecorated names in an archive.
     ///
     /// Strict UTF-8 names do not participate in automatic detection, which
@@ -373,34 +392,40 @@ public enum EncodingDetector {
             calledFoundation = true
         }
 
+        let ambiguousNameFrequencies = archiveNameFrequencies(ambiguousJapaneseNames)
+        let uniqueAmbiguousNames = ambiguousNameFrequencies.map(\.bytes)
         var cp932Votes = cp932Only
         var eucJPVotes = eucJPOnly
         var unresolvedVotes = ambiguousJapaneseNames.count
         let cp932Decoded = decodeArchiveNamesImpl(
-            ambiguousJapaneseNames,
+            uniqueAmbiguousNames,
             as: .shiftJIS,
             maximumBatchByteCount: maximumBatchByteCount
         )
         let eucJPDecoded = decodeArchiveNamesImpl(
-            ambiguousJapaneseNames,
+            uniqueAmbiguousNames,
             as: .japaneseEUC,
             maximumBatchByteCount: maximumBatchByteCount
         )
-        for index in ambiguousJapaneseNames.indices {
+        // Every structurally ambiguous name contributes a vote. Per-name
+        // scoring is prefix-bounded, while the single archive-wide Foundation
+        // hint comes from an order-independent, frequency-weighted sample.
+        for index in uniqueAmbiguousNames.indices {
             guard let cp932 = cp932Decoded[index],
                   let eucJP = eucJPDecoded[index] else { continue }
             let choice = chooseAmbiguousJapanese(
                 cp932: cp932,
                 eucJP: eucJP,
-                bytes: ambiguousJapaneseNames[index],
+                bytes: uniqueAmbiguousNames[index],
                 foundation: foundation
             )
+            let occurrenceCount = ambiguousNameFrequencies[index].count
             if choice.encoding == .japaneseEUC {
-                eucJPVotes += 1
+                eucJPVotes += occurrenceCount
             } else {
-                cp932Votes += 1
+                cp932Votes += occurrenceCount
             }
-            unresolvedVotes -= 1
+            unresolvedVotes -= occurrenceCount
         }
 
         if unresolvedVotes == 0, cp932Votes != eucJPVotes {
@@ -449,14 +474,91 @@ public enum EncodingDetector {
         separator: UInt8,
         maximumByteCount: Int?
     ) -> [UInt8] {
-        guard let maximumByteCount else {
-            return concatenate(names, range: names.indices, separator: separator)
-        }
-        return boundedArchiveNameSample(
+        orderStableArchiveNameSample(
             names,
             separator: separator,
             maximumByteCount: maximumByteCount
+                ?? maximumAutomaticDetectionSampleByteCount
         )
+    }
+
+    // Builds a bounded, order-independent sample for the one Foundation call.
+    // Exact occurrence weights keep repeated majority evidence represented;
+    // stable hashes provide a cheap canonical order for distinct names.
+    private static func orderStableArchiveNameSample(
+        _ names: [[UInt8]],
+        separator: UInt8,
+        maximumByteCount: Int
+    ) -> [UInt8] {
+        let byteLimit = max(0, maximumByteCount)
+        guard byteLimit > 0, !names.isEmpty else { return [] }
+
+        let frequencies = archiveNameFrequencies(names)
+        let sampleCount = min(names.count, maximumAutomaticDetectionSampleNameCount)
+
+        var result: [UInt8] = []
+        result.reserveCapacity(byteLimit)
+        var frequencyIndex = 0
+        var cumulativeCount = frequencies[0].count
+        var appendedCount = 0
+        for sampleIndex in 0..<sampleCount {
+            let lower = scaledPosition(sampleIndex, total: names.count, parts: sampleCount)
+            let upper = scaledPosition(sampleIndex + 1, total: names.count, parts: sampleCount)
+            let position = lower + (upper - lower) / 2
+            while position >= cumulativeCount, frequencyIndex + 1 < frequencies.count {
+                frequencyIndex += 1
+                cumulativeCount += frequencies[frequencyIndex].count
+            }
+
+            let name = frequencies[frequencyIndex].bytes
+            let separatorCount = appendedCount == 0 ? 0 : 1
+            guard separatorCount <= byteLimit - result.count,
+                  name.count <= byteLimit - result.count - separatorCount else {
+                continue
+            }
+            if separatorCount == 1 { result.append(separator) }
+            result.append(contentsOf: name)
+            appendedCount += 1
+        }
+        return result
+    }
+
+    private static func archiveNameFrequencies(
+        _ names: [[UInt8]]
+    ) -> [ArchiveNameFrequency] {
+        var counts: [[UInt8]: Int] = [:]
+        for name in names {
+            counts[name, default: 0] += 1
+        }
+        return counts.map { bytes, count in
+            ArchiveNameFrequency(
+                bytes: bytes,
+                count: count,
+                stableHash: stableArchiveNameHash(bytes)
+            )
+        }.sorted {
+            if $0.stableHash != $1.stableHash {
+                return $0.stableHash > $1.stableHash
+            }
+            return $1.bytes.lexicographicallyPrecedes($0.bytes)
+        }
+    }
+
+    private static func scaledPosition(_ value: Int, total: Int, parts: Int) -> Int {
+        let quotient = total / parts
+        let remainder = total % parts
+        return quotient * value + (remainder * value) / parts
+    }
+
+    private static func stableArchiveNameHash(_ bytes: [UInt8]) -> UInt64 {
+        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
+        for byte in bytes {
+            hash ^= UInt64(byte)
+            hash &*= 0x0000_0100_0000_01B3
+        }
+        hash ^= UInt64(bytes.count)
+        hash &*= 0x0000_0100_0000_01B3
+        return hash
     }
 
     // 呼出側の byte 上限内で代表入力を作る。構造投票はすべての名前を
@@ -707,7 +809,10 @@ public enum EncodingDetector {
             return (.japaneseEUC, eucJP, 0.82)
         }
 
-        if isLikelyHalfWidthName(cp932), eucJP.count == 1 {
+        let eucHasOneCharacter = !eucJP.isEmpty
+            && eucJP.index(after: eucJP.startIndex) == eucJP.endIndex
+        let likelyHalfWidthName = isLikelyHalfWidthName(cp932)
+        if eucHasOneCharacter, likelyHalfWidthName {
             return (.shiftJIS, cp932, 0.8)
         }
 
@@ -718,7 +823,7 @@ public enum EncodingDetector {
         } else if foundation?.encoding == .japaneseEUC {
             eucScore += 0.15
         }
-        if isLikelyHalfWidthName(cp932) {
+        if likelyHalfWidthName {
             cpScore += 0.9
         }
 
@@ -743,7 +848,7 @@ public enum EncodingDetector {
     private static func japanesePlausibility(_ string: String) -> Double {
         var score = 0.0
         var count = 0.0
-        for scalar in string.unicodeScalars {
+        for scalar in string.unicodeScalars.prefix(maximumJapaneseScoringScalarCount) {
             count += 1.0
             switch scalar.value {
             case 0x3040...0x30FF: // ひらがな・カタカナ
@@ -765,26 +870,26 @@ public enum EncodingDetector {
 
     private static func isLikelyHalfWidthName(_ string: String) -> Bool {
         var sawKana = false
-        for scalar in string.unicodeScalars {
+        var sampledScalars: [Unicode.Scalar] = []
+        sampledScalars.reserveCapacity(maximumJapaneseScoringScalarCount)
+        for scalar in string.unicodeScalars.prefix(maximumJapaneseScoringScalarCount) {
             if (0xFF61...0xFF9F).contains(scalar.value) {
                 sawKana = true
-                continue
+            } else if !(0x20...0x7E).contains(scalar.value) {
+                return false
             }
-            if (0x20...0x7E).contains(scalar.value) {
-                continue
-            }
-            return false
+            sampledScalars.append(scalar)
         }
         guard sawKana else {
             return false
         }
 
-        let normalized = string.precomposedStringWithCompatibilityMapping
+        let sampled = String(sampledScalars.map(Character.init))
         let commonTerms = [
-            "カナ", "カタカナ", "テスト", "ページ", "ファイル", "コミック",
-            "マンガ", "タイトル", "サンプル", "イラスト",
+            "ｶﾅ", "ｶﾀｶﾅ", "ﾃｽﾄ", "ﾍﾟｰｼﾞ", "ﾌｧｲﾙ", "ｺﾐｯｸ",
+            "ﾏﾝｶﾞ", "ﾀｲﾄﾙ", "ｻﾝﾌﾟﾙ", "ｲﾗｽﾄ",
         ]
-        return commonTerms.contains { normalized.contains($0) }
+        return commonTerms.contains { sampled.contains($0) }
     }
 
     private static func replacementDecode(

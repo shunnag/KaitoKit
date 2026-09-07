@@ -66,7 +66,10 @@ public struct ExtractionOptions: Sendable {
     /// Whether an existing regular file may be replaced.
     public var overwriteExisting: Bool
 
-    /// Whether modification times and POSIX permissions are restored.
+    /// Whether archive modification times and POSIX permissions are restored.
+    ///
+    /// Newly created objects use umask-derived file-system defaults when this is
+    /// `false`, or when an entry does not carry POSIX permissions.
     public var preserveMetadata: Bool
 
     /// Whether safe relative symbolic links are created.

@@ -55,6 +55,27 @@ final class ZipCodecAuditRegressionTests: XCTestCase {
         XCTAssertEqual(try reader.read(reader.entries[0]), Data())
     }
 
+    func testLZMAEOSOutputMustMatchCentralDirectorySize() throws {
+        let compressed = zipLZMAData(raw: [
+            0x00, 0x83, 0xFF, 0xFB, 0xFF,
+            0xFF, 0xC0, 0x00, 0x00, 0x00,
+        ])
+        let archive = try ZipTestSupport.makeArchive(entries: [
+            HandZipEntry(
+                name: "size-mismatch.txt",
+                compressedData: compressed,
+                method: 14,
+                flags: 0x0802,
+                centralUncompressedSize: 1
+            ),
+        ])
+        let reader = try ArchiveReader.open(data: archive)
+
+        XCTAssertThrowsError(try reader.read(reader.entries[0])) { error in
+            XCTAssertEqual(error as? KaitoError, .truncated)
+        }
+    }
+
     private func zipLZMAData(raw: [UInt8]) -> Data {
         var result = Data([
             0x09, 0x14, // LZMA SDK バージョン 9.20

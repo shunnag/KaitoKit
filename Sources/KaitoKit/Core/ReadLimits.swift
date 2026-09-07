@@ -3,6 +3,9 @@ public struct ReadLimits: Sendable, Equatable {
     /// Maximum declared or produced size of a single entry.
     public var maxEntrySize: UInt64
 
+    /// Maximum aggregate declared or produced uncompressed size in one reader.
+    public var maxTotalUncompressedSize: UInt64
+
     /// Maximum entry size accepted by an in-memory read operation.
     public var maxInMemorySize: UInt64
 
@@ -38,6 +41,8 @@ public struct ReadLimits: Sendable, Equatable {
     ///
     /// - Parameters:
     ///   - maxEntrySize: Maximum size of one entry. The default is 4 GiB.
+    ///   - maxTotalUncompressedSize: Maximum aggregate declared or produced
+    ///     uncompressed size across entries in one reader. The default is 64 GiB.
     ///   - maxInMemorySize: Maximum size for `read` operations. The default is 1 GiB.
     ///   - maxEntryCount: Maximum number of entries. The default is one million.
     ///   - maxMetadataSize: Maximum single metadata allocation. The default is 16 MiB.
@@ -51,6 +56,7 @@ public struct ReadLimits: Sendable, Equatable {
     ///     iteration exponent.
     public init(
         maxEntrySize: UInt64 = 4 * 1_024 * 1_024 * 1_024,
+        maxTotalUncompressedSize: UInt64 = 64 * 1_024 * 1_024 * 1_024,
         maxInMemorySize: UInt64 = 1 * 1_024 * 1_024 * 1_024,
         maxEntryCount: Int = 1_000_000,
         maxMetadataSize: UInt64 = 16 * 1_024 * 1_024,
@@ -62,6 +68,7 @@ public struct ReadLimits: Sendable, Equatable {
         maxRAR5HeaderKDFWork: UInt64 = 4 * ((UInt64(1) << 24) + 32)
     ) {
         self.maxEntrySize = maxEntrySize
+        self.maxTotalUncompressedSize = maxTotalUncompressedSize
         self.maxInMemorySize = maxInMemorySize
         self.maxEntryCount = max(0, maxEntryCount)
         self.maxMetadataSize = maxMetadataSize

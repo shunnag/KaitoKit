@@ -141,8 +141,56 @@ enum ZipTestSupport {
     static let infoZipPath = "/usr/bin/zip"
     static let unzipPath = "/usr/bin/unzip"
     static let bsdTarPath = "/usr/bin/bsdtar"
-    static let sevenZipPath = "/opt/homebrew/bin/7zz"
+    static let sevenZipPath = resolveExecutablePath(
+        environmentVariable: "KAITO_7ZZ",
+        executableName: "7zz",
+        fallbackPaths: ["/opt/homebrew/bin/7zz", "/usr/local/bin/7zz"]
+    )
+    static let xzPath = resolveExecutablePath(
+        environmentVariable: "KAITO_XZ",
+        executableName: "xz",
+        fallbackPaths: ["/opt/homebrew/bin/xz", "/usr/local/bin/xz"]
+    )
     static let pythonPath = "/usr/bin/python3"
+
+    private static func resolveExecutablePath(
+        environmentVariable: String,
+        executableName: String,
+        fallbackPaths: [String]
+    ) -> String {
+        let environment = ProcessInfo.processInfo.environment
+        if let configured = environment[environmentVariable], !configured.isEmpty {
+            return configured
+        }
+        if let path = environment["PATH"] {
+            for directory in path.split(separator: ":", omittingEmptySubsequences: true) {
+                let candidate = URL(fileURLWithPath: String(directory), isDirectory: true)
+                    .appendingPathComponent(executableName)
+                    .path
+                if FileManager.default.isExecutableFile(atPath: candidate) {
+                    return candidate
+                }
+            }
+        }
+        for fallbackPath in fallbackPaths
+            where FileManager.default.isExecutableFile(atPath: fallbackPath)
+        {
+            return fallbackPath
+        }
+        return fallbackPaths[0]
+    }
+
+    private static func environmentFlagIsEnabled(_ name: String) -> Bool {
+        guard let value = ProcessInfo.processInfo.environment[name]?.lowercased() else {
+            return false
+        }
+        switch value {
+        case "1", "true", "yes", "on":
+            return true
+        default:
+            return false
+        }
+    }
 
     static var repositoryRoot: URL {
         URL(fileURLWithPath: #filePath)
@@ -184,7 +232,24 @@ enum ZipTestSupport {
 
     static func requireExecutable(_ path: String, reason: String? = nil) throws {
         guard FileManager.default.isExecutableFile(atPath: path) else {
-            throw XCTSkip(reason ?? "required fixture tool is unavailable: \(path)")
+            let requiredEnvironmentVariable: String?
+            if path == sevenZipPath {
+                requiredEnvironmentVariable = "KAITO_REQUIRE_7ZZ"
+            } else if path == xzPath {
+                requiredEnvironmentVariable = "KAITO_REQUIRE_XZ"
+            } else {
+                requiredEnvironmentVariable = nil
+            }
+            let message = reason ?? "required fixture tool is unavailable: \(path)"
+            if let requiredEnvironmentVariable,
+               environmentFlagIsEnabled(requiredEnvironmentVariable)
+            {
+                throw ZipTestSupportError.fixture(
+                    "required external oracle is unavailable at \(path) "
+                        + "(\(requiredEnvironmentVariable)=1)"
+                )
+            }
+            throw XCTSkip(message)
         }
     }
 
@@ -192,7 +257,8 @@ enum ZipTestSupport {
     static func run(
         _ executable: String,
         arguments: [String],
-        currentDirectory: URL? = nil
+        currentDirectory: URL? = nil,
+        standardInput: Data? = nil
     ) throws -> ZipCommandResult {
         let capture = try temporaryDirectory(label: "command-output")
         defer { try? FileManager.default.removeItem(at: capture) }
@@ -213,11 +279,21 @@ enum ZipTestSupport {
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         process.currentDirectoryURL = currentDirectory
-        process.standardInput = FileHandle.nullDevice
+        var inputHandle: FileHandle?
+        if let standardInput {
+            let inputURL = capture.appendingPathComponent("stdin")
+            try standardInput.write(to: inputURL)
+            let handle = try FileHandle(forReadingFrom: inputURL)
+            inputHandle = handle
+            process.standardInput = handle
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
         process.standardOutput = outputHandle
         process.standardError = errorHandle
         try process.run()
         process.waitUntilExit()
+        try inputHandle?.close()
         try outputHandle.synchronize()
         try errorHandle.synchronize()
 
@@ -232,12 +308,14 @@ enum ZipTestSupport {
     static func checkedRun(
         _ executable: String,
         arguments: [String],
-        currentDirectory: URL? = nil
+        currentDirectory: URL? = nil,
+        standardInput: Data? = nil
     ) throws -> ZipCommandResult {
         let result = try run(
             executable,
             arguments: arguments,
-            currentDirectory: currentDirectory
+            currentDirectory: currentDirectory,
+            standardInput: standardInput
         )
         guard result.succeeded else {
             throw ZipTestSupportError.commandFailed(

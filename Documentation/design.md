@@ -27,6 +27,20 @@
 - ハフマン/ラン長テーブルの充填は必ずテーブル長で打ち切る。
 - ループの前進保証(RAR5 ブロック、XZ ブロック、CFBF FAT、ISO CE 連鎖)。
 - 宣言サイズ由来の確保は上限つきにし、符号化(圧縮)ヘッダが宣言する復号サイズを信用しない(実バイトの裏付けがあるカウントだけを厳密に扱う)。
+- `ReadLimits.maxTotalUncompressedSize` (既定 64 GiB) は reader が公開する全 entry の宣言サイズを
+  open 時に合算し、サイズ不明 entry は実際に生成した最大 byte 数を entry ごとに一度だけ加算する。
+  decoder へ渡す read buffer は残り合算枠までに縮め、ちょうど上限に達したときだけ内部 1 byte
+  probe で正常終端か超過かを確定する。超過が判明した reader の合算枠は以後 terminal とする。
+  `reopen()` は独立した合算枠を持つ。この上限が無い場合、構造上は非重複でも既定の他上限内で
+  およそ 10 TiB の総出力を宣言できる。
+- ZIP の local header から payload 終端までの範囲は entry 間で重複させない。eager local-header
+  検証では open 時に全範囲を拒否する。lazy 検証でも、要求 entry までを local offset 順に prefix
+  検証するため、alias された同一 start と、前の entry の payload が次の local start を越える形を
+  読み順にかかわらず最初の該当 read で拒否する。
+- folder / solid decoder の辞書、確率表、PPMd arena は完了検証後に解放する。再読は immutable な
+  factory から decoder を再構築する。単一 substream folder の coordinator は reader に保持せず、
+  multi-substream folder は完了までは各 coordinator が decoder を一つ保持し得るため、部分読みした
+  複数 folder の合計状態には別の aggregate cap を設けていない。
 - 検出: ASan/UBSan+ミュータント(`Scripts/fuzz/mutate.py` 方式)、実書庫 SHA-256 相互検証(libFuzzer は Apple toolchain の Swift で使えない)。
 
 性能(#10〜#11、#51〜#66、Scripts/bench):
@@ -43,7 +57,33 @@
 文字コード(#49、#64、bench sjis2000):
 - 厳密に有効な UTF-8 なら判定器を通さず UTF-8(短い日本語名の誤判定回避)。
 - CP932(Shift_JIS)・EUC-JP・UTF-8 の判定を本体で持つ(UniversalDetector 相当)。未宣言の legacy 名を書庫全体で集約し、構造検査と必要な場合だけ一度の Foundation `NSString.stringEncoding(for:encodingOptions:)` で共通 encoding を選ぶ。その encoding で変換できない名前だけ単名判定へ戻し、実コーパスで比較する。
+- 名前ごとの日本語 plausibility 採点は先頭 256 scalar に制限し、同じ byte 列の両義名は一度だけ
+  decode / 採点して全 occurrence の頻度を投票へ反映する。format 固有の batch 上限を渡さない ZIP / public
+  API 経路では、Foundation 判定へ渡す archive sample を頻度を保った順序非依存の代表最大 512 件・
+  256 KiB とする。中央 directory 全体の byte 数に比例する
+  構造走査を除き、一つの長大名や大量の重複名が高価な名前処理を無制限に反復させない。
 - 表示名とは別に生バイト列を保持し、判定を後から差し替えられるようにする(XADString 相当)。
+
+ZIP 互換境界:
+- EOCD 後 1 MiB までの bounded trailing data、marker の無い ZIP64 EOCD、local extra の 1〜3 byte zero padding、
+  central extra の解析不能な末尾、範囲外日時、bit 11 付きの invalid UTF-8 名は、unzip / 7zz /
+  XADMaster と同程度に entry 単位で縮退して読む。サイズ、offset、record envelope、ZIP64 値のような
+  構造 field と、local extra の nonzero junk は引き続き厳密に検証する。
+- trailing data 内の EOCD-shaped sequence は、中央 directory まで整合する候補だけを採用する。候補の
+  試行は 8,192 件、ZIP64 探索と中央 directory parse の累積 work は `2 * maxMetadataSize` に制限する。
+
+streaming 検証契約:
+- CRC / HMAC と decoder 終端は `EntryStream` の最後の `read` で確定するため、それ以前の chunk は全
+  entry の検証が未完了である。`ArchiveReader.read(_:)` / `EntryStream.readAll()` / `extract` / compat /
+  CLI は最後まで drain し、検証成功後だけ
+  完成結果を返す。WinZip AE 仕様が示す検証順序とは異なる、bounded-memory streaming の明示的な
+  trade-off とする。
+- archive に permissions が無い場合、または `preserveMetadata == false` の場合、新規 file は
+  `0666 & ~umask`、明示・暗黙 directory は `0777 & ~umask` を使う。
+- 呼出側が所有する展開 root / 中間 directory に owner access が足りない場合は、固定済み descriptor
+  に限って処理中だけ owner `0700` を加え、成功・失敗のどちらでも元の mode を復元する。これは
+  `umask 0777` で新規作成された mode `000` directory と、先に復元済みの restrictive directory を
+  後続 entry が通過できるようにするための明示的な抽出契約である。
 
 ## 4. 性能の目標値(Scripts/bench results-2026-08-27、M4 Max、XADMaster final)
 
@@ -98,8 +138,13 @@
 ## 8. 検証・計測
 
 - 差分テスト: 同一書庫を KaitoKit と format ごとの black-box executable で展開し SHA-256 を比較する。RAR は RAR 7.23 `rar p -inul`、7z は 7zz、LHA / tar は lhasa / bsdtar を使う。XADMaster は既存性能基準だけに用い、source は参照しない。
+- 7zz / xz oracle は環境変数 (`KAITO_7ZZ` / `KAITO_XZ`) を最優先し、次に `PATH`、最後に既知の
+  Homebrew path から解決する。CI の差分 job は必要 tool を導入し、`KAITO_REQUIRE_7ZZ=1` /
+  `KAITO_REQUIRE_XZ=1` の必須 oracle mode では skip を failure にする。
 - フィクスチャ生成: 7zz、RAR 7.23 の RAR5、RAR 3.00 の RAR4/PPMd-H、lha(作成には LHa for UNIX が必要、lhasa は展開のみ)、bsdtar、zip(Info-ZIP)+ makesjiszip.py。生成済み RAR4 binary は review 可能な base64 として固定する。
-- 堅牢性: ASan/UBSan ビルド + ミュータント(`Scripts/fuzz/mutate.py`)+ malformed / unusual archive、巨大宣言サイズ・循環参照の回帰テスト。
+- 堅牢性: ASan/UBSan ビルド + ミュータント(`Scripts/fuzz/mutate.py`)+ malformed / unusual archive、巨大宣言サイズ・循環参照の回帰テスト。`make-compressed-seeds.sh` は ZIP の
+  Deflate / Deflate64 / BZip2 / LZMA / AES と 7z の LZMA2 / PPMd / BCJ2 / AES seed を 7zz で作り、
+  payload-aware mutant は container header だけでなく、認識した packed-data region も直接変更する。
 - 性能: Scripts/bench の方法論(交互実行、同一ハーネス、SHA 相互検証)を kaito CLI に移植し、XADMaster final と比較。目標は原則 1.3 倍以内、RAR decoder は指定基準の 1.5 倍以内。
 
 ## 9. マイルストーン(beads 子 issue)
@@ -206,6 +251,26 @@ M3 の実差分では RAR 7.23 の `rar p -inul` を使用した。
   sjis2000.zip の open 46 → 9 ms(XADMaster 14 ms)。stored 展開は宣言サイズの最終バッファへ直接読み。
 - M2(29a04e8): LZMA/LZMA2・PPMd7・BCJ/BCJ2/Delta・7zAES・7z リーダ。PPMd7 は公開ドメインの
   LZMA SDK(Ppmd7.c / Ppmd7Dec.c)を参照して再実装(7zz 生成 7,424 ケースで一致)。
+- M2/M5 format-compatibility / robustness 追補(2026-09-07):
+  - ZIP は marker の無い ZIP64 end+locator、EOCD 後 1 MiB までの padding、zipalign 型 local-extra
+    zero padding、entry 単位で縮退できる central extra / timestamp / bit-11 name を扱う。local
+    header+payload range の alias は eager open で全件、lazy では要求 entry までの local-offset prefix
+    を検証して読み順にかかわらず拒否する。
+  - 7z folder の coder、coder ごとの stream、総 input/output、packed stream は共通 cap 64 とする。
+    7zz の AES+BCJ2 (8 coder / 11 input) と 5-coder chain を含みつつ、graph 検証と decoder 構築の
+    深さを固定上限に保つ。folder 完了後は decoder state を解放し、単一 substream folder の
+    coordinator は reader に cache しない。
+  - `ReadLimits.maxTotalUncompressedSize` は既定 64 GiB。compat は `extractEntry(_:to:)` を directory
+    引数として扱い、directory 名の末尾 separator を互換層だけ除去し、サイズ不明を `Int64.max` とする。
+    permissions が無い entry と implicit directory は umask 由来の mode を使う。
+  - 7z の実効的な一覧上限は files-info と公開 entry の 256 byte/file 予約が重なるため約 440K entry、
+    復号後 header 全体は `maxMetadataSize` (既定 16 MiB、典型的に約 150K file) で制限される。
+    7z の 4 GiB 超 declared entry は既定 `maxEntrySize` により list/open 時点で拒否され、`read()` /
+    `readAll()` は既定 `maxInMemorySize` 1 GiB まで宣言サイズの最終 buffer を確保する。
+  - PPMd7 の検証付き load は実測約 136 KiB/s のため、4 GiB の単一 entry 上限と組み合わせると長時間を
+    要し得る。anti directory は現在 `.file`、CLI `oneLine` は U+202A〜U+202E などの Cf を未 escape、
+    `SevenZipAESKeyCache` は reader 単位なので `reopen()` では鍵を再導出する。未対応 coder の folder も
+    PackInfo CRC を先に走査するため、その範囲の I/O は発生する。
 - M3(本変更):
   - RAR4 は main / file / end header、header CRC、64-bit packed / unpacked size、RAR Unicode 名と
     legacy 名判定、DOS 日時 / `EXT_TIME`、stored、展開後 CRC32 を実装した。上限 1 MiB の SFX

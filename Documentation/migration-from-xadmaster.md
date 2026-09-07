@@ -28,7 +28,7 @@ throwing API なので、非対応形式、破損、上限超過、I/O エラー
 | `init?(data:)` | 同名 | `open(data:)` | tar / ZIP / 7z / RAR4 / RAR5 / LHA で実装 |
 | `defaultZipLazyLocalHeaders` / `setDefaultZipLazyLocalHeaders(_:)` | 同名 | `ReaderOptions.lazyLocalHeaders` | M1 で実装 |
 | `numberOfEntries()` | 同名 | `entries.count` | 実装 |
-| `name(ofEntry:)` | 同名 | `entries[i].name` | 実装 |
+| `name(ofEntry:)` | 同名 | `entries[i].name` | 実装。directory は互換層だけ末尾 separator を除去 |
 | `contents(ofEntry:)` | 同名 | `read(_:)` / `stream(_:)` | 実装 |
 | `uncompressedSize(ofEntry:)` | 同名 (`Int64`) | `uncompressedSize` (`UInt64?`) | 実装 |
 | `entryHasSize(_:)` | 同名 | `uncompressedSize != nil` | 実装 |
@@ -38,7 +38,7 @@ throwing API なので、非対応形式、破損、上限超過、I/O エラー
 | `setPassword(_:)` | 同名 | settable `password` | ZIP / 7z / RAR4 / RAR5 で実装・実 oracle 検証済み |
 | `solidGroup(ofEntry:)` | 同名 (`Int32`) | `solidGroup` | 7z / RAR4 / RAR5 で実装。LHA など独立 entry は `-1` |
 | `entryIsSolid(_:)` | 未提供 | 直接対応なし | continuation flag であり `solidGroup` とは意味が異なる |
-| `extractEntry(_:to:)` | 同名 | `extract(_:to:)` | 安全な展開として実装 |
+| `extractEntry(_:to:)` | 同名 | `extract(_:to:)` | `to:` を展開先 directory として実装 |
 | `attributesOfEntry(_:)` | 未提供 | `ArchiveEntry` の日時・権限・属性 | 後続版 |
 | `entryIsLink(_:)` | 未提供 | `kind == .symlink/.hardlink` | modern API のみ |
 | `entryIsResourceFork(_:)` | 未提供 | 将来の属性 | 後続版 |
@@ -105,8 +105,10 @@ modern API は RAR5 が非圧縮サイズを宣言しない entry を `uncompres
 `maxEntrySize` と `maxInMemorySize` の範囲で段階的に読み込みます。既定の codec 辞書上限は
 `ReadLimits.maxDictionarySize == 1 GiB` です。
 
-互換層では従来どおり `entryHasSize(_:) == false`、`uncompressedSize(ofEntry:) == 0` となるため、
-空 entry と区別するには必ず `entryHasSize(_:)` を併用してください。サイズ不明の暗号化
+互換層では XADMaster と同じく `entryHasSize(_:) == false`、
+`uncompressedSize(ofEntry:) == Int64.max` となります。この値は実際のサイズではないため、
+空 entry の判定、事前確保、複数 entry のサイズ加算では必ず `entryHasSize(_:)` を先に確認して
+ください。範囲外の entry index に対しては 0 を返します。サイズ不明の暗号化
 stored RAR5 entry は現時点では明示的に非対応です。
 
 ## RAR4 / RAR5 multi-volume と `reopen()`
@@ -148,10 +150,30 @@ print(KaitoArchive.defaultZipLazyLocalHeaders) // false
 遅くなります。modern API では書庫ごとに
 `ReaderOptions(lazyLocalHeaders: false)` を `ArchiveReader.open` へ渡してください。
 
+Info-ZIP の `zip -P` が 5-byte file を STORED ZipCrypto entry として書いた ZIP では、
+XADMaster の `XADArchive(file:)` / `XADArchive(data:)` が `nil` を返す一方、KaitoKit は通常どおり
+archive を開きます。これは意図した互換差で、password 設定後に entry を読み取れます。
+
+## directory 名と単独 entry の展開先
+
+XADMaster の `name(ofEntry:)` は directory entry の格納名が `folder/` でも `folder` を返します。
+`KaitoArchive` も全形式の directory entry について末尾 separator を除去します。modern API の
+`ArchiveEntry.name` は従来の表現を維持するため、同じ ZIP entry では `folder/` のままです。
+
+`KaitoArchive.extractEntry(_:to:)` の `to:` は XADMaster と同じく directory です。たとえば
+`page.txt` を `/tmp/output` へ展開すると destination は `/tmp/output/page.txt` になります。
+directory entry を展開しても、呼出側が渡した root directory の mode / modification time を
+archive entry の値へ置き換えません。
+
+archive に POSIX permissions が無い場合、新規 file は `0666 & ~umask`、新規 directory と
+implicit parent directory は `0777 & ~umask` で作成します。modern API で
+`ExtractionOptions(preserveMetadata: false)` を指定した場合も archive の permissions を使わず、
+同じ umask 準拠の mode になります。
+
 ## 互換動作
 
 `KaitoArchive` は失敗を `nil` / `false` に変換する、範囲外のエントリ番号を拒否する、
-サイズ不明を 0 として返す、設定済みパスワードを reader へ渡す、という XADArchive 型の
+サイズ不明を `Int64.max` として返す、設定済みパスワードを reader へ渡す、という XADArchive 型の
 利用で期待される基本動作を再現します。一方、KaitoKit の読み取り上限と不正な相対パスの拒否は
 互換層からも無効化しません。
 
@@ -170,6 +192,6 @@ LHA の `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` は読み取り時に
 
 通常の tar hard link member はデータ本体を持たないため、`contents(ofEntry:)` は空の
 `Data` を返します。PAX linkdata member では、書庫が持つ本文を返します。
-`extractEntry(_:to:)` は同じ書庫内で先に記録された参照先を非公開 staging へ展開してから
-目的パスへ移します。呼出しごとに staging を破棄するため、別々の `extractEntry` 呼出しで
-inode の同一性までは保持しません。
+`extractEntry(_:to:)` は hard link の場合、同じ書庫内で先に記録された参照先を非公開 staging へ
+展開してから、指定 directory 以下の entry path へ移します。呼出しごとに staging を破棄するため、
+別々の `extractEntry` 呼出しで inode の同一性までは保持しません。

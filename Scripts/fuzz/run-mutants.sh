@@ -6,9 +6,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 COUNT=200
 TIMEOUT_SECONDS=5
+PASSWORD=""
+REQUIRE_PAYLOAD_RANGES=0
 
 usage() {
-    echo "usage: $0 [--count N] [--timeout SECONDS] <seed-or-directory> [...]" >&2
+    echo "usage: $0 [--count N] [--timeout SECONDS] [--password VALUE] [--require-payload-ranges] <seed-or-directory> [...]" >&2
 }
 
 while (($# > 0)); do
@@ -22,6 +24,15 @@ while (($# > 0)); do
             (($# >= 2)) || { usage; exit 2; }
             TIMEOUT_SECONDS="$2"
             shift 2
+            ;;
+        --password)
+            (($# >= 2)) || { usage; exit 2; }
+            PASSWORD="$2"
+            shift 2
+            ;;
+        --require-payload-ranges)
+            REQUIRE_PAYLOAD_RANGES=1
+            shift
             ;;
         --)
             shift
@@ -85,7 +96,11 @@ trap cleanup_work_dir EXIT
 MUTANT_DIR="$WORK_DIR/inputs"
 LOG_DIR="$WORK_DIR/logs"
 mkdir -p "$LOG_DIR"
-python3 "$SCRIPT_DIR/mutate.py" --count "$COUNT" -o "$MUTANT_DIR" "${SEEDS[@]}"
+declare -a MUTATE_OPTIONS=(--count "$COUNT" -o "$MUTANT_DIR")
+if ((REQUIRE_PAYLOAD_RANGES == 1)); then
+    MUTATE_OPTIONS+=(--require-payload-ranges)
+fi
+python3 "$SCRIPT_DIR/mutate.py" "${MUTATE_OPTIONS[@]}" "${SEEDS[@]}"
 
 crashes=0
 hangs=0
@@ -95,14 +110,17 @@ while IFS= read -r -d '' mutant; do
     tested=$((tested + 1))
     log="$LOG_DIR/$(basename "$mutant").log"
     set +e
-    python3 - "$Kaito_BIN" "$mutant" "$TIMEOUT_SECONDS" "$log" <<'PY'
+    python3 - "$Kaito_BIN" "$mutant" "$TIMEOUT_SECONDS" "$log" "$PASSWORD" <<'PY'
 import subprocess
 import sys
 
-binary, mutant, timeout_text, log = sys.argv[1:]
+binary, mutant, timeout_text, log, password = sys.argv[1:]
+command = [binary, "sha", mutant]
+if password:
+    command.extend(["-p", password])
 try:
     completed = subprocess.run(
-        [binary, "sha", mutant],
+        command,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         timeout=float(timeout_text),

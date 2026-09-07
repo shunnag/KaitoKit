@@ -4,6 +4,9 @@ import Foundation
 ///
 /// Instances are stateful and are not thread-safe. A stream enforces the
 /// reader's per-entry and in-memory limits independently of archive metadata.
+/// Whole-entry checksums and format verification are finalized by the last
+/// `read`; an earlier chunk can be returned before a malformed final checksum
+/// or tag is reported.
 public final class EntryStream {
     private let decompressor: any Decompressor
     private var bytesRemaining: UInt64?
@@ -20,6 +23,9 @@ public final class EntryStream {
     private var checksum16 = CRC16()
     private var completionWasVerified = false
     private var terminalError: Error?
+    private var availableAdditionalProducedSize: ((UInt64) throws -> UInt64)?
+    private var producedSizeObserver: ((UInt64) throws -> Void)?
+    private var producedSizeLimitObserver: (() throws -> Void)?
 
     /// The number of bytes that have not yet been read.
     /// For streams whose format does not declare a size, this is `UInt64.max`
@@ -105,9 +111,15 @@ public final class EntryStream {
             try verifyUnknownLengthAtLimit()
             return 0
         }
+        let aggregateAllowance = try availableAdditionalProducedSize?(bytesProduced)
+            ?? remainingLimit
+        if bytesRemaining == nil, aggregateAllowance == 0 {
+            try verifyUnknownLengthAtAggregateLimit()
+            return 0
+        }
         let requested = min(
             UInt64(buffer.count),
-            bytesRemaining ?? remainingLimit
+            bytesRemaining ?? min(remainingLimit, aggregateAllowance)
         )
         let count = try Checked.toInt(requested)
 
@@ -131,6 +143,7 @@ public final class EntryStream {
         }
         bytesProduced = try Checked.add(bytesProduced, amount)
         try Checked.size(bytesProduced, limit: entrySizeLimit)
+        try producedSizeObserver?(bytesProduced)
         checksum.update(UnsafeRawBufferPointer(rebasing: buffer[..<actual]))
         if expectedCRC16 != nil {
             checksum16.update(UnsafeRawBufferPointer(rebasing: buffer[..<actual]))
@@ -218,6 +231,7 @@ public final class EntryStream {
                 }
                 bytesRemaining = remaining
                 bytesProduced = try Checked.add(bytesProduced, UInt64(bytes.count))
+                try producedSizeObserver?(bytesProduced)
             }
         }
         guard written == size else { throw KaitoError.truncated }
@@ -264,6 +278,28 @@ public final class EntryStream {
         try verifyCompletion()
     }
 
+    private func verifyUnknownLengthAtAggregateLimit() throws {
+        guard !decompressor.isFinished else {
+            try verifyCompletion()
+            return
+        }
+        var byte: UInt8 = 0
+        let additional = try withUnsafeMutableBytes(of: &byte) { storage in
+            try decompressor.read(into: storage)
+        }
+        guard additional >= 0, additional <= 1 else {
+            throw KaitoError.malformed("decompressor returned an invalid byte count")
+        }
+        if additional != 0 {
+            if let producedSizeLimitObserver {
+                try producedSizeLimitObserver()
+            }
+            throw KaitoError.limitExceeded("total uncompressed size")
+        }
+        guard decompressor.isFinished else { throw KaitoError.truncated }
+        try verifyCompletion()
+    }
+
     private func verifyCompletion() throws {
         guard !completionWasVerified else { return }
 
@@ -296,5 +332,21 @@ public final class EntryStream {
             throw KaitoError.checksumMismatch(entry: entryIndex)
         }
         completionWasVerified = true
+    }
+
+    func observeProducedSize(
+        availableAdditionalSize: @escaping (UInt64) throws -> UInt64,
+        didProduce: @escaping (UInt64) throws -> Void,
+        didExceedLimit: @escaping () throws -> Void
+    ) {
+        precondition(
+            bytesProduced == 0
+                && availableAdditionalProducedSize == nil
+                && producedSizeObserver == nil
+                && producedSizeLimitObserver == nil
+        )
+        availableAdditionalProducedSize = availableAdditionalSize
+        producedSizeObserver = didProduce
+        producedSizeLimitObserver = didExceedLimit
     }
 }

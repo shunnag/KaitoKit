@@ -4,7 +4,7 @@ import XCTest
 
 final class ZipCodecByteSourceBoundaryTests: XCTestCase {
     func testLZMARefillsLargeRawStreamAndRejectsTruncatedTail() throws {
-        let xzPath = "/opt/homebrew/bin/xz"
+        let xzPath = ZipTestSupport.xzPath
         try ZipTestSupport.requireExecutable(
             xzPath,
             reason: "xz is unavailable; large raw LZMA refill fixture skipped"

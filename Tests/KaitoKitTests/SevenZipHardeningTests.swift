@@ -477,6 +477,194 @@ final class SevenZipHardeningTests: XCTestCase {
         }
     }
 
+    func testFolderCoderAndStreamComplexityCapIsSixtyFour() throws {
+        XCTAssertEqual(SevenZipFormatLimits.maxFolderCodersAndStreams, 64)
+
+        let maximum = SevenZipFormatLimits.maxFolderCodersAndStreams
+        var bytes: [UInt8] = [
+            SevenZipNID.packInfo.rawValue,
+            0, // PackPos
+            1, // NumPackStreams
+            SevenZipNID.size.rawValue,
+            1,
+            SevenZipNID.end.rawValue,
+            SevenZipNID.unpackInfo.rawValue,
+            SevenZipNID.folder.rawValue,
+            1, // NumFolders
+            0, // inline folders
+            UInt8(maximum),
+        ]
+        for _ in 0..<maximum {
+            bytes.append(contentsOf: [1, 0]) // one 1-in/1-out Copy coder
+        }
+        for index in 1..<maximum {
+            // Copy coder index - 1 feeds Copy coder index.
+            bytes.append(UInt8(index))
+            bytes.append(UInt8(index - 1))
+        }
+        bytes.append(SevenZipNID.codersUnpackSize.rawValue)
+        bytes.append(contentsOf: [UInt8](repeating: 1, count: maximum))
+        bytes.append(SevenZipNID.end.rawValue) // UnpackInfo
+        bytes.append(SevenZipNID.end.rawValue) // StreamsInfo
+
+        var cursor = SevenZipHeaderCursor(bytes)
+        let streams = try SevenZipStreamsParser.parse(
+            cursor: &cursor,
+            limits: ReadLimits()
+        )
+        XCTAssertTrue(cursor.isAtEnd)
+        XCTAssertEqual(streams.folders.first?.coders.count, maximum)
+        XCTAssertEqual(streams.folders.first?.inputCount, maximum)
+        XCTAssertEqual(streams.folders.first?.outputCount, maximum)
+
+        var packedBytes: [UInt8] = [
+            SevenZipNID.packInfo.rawValue,
+            0, // PackPos
+            UInt8(maximum),
+            SevenZipNID.size.rawValue,
+        ]
+        packedBytes.append(contentsOf: [UInt8](repeating: 1, count: maximum))
+        packedBytes.append(contentsOf: [
+            SevenZipNID.end.rawValue,
+            SevenZipNID.unpackInfo.rawValue,
+            SevenZipNID.folder.rawValue,
+            1, // NumFolders
+            0, // inline folders
+            1, // NumCoders
+            0x11, 0, // Copy coder with explicit stream counts
+            UInt8(maximum), 1, // maximum inputs, one output
+        ])
+        packedBytes.append(contentsOf: (0..<maximum).map(UInt8.init))
+        packedBytes.append(contentsOf: [
+            SevenZipNID.codersUnpackSize.rawValue,
+            1,
+            SevenZipNID.end.rawValue, // UnpackInfo
+            SevenZipNID.end.rawValue, // StreamsInfo
+        ])
+        var packedCursor = SevenZipHeaderCursor(packedBytes)
+        let packedStreams = try SevenZipStreamsParser.parse(
+            cursor: &packedCursor,
+            limits: ReadLimits()
+        )
+        XCTAssertTrue(packedCursor.isAtEnd)
+        XCTAssertEqual(packedStreams.folders.first?.inputCount, maximum)
+        XCTAssertEqual(packedStreams.folders.first?.packedIndices.count, maximum)
+
+        var overLimit = SevenZipHeaderCursor([
+            SevenZipNID.unpackInfo.rawValue,
+            SevenZipNID.folder.rawValue,
+            1, 0,
+            UInt8(maximum + 1),
+        ])
+        XCTAssertThrowsError(
+            try SevenZipStreamsParser.parse(cursor: &overLimit, limits: ReadLimits())
+        ) { error in
+            XCTAssertEqual(error as? KaitoError, .limitExceeded("7z coder count"))
+        }
+    }
+
+    func testSixtyFourCoderFolderRespectsAggregateMetadataLimit() throws {
+        let maximum = SevenZipFormatLimits.maxFolderCodersAndStreams
+        var bytes: [UInt8] = [
+            SevenZipNID.packInfo.rawValue,
+            0, // PackPos
+            1, // NumPackStreams
+            SevenZipNID.size.rawValue,
+            1,
+            SevenZipNID.end.rawValue,
+            SevenZipNID.unpackInfo.rawValue,
+            SevenZipNID.folder.rawValue,
+            1, // NumFolders
+            0, // inline folders
+            UInt8(maximum),
+        ]
+        for _ in 0..<maximum {
+            bytes.append(contentsOf: [1, 0]) // one 1-in/1-out Copy coder
+        }
+        for index in 1..<maximum {
+            bytes.append(UInt8(index))
+            bytes.append(UInt8(index - 1))
+        }
+        bytes.append(SevenZipNID.codersUnpackSize.rawValue)
+        bytes.append(contentsOf: [UInt8](repeating: 1, count: maximum))
+        bytes.append(SevenZipNID.end.rawValue) // UnpackInfo
+        bytes.append(SevenZipNID.end.rawValue) // StreamsInfo
+
+        var defaultCursor = SevenZipHeaderCursor(bytes)
+        XCTAssertNoThrow(
+            try SevenZipStreamsParser.parse(
+                cursor: &defaultCursor,
+                limits: ReadLimits()
+            )
+        )
+        XCTAssertTrue(defaultCursor.isAtEnd)
+
+        var tightLimits = ReadLimits()
+        // The old folder-only accounting used 384 logical bytes for this graph.
+        tightLimits.maxTotalMetadataSize = 9 * 1_024
+        var tightCursor = SevenZipHeaderCursor(bytes)
+        XCTAssertThrowsError(
+            try SevenZipStreamsParser.parse(
+                cursor: &tightCursor,
+                limits: tightLimits
+            )
+        ) { error in
+            guard case .limitExceeded = error as? KaitoError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testFolderCoordinatorDropsCompletedDecoderAndCanRestart() throws {
+        let source = DataByteSource(Data([0x41, 0x42]))
+        let coder = SevenZipCoder(
+            methodID: [0],
+            inputCount: 1,
+            outputCount: 1,
+            properties: [],
+            firstInput: 0,
+            firstOutput: 0
+        )
+        let folder = SevenZipFolder(
+            coders: [coder],
+            bindPairs: [],
+            packedIndices: [0],
+            inputCount: 1,
+            outputCount: 1,
+            finalOutputIndex: 0,
+            unpackSizes: [2],
+            digest: SevenZipDigest(value: CRC32.checksum([0x41, 0x42]))
+        )
+        let factory = try SevenZipFolderDecoderFactory(
+            source: source,
+            folder: folder,
+            packedRanges: [
+                0: SevenZipPackRange(
+                    offset: 0,
+                    size: 2,
+                    digest: SevenZipDigest(value: nil)
+                ),
+            ],
+            limits: ReadLimits(),
+            password: nil,
+            keyCache: SevenZipAESKeyCache(),
+            maximumAESCyclesPower: 24
+        )
+        let coordinator = SevenZipFolderCoordinator(factory: factory)
+
+        let first = try coordinator.stream(offset: 0, length: 1)
+        XCTAssertEqual(try readBytes(from: first, count: 1), [0x41])
+        XCTAssertTrue(coordinator.hasRetainedDecoderState)
+
+        let last = try coordinator.stream(offset: 1, length: 1)
+        XCTAssertEqual(try readBytes(from: last, count: 1), [0x42])
+        XCTAssertFalse(coordinator.hasRetainedDecoderState)
+
+        let restarted = try coordinator.stream(offset: 0, length: 2)
+        XCTAssertEqual(try readBytes(from: restarted, count: 2), [0x41, 0x42])
+        XCTAssertFalse(coordinator.hasRetainedDecoderState)
+    }
+
     func testSubstreamSizesCannotExceedFolderUnpackSize() throws {
         let header: [UInt8] = [
             SevenZipNID.header.rawValue,
@@ -724,6 +912,18 @@ final class SevenZipHardeningTests: XCTestCase {
                 "mutant raised a non-Kaito error: \(error)"
             )
         }
+    }
+
+    private func readBytes(
+        from decompressor: any Decompressor,
+        count: Int
+    ) throws -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: count)
+        let actual = try bytes.withUnsafeMutableBytes { storage in
+            try decompressor.read(into: storage)
+        }
+        XCTAssertEqual(actual, count)
+        return Array(bytes.prefix(actual))
     }
 
     private func nextHeaderRange(in bytes: [UInt8]) throws -> Range<Int> {

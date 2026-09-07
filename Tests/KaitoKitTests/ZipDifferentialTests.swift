@@ -263,7 +263,7 @@ final class ZipDifferentialTests: XCTestCase {
     func testSevenZipDeflate64LZMABzip2MatchSevenZipBySHA256() throws {
         try ZipTestSupport.requireExecutable(
             ZipTestSupport.sevenZipPath,
-            reason: "7zz is unavailable at /opt/homebrew/bin/7zz; method fixture set skipped"
+            reason: "7zz is unavailable at \(ZipTestSupport.sevenZipPath); method fixture set skipped"
         )
         let temporary = try ZipTestSupport.temporaryDirectory(label: "diff-7zz-methods")
         defer { try? FileManager.default.removeItem(at: temporary) }
@@ -302,7 +302,7 @@ final class ZipDifferentialTests: XCTestCase {
     func testSevenZipAES256MatchesSevenZipBySHA256() throws {
         try ZipTestSupport.requireExecutable(
             ZipTestSupport.sevenZipPath,
-            reason: "7zz is unavailable at /opt/homebrew/bin/7zz; AES fixture skipped"
+            reason: "7zz is unavailable at \(ZipTestSupport.sevenZipPath); AES fixture skipped"
         )
         let temporary = try ZipTestSupport.temporaryDirectory(label: "diff-7zz-aes")
         defer { try? FileManager.default.removeItem(at: temporary) }

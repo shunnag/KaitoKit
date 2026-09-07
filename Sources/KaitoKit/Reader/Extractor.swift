@@ -1,6 +1,259 @@
 import Darwin
 import Foundation
 
+package final class ExtractionDirectoryHandle {
+    package let descriptor: Int32
+
+    private var modeToRestore: mode_t?
+    private var isClosed = false
+
+    fileprivate init(descriptor: Int32, modeToRestore: mode_t?) {
+        self.descriptor = descriptor
+        self.modeToRestore = modeToRestore
+    }
+
+    package func restoreMode() throws {
+        guard let modeToRestore else { return }
+        guard Darwin.fchmod(descriptor, modeToRestore) == 0 else {
+            throw KaitoError.io(errno)
+        }
+        self.modeToRestore = nil
+    }
+
+    package func keepCurrentMode() {
+        modeToRestore = nil
+    }
+
+    package func close() {
+        guard !isClosed else { return }
+        if let modeToRestore {
+            _ = Darwin.fchmod(descriptor, modeToRestore)
+        }
+        _ = Darwin.close(descriptor)
+        self.modeToRestore = nil
+        isClosed = true
+    }
+
+    deinit {
+        close()
+    }
+}
+
+package enum ExtractionDirectoryAccess {
+    private static let openFlags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+    private static let permissionBits = mode_t(0o7777)
+    private static let temporaryOwnerAccess = mode_t(0o700)
+
+    package static func openRoot(at path: String) throws -> ExtractionDirectoryHandle {
+        let descriptor = Darwin.open(path, openFlags)
+        if descriptor >= 0 {
+            return try makeAccessible(descriptor)
+        }
+
+        let openError = errno
+        guard openError == EACCES else {
+            throw directoryOpenError(openError)
+        }
+
+        var information = stat()
+        guard Darwin.lstat(path, &information) == 0 else {
+            throw KaitoError.io(errno)
+        }
+        guard (information.st_mode & S_IFMT) == S_IFDIR else {
+            throw KaitoError.malformed(
+                "extraction path traverses a non-directory or symbolic link"
+            )
+        }
+        guard information.st_uid == Darwin.geteuid() else {
+            throw KaitoError.io(openError)
+        }
+
+        let originalMode = information.st_mode & permissionBits
+        guard Darwin.chmod(path, originalMode | temporaryOwnerAccess) == 0 else {
+            throw KaitoError.io(errno)
+        }
+        let retry = Darwin.open(path, openFlags)
+        guard retry >= 0 else {
+            let retryError = errno
+            _ = Darwin.chmod(path, originalMode)
+            throw directoryOpenError(retryError)
+        }
+        do {
+            try validateDirectory(retry)
+            return ExtractionDirectoryHandle(
+                descriptor: retry,
+                modeToRestore: originalMode
+            )
+        } catch {
+            _ = Darwin.fchmod(retry, originalMode)
+            _ = Darwin.close(retry)
+            throw error
+        }
+    }
+
+    package static func open(
+        _ components: [String],
+        below rootDescriptor: Int32,
+        create: Bool
+    ) throws -> ExtractionDirectoryHandle {
+        var current = Darwin.dup(rootDescriptor)
+        guard current >= 0 else { throw KaitoError.io(errno) }
+        var currentModeToRestore: mode_t?
+
+        do {
+            for component in components {
+                if create, Darwin.mkdirat(current, component, mode_t(0o777)) != 0,
+                   errno != EEXIST {
+                    throw KaitoError.io(errno)
+                }
+
+                let next = try openComponent(component, below: current)
+                do {
+                    try restore(currentModeToRestore, on: current)
+                } catch {
+                    if let mode = next.modeToRestore {
+                        _ = Darwin.fchmod(next.descriptor, mode)
+                    }
+                    _ = Darwin.close(next.descriptor)
+                    throw error
+                }
+                _ = Darwin.close(current)
+                current = next.descriptor
+                currentModeToRestore = next.modeToRestore
+            }
+            return ExtractionDirectoryHandle(
+                descriptor: current,
+                modeToRestore: currentModeToRestore
+            )
+        } catch {
+            if let currentModeToRestore {
+                _ = Darwin.fchmod(current, currentModeToRestore)
+            }
+            _ = Darwin.close(current)
+            throw error
+        }
+    }
+
+    private static func makeAccessible(
+        _ descriptor: Int32
+    ) throws -> ExtractionDirectoryHandle {
+        let accessible = try makeAccessibleDescriptor(descriptor)
+        return ExtractionDirectoryHandle(
+            descriptor: accessible.descriptor,
+            modeToRestore: accessible.modeToRestore
+        )
+    }
+
+    private static func openComponent(
+        _ component: String,
+        below parent: Int32
+    ) throws -> (descriptor: Int32, modeToRestore: mode_t?) {
+        let descriptor = Darwin.openat(parent, component, openFlags)
+        if descriptor >= 0 {
+            return try makeAccessibleDescriptor(descriptor)
+        }
+
+        let openError = errno
+        guard openError == EACCES else {
+            throw directoryOpenError(openError)
+        }
+
+        var information = stat()
+        guard Darwin.fstatat(parent, component, &information, AT_SYMLINK_NOFOLLOW) == 0 else {
+            throw KaitoError.io(errno)
+        }
+        guard (information.st_mode & S_IFMT) == S_IFDIR else {
+            throw KaitoError.malformed(
+                "extraction path traverses a non-directory or symbolic link"
+            )
+        }
+        guard information.st_uid == Darwin.geteuid() else {
+            throw KaitoError.io(openError)
+        }
+
+        let originalMode = information.st_mode & permissionBits
+        guard Darwin.fchmodat(
+            parent,
+            component,
+            originalMode | temporaryOwnerAccess,
+            AT_SYMLINK_NOFOLLOW
+        ) == 0 else {
+            throw KaitoError.io(errno)
+        }
+        let retry = Darwin.openat(parent, component, openFlags)
+        guard retry >= 0 else {
+            let retryError = errno
+            _ = Darwin.fchmodat(parent, component, originalMode, AT_SYMLINK_NOFOLLOW)
+            throw directoryOpenError(retryError)
+        }
+        do {
+            try validateDirectory(retry)
+            return (retry, originalMode)
+        } catch {
+            _ = Darwin.fchmod(retry, originalMode)
+            _ = Darwin.close(retry)
+            throw error
+        }
+    }
+
+    private static func validateDirectory(_ descriptor: Int32) throws {
+        var information = stat()
+        guard Darwin.fstat(descriptor, &information) == 0 else {
+            throw KaitoError.io(errno)
+        }
+        guard (information.st_mode & S_IFMT) == S_IFDIR else {
+            throw KaitoError.malformed(
+                "extraction path traverses a non-directory or symbolic link"
+            )
+        }
+    }
+
+    private static func restore(_ mode: mode_t?, on descriptor: Int32) throws {
+        guard let mode else { return }
+        guard Darwin.fchmod(descriptor, mode) == 0 else {
+            throw KaitoError.io(errno)
+        }
+    }
+
+    private static func directoryOpenError(_ code: Int32) -> KaitoError {
+        if code == ELOOP || code == ENOTDIR {
+            return KaitoError.malformed(
+                "extraction path traverses a non-directory or symbolic link"
+            )
+        }
+        return KaitoError.io(code)
+    }
+
+    private static func makeAccessibleDescriptor(
+        _ descriptor: Int32
+    ) throws -> (descriptor: Int32, modeToRestore: mode_t?) {
+        var information = stat()
+        guard Darwin.fstat(descriptor, &information) == 0 else {
+            let code = errno
+            _ = Darwin.close(descriptor)
+            throw KaitoError.io(code)
+        }
+        guard (information.st_mode & S_IFMT) == S_IFDIR else {
+            _ = Darwin.close(descriptor)
+            throw KaitoError.malformed(
+                "extraction path traverses a non-directory or symbolic link"
+            )
+        }
+
+        let originalMode = information.st_mode & permissionBits
+        guard information.st_uid == Darwin.geteuid(),
+              originalMode & temporaryOwnerAccess != temporaryOwnerAccess else {
+            return (descriptor, nil)
+        }
+        guard Darwin.fchmod(descriptor, originalMode | temporaryOwnerAccess) == 0 else {
+            let code = errno
+            _ = Darwin.close(descriptor)
+            throw KaitoError.io(code)
+        }
+        return (descriptor, originalMode)
+    }
+}
+
 struct ExtractedFileIdentity: Equatable {
     let device: dev_t
     let inode: ino_t
@@ -14,7 +267,6 @@ struct ExtractionResult {
 
 enum Extractor {
     private static let copyBufferSize = 256 * 1024
-    private static let directoryOpenFlags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
 
     static func extract(
         _ entry: ArchiveEntry,
@@ -45,26 +297,31 @@ enum Extractor {
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
 
-        let rootDescriptor = Darwin.open(root.path, directoryOpenFlags)
-        guard rootDescriptor >= 0 else { throw KaitoError.io(errno) }
-        defer { _ = Darwin.close(rootDescriptor) }
+        let rootDirectory = try ExtractionDirectoryAccess.openRoot(at: root.path)
+        defer { rootDirectory.close() }
+        let rootDescriptor = rootDirectory.descriptor
 
         var extractedIdentity: ExtractedFileIdentity?
         switch entry.kind {
         case .directory:
-            let descriptor = try openDirectory(
+            let directory = try ExtractionDirectoryAccess.open(
                 components,
                 below: rootDescriptor,
                 create: true
             )
-            defer { _ = Darwin.close(descriptor) }
+            defer { directory.close() }
             // `./` エントリは呼出側が所有する展開ルート自体の属性を変更しない。
             if !components.isEmpty {
                 try restoreMetadata(
                     entry,
-                    descriptor: descriptor,
+                    descriptor: directory.descriptor,
                     options: options
                 )
+                if options.preserveMetadata, entry.posixPermissions != nil {
+                    directory.keepCurrentMode()
+                } else {
+                    try directory.restoreMode()
+                }
             }
 
         case .file:
@@ -80,19 +337,20 @@ enum Extractor {
             guard options.createSymbolicLinks else {
                 throw KaitoError.unsupportedMethod("symbolic-link extraction is disabled")
             }
-            let parent = try openDirectory(
+            let parent = try ExtractionDirectoryAccess.open(
                 Array(components.dropLast()),
                 below: rootDescriptor,
                 create: true
             )
-            defer { _ = Darwin.close(parent) }
+            defer { parent.close() }
             let leaf = components[components.count - 1]
             let targetPath = try linkPath(for: entry, reader: reader)
-            try validateSymbolicLinkTarget(targetPath, below: parent)
-            try removeLeafIfRequested(leaf, below: parent, options: options)
-            guard Darwin.symlinkat(targetPath, parent, leaf) == 0 else {
+            try validateSymbolicLinkTarget(targetPath, below: parent.descriptor)
+            try removeLeafIfRequested(leaf, below: parent.descriptor, options: options)
+            guard Darwin.symlinkat(targetPath, parent.descriptor, leaf) == 0 else {
                 throw KaitoError.io(errno)
             }
+            try parent.restoreMode()
 
         case .hardlink:
             let targetPath = try linkPath(for: entry, reader: reader)
@@ -126,22 +384,25 @@ enum Extractor {
                 break
             }
 
-            let destinationParent = try openDirectory(
+            let destinationParent = try ExtractionDirectoryAccess.open(
                 Array(components.dropLast()),
                 below: rootDescriptor,
                 create: true
             )
-            defer { _ = Darwin.close(destinationParent) }
+            defer { destinationParent.close() }
             let destinationLeaf = components[components.count - 1]
 
-            let targetParent = try openDirectory(
+            let targetParent = try ExtractionDirectoryAccess.open(
                 Array(targetComponents.dropLast()),
                 below: rootDescriptor,
                 create: false
             )
-            defer { _ = Darwin.close(targetParent) }
+            defer { targetParent.close() }
             let targetLeaf = targetComponents[targetComponents.count - 1]
-            let targetIdentity = try regularIdentity(targetLeaf, below: targetParent)
+            let targetIdentity = try regularIdentity(
+                targetLeaf,
+                below: targetParent.descriptor
+            )
             guard targetIdentity == trustedTargetIdentity else {
                 throw KaitoError.malformed(
                     "hard-link target was not created by this archive reader"
@@ -149,17 +410,21 @@ enum Extractor {
             }
             if let destinationIdentity = try identityIfPresent(
                 destinationLeaf,
-                below: destinationParent
+                below: destinationParent.descriptor
             ), destinationIdentity == targetIdentity {
                 // 大文字小文字や Unicode 正規化が異なる同一パスも inode で検出する。
                 throw KaitoError.malformed("hard-link target refers to its destination")
             }
-            try removeLeafIfRequested(destinationLeaf, below: destinationParent, options: options)
+            try removeLeafIfRequested(
+                destinationLeaf,
+                below: destinationParent.descriptor,
+                options: options
+            )
             // 両親を O_NOFOLLOW で開いた dirfd に固定し、中間リンクの差替えを遮断する。
             guard Darwin.linkat(
-                targetParent,
+                targetParent.descriptor,
                 targetLeaf,
-                destinationParent,
+                destinationParent.descriptor,
                 destinationLeaf,
                 0
             ) == 0 else {
@@ -168,7 +433,7 @@ enum Extractor {
             do {
                 guard try regularIdentity(
                     destinationLeaf,
-                    below: destinationParent
+                    below: destinationParent.descriptor
                 ) == targetIdentity else {
                     throw KaitoError.malformed("hard-link target changed during extraction")
                 }
@@ -176,16 +441,18 @@ enum Extractor {
                     try replaceHardLinkedContents(
                         entry,
                         leaf: destinationLeaf,
-                        below: destinationParent,
+                        below: destinationParent.descriptor,
                         expectedIdentity: targetIdentity,
                         from: reader,
                         options: options
                     )
                 }
                 extractedIdentity = targetIdentity
+                try targetParent.restoreMode()
+                try destinationParent.restoreMode()
             } catch {
                 // 展開ルートは呼出側が排他的に所有する契約とし、linkat が作った葉を残さない。
-                _ = Darwin.unlinkat(destinationParent, destinationLeaf, 0)
+                _ = Darwin.unlinkat(destinationParent.descriptor, destinationLeaf, 0)
                 throw error
             }
 
@@ -195,6 +462,7 @@ enum Extractor {
             }
             throw KaitoError.unsupportedMethod("tar entry kind cannot be extracted")
         }
+        try rootDirectory.restoreMode()
         return ExtractionResult(url: destination, fileIdentity: extractedIdentity)
     }
 
@@ -205,28 +473,28 @@ enum Extractor {
         from reader: ArchiveReader,
         options: ExtractionOptions
     ) throws -> ExtractedFileIdentity {
-        let parent = try openDirectory(
+        let parent = try ExtractionDirectoryAccess.open(
             Array(components.dropLast()),
             below: rootDescriptor,
             create: true
         )
-        defer { _ = Darwin.close(parent) }
+        defer { parent.close() }
         let leaf = components[components.count - 1]
         // CRC/HMAC は stream 終端まで確定しない。既存 destination を先に消さず、
         // 同じ directory の一時 inode を完全検証してから不可分に公開する。
         let temporaryLeaf = ".kaitokit-\(UUID().uuidString)"
         let descriptor = Darwin.openat(
-            parent,
+            parent.descriptor,
             temporaryLeaf,
             O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
-            mode_t(0o600)
+            mode_t(0o666)
         )
         guard descriptor >= 0 else { throw KaitoError.io(errno) }
         var published = false
         defer {
             _ = Darwin.close(descriptor)
             if !published {
-                _ = Darwin.unlinkat(parent, temporaryLeaf, 0)
+                _ = Darwin.unlinkat(parent.descriptor, temporaryLeaf, 0)
             }
         }
 
@@ -237,21 +505,33 @@ enum Extractor {
         if options.overwriteExisting {
             // renameat は同一 directory 内の通常ファイル/リンク置換を不可分に行い、
             // directory は再帰削除せず失敗する。
-            guard Darwin.renameat(parent, temporaryLeaf, parent, leaf) == 0 else {
+            guard Darwin.renameat(
+                parent.descriptor,
+                temporaryLeaf,
+                parent.descriptor,
+                leaf
+            ) == 0 else {
                 throw KaitoError.io(errno)
             }
         } else {
             // linkat は既存 leaf を置換しない。公開後に一時名だけを外す。
-            guard Darwin.linkat(parent, temporaryLeaf, parent, leaf, 0) == 0 else {
+            guard Darwin.linkat(
+                parent.descriptor,
+                temporaryLeaf,
+                parent.descriptor,
+                leaf,
+                0
+            ) == 0 else {
                 throw KaitoError.io(errno)
             }
-            guard Darwin.unlinkat(parent, temporaryLeaf, 0) == 0 else {
+            guard Darwin.unlinkat(parent.descriptor, temporaryLeaf, 0) == 0 else {
                 let code = errno
-                _ = Darwin.unlinkat(parent, leaf, 0)
+                _ = Darwin.unlinkat(parent.descriptor, leaf, 0)
                 throw KaitoError.io(code)
             }
         }
         published = true
+        try parent.restoreMode()
         return extractedIdentity
     }
 
@@ -340,39 +620,6 @@ enum Extractor {
             throw KaitoError.malformed("empty entry path")
         }
         return components
-    }
-
-    private static func openDirectory(
-        _ components: [String],
-        below rootDescriptor: Int32,
-        create: Bool
-    ) throws -> Int32 {
-        var current = Darwin.dup(rootDescriptor)
-        guard current >= 0 else { throw KaitoError.io(errno) }
-
-        do {
-            for component in components {
-                if create, Darwin.mkdirat(current, component, mode_t(0o700)) != 0,
-                   errno != EEXIST {
-                    throw KaitoError.io(errno)
-                }
-                let next = Darwin.openat(current, component, directoryOpenFlags)
-                guard next >= 0 else {
-                    if errno == ELOOP || errno == ENOTDIR {
-                        throw KaitoError.malformed(
-                            "extraction path traverses a non-directory or symbolic link"
-                        )
-                    }
-                    throw KaitoError.io(errno)
-                }
-                _ = Darwin.close(current)
-                current = next
-            }
-            return current
-        } catch {
-            _ = Darwin.close(current)
-            throw error
-        }
     }
 
     private static func removeLeafIfRequested(
@@ -490,35 +737,35 @@ enum Extractor {
         below parent: Int32
     ) throws {
         let components = try safeRelativeLinkComponents(linkPath)
-        var current = Darwin.dup(parent)
-        guard current >= 0 else { throw KaitoError.io(errno) }
-        defer { _ = Darwin.close(current) }
-
-        for component in components.dropLast() {
-            let next = Darwin.openat(current, component, directoryOpenFlags)
-            if next < 0, errno == ENOENT {
-                // まだ存在しない相対ターゲットも、`..` が無いため字句上はルート内に留まる。
-                return
-            }
-            guard next >= 0 else {
-                throw KaitoError.malformed(
-                    "symbolic-link target traverses a non-directory or symbolic link"
-                )
-            }
-            _ = Darwin.close(current)
-            current = next
+        let targetParent: ExtractionDirectoryHandle
+        do {
+            targetParent = try ExtractionDirectoryAccess.open(
+                Array(components.dropLast()),
+                below: parent,
+                create: false
+            )
+        } catch KaitoError.io(let code) where code == ENOENT {
+            // まだ存在しない相対部分も、`..` が無いため字句上はルート内に留まる。
+            return
         }
+        defer { targetParent.close() }
 
         let leaf = components[components.count - 1]
         var information = stat()
         // information は fstatat 完了まで有効で、AT_SYMLINK_NOFOLLOW によりリンクを追わない。
-        if Darwin.fstatat(current, leaf, &information, AT_SYMLINK_NOFOLLOW) == 0 {
+        if Darwin.fstatat(
+            targetParent.descriptor,
+            leaf,
+            &information,
+            AT_SYMLINK_NOFOLLOW
+        ) == 0 {
             guard (information.st_mode & S_IFMT) != S_IFLNK else {
                 throw KaitoError.malformed("symbolic-link target resolves through another link")
             }
         } else if errno != ENOENT {
             throw KaitoError.io(errno)
         }
+        try targetParent.restoreMode()
     }
 
     private static func regularIdentity(
@@ -582,11 +829,12 @@ enum Extractor {
         descriptor: Int32,
         options: ExtractionOptions
     ) throws {
-        guard options.preserveMetadata else { return }
-        if let permissions = entry.posixPermissions,
+        if options.preserveMetadata,
+           let permissions = entry.posixPermissions,
            Darwin.fchmod(descriptor, mode_t(permissions)) != 0 {
             throw KaitoError.io(errno)
         }
+        guard options.preserveMetadata else { return }
         if let date = entry.modificationDate {
             let interval = date.timeIntervalSince1970
             let integral = interval.rounded(.down)

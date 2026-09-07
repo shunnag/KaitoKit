@@ -9,6 +9,8 @@ final class ZipReader: FormatReader {
     private static let zip64LocatorSignature: UInt32 = 0x0706_4b50
     private static let endMinimumSize = 22
     private static let maximumCommentSize = 65_535
+    private static let maximumTrailingDataSize = 1 * 1_024 * 1_024
+    private static let maximumEndRecordCandidateAttempts = 8_192
 
     private enum Encryption {
         case none
@@ -46,14 +48,53 @@ final class ZipReader: FormatReader {
         let decoded: [String?]
     }
 
+    private struct ParsedDirectory {
+        let location: DirectoryLocation
+        let entries: [ArchiveEntry]
+        let records: [Record]
+        let nameEncoding: String.Encoding?
+    }
+
     private struct EndRecord {
         let offset: UInt64
+        let recordEnd: UInt64
         let diskNumber: UInt16
         let centralDirectoryDisk: UInt16
         let entriesOnDisk: UInt16
         let totalEntries: UInt16
         let centralDirectorySize: UInt32
         let centralDirectoryOffset: UInt32
+    }
+
+    private struct EndRecordParseBudget {
+        var remainingAttempts: Int
+        var remainingMetadataBytes: UInt64
+
+        init(limits: ReadLimits) {
+            remainingAttempts = ZipReader.maximumEndRecordCandidateAttempts
+            let doubled = limits.maxMetadataSize.multipliedReportingOverflow(by: 2)
+            remainingMetadataBytes = doubled.overflow ? UInt64.max : doubled.partialValue
+        }
+
+        mutating func chargeAttempt() throws {
+            guard remainingAttempts > 0 else {
+                throw KaitoError.limitExceeded("ZIP end-record candidate attempts")
+            }
+            remainingAttempts -= 1
+        }
+
+        mutating func chargeMetadataBytes(_ count: UInt64) throws {
+            guard count <= remainingMetadataBytes else {
+                throw KaitoError.limitExceeded("ZIP end-record candidate metadata work")
+            }
+            remainingMetadataBytes -= count
+        }
+    }
+
+    private enum ExtraFieldTailPolicy {
+        case strict
+        case zeroPadding
+        case ignoreUnparsableTail
     }
 
     let format: ArchiveFormat = .zip
@@ -63,7 +104,10 @@ final class ZipReader: FormatReader {
     private let source: any ByteSource
     private let centralDirectoryOffset: UInt64
     private let records: [Record]
+    private let localHeaderOrder: [Int]
+    private let localHeaderOrderPositions: [Int]
     private var localRecords: [LocalRecord?]
+    private var validatedLocalRangePosition = -1
     private var password: String?
     private var aesDerivedKeyCache: [WinZipAESKeyCacheKey: WinZipAESDerivedKeys] = [:]
 
@@ -71,21 +115,30 @@ final class ZipReader: FormatReader {
         self.source = source
         self.password = options.password
 
-        let directory = try Self.locateCentralDirectory(
+        let parsedDirectory = try Self.locateAndParseCentralDirectory(
             source: source,
-            limits: options.limits
-        )
-        let parsed = try Self.parseCentralDirectory(
-            source: source,
-            location: directory,
             policy: options.encodingPolicy,
             limits: options.limits
         )
-        self.centralDirectoryOffset = directory.offset
-        self.entries = parsed.entries
-        self.nameEncoding = parsed.nameEncoding
-        self.records = parsed.records
-        self.localRecords = Array(repeating: nil, count: parsed.records.count)
+        self.centralDirectoryOffset = parsedDirectory.location.offset
+        self.entries = parsedDirectory.entries
+        self.nameEncoding = parsedDirectory.nameEncoding
+        self.records = parsedDirectory.records
+        let localHeaderOrder = parsedDirectory.records.indices.sorted { lhs, rhs in
+            let lhsOffset = parsedDirectory.records[lhs].localHeaderOffset
+            let rhsOffset = parsedDirectory.records[rhs].localHeaderOffset
+            return lhsOffset == rhsOffset ? lhs < rhs : lhsOffset < rhsOffset
+        }
+        var localHeaderOrderPositions = Array(
+            repeating: 0,
+            count: parsedDirectory.records.count
+        )
+        for (position, index) in localHeaderOrder.enumerated() {
+            localHeaderOrderPositions[index] = position
+        }
+        self.localHeaderOrder = localHeaderOrder
+        self.localHeaderOrderPositions = localHeaderOrderPositions
+        self.localRecords = Array(repeating: nil, count: parsedDirectory.records.count)
 
         if !options.lazyLocalHeaders {
             for index in records.indices {
@@ -132,9 +185,16 @@ final class ZipReader: FormatReader {
     }
 
     private func localRecord(at index: Int, limits: ReadLimits) throws -> LocalRecord {
-        if let cached = localRecords[index] {
-            return cached
-        }
+        let local = try resolveLocalRecord(at: index, limits: limits)
+        try validateEntryRanges(
+            through: localHeaderOrderPositions[index],
+            limits: limits
+        )
+        return local
+    }
+
+    private func resolveLocalRecord(at index: Int, limits: ReadLimits) throws -> LocalRecord {
+        if let cached = localRecords[index] { return cached }
         let central = records[index]
         let fixedSize: UInt64 = 30
         let fixedEnd = try Checked.add(central.localHeaderOffset, fixedSize)
@@ -187,7 +247,8 @@ final class ZipReader: FormatReader {
             )
             let fields = try Self.parseExtraFields(
                 extra,
-                recordLimit: limits.maxMetadataRecordCount
+                recordLimit: limits.maxMetadataRecordCount,
+                tailPolicy: .zeroPadding
             )
             if localCompressed32 == UInt32.max || localUncompressed32 == UInt32.max {
                 guard let zip64 = Self.uniqueExtra(0x0001, in: fields) else {
@@ -216,6 +277,33 @@ final class ZipReader: FormatReader {
         )
         localRecords[index] = local
         return local
+    }
+
+    private func validateEntryRanges(
+        through requestedPosition: Int,
+        limits: ReadLimits
+    ) throws {
+        while validatedLocalRangePosition < requestedPosition {
+            let position = validatedLocalRangePosition + 1
+            let index = localHeaderOrder[position]
+            let start = records[index].localHeaderOffset
+            if position > 0 {
+                let previousIndex = localHeaderOrder[position - 1]
+                if records[previousIndex].localHeaderOffset == start {
+                    throw KaitoError.malformed("ZIP entry ranges overlap")
+                }
+            }
+
+            let local = try resolveLocalRecord(at: index, limits: limits)
+            let end = try Checked.add(local.dataOffset, records[index].compressedSize)
+            if position + 1 < localHeaderOrder.count {
+                let nextIndex = localHeaderOrder[position + 1]
+                if records[nextIndex].localHeaderOffset < end {
+                    throw KaitoError.malformed("ZIP entry ranges overlap")
+                }
+            }
+            validatedLocalRangePosition = position
+        }
     }
 
     private func payloadSource(
@@ -353,22 +441,617 @@ final class ZipReader: FormatReader {
         }
     }
 
-    private static func locateCentralDirectory(
+    private static func locateAndParseCentralDirectory(
         source: any ByteSource,
+        policy: EncodingPolicy,
         limits: ReadLimits
-    ) throws -> DirectoryLocation {
-        let end = try findEndRecord(source: source)
+    ) throws -> ParsedDirectory {
+        var budget = EndRecordParseBudget(limits: limits)
+        var attemptedEndRecordOffsets: Set<UInt64> = []
+        let standardSearchSize = endMinimumSize + maximumCommentSize
+        let initialCandidates = try findEndRecords(
+            source: source,
+            maximumSearchSize: standardSearchSize
+        )
+        let initial = try parseDirectoryCandidates(
+            initialCandidates,
+            source: source,
+            policy: policy,
+            limits: limits,
+            budget: &budget,
+            attemptedOffsets: &attemptedEndRecordOffsets
+        )
+
+        if let directory = initial.directory,
+           !directory.entries.isEmpty
+               || initial.end?.recordEnd == source.length
+               || source.length <= UInt64(standardSearchSize) {
+            return directory
+        }
+
+        let expandedSearchSize = standardSearchSize + maximumTrailingDataSize
+        if source.length > UInt64(standardSearchSize) {
+            let expandedCandidates = try findEndRecords(
+                source: source,
+                maximumSearchSize: expandedSearchSize
+            )
+            let expanded = try parseDirectoryCandidates(
+                expandedCandidates,
+                source: source,
+                policy: policy,
+                limits: limits,
+                budget: &budget,
+                attemptedOffsets: &attemptedEndRecordOffsets
+            )
+            if let directory = expanded.directory {
+                return directory
+            }
+            if let directory = initial.directory {
+                return directory
+            }
+            throw initial.error
+                ?? expanded.error
+                ?? KaitoError.malformed(
+                    "ZIP end-of-central-directory record was not found"
+                )
+        }
+
+        if let directory = initial.directory {
+            return directory
+        }
+        throw initial.error
+            ?? KaitoError.malformed("ZIP end-of-central-directory record was not found")
+    }
+
+    private static func parseDirectoryCandidates(
+        _ candidates: [EndRecord],
+        source: any ByteSource,
+        policy: EncodingPolicy,
+        limits: ReadLimits,
+        budget: inout EndRecordParseBudget,
+        attemptedOffsets: inout Set<UInt64>
+    ) throws -> (directory: ParsedDirectory?, end: EndRecord?, error: Error?) {
+        var candidateError: Error?
+
+        for (candidateIndex, end) in candidates.enumerated() {
+            guard attemptedOffsets.insert(end.offset).inserted else { continue }
+            do {
+                let parsed = try parseDirectoryCandidate(
+                    source: source,
+                    end: end,
+                    policy: policy,
+                    limits: limits,
+                    budget: &budget
+                )
+
+                // An empty EOCD-shaped sequence is structurally self-consistent
+                // wherever it appears. Before accepting one, prefer a coherent
+                // non-empty EOCD whose declared comment wholly contains it.
+                // This preserves real comments containing PK\x05\x06 without
+                // allowing an arbitrary SFX prefix to discard a later archive.
+                if parsed.entries.isEmpty,
+                   candidateIndex + 1 < candidates.count {
+                    for enclosing in candidates[(candidateIndex + 1)...]
+                        where enclosing.totalEntries != 0
+                            || enclosing.centralDirectorySize != 0
+                    {
+                        let commentStart = enclosing.offset + UInt64(endMinimumSize)
+                        guard end.offset >= commentStart,
+                              end.recordEnd <= enclosing.recordEnd else { continue }
+                        guard attemptedOffsets.insert(enclosing.offset).inserted else {
+                            continue
+                        }
+                        do {
+                            let enclosingParsed = try parseDirectoryCandidate(
+                                source: source,
+                                end: enclosing,
+                                policy: policy,
+                                limits: limits,
+                                budget: &budget
+                            )
+                            if !enclosingParsed.entries.isEmpty {
+                                return (enclosingParsed, enclosing, nil)
+                            }
+                        } catch {
+                            guard try shouldRetryEndRecordCandidateError(
+                                error,
+                                source: source,
+                                end: enclosing,
+                                limits: limits,
+                                budget: &budget
+                            ) else {
+                                throw error
+                            }
+                        }
+                    }
+                }
+                return (parsed, end, nil)
+            } catch {
+                // Trailing data can contain an EOCD-shaped byte sequence. It
+                // is not a usable candidate unless its complete central
+                // directory is coherent, so continue toward the preceding
+                // bounded candidate before reporting the newest failure.
+                guard try shouldRetryEndRecordCandidateError(
+                    error,
+                    source: source,
+                    end: end,
+                    limits: limits,
+                    budget: &budget
+                ) else {
+                    throw error
+                }
+                candidateError = candidateError ?? error
+            }
+        }
+        return (nil, nil, candidateError)
+    }
+
+    private static func shouldRetryEndRecordCandidateError(
+        _ error: Error,
+        source: any ByteSource,
+        end: EndRecord,
+        limits: ReadLimits,
+        budget: inout EndRecordParseBudget
+    ) throws -> Bool {
+        if isRetryableEndRecordError(error) { return true }
+        guard let kaitoError = error as? KaitoError else { return false }
+        switch kaitoError {
+        case let .limitExceeded(reason):
+            // Exhausting either candidate budget is itself the hard stop that
+            // bounds adversarial retries; it must never become retryable.
+            guard reason != "ZIP end-record candidate attempts",
+                  reason != "ZIP end-record candidate metadata work" else {
+                return false
+            }
+        case .unsupportedMethod:
+            break
+        default:
+            return false
+        }
+
+        // Disk and configured-limit fields are checked before the directory is
+        // read. Preserve those policy errors for a genuinely coherent newer
+        // concatenated archive, but do not let an EOCD-shaped trailing sequence
+        // with no matching directory hide an older archive.
+        do {
+            return try !hasCoherentDirectoryClaim(
+                source: source,
+                end: end,
+                limits: limits,
+                budget: &budget
+            )
+        } catch {
+            if isRetryableEndRecordError(error) { return true }
+            throw error
+        }
+    }
+
+    private static func hasCoherentDirectoryClaim(
+        source: any ByteSource,
+        end: EndRecord,
+        limits: ReadLimits,
+        budget: inout EndRecordParseBudget
+    ) throws -> Bool {
         let usesZIP64 = end.diskNumber == UInt16.max
             || end.centralDirectoryDisk == UInt16.max
             || end.entriesOnDisk == UInt16.max
             || end.totalEntries == UInt16.max
             || end.centralDirectorySize == UInt32.max
             || end.centralDirectoryOffset == UInt32.max
-
         if usesZIP64 {
-            return try locateZIP64Directory(source: source, end: end, limits: limits)
+            do {
+                return try hasCoherentZIP64DirectoryClaim(
+                    source: source,
+                    end: end,
+                    limits: limits,
+                    budget: &budget
+                )
+            } catch {
+                if isRetryableEndRecordError(error) { return false }
+                throw error
+            }
         }
 
+        // Some producers emit a ZIP64 record and locator without ZIP32
+        // sentinels. Try that evidenced interpretation before the ZIP32 claim.
+        if try hasZIP64Locator(source: source, end: end) {
+            do {
+                if try hasCoherentZIP64DirectoryClaim(
+                    source: source,
+                    end: end,
+                    limits: limits,
+                    budget: &budget
+                ) {
+                    return true
+                }
+            } catch {
+                guard isRetryableEndRecordError(error) else { throw error }
+            }
+        }
+        return try hasCoherentZIP32DirectoryClaim(
+            source: source,
+            end: end,
+            budget: &budget
+        )
+    }
+
+    private static func hasCoherentZIP32DirectoryClaim(
+        source: any ByteSource,
+        end: EndRecord,
+        budget: inout EndRecordParseBudget
+    ) throws -> Bool {
+        let entryCount = Int(end.totalEntries)
+        let size = UInt64(end.centralDirectorySize)
+
+        // An empty EOCD carries no central-directory evidence with which to
+        // distinguish a real archive from an EOCD-shaped trailing sequence.
+        // Let candidate ordering continue toward an older evidenced archive.
+        guard entryCount != 0 || size != 0 else { return false }
+        guard entryCount != 0, size != 0 else { return false }
+
+        let directoryStart: UInt64
+        let archiveBase: UInt64
+        do {
+            directoryStart = try Checked.sub(end.offset, size)
+            archiveBase = try Checked.sub(
+                directoryStart,
+                UInt64(end.centralDirectoryOffset)
+            )
+        } catch {
+            return false
+        }
+        guard (try? Checked.add(directoryStart, size)) == end.offset else {
+            return false
+        }
+        return try hasCoherentCentralDirectoryClaim(
+            source: source,
+            archiveBase: archiveBase,
+            directoryStart: directoryStart,
+            directorySize: size,
+            entryCount: entryCount,
+            upperBound: end.offset,
+            budget: &budget
+        )
+    }
+
+    private static func hasCoherentZIP64DirectoryClaim(
+        source: any ByteSource,
+        end: EndRecord,
+        limits: ReadLimits,
+        budget: inout EndRecordParseBudget
+    ) throws -> Bool {
+        guard end.offset >= 20 else { return false }
+        let locatorOffset = try Checked.sub(end.offset, 20)
+        let locatorBytes = try readExactly(
+            source: source,
+            offset: locatorOffset,
+            count: 20
+        )
+        var locator = ZipByteCursor(locatorBytes)
+        guard try locator.readUInt32LE() == zip64LocatorSignature else {
+            return false
+        }
+        _ = try locator.readUInt32LE() // locator disk is a policy field
+        let relativeRecordOffset = try locator.readUInt64LE()
+        _ = try locator.readUInt32LE() // disk count is a policy field
+
+        // The bounded backwards lookup proves that a ZIP64 record actually ends
+        // at this locator. A bare locator-shaped trailer is not enough evidence.
+        guard limits.maxMetadataSize >= 56 else { return false }
+        try budget.chargeMetadataBytes(min(locatorOffset, limits.maxMetadataSize))
+        let recordOffset = try findZIP64RecordOffset(
+            source: source,
+            locatorOffset: locatorOffset,
+            limits: limits
+        )
+        let fixed = try readExactly(source: source, offset: recordOffset, count: 56)
+        var record = ZipByteCursor(fixed)
+        guard try record.readUInt32LE() == zip64EndSignature else { return false }
+        let payloadSize = try record.readUInt64LE()
+        guard payloadSize >= 44 else { return false }
+        let fullRecordSize: UInt64
+        do {
+            fullRecordSize = try Checked.add(payloadSize, 12)
+        } catch {
+            return false
+        }
+        guard fullRecordSize <= limits.maxMetadataSize,
+              (try? Checked.add(recordOffset, fullRecordSize)) == locatorOffset else {
+            return false
+        }
+
+        _ = try record.readUInt16LE()
+        _ = try record.readUInt16LE()
+        _ = try record.readUInt32LE() // record disk is a policy field
+        _ = try record.readUInt32LE() // central disk is a policy field
+        _ = try record.readUInt64LE() // per-disk count is a policy field
+        let totalEntries = try record.readUInt64LE()
+        let directorySize = try record.readUInt64LE()
+        let relativeDirectoryOffset = try record.readUInt64LE()
+
+        if end.totalEntries != UInt16.max,
+           UInt64(end.totalEntries) != totalEntries {
+            return false
+        }
+        if end.centralDirectorySize != UInt32.max,
+           UInt64(end.centralDirectorySize) != directorySize {
+            return false
+        }
+        if end.centralDirectoryOffset != UInt32.max,
+           UInt64(end.centralDirectoryOffset) != relativeDirectoryOffset {
+            return false
+        }
+
+        let archiveBase: UInt64
+        let directoryStart: UInt64
+        let directoryEnd: UInt64
+        do {
+            archiveBase = try Checked.sub(recordOffset, relativeRecordOffset)
+            directoryStart = try Checked.add(archiveBase, relativeDirectoryOffset)
+            directoryEnd = try Checked.add(directoryStart, directorySize)
+        } catch {
+            return false
+        }
+        guard directoryEnd <= recordOffset,
+              directoryEnd <= source.length else { return false }
+        // Even a minimal central entry needs 46 bytes, so a count that cannot
+        // fit Int cannot be represented by any in-memory ByteSource envelope.
+        guard totalEntries <= UInt64(Int.max) else { return false }
+        return try hasCoherentCentralDirectoryClaim(
+            source: source,
+            archiveBase: archiveBase,
+            directoryStart: directoryStart,
+            directorySize: directorySize,
+            entryCount: Int(totalEntries),
+            upperBound: recordOffset,
+            budget: &budget
+        )
+    }
+
+    private static func hasCoherentCentralDirectoryClaim(
+        source: any ByteSource,
+        archiveBase: UInt64,
+        directoryStart: UInt64,
+        directorySize: UInt64,
+        entryCount: Int,
+        upperBound: UInt64,
+        budget: inout EndRecordParseBudget
+    ) throws -> Bool {
+        guard entryCount >= 0 else { return false }
+        if entryCount == 0 { return directorySize == 0 }
+        guard directorySize != 0 else { return false }
+        let directoryEnd: UInt64
+        let minimumSize: UInt64
+        do {
+            directoryEnd = try Checked.add(directoryStart, directorySize)
+            minimumSize = try Checked.mul(UInt64(entryCount), 46)
+        } catch {
+            return false
+        }
+        guard directoryEnd <= upperBound,
+              directoryEnd <= source.length,
+              minimumSize <= directorySize else { return false }
+        var cursor = directoryStart
+
+        // Only fixed headers are read; variable fields are bounded and skipped
+        // from their declared lengths. Every read is charged to the cumulative
+        // candidate metadata-work budget before it occurs.
+        for _ in 0..<entryCount {
+            guard cursor <= directoryEnd,
+                  directoryEnd - cursor >= 46 else { return false }
+            try budget.chargeMetadataBytes(46)
+            let fixed = try readExactly(
+                source: source,
+                offset: cursor,
+                count: 46
+            )
+            guard littleUInt32(fixed, at: 0) == centralHeaderSignature else {
+                return false
+            }
+
+            let nameLength = UInt64(littleUInt16(fixed, at: 28))
+            let extraLength = UInt64(littleUInt16(fixed, at: 30))
+            let commentLength = UInt64(littleUInt16(fixed, at: 32))
+            guard nameLength > 0 else { return false }
+            let recordSize: UInt64
+            let next: UInt64
+            do {
+                let nameAndExtra = try Checked.add(nameLength, extraLength)
+                let variableLength = try Checked.add(nameAndExtra, commentLength)
+                recordSize = try Checked.add(46, variableLength)
+                next = try Checked.add(cursor, recordSize)
+            } catch {
+                return false
+            }
+            guard next <= directoryEnd else { return false }
+
+            let localOffset32 = littleUInt32(fixed, at: 42)
+            let localOffset: UInt64
+            if localOffset32 == UInt32.max {
+                let extraOffset: UInt64
+                do {
+                    extraOffset = try Checked.add(
+                        try Checked.add(cursor, 46),
+                        nameLength
+                    )
+                } catch {
+                    return false
+                }
+                try budget.chargeMetadataBytes(extraLength)
+                let extra = try readExactly(
+                    source: source,
+                    offset: extraOffset,
+                    count: Int(extraLength)
+                )
+                let fields: [ZipExtraField]
+                do {
+                    fields = try parseExtraFields(
+                        extra,
+                        recordLimit: extra.count / 4 + 1,
+                        tailPolicy: .ignoreUnparsableTail
+                    )
+                    localOffset = try resolveZIP64Values(
+                        compressed32: littleUInt32(fixed, at: 20),
+                        uncompressed32: littleUInt32(fixed, at: 24),
+                        localOffset32: localOffset32,
+                        diskStart16: littleUInt16(fixed, at: 34),
+                        fields: fields
+                    ).localHeaderOffset
+                } catch {
+                    return false
+                }
+            } else {
+                localOffset = UInt64(localOffset32)
+            }
+
+            let absoluteLocalOffset: UInt64
+            do {
+                absoluteLocalOffset = try Checked.add(archiveBase, localOffset)
+            } catch {
+                return false
+            }
+            guard absoluteLocalOffset < directoryStart else { return false }
+            cursor = next
+        }
+        return cursor == directoryEnd
+    }
+
+    private static func isRetryableEndRecordError(_ error: Error) -> Bool {
+        guard let kaitoError = error as? KaitoError else { return false }
+        switch kaitoError {
+        case .malformed, .truncated:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func parseDirectoryCandidate(
+        source: any ByteSource,
+        end: EndRecord,
+        policy: EncodingPolicy,
+        limits: ReadLimits,
+        budget: inout EndRecordParseBudget
+    ) throws -> ParsedDirectory {
+        try budget.chargeAttempt()
+        let usesZIP64 = end.diskNumber == UInt16.max
+            || end.centralDirectoryDisk == UInt16.max
+            || end.entriesOnDisk == UInt16.max
+            || end.totalEntries == UInt16.max
+            || end.centralDirectorySize == UInt32.max
+            || end.centralDirectoryOffset == UInt32.max
+        if usesZIP64 {
+            let location = try locateZIP64Directory(
+                source: source,
+                end: end,
+                limits: limits,
+                budget: &budget
+            )
+            return try parseDirectory(
+                source: source,
+                location: location,
+                policy: policy,
+                limits: limits,
+                budget: &budget
+            )
+        }
+
+        let hasZIP64Locator = try hasZIP64Locator(source: source, end: end)
+        if hasZIP64Locator {
+            do {
+                let location = try locateZIP64Directory(
+                    source: source,
+                    end: end,
+                    limits: limits,
+                    budget: &budget
+                )
+                return try parseDirectory(
+                    source: source,
+                    location: location,
+                    policy: policy,
+                    limits: limits,
+                    budget: &budget
+                )
+            } catch {
+                let zip64Error = error
+                // A four-byte locator signature can legally occur at the start
+                // of a ZIP32 central-entry comment. Only use that interpretation
+                // when its complete central directory parses coherently.
+                do {
+                    let location = try locateZIP32Directory(
+                        source: source,
+                        end: end,
+                        limits: limits
+                    )
+                    return try parseDirectory(
+                        source: source,
+                        location: location,
+                        policy: policy,
+                        limits: limits,
+                        budget: &budget
+                    )
+                } catch {
+                    if !isRetryableEndRecordError(zip64Error) { throw zip64Error }
+                    if !isRetryableEndRecordError(error) { throw error }
+                    throw zip64Error
+                }
+            }
+        }
+
+        let location = try locateZIP32Directory(
+            source: source,
+            end: end,
+            limits: limits
+        )
+        return try parseDirectory(
+            source: source,
+            location: location,
+            policy: policy,
+            limits: limits,
+            budget: &budget
+        )
+    }
+
+    private static func parseDirectory(
+        source: any ByteSource,
+        location: DirectoryLocation,
+        policy: EncodingPolicy,
+        limits: ReadLimits,
+        budget: inout EndRecordParseBudget
+    ) throws -> ParsedDirectory {
+        try budget.chargeMetadataBytes(location.size)
+        let parsed = try parseCentralDirectory(
+            source: source,
+            location: location,
+            policy: policy,
+            limits: limits
+        )
+        return ParsedDirectory(
+            location: location,
+            entries: parsed.entries,
+            records: parsed.records,
+            nameEncoding: parsed.nameEncoding
+        )
+    }
+
+    private static func hasZIP64Locator(
+        source: any ByteSource,
+        end: EndRecord
+    ) throws -> Bool {
+        guard end.offset >= 20 else { return false }
+        let locatorSignature = try readExactly(
+            source: source,
+            offset: try Checked.sub(end.offset, 20),
+            count: 4
+        )
+        return littleUInt32(locatorSignature, at: 0) == zip64LocatorSignature
+    }
+
+    private static func locateZIP32Directory(
+        source: any ByteSource,
+        end: EndRecord,
+        limits: ReadLimits
+    ) throws -> DirectoryLocation {
         guard end.diskNumber == 0,
               end.centralDirectoryDisk == 0,
               end.entriesOnDisk == end.totalEntries else {
@@ -396,38 +1079,46 @@ final class ZipReader: FormatReader {
         )
     }
 
-    private static func findEndRecord(source: any ByteSource) throws -> EndRecord {
+    private static func findEndRecords(
+        source: any ByteSource,
+        maximumSearchSize: Int
+    ) throws -> [EndRecord] {
         guard source.length >= UInt64(endMinimumSize) else {
             throw KaitoError.truncated
         }
-        let maximum = endMinimumSize + maximumCommentSize
-        let count = try Checked.toInt(min(source.length, UInt64(maximum)))
+        let count = try Checked.toInt(
+            min(source.length, UInt64(max(endMinimumSize, maximumSearchSize)))
+        )
         let tailOffset = try Checked.sub(source.length, UInt64(count))
         let tail = try readExactly(source: source, offset: tailOffset, count: count)
 
+        var candidates: [EndRecord] = []
         for index in stride(from: tail.count - endMinimumSize, through: 0, by: -1) {
             guard littleUInt32(tail, at: index) == endSignature else { continue }
             let commentLength = Int(littleUInt16(tail, at: index + 20))
-            guard index + endMinimumSize + commentLength == tail.count else { continue }
-            var cursor = ZipByteCursor(Array(tail[index..<(index + endMinimumSize)]))
-            _ = try cursor.readUInt32LE()
-            return EndRecord(
+            let recordEnd = index + endMinimumSize + commentLength
+            guard recordEnd <= tail.count,
+                  tail.count - recordEnd <= maximumTrailingDataSize else { continue }
+            let record = EndRecord(
                 offset: try Checked.add(tailOffset, UInt64(index)),
-                diskNumber: try cursor.readUInt16LE(),
-                centralDirectoryDisk: try cursor.readUInt16LE(),
-                entriesOnDisk: try cursor.readUInt16LE(),
-                totalEntries: try cursor.readUInt16LE(),
-                centralDirectorySize: try cursor.readUInt32LE(),
-                centralDirectoryOffset: try cursor.readUInt32LE()
+                recordEnd: try Checked.add(tailOffset, UInt64(recordEnd)),
+                diskNumber: littleUInt16(tail, at: index + 4),
+                centralDirectoryDisk: littleUInt16(tail, at: index + 6),
+                entriesOnDisk: littleUInt16(tail, at: index + 8),
+                totalEntries: littleUInt16(tail, at: index + 10),
+                centralDirectorySize: littleUInt32(tail, at: index + 12),
+                centralDirectoryOffset: littleUInt32(tail, at: index + 16)
             )
+            candidates.append(record)
         }
-        throw KaitoError.malformed("ZIP end-of-central-directory record was not found")
+        return candidates
     }
 
     private static func locateZIP64Directory(
         source: any ByteSource,
         end: EndRecord,
-        limits: ReadLimits
+        limits: ReadLimits,
+        budget: inout EndRecordParseBudget
     ) throws -> DirectoryLocation {
         guard (end.diskNumber == 0 || end.diskNumber == UInt16.max),
               (end.centralDirectoryDisk == 0
@@ -448,6 +1139,7 @@ final class ZipReader: FormatReader {
             throw KaitoError.unsupportedMethod("spanned")
         }
 
+        try budget.chargeMetadataBytes(min(locatorOffset, limits.maxMetadataSize))
         let recordOffset = try findZIP64RecordOffset(
             source: source,
             locatorOffset: locatorOffset,
@@ -633,7 +1325,8 @@ final class ZipReader: FormatReader {
 
             let extraFields = try parseExtraFields(
                 extra,
-                recordLimit: limits.maxMetadataRecordCount
+                recordLimit: limits.maxMetadataRecordCount,
+                tailPolicy: .ignoreUnparsableTail
             )
             let zip64 = try resolveZIP64Values(
                 compressed32: compressed32,
@@ -689,18 +1382,18 @@ final class ZipReader: FormatReader {
 
             let hostOS = UInt8(truncatingIfNeeded: versionMadeBy >> 8)
             let unicodeName = unicodePath(from: extraFields, rawName: rawName)
-            let declaredEncoding: String.Encoding? = flags & 0x0800 != 0 ? .utf8 : nil
+            let hasUTF8Flag = flags & 0x0800 != 0
+            let declaredEncoding: String.Encoding? = hasUTF8Flag ? .utf8 : nil
             let name: String
-            if let declaredEncoding {
-                guard let decoded = EncodingDetector.decode(bytes: rawName, as: declaredEncoding) else {
-                    throw KaitoError.malformed("ZIP UTF-8 name is invalid")
-                }
+            if hasUTF8Flag,
+               let decoded = EncodingDetector.decode(bytes: rawName, as: .utf8) {
                 name = decoded
             } else if let unicodeName {
                 name = unicodeName
             } else {
                 let archiveDecodedName: String?
-                if participatesInArchiveDetection(rawName, policy: policy) {
+                if !hasUTF8Flag,
+                   participatesInArchiveDetection(rawName, policy: policy) {
                     guard archiveNameIndex < archiveNames.decoded.count else {
                         throw KaitoError.malformed("ZIP archive-name index is inconsistent")
                     }
@@ -739,7 +1432,7 @@ final class ZipReader: FormatReader {
                 kind = .file
             }
             let permissions: UInt16? = unixMode == 0 ? nil : unixMode & 0o7777
-            let modificationDate = try modificationDate(
+            let modificationDate = try? modificationDate(
                 fields: extraFields,
                 dosDate: dosDate,
                 dosTime: dosTime
@@ -856,7 +1549,11 @@ final class ZipReader: FormatReader {
             }
 
             guard flags & 0x0800 == 0 else { continue }
-            let extraFields = try parseExtraFields(extra, recordLimit: recordLimit)
+            let extraFields = try parseExtraFields(
+                extra,
+                recordLimit: recordLimit,
+                tailPolicy: .ignoreUnparsableTail
+            )
             guard unicodePath(from: extraFields, rawName: rawName) == nil else { continue }
             guard participatesInArchiveDetection(rawName, policy: policy) else { continue }
             undecoratedNames.append(rawName)
@@ -1140,7 +1837,8 @@ final class ZipReader: FormatReader {
 
     private static func parseExtraFields(
         _ bytes: [UInt8],
-        recordLimit: Int
+        recordLimit: Int,
+        tailPolicy: ExtraFieldTailPolicy = .strict
     ) throws -> [ZipExtraField] {
         guard recordLimit >= 0 else {
             throw KaitoError.limitExceeded("ZIP extra-field record count")
@@ -1149,6 +1847,18 @@ final class ZipReader: FormatReader {
         var fields: [ZipExtraField] = []
         while cursor.remaining > 0 {
             guard cursor.remaining >= 4 else {
+                switch tailPolicy {
+                case .ignoreUnparsableTail:
+                    return fields
+                case .zeroPadding:
+                    let tail = try cursor.readBytes(cursor.remaining)
+                    guard tail.allSatisfy({ $0 == 0 }) else {
+                        throw KaitoError.malformed("truncated ZIP extra-field header")
+                    }
+                    return fields
+                case .strict:
+                    break
+                }
                 throw KaitoError.malformed("truncated ZIP extra-field header")
             }
             guard fields.count < recordLimit else {
@@ -1157,6 +1867,9 @@ final class ZipReader: FormatReader {
             let identifier = try cursor.readUInt16LE()
             let length = Int(try cursor.readUInt16LE())
             guard length <= cursor.remaining else {
+                if tailPolicy == .ignoreUnparsableTail {
+                    return fields
+                }
                 throw KaitoError.malformed("ZIP extra field overruns its containing header")
             }
             fields.append(ZipExtraField(

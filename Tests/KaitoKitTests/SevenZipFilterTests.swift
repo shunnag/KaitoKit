@@ -6,14 +6,11 @@ final class SevenZipFilterTests: XCTestCase {
     func testDeltaAcrossSingleByteReads() throws {
         let expected = [UInt8]("delta-filter-delta-filter".utf8)
         let distance = 5
-        var history = [UInt8](repeating: 0, count: distance)
-        var position = 0
-        let encoded = expected.map { byte -> UInt8 in
-            let result = byte &- history[position]
-            history[position] = byte
-            position = (position + 1) % distance
-            return result
-        }
+        // Packed bytes captured from 7zz 26.03 with
+        // `-t7z -m0=Delta:5 -m1=Copy -mhc=off` for the expected text.
+        let encoded = try hex(
+            "64656c7461c901fdf813380cc4f8f1070234c901fdf813380c"
+        )
 
         let decoder = try DeltaFilterDecompressor(
             input: TestChunkDecompressor(encoded, maximumRead: 1),
@@ -66,6 +63,9 @@ final class SevenZipFilterTests: XCTestCase {
     }
 
     func testARM64FilterDecodesBLAndADRP() throws {
+        // The filtered words below were captured from 7zz 26.03 using
+        // `-t7z -m0=ARM64 -m1=Copy -mhc=off`; the complete 8,224-byte packed
+        // stream had SHA-256 bb4bd55bfecbe76615301e23daadca8709e9722f2c94a835b4e47051fa46c653.
         var original = [UInt8](repeating: 0, count: 0x2020)
         var encoded = original
         let words: [(Int, UInt32, UInt32)] = [
@@ -130,6 +130,9 @@ final class SevenZipFilterTests: XCTestCase {
 
     func testBCJ2StreamsProducedBy7Zip() throws {
         // 7zz 26.03: `-m0=BCJ2 -m1=Copy -m2=Copy -m3=Copy` の 4 packed streams。
+        // mainText は初期の手作業 fixture を履歴として残したもの。review 時に
+        // 717..<857 の区間が 7zz の main stream に含まれないと判明したため除去し、
+        // correctedMainText と call/jump/range の全 byte 列を 7zz 出力と照合した。
         let mainText = (
             "Qeic////QulDD4VB6J////9C6UMPhUHoov///0LpQw+FQeil////QulDD4VB6Kj///9C6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhUHoQulDD4VB6ELpQw+FQehC6UMPhf8BAABB6ELpQw+FBgIAAEHoQulDD4UNAgAAQehC6UMPhRQCAABB6ELpQw+FGwIAAEHoQulDD4UiAgAAQehC6UMPhSkCAABB6ELpQw+FMAIAAEHoQulDD4U3AgAAQehC6UMPhT4CAABB6ELpQw+FRQIAAEHoQulDD4VMAgAAQehC6UMPhVMCAABB6ELpQw+FWgIAAEHoQulDD4VhAgAAQehC6UMPhWgCAABB6ELpQw+FbwIAAEHoQulDD4V2AgAAQeitAAAAQulDD4V9AgAAQeiwAAAAQulDD4WEAgAAQeizAAAAQulDD4WLAgAAQei2AAAAQulqAAAAQw+FkgIAAEHouQAAAELpaQAAAEMPhZkCAABB6LwAAABC6WgAAABDD4WgAgAAQei/AAAAQulnAAAAQw+FpwIAAEHowgAAAELpZgAAAEMPha4CAABB6MUAAABC6WUAAABDD4W1AgAA"
         )

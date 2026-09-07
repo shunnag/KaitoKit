@@ -585,6 +585,8 @@ final class SevenZipFolderCoordinator {
         self.factory = factory
     }
 
+    var hasRetainedDecoderState: Bool { decoder != nil }
+
     func stream(offset: UInt64, length: UInt64) throws -> any Decompressor {
         let end = try Checked.add(offset, length)
         guard end <= factory.finalSize else {
@@ -592,7 +594,11 @@ final class SevenZipFolderCoordinator {
         }
         generation = try Checked.add(generation, 1)
         if decoder == nil {
-            try restart()
+            if completionVerified, offset < position {
+                try restartForBackwardSeek(target: offset)
+            } else if !completionVerified {
+                try restart()
+            }
         } else if offset < position {
             try restartForBackwardSeek(target: offset)
         }
@@ -712,6 +718,9 @@ final class SevenZipFolderCoordinator {
               let decoder else {
             throw KaitoError.malformed("7z folder ended at the wrong size")
         }
+        // 完了後の decoder は後方 seek で再利用しない。必要な場合は
+        // factory から再構築できるため、辞書や PPMd arena をここで解放する。
+        defer { self.decoder = nil }
         do {
             if !decoder.isFinished {
                 var extra: UInt8 = 0

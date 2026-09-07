@@ -4,6 +4,8 @@ import XCTest
 
 final class PPMd7DecoderTests: XCTestCase {
     func testKnownPPMd7StreamsWithSingleByteReads() throws {
+        // 7zz 26.03: each payload was archived with
+        // `-t7z -m0=PPMd:o=6:mem=1m -mhc=off`; these are the exact packed ranges.
         let vectors: [(packed: String, output: Data)] = [
             ("00609f609f00", Data("a".utf8)),
             ("00610308bba400", Data("ab".utf8)),

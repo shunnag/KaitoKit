@@ -269,6 +269,142 @@ final class SevenZipIntegrationTests: XCTestCase {
         }
     }
 
+    func testEncryptedBCJ2AndFiveCoderFoldersMatchSevenZipBySHA256() throws {
+        try SevenZipTestSupport.requireSevenZip()
+        let temporary = try SevenZipTestSupport.temporaryDirectory(label: "7z-complex-folders")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let source = temporary.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+        let entryName = "x86.bin"
+        let payload = x86MachOBranchPayload(repetitions: 2_048)
+        _ = try SevenZipTestSupport.write(payload, relativePath: entryName, below: source)
+        let password = "X"
+
+        let cases: [(name: String, options: [String], coderCount: Int)] = [
+            (
+                "encrypted-bcj2",
+                ["-p\(password)", "-mhe=off", "-mf=BCJ2", "-ms=off"],
+                8
+            ),
+            (
+                "five-coder",
+                [
+                    "-p\(password)", "-mhe=off", "-m0=Delta", "-m1=Delta",
+                    "-m2=BCJ", "-m3=LZMA2", "-ms=off",
+                ],
+                5
+            ),
+            (
+                "encrypted-header-bcj2",
+                ["-p\(password)", "-mhe=on", "-mf=BCJ2", "-ms=off"],
+                8
+            ),
+        ]
+
+        for fixture in cases {
+            let archive = temporary.appendingPathComponent("\(fixture.name).7z")
+            try SevenZipTestSupport.makeArchive(
+                sourceDirectory: source,
+                paths: [entryName],
+                archiveURL: archive,
+                options: fixture.options
+            )
+            let reader = try ArchiveReader.open(
+                url: archive,
+                options: ReaderOptions(password: password)
+            )
+            let entry = try XCTUnwrap(reader.entries.first { $0.name == entryName })
+            XCTAssertEqual(
+                entry.methodDescription.split(separator: "+").count,
+                fixture.coderCount,
+                fixture.name
+            )
+            let decoded = try reader.read(entry)
+            let oracle = try SevenZipTestSupport.extractedData(
+                archiveURL: archive,
+                entryName: entryName,
+                password: password
+            )
+            assertSameSHA256(decoded, oracle, fixture.name)
+            assertSameSHA256(decoded, payload, fixture.name)
+        }
+    }
+
+    func testNonsolidCompressedEntryStreamsHaveIndependentCoordinators() throws {
+        try SevenZipTestSupport.requireSevenZip()
+        let temporary = try SevenZipTestSupport.temporaryDirectory(label: "7z-nonsolid-streams")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let source = temporary.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+        let payload = deterministicPayload(count: 128 * 1_024, seed: 0x51_4E_47_4C)
+        _ = try SevenZipTestSupport.write(payload, relativePath: "single.bin", below: source)
+        let archive = temporary.appendingPathComponent("single.7z")
+        try SevenZipTestSupport.makeArchive(
+            sourceDirectory: source,
+            paths: ["single.bin"],
+            archiveURL: archive,
+            options: ["-m0=LZMA2", "-ms=off"]
+        )
+
+        let reader = try ArchiveReader.open(url: archive)
+        let entry = try XCTUnwrap(reader.entries.first { $0.name == "single.bin" })
+        XCTAssertEqual(entry.solidGroup, -1)
+        let first = try reader.stream(entry)
+        let second = try reader.stream(entry)
+        XCTAssertEqual(try first.readAll(), payload)
+        XCTAssertEqual(try second.readAll(), payload)
+    }
+
+    func testTwoThousandTinyNonsolidEntriesKeepKaitoSHAMemoryBounded() throws {
+        try SevenZipTestSupport.requireSevenZip()
+        let temporary = try SevenZipTestSupport.temporaryDirectory(label: "7z-many-folders")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let source = temporary.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+
+        let entryCount = 2_000
+        var paths: [String] = []
+        paths.reserveCapacity(entryCount)
+        for index in 0..<entryCount {
+            let name = String(format: "tiny-%04d.bin", index)
+            paths.append(name)
+            _ = try SevenZipTestSupport.write(
+                Data([UInt8(truncatingIfNeeded: index)]),
+                relativePath: name,
+                below: source
+            )
+        }
+
+        let archive = temporary.appendingPathComponent("many-folders.7z")
+        try SevenZipTestSupport.makeArchive(
+            sourceDirectory: source,
+            paths: paths,
+            archiveURL: archive,
+            options: ["-m0=LZMA2", "-ms=off"]
+        )
+        let fixtureReader = try ArchiveReader.open(url: archive)
+        XCTAssertEqual(fixtureReader.entries.count, entryCount)
+        XCTAssertTrue(fixtureReader.entries.allSatisfy { $0.solidGroup == -1 })
+
+        let measured = try SevenZipTestSupport.runKaitoWithPeakResidentSize(
+            arguments: ["sha", archive.path]
+        )
+        let lines = String(decoding: measured.standardOutput, as: UTF8.self)
+            .split(separator: "\n")
+        XCTAssertEqual(lines.count, entryCount + 1)
+        XCTAssertEqual(
+            lines.last?.split(separator: "\t").prefix(2).map(String.init),
+            ["total", String(entryCount)]
+        )
+
+        let maximumPeakResidentSize = UInt64(192 * 1_024 * 1_024)
+        XCTAssertLessThan(
+            measured.peakResidentSize,
+            maximumPeakResidentSize,
+            "2,000 completed folders must not retain every decoder"
+        )
+    }
+
     func testAESWithoutHeaderEncryptionReportsPasswordErrorsAtEntryRead() throws {
         try SevenZipTestSupport.requireSevenZip()
         let fixture = try makeEncryptedFixture(headerEncryption: false)
@@ -336,26 +472,51 @@ final class SevenZipIntegrationTests: XCTestCase {
         )
     }
 
-    func testCooViewerFixturesMatchSevenZipBySHA256() throws {
+    func testRealSevenZipNonsolidSolidAndBoundedBlockFixturesMatchOracle() throws {
         try SevenZipTestSupport.requireSevenZip()
-        let temporary = try SevenZipTestSupport.temporaryDirectory(label: "7z-cooviewer")
+        let temporary = try SevenZipTestSupport.temporaryDirectory(label: "7z-layout-oracle")
         defer { try? FileManager.default.removeItem(at: temporary) }
+        let source = temporary.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
 
-        let fixtures: [(name: String, expectedGroups: Int)] = [
-            ("nonsolid.7z", 0),
-            ("solid.7z", 1),
-            ("blocks.7z", 2),
+        var expected: [String: Data] = [:]
+        var paths: [String] = []
+        for index in 0..<12 {
+            let name = String(format: "page-%02d.bin", index)
+            let contents = deterministicPayload(
+                count: 9 * 1_024 + index,
+                seed: UInt64(index + 101)
+            )
+            expected[name] = contents
+            paths.append(name)
+            _ = try SevenZipTestSupport.write(contents, relativePath: name, below: source)
+        }
+
+        let fixtures: [(name: String, solidOption: String)] = [
+            ("nonsolid", "-ms=off"),
+            ("solid", "-ms=on"),
+            ("bounded-blocks", "-ms=20k"),
         ]
         for fixture in fixtures {
-            let archive = try SevenZipTestSupport.copyCooViewerFixture(
-                named: fixture.name,
-                into: temporary
+            let archive = temporary.appendingPathComponent("\(fixture.name).7z")
+            try SevenZipTestSupport.makeArchive(
+                sourceDirectory: source,
+                paths: paths,
+                archiveURL: archive,
+                options: ["-m0=LZMA2", fixture.solidOption]
             )
             let reader = try ArchiveReader.open(url: archive)
             let files = reader.entries.filter { $0.kind == .file }
             XCTAssertFalse(files.isEmpty, fixture.name)
             let groups = Set(files.map(\.solidGroup).filter { $0 >= 0 })
-            XCTAssertEqual(groups.count, fixture.expectedGroups, fixture.name)
+            switch fixture.name {
+            case "nonsolid":
+                XCTAssertEqual(groups.count, 0, fixture.name)
+            case "solid":
+                XCTAssertEqual(groups.count, 1, fixture.name)
+            default:
+                XCTAssertGreaterThan(groups.count, 1, fixture.name)
+            }
             for entry in files.reversed() {
                 let decoded = try reader.read(entry)
                 let oracle = try SevenZipTestSupport.extractedData(
@@ -363,6 +524,7 @@ final class SevenZipIntegrationTests: XCTestCase {
                     entryName: entry.name
                 )
                 assertSameSHA256(decoded, oracle, "\(fixture.name):\(entry.name)")
+                assertSameSHA256(decoded, try XCTUnwrap(expected[entry.name]), entry.name)
             }
         }
     }

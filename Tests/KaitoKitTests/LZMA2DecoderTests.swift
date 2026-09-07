@@ -9,6 +9,8 @@ final class LZMA2DecoderTests: XCTestCase {
     }
 
     func testCompressedChunkWithTinyReads() throws {
+        // xz 5.8.3: `xz --format=raw --lzma2=dict=64KiB` が
+        // `abcabcabcabcabcabc` に生成した complete raw stream。
         let stream = try decodeHex("e0001100085d00309888aa0207d00000")
         let expected = Data("abcabcabcabcabcabc".utf8)
         let decoder = try makeDecoder(stream, expectedSize: UInt64(expected.count))

@@ -13,7 +13,29 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+      - name: Install differential-test oracles
+        run: brew install sevenzip xz
       - name: Build
         run: swift build -v
       - name: Test
+        env:
+          KAITO_REQUIRE_7ZZ: "1"
+          KAITO_REQUIRE_XZ: "1"
         run: swift test
+
+  compressed-payload-mutants:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install seed generator
+        run: brew install sevenzip
+      - name: Check fuzz tooling
+        run: |
+          bash -n Scripts/fuzz/*.sh
+          python3 -m py_compile Scripts/fuzz/mutate.py
+      - name: Run compressed-payload sanitizer smoke
+        run: |
+          seed_directory="$(mktemp -d)"
+          Scripts/fuzz/make-compressed-seeds.sh "$seed_directory"
+          Scripts/fuzz/run-mutants.sh --count 63 --timeout 5 \
+            --password KaitoFuzz --require-payload-ranges "$seed_directory"

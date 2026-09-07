@@ -216,6 +216,29 @@ final class Deflate64DecompressorTests: XCTestCase {
         }
     }
 
+    func testMatchCannotReferBeforeProducedHistory() throws {
+        var writer = Deflate64TestBitWriter()
+        let literalCodes = Self.fixedCodes()
+        let distanceCodes = Self.canonicalCodes([UInt8](repeating: 5, count: 32))
+        writer.writeLSB(1, count: 1)
+        writer.writeLSB(1, count: 2)
+        writer.writeHuffman(257, codes: literalCodes) // length 3 before any literal
+        writer.writeHuffman(0, codes: distanceCodes) // distance 1, but history is empty
+
+        let compressed = writer.data
+        let decoder = try Deflate64Decompressor(
+            source: DataByteSource(data: compressed),
+            offset: 0,
+            compressedSize: UInt64(compressed.count),
+            expectedSize: 3
+        )
+        XCTAssertThrowsError(try drain(decoder, bufferSize: 8)) { error in
+            guard case KaitoError.malformed = error else {
+                return XCTFail("expected malformed, got \(error)")
+            }
+        }
+    }
+
     func testTruncationAndExpectedSizeMismatchAreRejected() throws {
         var writer = Deflate64TestBitWriter()
         let codes = Self.fixedCodes()

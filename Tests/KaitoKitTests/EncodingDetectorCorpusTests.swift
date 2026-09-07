@@ -168,6 +168,43 @@ final class EncodingDetectorCorpusTests: XCTestCase {
             EncodingDetector.detectArchiveEncoding(names: [cp932, eucJP]),
             .japaneseEUC
         )
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(names: [eucJP, cp932]),
+            .japaneseEUC
+        )
+    }
+
+    func testAmbiguousMajorityIsIndependentOfNameOrderBeyondFormerVoteCap() throws {
+        let cp932 = Array(try XCTUnwrap(
+            "｡ﾃｽﾄｶ｡".data(using: .shiftJIS, allowLossyConversion: false)
+        ))
+        let eucJP = Array(try XCTUnwrap(
+            "ﾃｽﾄ.txt".data(using: .japaneseEUC, allowLossyConversion: false)
+        ))
+        XCTAssertNotNil(EncodingDetector.decode(bytes: cp932, as: .japaneseEUC))
+        XCTAssertNotNil(EncodingDetector.decode(bytes: eucJP, as: .shiftJIS))
+
+        let cpMinority = Array(repeating: cp932, count: 512)
+        let eucMajority = Array(repeating: eucJP, count: 1_000)
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(names: cpMinority + eucMajority),
+            .japaneseEUC
+        )
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(names: eucMajority + cpMinority),
+            .japaneseEUC
+        )
+
+        let cpMajority = Array(repeating: cp932, count: 1_000)
+        let eucMinority = Array(repeating: eucJP, count: 512)
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(names: cpMajority + eucMinority),
+            .shiftJIS
+        )
+        XCTAssertEqual(
+            EncodingDetector.detectArchiveEncoding(names: eucMinority + cpMajority),
+            .shiftJIS
+        )
     }
 
     func testArchivePoliciesAndNonJapaneseFallback() throws {

@@ -1,14 +1,29 @@
 import Foundation
 
 /// Detects supported archive containers from their structural signatures.
+///
+/// Detection uses a stable order so ambiguous inputs behave consistently:
+///
+/// 1. A checksum-valid tar header (or the two-block empty-tar terminator) wins
+///    over bytes in its pathname that resemble a shorter stream signature.
+/// 2. Native markers are checked in this order: ZIP, RAR, 7-Zip, XZ,
+///    structurally plausible LHA, gzip, bzip2, UNIX compress, then bare ustar.
+///    LHA precedes the two-byte stream markers because its header supplies a
+///    method and a bounded size envelope.
+/// 3. When enabled, markers inside a recognized Mach-O or PE prefix are
+///    considered by ascending offset, with ZIP, RAR, then 7-Zip as the stable
+///    same-offset order.
+/// 4. File-name hints are considered last and never replace content evidence.
 public enum FormatDetector {
     private static let tarBlockSize = 512
     private static let zipEOCDMinimumSize = 22
     private static let zipMaximumCommentSize = 65_535
     private static let zipMaximumTrailingDataSize = 1 * 1_024 * 1_024
-    /// RARLab bounds an SFX module to one MiB. Include the longest signature
-    /// so a marker beginning at the final permitted byte remains visible.
-    static let maximumRARSFXSize: UInt64 = 1 * 1_024 * 1_024
+    /// Executable-prefix detection never examines a marker beyond one MiB.
+    static let maximumSFXScanSize: UInt64 = 1 * 1_024 * 1_024
+    /// Include the longest signature so a marker beginning at the final
+    /// permitted byte remains visible.
+    static let maximumRARSFXSize: UInt64 = maximumSFXScanSize
     /// LHA self-extractors in the compatibility corpus place their first
     /// member below this bound. Header bytes beyond the bound may be read only
     /// to authenticate a candidate beginning within it.
@@ -32,8 +47,80 @@ public enum FormatDetector {
         let offset: UInt64
     }
 
-    /// Detects the archive format exposed by `source`.
-    public static func detect(source: any ByteSource) throws -> ArchiveFormat {
+    struct SFXSignatureMatch: Equatable {
+        let offset: UInt64
+        let format: ArchiveFormat
+    }
+
+    /// Detects the archive format exposed by an arbitrary byte source.
+    ///
+    /// Executable-prefix scanning is disabled unless
+    /// ``ReaderOptions/scanForSFXInData`` is enabled. Native signatures at
+    /// offset zero and established LHA prefix recognition are unaffected.
+    public static func detect(
+        source: any ByteSource,
+        options: ReaderOptions = ReaderOptions()
+    ) throws -> ArchiveFormat {
+        try detect(
+            source: source,
+            fileName: nil,
+            sfxScanSize: options.scanForSFXInData
+                ? options.maximumSFXScanSize
+                : 0
+        )
+    }
+
+    /// Detects the archive format in `data` without copying its storage.
+    ///
+    /// Executable-prefix scanning is off by default and can be opted into with
+    /// ``ReaderOptions/scanForSFXInData``.
+    public static func detect(
+        data: Data,
+        options: ReaderOptions = ReaderOptions()
+    ) throws -> ArchiveFormat {
+        try detect(source: DataByteSource(data: data), options: options)
+    }
+
+    /// Detects the archive format at a file URL.
+    ///
+    /// File URLs inspect a bounded Mach-O or PE prefix by default. If content
+    /// recognition does not decide the result, `.tar` and `.Z` extensions are
+    /// used as hints for formats whose names are useful compatibility signals.
+    public static func detect(
+        url: URL,
+        options: ReaderOptions = ReaderOptions()
+    ) throws -> ArchiveFormat {
+        let source = try FileByteSource(url: url)
+        return try detect(
+            source: source,
+            fileName: url.lastPathComponent,
+            sfxScanSize: options.maximumSFXScanSize
+        )
+    }
+
+    /// Detects using a source already opened for `sourceURL`.
+    ///
+    /// ArchiveReader uses this overload to preserve one file descriptor while
+    /// retaining the URL-only executable scan and extension-hint behavior.
+    static func detect(
+        source: any ByteSource,
+        sourceURL: URL?,
+        options: ReaderOptions
+    ) throws -> ArchiveFormat {
+        try detect(
+            source: source,
+            fileName: sourceURL?.lastPathComponent,
+            sfxScanSize: sourceURL != nil
+                ? options.maximumSFXScanSize
+                : (options.scanForSFXInData ? options.maximumSFXScanSize : 0)
+        )
+    }
+
+    private static func detect(
+        source: any ByteSource,
+        fileName: String?,
+        sfxScanSize: UInt64
+    ) throws -> ArchiveFormat {
         let prefixLength = try Checked.toInt(min(source.length, UInt64(tarBlockSize)))
         let prefix = try read(source: source, at: 0, count: prefixLength)
 
@@ -69,25 +156,40 @@ public enum FormatDetector {
         if isBzip2Header(prefix) {
             return .bzip2
         }
+        if hasPrefix(prefix, [0x1F, 0x9D]) {
+            return .compress
+        }
         if try isTarHeader(prefix) {
             return .tar
         }
-        if try containsZipEOCD(source: source) {
+        // A damaged first local marker can still belong to a native ZIP when
+        // its end record places the central directory at an absolute base of
+        // zero. A nonzero inferred base is an SFX prefix and follows the
+        // executable-prefix policy below.
+        if try containsNativeZipEOCD(source: source) {
             return .zip
         }
-        if try findRARSignature(source: source) != nil {
-            return .rar
+        if let embedded = try findSFXSignature(
+            source: source,
+            maximumScanSize: sfxScanSize
+        ) {
+            return embedded.format
         }
         if try findLHASFXSignature(source: source) != nil {
             return .lha
         }
 
-        throw KaitoError.unsupportedFormat
-    }
+        if let fileName {
+            let pathExtension = URL(fileURLWithPath: fileName).pathExtension
+            if pathExtension.caseInsensitiveCompare("tar") == .orderedSame {
+                return .tar
+            }
+            if pathExtension.caseInsensitiveCompare("Z") == .orderedSame {
+                return .compress
+            }
+        }
 
-    /// Detects the archive format in `data` without copying its storage.
-    public static func detect(data: Data) throws -> ArchiveFormat {
-        try detect(source: DataByteSource(data: data))
+        throw KaitoError.unsupportedFormat
     }
 
     private static func hasPrefix(_ bytes: [UInt8], _ signature: [UInt8]) -> Bool {
@@ -105,6 +207,100 @@ public enum FormatDetector {
             return false
         }
         return (0x31...0x39).contains(bytes[3])
+    }
+
+    /// Locates the first ZIP, RAR, or 7-Zip marker in a recognized executable
+    /// prefix. The scan bound is clamped even when this internal entry point is
+    /// called directly.
+    static func findSFXSignature(
+        source: any ByteSource,
+        maximumScanSize: UInt64
+    ) throws -> SFXSignatureMatch? {
+        let scanSize = min(maximumScanSize, maximumSFXScanSize)
+        guard scanSize > 0 else { return nil }
+
+        let longestSignatureSize: UInt64 = 8
+        let maximumRead = try Checked.add(scanSize, longestSignatureSize)
+        let count = try Checked.toInt(min(source.length, maximumRead))
+        guard count >= 4 else { return nil }
+        let bytes = try read(source: source, at: 0, count: count)
+        guard isMachOOrPEPrefix(bytes) else { return nil }
+
+        let zipLocal: [UInt8] = [0x50, 0x4B, 0x03, 0x04]
+        let zipEmpty: [UInt8] = [0x50, 0x4B, 0x05, 0x06]
+        let zipSpanned: [UInt8] = [0x50, 0x4B, 0x07, 0x08]
+        let rar4: [UInt8] = [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00]
+        let rar5: [UInt8] = rar4.dropLast() + [0x01, 0x00]
+        let sevenZip: [UInt8] = [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]
+
+        let maximumStart = min(Int(scanSize), bytes.count - 4)
+        guard maximumStart >= 1 else { return nil }
+        for index in 1...maximumStart {
+            // Offset is the primary tie-break. This fixed per-offset order is
+            // also the order documented on FormatDetector.
+            if matches(bytes, signature: zipLocal, at: index)
+                || matches(bytes, signature: zipEmpty, at: index)
+                || matches(bytes, signature: zipSpanned, at: index) {
+                return SFXSignatureMatch(offset: UInt64(index), format: .zip)
+            }
+            if matches(bytes, signature: rar5, at: index)
+                || matches(bytes, signature: rar4, at: index) {
+                return SFXSignatureMatch(offset: UInt64(index), format: .rar)
+            }
+            if matches(bytes, signature: sevenZip, at: index) {
+                return SFXSignatureMatch(offset: UInt64(index), format: .sevenZip)
+            }
+        }
+        return nil
+    }
+
+    private static func matches(
+        _ bytes: [UInt8],
+        signature: [UInt8],
+        at offset: Int
+    ) -> Bool {
+        guard offset >= 0, offset <= bytes.count - signature.count else {
+            return false
+        }
+        return bytes[offset..<(offset + signature.count)].elementsEqual(signature)
+    }
+
+    private static func isMachOOrPEPrefix(_ bytes: [UInt8]) -> Bool {
+        guard bytes.count >= 4 else { return false }
+
+        let magic = Array(bytes[0..<4])
+        let machOMagics: [[UInt8]] = [
+            [0xFE, 0xED, 0xFA, 0xCE], // 32-bit, native byte order
+            [0xCE, 0xFA, 0xED, 0xFE], // 32-bit, swapped byte order
+            [0xFE, 0xED, 0xFA, 0xCF], // 64-bit, native byte order
+            [0xCF, 0xFA, 0xED, 0xFE], // 64-bit, swapped byte order
+            [0xCA, 0xFE, 0xBA, 0xBE], // universal binary
+            [0xBE, 0xBA, 0xFE, 0xCA], // swapped universal binary
+            [0xCA, 0xFE, 0xBA, 0xBF], // 64-bit universal binary
+            [0xBF, 0xBA, 0xFE, 0xCA], // swapped 64-bit universal binary
+        ]
+        if machOMagics.contains(magic) {
+            return true
+        }
+
+        guard bytes.count >= 64,
+              bytes[0] == 0x4D,
+              bytes[1] == 0x5A else {
+            return false
+        }
+        let peOffset = UInt64(bytes[0x3C])
+            | (UInt64(bytes[0x3D]) << 8)
+            | (UInt64(bytes[0x3E]) << 16)
+            | (UInt64(bytes[0x3F]) << 24)
+        guard peOffset >= 64,
+              peOffset <= UInt64(bytes.count - 4),
+              let offset = Int(exactly: peOffset) else {
+            return false
+        }
+        return bytes[offset] == 0x50
+            && bytes[offset + 1] == 0x45
+            && bytes[offset + 2] == 0
+            && bytes[offset + 3] == 0
     }
 
     private static func isLHAHeader(
@@ -386,7 +582,9 @@ public enum FormatDetector {
         return sawDigit ? value : nil
     }
 
-    private static func containsZipEOCD(source: any ByteSource) throws -> Bool {
+    private static func containsNativeZipEOCD(
+        source: any ByteSource
+    ) throws -> Bool {
         guard source.length >= UInt64(zipEOCDMinimumSize) else {
             return false
         }
@@ -420,12 +618,37 @@ public enum FormatDetector {
             let commentLength = UInt64(tail[index + 20]) | highCommentLength
             let recordLength = try Checked.add(UInt64(zipEOCDMinimumSize), commentLength)
             let recordEnd = try Checked.add(UInt64(index), recordLength)
-            if recordEnd <= UInt64(tail.count),
-               UInt64(tail.count) - recordEnd <= UInt64(zipMaximumTrailingDataSize) {
+            guard recordEnd <= UInt64(tail.count),
+                  UInt64(tail.count) - recordEnd <= UInt64(zipMaximumTrailingDataSize) else {
+                continue
+            }
+
+            let directorySize = littleEndianUInt32(tail, at: index + 12)
+            let directoryOffset = littleEndianUInt32(tail, at: index + 16)
+            // ZIP64 sentinels require the ZIP64 end record to infer a base.
+            // Normal ZIP64 archives still have a native local marker at zero.
+            guard directorySize != UInt64(UInt32.max),
+                  directoryOffset != UInt64(UInt32.max) else {
+                continue
+            }
+            let directoryEnd = directoryOffset.addingReportingOverflow(directorySize)
+            guard !directoryEnd.overflow else { continue }
+            let absoluteRecordOffset = try Checked.add(searchOffset, UInt64(index))
+            if directoryEnd.partialValue == absoluteRecordOffset {
                 return true
             }
         }
         return false
+    }
+
+    private static func littleEndianUInt32(
+        _ bytes: [UInt8],
+        at offset: Int
+    ) -> UInt64 {
+        UInt64(bytes[offset])
+            | (UInt64(bytes[offset + 1]) << 8)
+            | (UInt64(bytes[offset + 2]) << 16)
+            | (UInt64(bytes[offset + 3]) << 24)
     }
 
     /// Locates a RAR4 or RAR5 marker at offset zero or after a bounded SFX

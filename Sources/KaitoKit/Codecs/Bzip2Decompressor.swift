@@ -9,6 +9,7 @@ public final class Bzip2Decompressor: Decompressor {
 
     private let source: any ByteSource
     private let compressedEnd: UInt64
+    private let acceptsConcatenatedStreams: Bool
     private var sourceOffset: UInt64
     private var input = [UInt8](repeating: 0, count: chunkSize)
     private var inputOffset = 0
@@ -18,7 +19,12 @@ public final class Bzip2Decompressor: Decompressor {
     private var finished = false
 
     /// Creates a bzip2 stream over a validated byte-source range.
-    public init(source: any ByteSource, offset: UInt64, compressedSize: UInt64) throws {
+    public init(
+        source: any ByteSource,
+        offset: UInt64,
+        compressedSize: UInt64,
+        concatenatedStreams: Bool = false
+    ) throws {
         let compressedEnd = try Checked.add(offset, compressedSize)
         guard compressedEnd <= source.length else {
             throw KaitoError.truncated
@@ -27,6 +33,7 @@ public final class Bzip2Decompressor: Decompressor {
         self.source = source
         self.sourceOffset = offset
         self.compressedEnd = compressedEnd
+        self.acceptsConcatenatedStreams = concatenatedStreams
 
         let status = BZ2_bzDecompressInit(&stream, 0, 0)
         guard status == BZ_OK else {
@@ -103,8 +110,20 @@ public final class Bzip2Decompressor: Decompressor {
             totalProduced += produced
 
             if status == BZ_STREAM_END {
-                finished = true
-                return totalProduced
+                guard acceptsConcatenatedStreams else {
+                    finished = true
+                    return totalProduced
+                }
+                let nextOffset = try currentCompressedOffset()
+                if nextOffset == compressedEnd {
+                    finished = true
+                    return totalProduced
+                }
+                guard try hasStreamHeader(at: nextOffset) else {
+                    throw KaitoError.malformed("bzip2 stream has trailing bytes")
+                }
+                try restartStream()
+                continue
             }
             guard status == BZ_OK else {
                 throw KaitoError.malformed("invalid bzip2 stream (libbz2 \(status))")
@@ -119,6 +138,35 @@ public final class Bzip2Decompressor: Decompressor {
         }
 
         return totalProduced
+    }
+
+    private func currentCompressedOffset() throws -> UInt64 {
+        try Checked.sub(sourceOffset, UInt64(inputCount - inputOffset))
+    }
+
+    private func hasStreamHeader(at offset: UInt64) throws -> Bool {
+        let remaining = try Checked.sub(compressedEnd, offset)
+        guard remaining >= 4 else { return false }
+        let header = try readByteRange(source: source, offset: offset, count: 4)
+        return header[0] == 0x42 && header[1] == 0x5a && header[2] == 0x68
+            && (0x31...0x39).contains(header[3])
+    }
+
+    private func restartStream() throws {
+        guard streamWasInitialized else {
+            throw KaitoError.malformed("bzip2 stream is not initialized")
+        }
+        let endStatus = BZ2_bzDecompressEnd(&stream)
+        streamWasInitialized = false
+        guard endStatus == BZ_OK else {
+            throw KaitoError.malformed("libbz2 finalization failed (\(endStatus))")
+        }
+        stream = bz_stream()
+        let initStatus = BZ2_bzDecompressInit(&stream, 0, 0)
+        guard initStatus == BZ_OK else {
+            throw KaitoError.malformed("libbz2 initialization failed (\(initStatus))")
+        }
+        streamWasInitialized = true
     }
 
     private func refillInput() throws {

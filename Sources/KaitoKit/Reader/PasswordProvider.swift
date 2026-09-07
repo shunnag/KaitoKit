@@ -8,6 +8,19 @@ public protocol PasswordProvider: Sendable {
 
 /// Options used while opening and reading an archive.
 public struct ReaderOptions: Sendable {
+    /// The largest executable prefix inspected for an embedded archive marker.
+    ///
+    /// File-URL opens use this value automatically. Values above one MiB are
+    /// clamped to one MiB, and zero disables executable-prefix scanning.
+    public var maximumSFXScanSize: UInt64
+
+    /// Whether `Data` and arbitrary `ByteSource` opens inspect executable
+    /// prefixes for embedded ZIP, RAR, and 7-Zip markers.
+    ///
+    /// This is off by default because these inputs do not carry file-system
+    /// provenance. It does not affect the established LHA prefix recognition.
+    public var scanForSFXInData: Bool
+
     /// The policy used to decode entry names.
     public var encodingPolicy: EncodingPolicy
 
@@ -48,8 +61,15 @@ public struct ReaderOptions: Sendable {
         lazyLocalHeaders: Bool = true,
         maxSevenZipAESCyclesPower: UInt8 = 24,
         maxRAR5KDFCountPower: UInt8 = 24,
-        verifyRAR5Blake2sp: Bool = true
+        verifyRAR5Blake2sp: Bool = true,
+        maximumSFXScanSize: UInt64 = 1 * 1_024 * 1_024,
+        scanForSFXInData: Bool = false
     ) {
+        self.maximumSFXScanSize = min(
+            maximumSFXScanSize,
+            1 * 1_024 * 1_024
+        )
+        self.scanForSFXInData = scanForSFXInData
         self.encodingPolicy = encodingPolicy
         self.limits = limits
         self.password = password

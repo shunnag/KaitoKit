@@ -153,65 +153,194 @@ enum KaitoArchiveFileRelocator {
     }
 }
 
-/// A thin, failure-tolerant compatibility facade for the XADArchive surface used by cooViewer.
+/// Delegate callbacks corresponding to the commonly used `XADArchiveDelegate` methods.
+///
+/// XADMaster exposes these callbacks as optional Objective-C protocol methods. KaitoKitCompat
+/// uses Swift protocol requirements with no-op default implementations instead, so conformers
+/// implement only the callbacks they need.
+public protocol KaitoArchiveDelegate: AnyObject {
+    /// Reproduces XADMaster's request for a password before reading an encrypted entry.
+    ///
+    /// Call ``KaitoArchive/setPassword(_:)`` before returning. Unlike XADMaster, this callback
+    /// cannot participate in a failable initializer that needs a password to parse encrypted
+    /// archive headers, because the delegate is assigned after initialization.
+    func archiveNeedsPassword(_ archive: KaitoArchive)
+
+    /// Reproduces XADMaster's name-encoding override callback for undecorated name bytes.
+    ///
+    /// Return an encoding to rebuild the archive with ``EncodingPolicy/fixed(_:)``, or `nil`
+    /// to accept KaitoKit's archive-wide detection. KaitoKit calls this after the delegate is
+    /// assigned rather than from inside the failable initializer.
+    func archive(
+        _ archive: KaitoArchive,
+        nameEncodingForData data: Data,
+        guess: String.Encoding,
+        confidence: Double
+    ) -> String.Encoding?
+
+    /// Reproduces XADMaster's per-entry extraction progress callback.
+    ///
+    /// Whole-entry data reads report each produced chunk. File-system extraction currently
+    /// reports one completion update because `Extractor` owns its streaming loop.
+    func archive(
+        _ archive: KaitoArchive,
+        extractionProgressForEntry entry: Int32,
+        bytes: Int64,
+        of total: Int64
+    )
+}
+
+public extension KaitoArchiveDelegate {
+    /// Supplies the Swift equivalent of an unimplemented optional XADMaster password callback.
+    func archiveNeedsPassword(_ archive: KaitoArchive) {}
+
+    /// Supplies the Swift equivalent of an unimplemented optional XADMaster encoding callback.
+    func archive(
+        _ archive: KaitoArchive,
+        nameEncodingForData data: Data,
+        guess: String.Encoding,
+        confidence: Double
+    ) -> String.Encoding? {
+        nil
+    }
+
+    /// Supplies the Swift equivalent of an unimplemented optional XADMaster progress callback.
+    func archive(
+        _ archive: KaitoArchive,
+        extractionProgressForEntry entry: Int32,
+        bytes: Int64,
+        of total: Int64
+    ) {}
+}
+
+/// A failure-tolerant compatibility facade for the XADArchive surface used by cooViewer.
 ///
 /// It reproduces optional construction, `Int32` entry indexes, optional names and contents,
-/// boolean extraction results, mutable passwords, and independent/solid group reporting.
-/// Detailed errors and streaming are intentionally available only through `ArchiveReader`.
+/// boolean extraction results, mutable passwords, delegate callbacks, and solid groups. Unlike
+/// XADMaster, detailed failures are available as ``lastError`` and throwing/streaming operations
+/// remain on `ArchiveReader`.
 public final class KaitoArchive {
+    private enum Input {
+        case file(url: URL, reportedFilename: String)
+        case data(Data)
+    }
+
     private static let zipLazyLocalHeaders = Mutex(true)
 
-    private let reader: ArchiveReader
+    private let input: Input
+    private var options: ReaderOptions
+    private var reader: ArchiveReader
+    private var explicitlySelectedNameEncoding: String.Encoding?
 
-    /// Whether newly opened ZIP archives defer local-header validation until first read.
+    /// Receives the XADArchiveDelegate-shaped compatibility callbacks.
     ///
-    /// This process-wide default is concurrency-safe and initially `true`. Use
-    /// ``setDefaultZipLazyLocalHeaders(_:)`` to change it for subsequently created archives.
+    /// XADMaster may consult its delegate during construction. KaitoKitCompat instead consults
+    /// an assigned delegate immediately afterward and rebuilds when it selects another encoding;
+    /// header-encrypted archives therefore still need the modern API for initialization callbacks.
+    public weak var delegate: (any KaitoArchiveDelegate)? {
+        didSet {
+            consultDelegateForNameEncoding()
+        }
+    }
+
+    /// The most recent compatibility-operation error.
+    ///
+    /// XADMaster commonly collapses failures into `nil` or `false`. KaitoKitCompat reproduces
+    /// those return values and additionally retains the corresponding `KaitoError`; successful
+    /// read, extraction, password, or encoding operations clear it.
+    public private(set) var lastError: KaitoError?
+
+    /// Reproduces XADMaster's process-wide ZIP lazy-local-header default.
+    ///
+    /// The value applies only to subsequently created archives, as in XADMaster. KaitoKitCompat
+    /// additionally synchronizes concurrent reads and writes to this class property.
     public static var defaultZipLazyLocalHeaders: Bool {
         zipLazyLocalHeaders.withLock { $0 }
     }
 
-    /// Changes local-header validation behavior for subsequently opened ZIP archives.
+    /// Reproduces XADMaster's setter for the ZIP lazy-local-header class default.
+    ///
+    /// The difference is that KaitoKitCompat synchronizes the process-wide value. Existing
+    /// archive instances retain the option with which they were opened.
     public static func setDefaultZipLazyLocalHeaders(_ enabled: Bool) {
         zipLazyLocalHeaders.withLock { $0 = enabled }
     }
 
-    /// Opens an archive at a file-system path, returning `nil` when it cannot be opened.
+    /// Reproduces XADMaster's failable archive initializer for a file-system path.
+    ///
+    /// It returns `nil` for every open failure like XADMaster. Use `ArchiveReader.open(url:)`
+    /// when the caller needs the opening error or a password provider for encrypted headers.
     public init?(file path: String) {
-        do {
-            reader = try ArchiveReader.open(
-                url: URL(fileURLWithPath: path),
-                options: ReaderOptions(
-                    lazyLocalHeaders: Self.defaultZipLazyLocalHeaders
-                )
-            )
-        } catch {
-            return nil
-        }
+        let input = Input.file(
+            url: URL(fileURLWithPath: path),
+            reportedFilename: path
+        )
+        let options = ReaderOptions(
+            lazyLocalHeaders: Self.defaultZipLazyLocalHeaders
+        )
+        guard let reader = try? Self.open(input, options: options) else { return nil }
+        self.input = input
+        self.options = options
+        self.reader = reader
+        explicitlySelectedNameEncoding = nil
+        delegate = nil
+        lastError = nil
     }
 
-    /// Opens an archive backed by `Data`, returning `nil` when it cannot be opened.
+    /// Reproduces XADMaster's failable archive initializer for an in-memory `Data` value.
+    ///
+    /// KaitoKitCompat retains the `Data` so ``setNameEncoding(_:)`` can rebuild the reader.
+    /// As with XADMaster's compatibility shape, open failures are represented by `nil`.
     public init?(data: Data) {
-        do {
-            reader = try ArchiveReader.open(
-                data: data,
-                options: ReaderOptions(
-                    lazyLocalHeaders: Self.defaultZipLazyLocalHeaders
-                )
-            )
-        } catch {
-            return nil
-        }
+        let input = Input.data(data)
+        let options = ReaderOptions(
+            lazyLocalHeaders: Self.defaultZipLazyLocalHeaders
+        )
+        guard let reader = try? Self.open(input, options: options) else { return nil }
+        self.input = input
+        self.options = options
+        self.reader = reader
+        explicitlySelectedNameEncoding = nil
+        delegate = nil
+        lastError = nil
     }
 
-    /// Returns the number of archive entries using the XADArchive-compatible integer width.
+    /// Reproduces XADMaster's failable file initializer with a URL-shaped Swift overload.
+    ///
+    /// Unlike the path initializer, this overload accepts only a file URL. The returned value is
+    /// `nil` for non-file URLs and open failures; ``filename()`` reports the URL's path.
+    public init?(fileURL: URL) {
+        guard fileURL.isFileURL else { return nil }
+        let input = Input.file(
+            url: fileURL,
+            reportedFilename: fileURL.path
+        )
+        let options = ReaderOptions(
+            lazyLocalHeaders: Self.defaultZipLazyLocalHeaders
+        )
+        guard let reader = try? Self.open(input, options: options) else { return nil }
+        self.input = input
+        self.options = options
+        self.reader = reader
+        explicitlySelectedNameEncoding = nil
+        delegate = nil
+        lastError = nil
+    }
+
+    /// Reproduces XADMaster's entry count with its `Int32` compatibility width.
+    ///
+    /// `ArchiveReader.entries.count` remains the full-width Swift alternative. A count that cannot
+    /// fit in `Int32` is clamped, though the default limits make that difference unreachable.
     public func numberOfEntries() -> Int32 {
         Int32(exactly: reader.entries.count) ?? Int32.max
     }
 
-    /// Returns the decoded name for an entry, or `nil` for an invalid index.
+    /// Reproduces XADMaster's decoded display name and `nil` result for an invalid index.
+    ///
+    /// Directory names omit trailing `/` or `\\` in this facade, matching XADMaster. The modern
+    /// `ArchiveEntry.name` keeps the format reader's original normalized directory spelling.
     public func name(ofEntry index: Int32) -> String? {
-        guard let entry = entry(at: index) else { return nil }
+        guard let entry = checkedEntry(at: index) else { return nil }
         guard entry.kind == .directory else { return entry.name }
 
         var name = entry.name
@@ -221,58 +350,194 @@ public final class KaitoArchive {
         return name
     }
 
-    /// Reads an entry completely, returning `nil` for an invalid index or read failure.
+    /// Reproduces XADMaster's whole-entry `Data` read and `nil` failure result.
+    ///
+    /// KaitoKitCompat still applies `ReadLimits`, drains the decoder through completion, records
+    /// ``lastError``, and sends delegate progress updates for each produced chunk.
     public func contents(ofEntry index: Int32) -> Data? {
-        guard let entry = entry(at: index) else { return nil }
-        return try? reader.read(entry)
+        dataForEntry(index)
     }
 
-    /// Returns the declared uncompressed size.
+    /// Reproduces XADMaster's alternate whole-entry data accessor.
     ///
-    /// Unknown sizes use `Int64.max`, matching XADMaster. Invalid indexes return zero.
+    /// This is an alias of ``contents(ofEntry:)``. KaitoKitCompat differs only by retaining a
+    /// typed ``lastError`` and enforcing the configured modern read limits.
+    public func dataForEntry(_ index: Int32) -> Data? {
+        readEntry(at: index)
+    }
+
+    /// Provides a Swift-label alias for XADMaster's whole-entry data accessor.
+    ///
+    /// It returns exactly the same data or `nil` as ``dataForEntry(_:)``; the additional spelling
+    /// is a KaitoKitCompat convenience and was not a distinct XADMaster operation.
+    public func data(forEntry index: Int32) -> Data? {
+        dataForEntry(index)
+    }
+
+    /// Reproduces XADMaster's declared 64-bit uncompressed size.
+    ///
+    /// Unknown sizes use `Int64.max` and invalid indexes return zero, matching the compatibility
+    /// behavior. The modern API represents unknown sizes as `nil` and uses `UInt64` otherwise.
     public func uncompressedSize(ofEntry index: Int32) -> Int64 {
-        guard let entry = entry(at: index) else { return 0 }
+        guard let entry = checkedEntry(at: index) else { return 0 }
         guard let size = entry.uncompressedSize else { return Int64.max }
         return Int64(exactly: size) ?? Int64.max
     }
 
-    /// Reports whether an entry declares an uncompressed size.
+    /// Reproduces XADMaster's distinction between a declared size and an unknown size.
+    ///
+    /// Invalid indexes return `false`; the modern equivalent is
+    /// `ArchiveEntry.uncompressedSize != nil`.
     public func entryHasSize(_ index: Int32) -> Bool {
-        entry(at: index)?.uncompressedSize != nil
+        checkedEntry(at: index)?.uncompressedSize != nil
     }
 
-    /// Reports whether an entry is a directory.
+    /// Reproduces XADMaster's directory-entry query.
+    ///
+    /// Invalid indexes return `false`; the modern equivalent is `ArchiveEntry.kind == .directory`.
     public func entryIsDirectory(_ index: Int32) -> Bool {
-        entry(at: index)?.kind == .directory
+        checkedEntry(at: index)?.kind == .directory
     }
 
-    /// Reports whether an entry is encrypted.
+    /// Reproduces XADMaster's link-entry query for symbolic and hard links.
+    ///
+    /// KaitoKit exposes the two cases separately as `.symlink` and `.hardlink`; this compatibility
+    /// method combines them and returns `false` for an invalid index.
+    public func entryIsLink(_ index: Int32) -> Bool {
+        guard let kind = checkedEntry(at: index)?.kind else { return false }
+        return kind == .symlink || kind == .hardlink
+    }
+
+    /// Reproduces XADMaster's resource-fork-entry query.
+    ///
+    /// KaitoKit does not publish resource forks as separate entries, so this deliberately returns
+    /// `false` for every valid or invalid index.
+    public func entryIsResourceFork(_ index: Int32) -> Bool {
+        guard checkedEntry(at: index) != nil else { return false }
+        return false
+    }
+
+    /// Reproduces XADMaster's per-entry encryption query.
+    ///
+    /// Invalid indexes return `false`; method details remain available only in modern metadata.
     public func entryIsEncrypted(_ index: Int32) -> Bool {
-        entry(at: index)?.isEncrypted ?? false
+        checkedEntry(at: index)?.isEncrypted ?? false
     }
 
-    /// Reports whether any archive entry is encrypted.
+    /// Reproduces XADMaster's archive-wide encryption query.
+    ///
+    /// It examines published entries; archives whose headers require a password must still be
+    /// opened with the modern API because this facade's failable initializer has no delegate yet.
     public func isEncrypted() -> Bool {
         reader.entries.contains { $0.isEncrypted }
     }
 
-    /// Sets or clears the password used by later reads and extraction operations.
+    /// Reproduces XADMaster's mutable password used by subsequent entry operations.
+    ///
+    /// KaitoKitCompat forwards it to the current `ArchiveReader`; changing it cannot recover a
+    /// facade initializer that already returned `nil` for encrypted headers.
     public func setPassword(_ password: String?) {
         reader.password = password
+        options.password = password
+        lastError = nil
     }
 
-    /// Returns an entry's solid group, or `-1` for an invalid or independent entry.
+    /// Reproduces the cooViewer XADMaster fork's solid-group identifier.
+    ///
+    /// `-1` means an independent or invalid entry. Unlike `entryIsSolid`, a nonnegative identifier
+    /// describes the whole dependency group, including its first entry.
     public func solidGroup(ofEntry index: Int32) -> Int32 {
-        guard let group = entry(at: index)?.solidGroup else { return -1 }
+        guard let group = checkedEntry(at: index)?.solidGroup else { return -1 }
         return Int32(exactly: group) ?? -1
     }
 
-    /// Extracts an entry below the destination directory and reports success.
+    /// Reproduces XADMaster's file-attribute dictionary for an entry.
     ///
-    /// Tar hard-link dependencies are materialized within this call; separate
-    /// calls do not preserve inode identity with one another.
+    /// KaitoKitCompat returns modification date and POSIX permissions when present plus `.type`.
+    /// It omits XADMaster attributes that `ArchiveEntry` does not model and returns an empty
+    /// dictionary for an invalid index while recording ``lastError``.
+    public func attributesOfEntry(_ index: Int32) -> [FileAttributeKey: Any] {
+        guard let entry = checkedEntry(at: index) else { return [:] }
+        var attributes: [FileAttributeKey: Any] = [
+            .type: fileAttributeType(for: entry.kind),
+        ]
+        if let date = entry.modificationDate {
+            attributes[.modificationDate] = date
+        }
+        if let permissions = entry.posixPermissions {
+            attributes[.posixPermissions] = NSNumber(value: permissions)
+        }
+        return attributes
+    }
+
+    /// Reproduces XADMaster's human-readable archive format name.
+    ///
+    /// KaitoKitCompat returns one stable container name and does not include parser subclass or
+    /// compression-method details that some XADMaster format names contain.
+    public func formatName() -> String {
+        switch reader.format.rawValue {
+        case "zip": "Zip"
+        case "rar": "RAR"
+        case "7z": "7-Zip"
+        case "lha": "LHA"
+        case "tar": "Tar"
+        case "gzip": "Gzip"
+        case "bzip2": "Bzip2"
+        case "xz": "XZ"
+        case "compress": "Compress"
+        default: reader.format.rawValue
+        }
+    }
+
+    /// Reproduces XADMaster's source filename accessor.
+    ///
+    /// File-backed instances return the supplied path spelling; Data-backed instances return
+    /// `nil`, because KaitoKitCompat does not synthesize a filename for anonymous bytes.
+    public func filename() -> String? {
+        guard case let .file(_, reportedFilename) = input else { return nil }
+        return reportedFilename
+    }
+
+    /// Returns the archive-wide name encoding in the XADMaster compatibility shape.
+    ///
+    /// Unlike XADMaster's nonoptional numeric default, `nil` means that no undecorated legacy name
+    /// required a choice. An explicit ``setNameEncoding(_:)`` value is returned even when every
+    /// name carries its own format-declared encoding.
+    public var nameEncoding: String.Encoding? {
+        explicitlySelectedNameEncoding ?? reader.nameEncoding
+    }
+
+    /// Reproduces XADMaster's ability to reinterpret undecorated entry names with one encoding.
+    ///
+    /// KaitoKitCompat maps this to `EncodingPolicy.fixed` and rebuilds the reader from the retained
+    /// file URL or `Data`. If rebuilding fails, the previous entries remain available and
+    /// ``lastError`` records the failure.
+    public func setNameEncoding(_ encoding: String.Encoding) {
+        var updatedOptions = options
+        updatedOptions.encodingPolicy = .fixed(encoding)
+        updatedOptions.password = reader.password
+        do {
+            let rebuilt = try Self.open(input, options: updatedOptions)
+            reader = rebuilt
+            options = updatedOptions
+            explicitlySelectedNameEncoding = encoding
+            lastError = nil
+        } catch {
+            record(error)
+        }
+    }
+
+    /// Reproduces XADMaster's directory-based single-entry extraction and Boolean result.
+    ///
+    /// The `to:` path is always a directory. KaitoKitCompat retains modern path and metadata
+    /// checks; tar hard-link dependencies are materialized within this call, so separate calls do
+    /// not preserve inode identity. Failures set ``lastError``.
     public func extractEntry(_ index: Int32, to path: String) -> Bool {
-        guard let entry = entry(at: index), !path.isEmpty else { return false }
+        guard let entry = checkedEntry(at: index) else { return false }
+        guard !path.isEmpty else {
+            lastError = .notFound("empty extraction directory")
+            return false
+        }
 
         let fileManager = FileManager.default
         let destination = URL(fileURLWithPath: path, isDirectory: true)
@@ -280,11 +545,20 @@ public final class KaitoArchive {
 
         do {
             guard entry.kind == .hardlink else {
-                _ = try reader.extract(entry, to: destination)
+                try requestPasswordIfNeeded(for: entry)
+                let extracted = try reader.extract(entry, to: destination)
+                reportCompletedExtraction(entry, index: index, destination: extracted)
+                lastError = nil
                 return true
             }
-            return try extractHardLink(entry, to: destination, fileManager: fileManager)
+            let result = try extractHardLink(entry, to: destination, fileManager: fileManager)
+            if result {
+                reportCompletedExtraction(entry, index: index, destination: nil)
+                lastError = nil
+            }
+            return result
         } catch {
+            record(error)
             return false
         }
     }
@@ -295,7 +569,7 @@ public final class KaitoArchive {
         fileManager: FileManager
     ) throws -> Bool {
         guard let extractionChain = extractionChain(for: entry) else {
-            return false
+            throw KaitoError.malformed("hard-link target chain is invalid")
         }
         try fileManager.createDirectory(
             at: destination,
@@ -320,6 +594,7 @@ public final class KaitoArchive {
             )
             var extracted: URL?
             for member in extractionChain {
+                try requestPasswordIfNeeded(for: member)
                 extracted = try reader.extract(member, to: staging)
             }
             guard let extracted else {
@@ -483,13 +758,201 @@ public final class KaitoArchive {
         return components
     }
 
-    private func entry(at index: Int32) -> ArchiveEntry? {
-        guard index >= 0 else { return nil }
+    private static func open(
+        _ input: Input,
+        options: ReaderOptions
+    ) throws -> ArchiveReader {
+        switch input {
+        case let .file(url, _):
+            try ArchiveReader.open(url: url, options: options)
+        case let .data(data):
+            try ArchiveReader.open(data: data, options: options)
+        }
+    }
+
+    private func checkedEntry(at index: Int32) -> ArchiveEntry? {
+        guard index >= 0 else {
+            lastError = .notFound("archive entry index \(index)")
+            return nil
+        }
         let position = Int(index)
-        guard reader.entries.indices.contains(position) else { return nil }
+        guard reader.entries.indices.contains(position) else {
+            lastError = .notFound("archive entry index \(index)")
+            return nil
+        }
         return reader.entries[position]
+    }
+
+    private func readEntry(at index: Int32) -> Data? {
+        guard let entry = checkedEntry(at: index) else { return nil }
+        do {
+            try requestPasswordIfNeeded(for: entry)
+            let stream = try reader.stream(entry)
+            let data = try readAll(
+                from: stream,
+                entry: entry,
+                compatibilityIndex: index
+            )
+            lastError = nil
+            return data
+        } catch {
+            record(error)
+            return nil
+        }
+    }
+
+    private func readAll(
+        from stream: EntryStream,
+        entry: ArchiveEntry,
+        compatibilityIndex: Int32
+    ) throws -> Data {
+        let total = compatibilitySize(entry.uncompressedSize)
+        if let declaredSize = entry.uncompressedSize {
+            try Checked.size(declaredSize, limit: options.limits.maxInMemorySize)
+            let size = try Checked.toInt(declaredSize)
+            if size == 0 {
+                reportProgress(index: compatibilityIndex, bytes: 0, total: 0)
+                return Data()
+            }
+
+            var result = Data(count: size)
+            var written = 0
+            try result.withUnsafeMutableBytes { storage in
+                while written < size {
+                    let upperBound = min(size, written + 256 * 1_024)
+                    let destination = UnsafeMutableRawBufferPointer(
+                        rebasing: storage[written..<upperBound]
+                    )
+                    let count = try stream.read(into: destination)
+                    guard count > 0 else { throw KaitoError.truncated }
+                    written += count
+                    reportProgress(
+                        index: compatibilityIndex,
+                        bytes: Int64(written),
+                        total: total
+                    )
+                }
+            }
+            return result
+        }
+
+        var result = Data()
+        let initialCapacity = min(options.limits.maxInMemorySize, 256 * 1_024)
+        result.reserveCapacity(try Checked.toInt(initialCapacity))
+        var buffer = [UInt8](repeating: 0, count: 256 * 1_024)
+        while true {
+            let count = try buffer.withUnsafeMutableBytes { storage in
+                try stream.read(into: storage)
+            }
+            guard count > 0 else { break }
+            let nextSize = try Checked.add(UInt64(result.count), UInt64(count))
+            try Checked.size(nextSize, limit: options.limits.maxInMemorySize)
+            result.append(contentsOf: buffer[..<count])
+            reportProgress(
+                index: compatibilityIndex,
+                bytes: compatibilitySize(nextSize),
+                total: total
+            )
+        }
+        if result.isEmpty {
+            reportProgress(index: compatibilityIndex, bytes: 0, total: total)
+        }
+        return result
+    }
+
+    private func requestPasswordIfNeeded(for entry: ArchiveEntry) throws {
+        guard entry.isEncrypted, reader.password == nil else { return }
+        delegate?.archiveNeedsPassword(self)
+        guard reader.password != nil else { throw KaitoError.passwordRequired }
+    }
+
+    private func consultDelegateForNameEncoding() {
+        guard explicitlySelectedNameEncoding == nil, let delegate else { return }
+        guard let rawName = reader.entries.lazy.map(\.rawName).first(where: {
+            $0.declaredEncoding == nil
+                && !$0.bytes.isEmpty
+                && String(data: Data($0.bytes), encoding: .utf8) == nil
+        }) else {
+            return
+        }
+
+        let detection = EncodingDetector.detect(bytes: rawName.bytes)
+        let guess = reader.nameEncoding ?? detection.encoding
+        guard let selected = delegate.archive(
+            self,
+            nameEncodingForData: Data(rawName.bytes),
+            guess: guess,
+            confidence: detection.confidence
+        ), selected != reader.nameEncoding else {
+            return
+        }
+        setNameEncoding(selected)
+    }
+
+    private func reportProgress(index: Int32, bytes: Int64, total: Int64) {
+        delegate?.archive(
+            self,
+            extractionProgressForEntry: index,
+            bytes: bytes,
+            of: total
+        )
+    }
+
+    private func reportCompletedExtraction(
+        _ entry: ArchiveEntry,
+        index: Int32,
+        destination: URL?
+    ) {
+        let total = compatibilitySize(entry.uncompressedSize)
+        let produced: Int64
+        if let size = entry.uncompressedSize {
+            produced = compatibilitySize(size)
+        } else if let destination,
+                  let attributes = try? FileManager.default.attributesOfItem(
+                    atPath: destination.path
+                  ),
+                  let size = attributes[.size] as? NSNumber {
+            produced = max(0, size.int64Value)
+        } else {
+            produced = 0
+        }
+        reportProgress(index: index, bytes: produced, total: total)
+    }
+
+    private func compatibilitySize(_ size: UInt64?) -> Int64 {
+        guard let size else { return Int64.max }
+        return Int64(exactly: size) ?? Int64.max
+    }
+
+    private func fileAttributeType(for kind: EntryKind) -> FileAttributeType {
+        switch kind {
+        case .directory:
+            .typeDirectory
+        case .symlink:
+            .typeSymbolicLink
+        case .file, .hardlink:
+            .typeRegular
+        case .other:
+            .typeUnknown
+        }
+    }
+
+    private func record(_ error: any Error) {
+        if let error = error as? KaitoError {
+            lastError = error
+            return
+        }
+        let cocoaError = error as NSError
+        if cocoaError.domain == NSPOSIXErrorDomain {
+            lastError = .io(Int32(clamping: cocoaError.code))
+        } else {
+            lastError = .malformed(cocoaError.localizedDescription)
+        }
     }
 }
 
-/// A source-compatible type name for the supported XADArchive surface.
+/// Reproduces XADMaster's public archive type name for source-level migration.
+///
+/// This is a Swift type alias rather than a separate Objective-C runtime class; both spellings
+/// therefore expose the same KaitoKitCompat behavior and differences documented above.
 public typealias XADArchive = KaitoArchive

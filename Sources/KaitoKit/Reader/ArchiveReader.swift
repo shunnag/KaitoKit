@@ -101,22 +101,36 @@ public final class ArchiveReader {
         self.options = options
         self.password = options.password
 
-        let detected = try FormatDetector.detect(source: source)
-        format = detected
+        let detected = try FormatDetector.detect(
+            source: source,
+            sourceURL: sourceURL,
+            options: options
+        )
 
         switch detected {
         case .tar:
             let tar = try TarReader(source: source, options: options)
             reader = tar
             entries = tar.entries
+            format = .tar
         case .zip:
             let zip = try ZipReader(source: source, options: options)
             reader = zip
             entries = zip.entries
+            format = .zip
         case .sevenZip:
-            let sevenZip = try SevenZipReader(source: source, options: options)
+            let sevenZipSource = try Self.sevenZipSource(
+                from: source,
+                sourceURL: sourceURL,
+                options: options
+            )
+            let sevenZip = try SevenZipReader(
+                source: sevenZipSource,
+                options: options
+            )
             reader = sevenZip
             entries = sevenZip.entries
+            format = .sevenZip
             password = sevenZip.resolvedPassword
         case .rar:
             guard let signature = try FormatDetector.findRARSignature(source: source) else {
@@ -134,6 +148,7 @@ public final class ArchiveReader {
                 )
                 reader = rar
                 entries = rar.entries
+                format = .rar
                 password = rar.resolvedPassword
             } else {
                 let rar = try RAR4Reader(
@@ -147,6 +162,7 @@ public final class ArchiveReader {
                 )
                 reader = rar
                 entries = rar.entries
+                format = .rar
                 password = rar.resolvedPassword
             }
         case .lha:
@@ -181,8 +197,35 @@ public final class ArchiveReader {
             }
             reader = lha
             entries = lha.entries
-        case .gzip, .bzip2, .xz:
-            throw KaitoError.unsupportedFormat
+            format = .lha
+        case .gzip, .bzip2, .xz, .compress:
+            let single = try SingleFileReader(
+                source: source,
+                format: detected,
+                options: options,
+                fallbackFileName: sourceURL?.lastPathComponent
+            )
+            if Self.compressedTarFormat(for: sourceURL) == detected {
+                // The expanded tar envelope is staging input, not a published
+                // entry. Its stream uses maxEntrySize; the aggregate budget
+                // constructed below applies to the TarReader's members.
+                let stream = try single.stream(
+                    for: single.entries[0],
+                    limits: options.limits
+                )
+                let tarSource = try SingleFileMaterializer.materialize(
+                    stream,
+                    limits: options.limits
+                )
+                let tar = try TarReader(source: tarSource, options: options)
+                reader = tar
+                entries = tar.entries
+                format = .tar
+            } else {
+                reader = single
+                entries = single.entries
+                format = detected
+            }
         }
 
         self.outputBudget = try ArchiveOutputBudget(
@@ -360,6 +403,50 @@ public final class ArchiveReader {
             password = try provider.password(for: format)
         }
         reader.setPassword(password)
+    }
+
+    private static func compressedTarFormat(for sourceURL: URL?) -> ArchiveFormat? {
+        guard let name = sourceURL?.lastPathComponent.lowercased() else {
+            return nil
+        }
+        if name.hasSuffix(".tar.gz") || name.hasSuffix(".tgz") {
+            return .gzip
+        }
+        if name.hasSuffix(".tar.bz2") || name.hasSuffix(".tbz2") {
+            return .bzip2
+        }
+        if name.hasSuffix(".tar.xz") || name.hasSuffix(".txz") {
+            return .xz
+        }
+        return nil
+    }
+
+    private static func sevenZipSource(
+        from source: any ByteSource,
+        sourceURL: URL?,
+        options: ReaderOptions
+    ) throws -> any ByteSource {
+        let nativeSignature: [UInt8] = [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]
+        if source.length >= UInt64(nativeSignature.count),
+           try readByteRange(
+               source: source,
+               offset: 0,
+               count: nativeSignature.count
+           ) == nativeSignature {
+            return source
+        }
+        let scanSize = sourceURL != nil
+            ? options.maximumSFXScanSize
+            : (options.scanForSFXInData ? options.maximumSFXScanSize : 0)
+        guard scanSize > 0,
+              let match = try FormatDetector.findSFXSignature(
+                source: source,
+                maximumScanSize: scanSize
+              ),
+              match.format == .sevenZip else {
+            return source
+        }
+        return try RebasedByteSource(source: source, baseOffset: match.offset)
     }
 
 }

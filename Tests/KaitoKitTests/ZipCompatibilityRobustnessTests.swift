@@ -83,7 +83,7 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
         let payload = Data(repeating: 0x41, count: 128)
         var archive = try ZipTestSupport.makeArchive(
             entries: [HandZipEntry(name: "page.txt", uncompressedData: payload)],
-            prefix: Data(repeating: 0x53, count: 128)
+            prefix: ZipTestSupport.makePEPrefix(count: 128, fill: 0x53)
         )
         let layout = try ZipTestSupport.layout(of: archive)
         let falseZIP64Size = 56
@@ -137,7 +137,10 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
             with: comment
         )
 
-        let reader = try ArchiveReader.open(data: archive)
+        let reader = try ArchiveReader.open(
+            data: archive,
+            options: ReaderOptions(scanForSFXInData: true)
+        )
         XCTAssertEqual(reader.entries.map(\.name), ["page.txt"])
         XCTAssertEqual(try reader.read(reader.entries[0]), payload)
     }
@@ -343,14 +346,19 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
         let payload = Data("streamed bsdtar payload\n".utf8)
         let base = try ZipTestSupport.makeArchive(
             entries: [HandZipEntry(name: "page.txt", uncompressedData: payload)],
-            prefix: Data("unusual-sfx-prefix".utf8)
+            prefix: ZipTestSupport.makePEPrefix(count: 128)
         )
+
+        let options = ReaderOptions(scanForSFXInData: true)
 
         for paddingCount in [1, 10_240, 65_535, 131_072] {
             var archive = base
             archive.append(Data(repeating: 0, count: paddingCount))
-            XCTAssertEqual(try FormatDetector.detect(data: archive), .zip)
-            let reader = try ArchiveReader.open(data: archive)
+            XCTAssertEqual(
+                try FormatDetector.detect(data: archive, options: options),
+                .zip
+            )
+            let reader = try ArchiveReader.open(data: archive, options: options)
             XCTAssertEqual(try reader.read(reader.entries[0]), payload)
         }
     }
@@ -376,12 +384,15 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
                     uncompressedData: Data("visible despite unusual comment\n".utf8)
                 ),
             ],
-            prefix: Data("unusual-sfx-prefix".utf8),
+            prefix: ZipTestSupport.makePEPrefix(count: 128),
             comment: falseEndRecord
         )
         archive.append(0)
 
-        let reader = try ArchiveReader.open(data: archive)
+        let reader = try ArchiveReader.open(
+            data: archive,
+            options: ReaderOptions(scanForSFXInData: true)
+        )
         XCTAssertEqual(reader.entries.map(\.name), ["visible.txt"])
         XCTAssertEqual(
             try reader.read(reader.entries[0]),

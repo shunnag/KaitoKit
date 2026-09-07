@@ -207,6 +207,41 @@ public final class DataByteSource: ByteSource {
     }
 }
 
+/// A zero-copy view that presents a suffix of another byte source at offset
+/// zero. Container readers use this when an executable prefix precedes an
+/// otherwise native archive stream.
+final class RebasedByteSource: ByteSource {
+    private let source: any ByteSource
+    private let baseOffset: UInt64
+
+    let length: UInt64
+
+    init(source: any ByteSource, baseOffset: UInt64) throws {
+        guard baseOffset <= source.length else { throw KaitoError.truncated }
+        self.source = source
+        self.baseOffset = baseOffset
+        self.length = try Checked.sub(source.length, baseOffset)
+    }
+
+    func read(
+        into buffer: UnsafeMutableRawBufferPointer,
+        at offset: UInt64
+    ) throws -> Int {
+        guard !buffer.isEmpty, offset < length else { return 0 }
+        let available = try Checked.sub(length, offset)
+        let requested = try Checked.toInt(min(UInt64(buffer.count), available))
+        let absoluteOffset = try Checked.add(baseOffset, offset)
+        let destination = UnsafeMutableRawBufferPointer(
+            rebasing: buffer[..<requested]
+        )
+        let count = try source.read(into: destination, at: absoluteOffset)
+        guard count >= 0, count <= requested else {
+            throw KaitoError.malformed("ByteSource returned an invalid byte count")
+        }
+        return count
+    }
+}
+
 // 形式 parser が検証済みの一範囲を一括取得するための共通 primitive。
 // 通常の FileByteSource では最初の pread が全範囲を返し、短い実装だけ継続する。
 func readByteRange(

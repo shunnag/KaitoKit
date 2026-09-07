@@ -23,4 +23,7 @@ public enum ArchiveFormat: String, Sendable, CaseIterable {
 
     /// XZ streams.
     case xz
+
+    /// UNIX compress (`.Z`) streams.
+    case compress
 }

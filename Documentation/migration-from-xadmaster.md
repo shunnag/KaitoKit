@@ -1,197 +1,333 @@
 # XADMaster から KaitoKit への移行
 
-この文書は移行ガイドの骨格です。cooViewer が利用する `XADArchive` の狭い面を
-`KaitoKitCompat.KaitoArchive` で再現し、M4 までに ZIP、7z、RAR4 / RAR5、LHA / LZH を
-追加しました。より広い delegate、属性、進捗 API は後続版で設計し、ここへ具体例を
-追加します。
+KaitoKit は二つの API 層を提供します。既存コードを少ない変更で動かす場合は
+`KaitoKitCompat.KaitoArchive`（`XADArchive` typealias を含む）、新規コードでは throwing API、
+ストリーミング、`ReadLimits` を直接扱える `KaitoKit.ArchiveReader` を使います。
 
-## 最小移行
+## 1. SwiftPM 依存を追加する
 
-依存と import を置き換えます。既存の型名を残す場合は、公開 typealias により呼び出し側の
-`XADArchive` を変更する必要はありません。
+`Package.swift` にリポジトリと必要な product を追加します。移行中に両 API を使う target は
+`KaitoKit` と `KaitoKitCompat` の両方へ依存させます。
+
+```swift
+dependencies: [
+    .package(
+        url: "https://github.com/shunnag/KaitoKit.git",
+        branch: "main"
+    ),
+],
+targets: [
+    .target(
+        name: "ArchiveClient",
+        dependencies: [
+            .product(name: "KaitoKit", package: "KaitoKit"),
+            .product(name: "KaitoKitCompat", package: "KaitoKit"),
+        ]
+    ),
+]
+```
+
+アプリ target からは Xcode の Package Dependencies で同じ URL を追加し、使用する product を
+リンクします。KaitoKit は macOS 26 以降と Swift 6 を対象にしています。
+
+## 2. import と生成を置き換える
+
+既存の型名を残す最小変更は import の置換です。
 
 ```swift
 // import XADMaster
 import KaitoKitCompat
 
 guard let archive = XADArchive(file: path) else { return }
+print(archive.numberOfEntries())
 ```
 
-新規コードでは `import KaitoKit` と `ArchiveReader` を推奨します。`ArchiveReader` は
-throwing API なので、非対応形式、破損、上限超過、I/O エラーを区別できます。
-
-## API 対応表
-
-| XADArchive | KaitoArchive | ArchiveReader | 対応状況 |
-|---|---|---|---|
-| `init?(file:)` | 同名 | `open(url:)` | tar / ZIP / 7z / RAR4 / RAR5 / LHA で実装 |
-| `init?(data:)` | 同名 | `open(data:)` | tar / ZIP / 7z / RAR4 / RAR5 / LHA で実装 |
-| `defaultZipLazyLocalHeaders` / `setDefaultZipLazyLocalHeaders(_:)` | 同名 | `ReaderOptions.lazyLocalHeaders` | M1 で実装 |
-| `numberOfEntries()` | 同名 | `entries.count` | 実装 |
-| `name(ofEntry:)` | 同名 | `entries[i].name` | 実装。directory は互換層だけ末尾 separator を除去 |
-| `contents(ofEntry:)` | 同名 | `read(_:)` / `stream(_:)` | 実装 |
-| `uncompressedSize(ofEntry:)` | 同名 (`Int64`) | `uncompressedSize` (`UInt64?`) | 実装 |
-| `entryHasSize(_:)` | 同名 | `uncompressedSize != nil` | 実装 |
-| `entryIsDirectory(_:)` | 同名 | `kind == .directory` | 実装 |
-| `entryIsEncrypted(_:)` | 同名 | `isEncrypted` | 実装 (暗号対応は ZIP / 7z / RAR) |
-| `isEncrypted()` | 同名 | `entries.contains { $0.isEncrypted }` | 実装 |
-| `setPassword(_:)` | 同名 | settable `password` | ZIP / 7z / RAR4 / RAR5 で実装・実 oracle 検証済み |
-| `solidGroup(ofEntry:)` | 同名 (`Int32`) | `solidGroup` | 7z / RAR4 / RAR5 で実装。LHA など独立 entry は `-1` |
-| `entryIsSolid(_:)` | 未提供 | 直接対応なし | continuation flag であり `solidGroup` とは意味が異なる |
-| `extractEntry(_:to:)` | 同名 | `extract(_:to:)` | `to:` を展開先 directory として実装 |
-| `attributesOfEntry(_:)` | 未提供 | `ArchiveEntry` の日時・権限・属性 | 後続版 |
-| `entryIsLink(_:)` | 未提供 | `kind == .symlink/.hardlink` | modern API のみ |
-| `entryIsResourceFork(_:)` | 未提供 | 将来の属性 | 後続版 |
-| `nameEncoding` / encoding delegate | 未提供 | `nameEncoding` / `ReaderOptions.encodingPolicy` | 書庫単位判定を modern API で実装 |
-| password delegate | 未提供 | `PasswordProvider` | modern API のみ |
-| progress delegate / cancel | 未提供 | 未定 | 後続版 |
-| `XADSimpleUnarchiver` | 未提供 | `ArchiveReader` + `Extractor` | 後続版 |
-| `XADArchiveParser` / `CSHandle` | 未提供 | format reader / `ByteSource` | 直接互換なし |
-
-## `solidGroup` と `entryIsSolid`
-
-`solidGroup` は展開の依存単位を表します。`-1` は単独で展開できる entry、0 以上は同じ
-値を持つ entry を同一グループとして直列に扱う必要があることを示します。RAR では group id
-に先頭 entry の index を使い、後続に continuation が一つでもあれば、continuation flag を
-持たない先頭 entry にも同じ group id を付けます。
-
-一方、XADMaster の `entryIsSolid(_:)` に相当する per-header の値は「この entry が直前の
-辞書状態を引き継ぐか」を表すため、グループ先頭では `false`、後続 entry では `true` です。
-したがって `solidGroup >= 0` を `entryIsSolid` の置換として使うことはできません。
-`KaitoKitCompat` は現在 `solidGroup(ofEntry:)` だけを公開し、`entryIsSolid(_:)` は提供しません。
-
-同じ group の後方 entry をランダムに読む場合、group 先頭から対象までを再復号して途中の出力を
-捨てる必要があり、再開コストは対象より前の非圧縮データ量に比例します。7z は folder stream と
-一部の dictionary-reset index を利用します。RAR4 / RAR5 は per-group coordinator が archive 順に
-先行 entry を検証しながら進め、後方 seek では group 先頭から再開します。同じ reader の新しい
-solid stream は以前の未完了 stream を無効化します。独立して読みたい場合は `reopen()` で byte
-source を共有しつつ別の password / decoder state を持つ reader を作り、各 reader 内では直列に
-処理してください。
-
-## LHA / LZH
-
-M4 は header level 0 / 1 / 2 / 3 と `-lh0-` / `-lh1-` / `-lh4-`〜`-lh7-` /
-`-lhx-` / `-lz4-` / `-lz5-` / `-lzs-` / `-pm0-` / `-lhd-` を扱います。`-lhx-` の
-dictionary は 1 MiB で、OS marker が示す `-lh7-` の LHArk dialect も復号します。LHA member は
-独立しているため、`solidGroup(ofEntry:)` は `-1` です。最大 1 MiB の executable prefix 内で
-認証できる member header を探す LHA SFX にも対応します。
-
-legacy 名は ZIP / RAR4 と同じ書庫単位の判定を使い、0x46 codepage が 932 / 65001 / 936 を
-宣言した名前は推測しません。末尾 separator と directory 属性を entry 種別へ反映し、先頭 slash
-または drive prefix は相対化します。`..` は残すため安全な展開層で拒否されます。filename field は
-最初の NUL までを pathname として扱います。これにより、OS/2 extended-attribute payload を持つ
-subdirectory や古い writer の unusual な名前も、子 entry を失わず列挙できます。
-
-OS-9 LHA 2.01 が raw creator ID に 0x4B (既存 mapping では OS/68K marker) を記録する level-2
-header size の 2-byte 不足は、extension chain が一意に完結する場合だけ許容します。無効な DOS timestamp は
-`modificationDate == nil` とします。zero terminator がなく、最終の境界検証済み payload の直後で
-exact EOF に達する archive は、最終 member が LArc の場合、または書庫内に構造検証済みの匿名通常 member を
-少なくとも 1 件含む場合だけ受理します。この条件を満たさない non-LArc archive には許容しません。
-`-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` は一覧できますが、読み取り時に
-`KaitoError.unsupportedMethod` となります。
-
-MacLHA の Macintosh OS marker を持つ member は、MacBinary / MacBinary II standard proposals に基づく
-有効な header を確認できた場合だけ、`contents(ofEntry:)` / `read(_:)` から data fork を返します。
-LHA CRC16 は header、padding、resource fork、compatible trailing extension を含む全出力について検証し、
-MacBinary ではない Macintosh member はそのまま返します。`ArchiveEntry.uncompressedSize` と互換層の
-`uncompressedSize(ofEntry:)` は LHA header の envelope size を保持するため、data fork の実バイト数とは
-異なる場合があります。
-
-## サイズ不明の RAR5 entry
-
-modern API は RAR5 が非圧縮サイズを宣言しない entry を `uncompressedSize == nil` として
-公開し、`EntryStream` は復号器の終端まで逐次読み取ります。`remaining` は終端確認まで
-`UInt64.max`、確認後は 0 です。`read(_:)` は宣言サイズによる事前確保をせず、
-`maxEntrySize` と `maxInMemorySize` の範囲で段階的に読み込みます。既定の codec 辞書上限は
-`ReadLimits.maxDictionarySize == 1 GiB` です。
-
-互換層では XADMaster と同じく `entryHasSize(_:) == false`、
-`uncompressedSize(ofEntry:) == Int64.max` となります。この値は実際のサイズではないため、
-空 entry の判定、事前確保、複数 entry のサイズ加算では必ず `entryHasSize(_:)` を先に確認して
-ください。範囲外の entry index に対しては 0 を返します。サイズ不明の暗号化
-stored RAR5 entry は現時点では明示的に非対応です。
-
-## RAR4 / RAR5 multi-volume と `reopen()`
-
-URL-backed RAR4 / RAR5 は最初の volume と同じ directory の deterministic な continuation 名を
-検証し、分割 entry を一つの stream として公開します。RAR4 は新形式の `.partNNNN.rar` と旧形式の
-`.rar` / `.r00` の両方、RAR5 は `.part1.rar` 系列に対応します。volume 数は
-`ReadLimits.maxVolumeCount` (既定 128) で制限され、非最終 part の packed CRC32、RAR5 の任意の
-BLAKE2sp (`verifyRAR5Blake2sp == true` が既定) を読み取り前に検証します。通常暗号化と header
-暗号化を含む volume chain に対応します。open 完了後の `reopen()` は
-同じ検証済み file handle 一式を共有するため、volume path を再検索せず、各 reader の password /
-decoder state だけを独立させます。Data / 任意 `ByteSource` には sibling 検索の provenance がないため、
-multi-volume continuation は利用できません。RAR4 の SFX prefix と multi-volume continuation の
-組合せも M3 では非対応です。
-
-RAR5 archive header の KDF は、個々の `count` を
-`ReaderOptions.maxRAR5KDFCountPower` (既定かつ上限 24) で制限します。全 header-encrypted volume の
-異なる `(password, salt, count)` context は `ReadLimits.maxRAR5HeaderKDFWork` へ累積され、同じ
-context の key-cache hit は再加算されません。work は HMAC-SHA256 iteration 単位で、各 context を
-`2^count + 32` と数えます。既定値は `4 * (2^24 + 32)`、つまり最大コストの `count = 24`
-context 4 件分です。
-
-## ZIP ローカルヘッダの検証時期
-
-XADMaster fork と同じ静的 API を使えます。既定値は `true` で、値の読み書きは
-concurrency-safe です。変更は、その後 `file:` または `data:` initializer で作る書庫に適用され、
-すでに開いた `KaitoArchive` には影響しません。
+URL、`Data`、詳細なエラーを扱う新規コードでは modern API を使います。
 
 ```swift
-KaitoArchive.setDefaultZipLazyLocalHeaders(false)
-defer { KaitoArchive.setDefaultZipLazyLocalHeaders(true) }
+import Foundation
+import KaitoKit
 
-guard let archive = KaitoArchive(file: path) else { return }
-print(KaitoArchive.defaultZipLazyLocalHeaders) // false
+let url = URL(fileURLWithPath: path)
+let reader = try ArchiveReader.open(url: url)
+
+for entry in reader.entries {
+    print(entry.index, entry.uncompressedSize as Any, entry.name)
+}
 ```
 
-`true` は各エントリの初回読み取りまで ZIP ローカルヘッダ検証を遅延します。`false` は open
-時に全ローカルヘッダを検証するため、破損を早く報告する代わりに、多数エントリの open が
-遅くなります。modern API では書庫ごとに
-`ReaderOptions(lazyLocalHeaders: false)` を `ArchiveReader.open` へ渡してください。
+## 3. `XADArchive` の対応表
 
-Info-ZIP の `zip -P` が 5-byte file を STORED ZipCrypto entry として書いた ZIP では、
-XADMaster の `XADArchive(file:)` / `XADArchive(data:)` が `nil` を返す一方、KaitoKit は通常どおり
-archive を開きます。これは意図した互換差で、password 設定後に entry を読み取れます。
+| XADArchive | KaitoArchive / XADArchive | ArchiveReader | 差異 |
+|---|---|---|---|
+| `init?(file:)` | `init?(file:)` | `open(url:options:)` | compat は失敗を `nil`、modern は `KaitoError` を throw |
+| `init?(data:)` | `init?(data:)` | `open(data:options:)` | Data 由来の multi-volume 継続は不可 |
+| URL から生成 | `init?(fileURL:)` | `open(url:options:)` | compat の追加 Swift overload |
+| `filename()` | `filename()` | 呼出側が URL を保持 | Data-backed compat は `nil` |
+| `formatName()` | `formatName()` | `format.rawValue` | compat は安定した container 名を返す |
+| `numberOfEntries()` | 同名 (`Int32`) | `entries.count` | compat は `Int32`、modern は `Int` |
+| `name(ofEntry:)` | 同名 | `entries[i].name` | compat の directory 名だけ末尾 separator を除去 |
+| `contents(ofEntry:)` | 同名 | `read(_:)` | compat は `nil`、modern は throw |
+| entry data の別名 | `dataForEntry(_:)` / `data(forEntry:)` | `read(_:)` | 三つの compat spelling は同じ処理 |
+| `extractEntry(_:to:)` | 同名、戻り値 `Bool` | `extract(_:to:options:)` | `to:` は entry の完成 path ではなく展開先 directory |
+| `entryHasSize(_:)` | 同名 | `uncompressedSize != nil` | サイズ不明を区別する |
+| `uncompressedSize(ofEntry:)` | 同名 (`Int64`) | `uncompressedSize: UInt64?` | compat は不明時 `Int64.max`、範囲外は 0 |
+| `entryIsDirectory(_:)` | 同名 | `kind == .directory` | 範囲外は `false` |
+| `entryIsLink(_:)` | 同名 | `.symlink` / `.hardlink` | compat は二種類を一つにまとめる |
+| `entryIsResourceFork(_:)` | 同名 | 直接対応なし | resource fork を別 entry にしないため常に `false` |
+| `attributesOfEntry(_:)` | 同名 | `modificationDate`、`posixPermissions`、`kind` | compat は `.modificationDate`、`.posixPermissions`、`.type` を返す |
+| `entryIsEncrypted(_:)` | 同名 | `isEncrypted` | 範囲外は `false` |
+| `isEncrypted()` | 同名 | `entries.contains { $0.isEncrypted }` | 公開 entry を集計 |
+| `setPassword(_:)` | 同名 | settable `password` / `PasswordProvider` | header 暗号化は modern の provider を初期 open に渡せる |
+| `nameEncoding` | `nameEncoding: String.Encoding?` | 同名 | compat/modern の `nil` は推測不要を表す |
+| `setNameEncoding(_:)` | 同名 | `ReaderOptions(encodingPolicy: .fixed(...))` | compat は保持した URL/Data から reader を再構築 |
+| `solidGroup(ofEntry:)` | 同名 (`Int32`) | `solidGroup: Int` | 独立 entry は `-1` |
+| `entryIsSolid(_:)` | なし | 直接対応なし | continuation flag と dependency group は同じ意味ではない |
+| `delegate` | weak `KaitoArchiveDelegate?` | password provider と呼出側の stream loop | compat delegate は初期化後に設定 |
+| error code / `lastError` | `lastError: KaitoError?` | thrown `KaitoError` | compat の成功 read/extract/password/encoding 操作でクリア |
+| `defaultZipLazyLocalHeaders` | 同名 + setter | `ReaderOptions.lazyLocalHeaders` | class 値は後から開く compat instance にだけ適用 |
 
-## directory 名と単独 entry の展開先
+範囲外 index を渡した compat query は XADArchive 型の `nil` / `false` / 0 / `-1` を返し、
+`lastError` に `.notFound` を残します。opening error そのものが必要なら `ArchiveReader.open` を使います。
 
-XADMaster の `name(ofEntry:)` は directory entry の格納名が `folder/` でも `folder` を返します。
-`KaitoArchive` も全形式の directory entry について末尾 separator を除去します。modern API の
-`ArchiveEntry.name` は従来の表現を維持するため、同じ ZIP entry では `folder/` のままです。
+## 4. `XADArchiveDelegate` の対応表
 
-`KaitoArchive.extractEntry(_:to:)` の `to:` は XADMaster と同じく directory です。たとえば
-`page.txt` を `/tmp/output` へ展開すると destination は `/tmp/output/page.txt` になります。
-directory entry を展開しても、呼出側が渡した root directory の mode / modification time を
-archive entry の値へ置き換えません。
+`KaitoArchiveDelegate` は `AnyObject` protocol で、`delegate` は weak です。XADMaster の optional
+Objective-C method に相当する三つの requirement には default implementation があるため、必要な
+method だけ実装できます。
 
-archive に POSIX permissions が無い場合、新規 file は `0666 & ~umask`、新規 directory と
-implicit parent directory は `0777 & ~umask` で作成します。modern API で
-`ExtractionOptions(preserveMetadata: false)` を指定した場合も archive の permissions を使わず、
-同じ umask 準拠の mode になります。
+| XADArchiveDelegate | KaitoArchiveDelegate | 動作上の差異 |
+|---|---|---|
+| `archiveNeedsPassword(_:)` | 同名 | delegate 内で `archive.setPassword(...)` を呼ぶ。entry 読み取り前に呼ばれるが、failable initializer 中には delegate が未設定 |
+| `archive(_:nameEncodingForData:guess:confidence:)` | 同じ label、戻り値 `String.Encoding?` | encoding を返すと `.fixed` で再構築、`nil` は自動判定を採用。delegate 設定直後に一度 consult |
+| `archive(_:extractionProgressForEntry:bytes:of:)` | 同じ label、`Int32` / `Int64` | data read は chunk ごと、file-system extraction は完了時に一度通知 |
 
-## 互換動作
+```swift
+final class ArchiveDelegate: KaitoArchiveDelegate {
+    let password: String?
 
-`KaitoArchive` は失敗を `nil` / `false` に変換する、範囲外のエントリ番号を拒否する、
-サイズ不明を `Int64.max` として返す、設定済みパスワードを reader へ渡す、という XADArchive 型の
-利用で期待される基本動作を再現します。一方、KaitoKit の読み取り上限と不正な相対パスの拒否は
-互換層からも無効化しません。
+    init(password: String?) {
+        self.password = password
+    }
 
-M4 が開ける書庫形式は非圧縮 tar コンテナ、ZIP / ZIP64、7z、RAR4 / RAR5、LHA / LZH です。
-RAR4 は stored と unpack version 29 の LZ / PPMd-H、6 種の標準 filter、solid、SFX、旧・新
-multi-volume、通常暗号化と header 暗号化に対応します。RAR5 は stored と compression version 0 の
-LZ / filter、solid、multi-volume、通常暗号化と header 暗号化に対応します。RAR4 の圧縮
-unpack version 15 / 20 / 26、custom RAR VM program、RAR5 compression version 1、RAR5 file-copy
-redirection と SFX、および RAR4 の SFX prefix と multi-volume の組合せは明示的に
-`KaitoError.unsupportedMethod` を返します。Data / 任意
-`ByteSource` では continuation volume を検索できません。ZIP と LHA header level 0 / 1 の
-有効な DOS 日時にはタイムゾーン情報がないため、現在のローカルタイムゾーンとして解釈します。
-LHA の `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` は読み取り時に
-`KaitoError.unsupportedMethod`、gzip、bzip2、xz はシグネチャ検出だけを行い、reader は
-`KaitoError.unsupportedFormat` を返します。
+    func archiveNeedsPassword(_ archive: KaitoArchive) {
+        archive.setPassword(password)
+    }
 
-通常の tar hard link member はデータ本体を持たないため、`contents(ofEntry:)` は空の
-`Data` を返します。PAX linkdata member では、書庫が持つ本文を返します。
-`extractEntry(_:to:)` は hard link の場合、同じ書庫内で先に記録された参照先を非公開 staging へ
-展開してから、指定 directory 以下の entry path へ移します。呼出しごとに staging を破棄するため、
-別々の `extractEntry` 呼出しで inode の同一性までは保持しません。
+    func archive(
+        _ archive: KaitoArchive,
+        nameEncodingForData data: Data,
+        guess: String.Encoding,
+        confidence: Double
+    ) -> String.Encoding? {
+        confidence < 0.5 ? .shiftJIS : nil
+    }
+
+    func archive(
+        _ archive: KaitoArchive,
+        extractionProgressForEntry entry: Int32,
+        bytes: Int64,
+        of total: Int64
+    ) {
+        print(entry, bytes, total)
+    }
+}
+
+let delegate = ArchiveDelegate(password: password) // weak property のため強参照を保持
+archive.delegate = delegate
+```
+
+header まで暗号化された 7z/RAR は compat initializer が delegate 設定前に parsing を行うため、
+初期 password callback を使えません。この場合は `ReaderOptions(password:passwordProvider:)` を
+`ArchiveReader.open` へ渡します。
+
+## 5. `XADSimpleUnarchiver` から `Extractor` へ
+
+| XADSimpleUnarchiver | KaitoKit | 備考 |
+|---|---|---|
+| archive 全体の列挙 | `ArchiveReader.entries` | archive order を維持 |
+| destination 設定 | `ArchiveReader.extract(_:to:)` の directory | `Extractor` が各 entry path を追加 |
+| overwrite policy | `ExtractionOptions.overwriteExisting` | 既定 `true` |
+| resource fork / finder 情報 | 直接対応なし | `entryIsResourceFork` は `false` |
+| permissions / timestamp | `ExtractionOptions.preserveMetadata` | 既定 `true` |
+| symbolic link | `ExtractionOptions.createSymbolicLinks` | 既定 `true`、relative target を検証 |
+| progress | `EntryStream` の caller loop / compat delegate | modern API は produced byte 数を caller が集計 |
+| cancellation | stream loop を caller が終了 | 組込み cancellation token は未提供 |
+
+`Extractor` は KaitoKit の展開 engine で、公開入口は `ArchiveReader.extract` です。directory entry は
+子 entry の後に深い順で処理すると、最終 timestamp と permissions を保てます。
+
+```swift
+let destination = URL(fileURLWithPath: outputPath, isDirectory: true)
+for entry in reader.entries where entry.kind != .directory {
+    _ = try reader.extract(entry, to: destination)
+}
+for entry in reader.entries.filter({ $0.kind == .directory }).sorted(by: {
+    $0.pathComponents.count > $1.pathComponents.count
+}) {
+    _ = try reader.extract(entry, to: destination)
+}
+```
+
+## 6. `CSHandle` streaming の移行
+
+| XADMaster | KaitoKit | 用途 |
+|---|---|---|
+| archive 入力用 `CSHandle` | `ByteSource` | random-access の `length` と `read(into:at:)` |
+| parser cursor | `ByteReader` | 256 KiB cursor、LE/BE read、`seek(to:)` |
+| entry contents handle | `EntryStream` | forward-only decompressed bytes |
+| `remainingFileContents` | `EntryStream.readAll()` / `ArchiveReader.read(_:)` | `ReadLimits.maxInMemorySize` を適用 |
+| incremental `readAtMost` | `EntryStream.read(into:)` | caller-owned buffer に逐次 read |
+| independent handle | `ArchiveReader.reopen()` | immutable `ByteSource` を共有、decoder state は独立 |
+
+```swift
+let stream = try reader.stream(entry)
+var buffer = [UInt8](repeating: 0, count: 256 * 1_024)
+while true {
+    let count = try buffer.withUnsafeMutableBytes { bytes in
+        try stream.read(into: bytes)
+    }
+    if count == 0 { break }
+    consume(buffer[0..<count])
+}
+```
+
+CRC や decoder footer の確認は最後の `read` で完了します。途中まで得た chunk だけを完成結果として
+公開せず、0 または error まで drain してください。`read(_:)`、`readAll()`、`extract`、compat API、
+CLI はこの contract を実施します。
+
+## 7. `XADString` と名前 encoding の移行
+
+| XADMaster | KaitoKit | 備考 |
+|---|---|---|
+| `XADString` の raw bytes | `ArchiveEntry.rawName.bytes` / `RawName` | 表示名と別に保持 |
+| 宣言 encoding | `RawName.declaredEncoding` | UTF-8 flag、Unicode extra 等を反映 |
+| 表示文字列 | `ArchiveEntry.name` | archive-wide policy で解決済み |
+| 自動 encoding 判定 | `EncodingPolicy.automatic(likelyLanguage:)` | 厳密な UTF-8 は guesser を通さない |
+| 固定 encoding | `EncodingPolicy.fixed(_:)` | undecorated name 全体へ適用 |
+| UTF-8 限定 | `EncodingPolicy.utf8Only` | decode 不能 byte は replacement character |
+| archive-wide selection | `ArchiveReader.nameEncoding` | 全名が宣言済み/UTF-8 なら `nil` |
+| encoding delegate | `KaitoArchiveDelegate` | 選択時に reader を再構築 |
+
+```swift
+let options = ReaderOptions(encodingPolicy: .fixed(.shiftJIS))
+let reader = try ArchiveReader.open(url: url, options: options)
+for entry in reader.entries {
+    inspect(raw: entry.rawName.bytes, display: entry.name)
+}
+```
+
+## 8. error code の対応表
+
+| XADMaster error | KaitoError | 移行時の扱い |
+|---|---|---|
+| `XADNoError` | error なし | throwing call が return |
+| `XADUnknownError` | 該当する typed case、なければ compat `.malformed(description)` | modern API の catch で詳細を表示 |
+| `XADInputError` / `XADOpenFileError` | `.io(errno)` / `.notFound(description)` | POSIX code を保持 |
+| `XADOutputError` / `XADMakeDirectoryError` / `XADFileExistsError` | `.io(errno)` | overwrite は `ExtractionOptions` で指定 |
+| `XADBadParametersError` | `.notFound(description)` / `.malformed(description)` | index と構造を区別 |
+| `XADFiletypeError` | `.unsupportedFormat` | signature / extension hint で reader を選べない |
+| `XADNotSupportedError` | `.unsupportedFormat` / `.unsupportedMethod(name)` | container と method を区別 |
+| `XADDataFormatError` / `XADDecrunchError` | `.malformed(description)` / `.truncated` | envelope 不整合と早い EOF を区別 |
+| `XADPasswordError` | `.passwordRequired` | `password` / provider / delegate を設定 |
+| `XADWrongPasswordError` | `.wrongPassword` | password を入れ替えて reader を再利用可能 |
+| `XADChecksumError` / `XADVerifyError` | `.checksumMismatch(entry:)` | entry index を保持 |
+| `XADOutOfMemoryError` | `.limitExceeded(description)` | allocation 前の `ReadLimits` 判定として報告 |
+| `XADSkipError` / `XADBreakError` | 直接対応なし | caller が stream loop を終了、組込み cancellation は未提供 |
+
+compat API は `nil` / `false` を返した後に `lastError` を確認できます。open 自体の詳細は failable
+initializer から取得できないため、診断が必要な経路を `ArchiveReader.open` に移してください。
+
+## 9. cooViewer の `ArchiveSource`
+
+設計書 §2 の利用面は、URL または `Data` から同じ形で reader を作れる小さな value にまとめられます。
+ローカルで固定された単一 volume は mmap-backed `Data`、RAR multi-volume は sibling file を解決できる
+URL を維持します。
+
+```swift
+import Foundation
+import KaitoKit
+
+struct ArchiveSource: Sendable {
+    enum Backing: Sendable {
+        case file(URL)
+        case data(Data)
+    }
+
+    let backing: Backing
+    var options = ReaderOptions()
+
+    func open() throws -> ArchiveReader {
+        switch backing {
+        case let .file(url):
+            try ArchiveReader.open(url: url, options: options)
+        case let .data(data):
+            try ArchiveReader.open(data: data, options: options)
+        }
+    }
+}
+```
+
+cooViewer adapter の各操作は次のように対応します。
+
+| ArchiveSource 利用面 | KaitoKit |
+|---|---|
+| entry 数 | `reader.entries.count` |
+| 表示名 | `entry.name` |
+| directory | `entry.kind == .directory` |
+| サイズ有無 | `entry.uncompressedSize != nil` |
+| 64-bit サイズ | `entry.uncompressedSize` (`UInt64?`) |
+| 暗号化 | `entry.isEncrypted` / archive-wide `contains` |
+| solid 並列単位 | `entry.solidGroup` |
+| whole entry data | `reader.read(entry)` |
+| nested archive | outer entry の `Data` を `ArchiveReader.open(data:)` へ渡す |
+| extraction pool | 最初の reader から `reopen()` して actor/worker ごとに一つ保持 |
+
+```swift
+let primary = try source.open()
+let readers = try (0..<workerCount).map { index in
+    index == 0 ? primary : try primary.reopen()
+}
+```
+
+一つの `ArchiveReader` と一つの `EntryStream` は non-thread-safe です。actor で reader ごとの操作を
+直列化し、並列化は `reopen()` した instance 間で行います。同じ `solidGroup >= 0` の entry は同じ
+worker で archive 順に処理し、`-1` は per-entry に分配できます。
+
+ローカルで内容が変化しない単一 file だけを `Data(contentsOf:options:.mappedIfSafe)` で map します。
+multi-volume RAR は URL open を使い、nested ZIP/PDF/EPUB のように既にメモリ上にある内容は Data open
+を使います。大きな entry は `read(_:)` の前に宣言サイズと `ReadLimits` を確認し、必要なら
+`EntryStream` へ切り替えます。
+
+## 10. 重要な動作差
+
+- **thread contract**: XADMaster と同様、archive instance は同時使用しません。KaitoKit は
+  `reopen()` を明示し、共有 input と独立 decoder state を分けます。
+- **solid group**: `solidGroup == -1` は独立、0 以上は依存単位です。group の先頭にも同じ ID が付き、
+  XADMaster の per-header `entryIsSolid` の置換ではありません。
+- **limits**: `ReadLimits` は単一 entry、全 entry の合計、in-memory read、metadata、entry 数、path
+  component、dictionary、volume 数、RAR5 header KDF work、圧縮 tar の memory staging を制御します。
+  compat 層からも無効にはなりません。
+- **unknown size**: modern API は `nil`、compat は `entryHasSize == false` と `Int64.max` です。
+- **directory spelling**: compat の `name(ofEntry:)` は末尾 separator を除去し、modern name は保持します。
+- **extraction destination**: compat の `to:` も directory です。entry name を caller 側で再度追加しません。
+- **delegate timing**: delegate は compat initialization 後に設定します。name encoding は設定直後の rebuild
+  へ反映できますが、header password は modern initializer option が必要です。
+- **resource forks**: separate entry として公開しないため `entryIsResourceFork` は常に `false` です。
+- **multi-volume**: sibling volume を扱えるのは URL-backed RAR4/RAR5 です。Data/任意 `ByteSource` は
+  continuation を解決しません。
+
+## 11. 対応外形式・方式
+
+現時点で container reader を提供しない主な形式は CAB、ARJ、ACE、StuffIt/SIT、ISO disk image、zstd
+stream です。対応済み container 内でも次は未対応です。
+
+- ZIP multi-disk/spanned と zstd/xz/JPEG/PPMd method。
+- 7z IA-64/SPARC filter。
+- RAR4 の unpack version 15/20/26、custom VM、一部の solid 構成、SFX と multi-volume の組合せ。
+- RAR5 compression version 1、file-copy redirection、RAR5 SFX、サイズ不明の暗号化 stored entry。
+- LHA `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-`。
+
+gzip、bzip2、xz、UNIX compress (`.Z`) は単一 entry として扱います。`.tar.gz` / `.tgz`、
+`.tar.bz2` / `.tbz2`、`.tar.xz` / `.txz` は展開した stream を `TarReader` へ渡し、tar entry を直接
+列挙します。method と encryption/multi-volume の全表は README の「対応状況」を参照してください。

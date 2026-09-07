@@ -27,19 +27,25 @@ final class CodecAndFormatTests: XCTestCase {
         try assertFormat(.gzip, bytes: [0x1F, 0x8B])
         try assertFormat(.bzip2, data: Data("BZh9".utf8))
         try assertFormat(.xz, bytes: [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00])
+        try assertFormat(.compress, bytes: [0x1F, 0x9D])
 
         var ustar = Data(repeating: 0, count: 512)
         ustar.replaceSubrange(257..<263, with: Data("ustar\0".utf8))
         try assertFormat(.tar, data: ustar)
     }
 
-    func testFormatDetectorFindsZipEOCDBehindSFXPrefix() throws {
+    func testFormatDetectorDoesNotTreatAnArbitraryPrefixAsZipSFX() throws {
         var archive = Data("executable-prefix-without-a-ZIP-signature".utf8)
         archive.append(contentsOf: [0x50, 0x4B, 0x05, 0x06])
         archive.append(Data(repeating: 0, count: 18))
 
-        let source = DataByteSource(data: archive)
-        XCTAssertEqual(try FormatDetector.detect(source: source), .zip)
+        XCTAssertThrowsError(try FormatDetector.detect(data: archive))
+        XCTAssertThrowsError(
+            try FormatDetector.detect(
+                data: archive,
+                options: ReaderOptions(scanForSFXInData: true)
+            )
+        )
     }
 
     func testFormatDetectorAcceptsChecksumOnlyTarAndRejectsCorruption() throws {

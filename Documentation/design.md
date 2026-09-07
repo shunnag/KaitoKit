@@ -382,6 +382,14 @@ M3 の実差分では RAR 7.23 の `rar p -inul` を使用した。
   - release `kaito bench book.lzh 9` の warm median は open 0.049 ms、4 member / 33,104 bytes の
     extract 0.189 ms だった。総合 SHA-256 は
     `53bbe8926086ebd7d4e65b9c90dc9c367385ee0808a23bae3972cbfe5e3ce97c`。
+- M4(fba37e2 + e5d771c): LHA/LZH(level 0〜3、lh0/lh1/lh4〜lh7/lhx/lz4/lz5/lzs/pm0、SFX、MacLHA の MacBinary)。
+  lhasa の試験書庫 227 件で 211 一致・差異 0(残りは pm1/pm2 未対応・上限超過・親走査拒否・両者失敗)。
+- レビュー修正(0f3eae3): ZIP/7z/リーダ層の敵対レビュー(40 エージェント)確定 12 件 + cooViewer PoC で判明した
+  互換層のディレクトリ名/不明サイズを修正。
+- M5(本コミット): gzip/bzip2/xz/.Z と圧縮 tar、SFX 判定、KaitoKitCompat の完成(delegate・attributes・
+  nameEncoding・extractEntry はディレクトリ)、DocC、.spi.yml、移行ガイド完成。
+- cooViewer PoC(cooViewer 9153ef2、ローカル): ArchiveEngine 抽象で XADMaster/KaitoKit を設定切替、
+  両エンジンの同値テスト、snapshot A/B 12/12 一致。
 - **ホットループの方針(確定)**: 復号器のホットループは、辞書(窓)・確率表・入力を一度だけ確保した生バッファで
   持ち、状態はループ内ローカルに保持し、算術検証はチャンク/ブロック境界で行う(ループ内で throw しない、
   番兵で物理的読み越しを防ぐ)。安全性は境界での検証と不変条件のコメントで担保する。バイト単位の安全な

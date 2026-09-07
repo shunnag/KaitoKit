@@ -18,7 +18,13 @@ final class RAR4SFXTests: XCTestCase {
         let match = try XCTUnwrap(FormatDetector.findRARSignature(source: source))
         XCTAssertEqual(match.offset, 98_816)
         XCTAssertEqual(match.version, .rar4)
-        XCTAssertEqual(try FormatDetector.detect(source: source), .rar)
+        XCTAssertEqual(
+            try FormatDetector.detect(
+                source: source,
+                options: ReaderOptions(scanForSFXInData: true)
+            ),
+            .rar
+        )
 
         let reader = try ArchiveReader.open(url: Self.archive)
         XCTAssertEqual(reader.entries.count, 5)

@@ -34,6 +34,7 @@ private func formatName(_ format: ArchiveFormat) -> String {
     case .gzip: return "gzip"
     case .bzip2: return "bzip2"
     case .xz: return "xz"
+    case .compress: return "compress"
     }
 }
 
@@ -85,9 +86,7 @@ private func runDetect(_ arguments: [String]) throws {
     guard arguments.count == 1, let path = arguments.first else {
         throw CLIError.usage(usage)
     }
-    // Reader 未実装の形式も signature 検出だけは報告できる。
-    let source = try FileByteSource(url: URL(fileURLWithPath: path))
-    print(formatName(try FormatDetector.detect(source: source)))
+    print(formatName(try FormatDetector.detect(url: URL(fileURLWithPath: path))))
 }
 
 private func runList(_ arguments: [String]) throws {

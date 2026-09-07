@@ -153,6 +153,19 @@ enum ZipTestSupport {
     )
     static let pythonPath = "/usr/bin/python3"
 
+    static func makePEPrefix(count: Int, fill: UInt8 = 0x90) -> Data {
+        precondition(count >= 68)
+        var bytes = [UInt8](repeating: fill, count: count)
+        bytes[0] = 0x4D
+        bytes[1] = 0x5A
+        bytes[0x3C] = 0x40
+        bytes[0x3D] = 0
+        bytes[0x3E] = 0
+        bytes[0x3F] = 0
+        bytes.replaceSubrange(0x40..<0x44, with: [0x50, 0x45, 0, 0])
+        return Data(bytes)
+    }
+
     private static func resolveExecutablePath(
         environmentVariable: String,
         executableName: String,

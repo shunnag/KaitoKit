@@ -1,9 +1,8 @@
 # KaitoKit (解凍Kit)
 
-KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。ustar、pax、GNU 拡張
-tar、ZIP / ZIP64、7z、RAR4 / RAR5 に加え、M4 では LHA / LZH reader を実装しています。
-書庫の検出から列挙、ストリーミング読み取り、安全な展開までを一つのパイプラインとして
-提供します。圧縮 tar は後続マイルストーンで追加します。
+KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。tar、ZIP / ZIP64、7z、
+RAR4 / RAR5、LHA / LZH に加え、gzip、bzip2、xz、UNIX compress (`.Z`) と圧縮 tar を扱います。
+書庫の検出から列挙、ストリーミング読み取り、展開までを一つのパイプラインとして提供します。
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon / Intel
 - 外部依存: なし。zlib、libbz2 など OS 同梱ライブラリだけを使用
@@ -55,45 +54,30 @@ for entry in directories {
 
 ## 対応状況
 
-| 形式・機能 | 対応状況 |
-|---|---|
-| tar | ustar、pax、GNU long name/link |
-| LHA コンテナ | header level 0 / 1 / 2 / 3、独立 member (`solidGroup == -1`)、`-lhd-` / 属性付き directory、認証済み header を探す上限 1 MiB の SFX prefix |
-| LHA 圧縮方式 | stored: `-lh0-` / `-lz4-` / `-pm0-`、compressed: `-lh1-` / `-lh4-` / `-lh5-` / `-lh6-` / `-lh7-` / `-lhx-` (1 MiB 辞書) / `-lz5-` / `-lzs-`。OS marker が示す LHArk 形式の `-lh7-` も扱う |
-| LHA ファイル名 | legacy 名の書庫単位判定、level 0 / 1 の `\` 区切り、0x01 / 0x02、0x46 codepage 932 / 65001 / 936、末尾 separator の directory 判定、先頭 slash / drive prefix の相対化、NUL 終端 |
-| LHA メタデータ | DOS / Unix / Windows 日時、64-bit size、MS-DOS 属性、Unix permission / uid / gid / group / user、comment。無効な DOS 日時は `nil` |
-| LHA 整合性・互換性 | level 0 / 1 header byte sum、level 2 / 3 の 0x00 header CRC16 (存在時)、展開後 CRC16、拡張 header の件数・サイズ・前進上限、OS-9 LHA 2.01 が raw creator ID に 0x4B (OS/68K marker) を記録する level-2 size の 2-byte 不足、zero terminator がなく最終の境界検証済み payload 直後で exact EOF となり、最終 member が LArc、または書庫内に構造検証済み匿名通常 member を少なくとも 1 件含む場合に限定した終端互換性 |
-| LHA 非対応 | `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` と上記 matrix 外の method |
-| ZIP コンテナ | 中央ディレクトリ、ZIP64、SFX prefix、遅延ローカルヘッダ |
-| ZIP 圧縮方式 | stored (0)、deflate (8)、Deflate64 (9)、bzip2 (12)、LZMA (14) |
-| ZIP 暗号化 | Traditional PKWARE (ZipCrypto)、WinZip AES-128/192/256 (AE-1/AE-2) |
-| ZIP ファイル名 | UTF-8 flag、Info-ZIP Unicode Path、CP932 / EUC-JP / UTF-8 の書庫単位自動判定 |
-| ZIP メタデータ | ZIP64、extended timestamp、NTFS timestamp、UNIX symlink・permission |
-| ZIP 整合性 | 展開後 CRC32、WinZip AES authentication code |
-| ZIP 非対応 | multi-disk / spanned、zstd (93)、xz (95)、JPEG (96)、PPMd (98) |
-| 7z コンテナ | signature / start / next header CRC、plain / encoded header、UTF-16LE 名、日時・Windows / UNIX 属性、empty / anti item |
-| 7z 圧縮方式 | Copy、LZMA1、LZMA2、PPMd7 (var.H)、Deflate、BZip2 |
-| 7z フィルタ | Delta、BCJ (x86 / ARM / ARMT / ARM64 / PPC)、BCJ2 |
-| 7z 暗号化 | 7zAES (AES-256-CBC + SHA-256 KDF)、data / header encryption、派生鍵 cache |
-| 7z solid | folder stream の継続利用、`solidGroup`、block-split、pure LZMA2 の後方 seek 用 dictionary-reset index |
-| 7z 整合性 | start / next header、packed stream、folder、substream の CRC32 |
-| 7z 非対応 | IA64 / SPARC filter |
-| RAR4 コンテナ | main / file / end header、header CRC、64-bit size、RAR Unicode 名、legacy 名の書庫単位判定、DOS 日時 / `EXT_TIME`、上限付き SFX prefix、old (`.rar` / `.r00`) / new (`.partN.rar`) multi-volume |
-| RAR4 圧縮方式 | stored (`0x30`)、unpack version 29 の LZ / PPMd-H (`0x31`〜`0x35`) と相互 block transition、E8 / E8E9 / Itanium / Delta / RGB / Audio の 6 native standard filter |
-| RAR4 solid | LZ window、Huffman table、距離、filter program、PPMd model を entry 間で継続。順方向 skip と group 先頭からの後方再開、暗号化 solid を実装 |
-| RAR4 暗号化 | per-file RAR3 AES-128-CBC と `-hp` header encryption、RAR3 KDF、password provider / key cache |
-| RAR4 整合性 | header CRC、展開後 CRC32、分割 entry の非最終 part に存在する packed CRC32 |
-| RAR4 非対応 | unpack version 15 / 20 / 26 を含む version 29 以外の圧縮、custom RAR VM、stored member または dictionary size 変更を含む solid group、Data / 任意 `ByteSource` からの volume 継続、SFX prefix と multi-volume の組合せ |
-| RAR5 コンテナ | main / file / service / encryption / end header、header CRC32、vint、UTF-8 名、64-bit size、日時・属性・extra record、URL-backed multi-volume |
-| RAR5 圧縮方式 | stored (method 0)、圧縮アルゴリズム version 0 の LZ (method 1〜5)、Delta / E8 / E8E9 / ARM filter |
-| RAR5 solid | 圧縮 / stored member の混在、member ごとの dictionary minimum 変更、順方向 skip と group 先頭からの後方再開 |
-| RAR5 暗号化 | per-file AES-256-CBC、archive `-hp` header encryption、PBKDF2-HMAC-SHA256、password check、CRC / BLAKE2sp HashMAC、暗号化 multi-volume |
-| RAR5 整合性 | header CRC32、展開後 CRC32、任意の BLAKE2sp-256 (既定で検証)、分割 entry の非最終 volume に存在する packed CRC32 / BLAKE2sp |
-| RAR5 非対応 | ユーザー指定により圧縮アルゴリズム version 1 はすべて明示的に拒否、file-copy redirection、RAR5 SFX、Data / 任意 `ByteSource` からの volume 継続、サイズ不明の暗号化 stored entry |
+| 形式 | コンテナ・圧縮方式 | 暗号化 | multi-volume / multi-stream |
+|---|---|---|---|
+| tar | POSIX/ustar、pax、GNU long name/link、stored member | なし | volume 分割なし |
+| gzip | RFC 1952、FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT、DEFLATE、CRC32/ISIZE | なし | concatenated member 対応 |
+| bzip2 | BZip2 block size 1〜9 | なし | concatenated stream 対応 |
+| xz | XZ container、Apple Compression の LZMA、footer/padding | なし | concatenated stream 対応 |
+| UNIX compress (`.Z`) | LZW、9〜16 bit、block mode | なし | なし |
+| 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz2` / `.tar.bz2`、`.txz` / `.tar.xz` を展開後に TarReader で列挙 | なし | なし |
+| ZIP / ZIP64 | stored (0)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、中央 directory、SFX | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | multi-disk / spanned は非対応 |
+| 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、BZip2、Delta、BCJ (x86/ARM/ARMT/ARM64/PPC)、BCJ2、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | external volume 分割なし、solid/block split 対応 |
+| RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
+| RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
+| LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
+
+名前は ZIP/RAR4/LHA/tar/gzip FNAME の undecorated bytes に対して archive-wide の UTF-8、CP932、
+EUC-JP 判定を行い、format が宣言する Unicode 名を優先します。単一 file 形式の FNAME がない場合は
+source file の拡張子を除いた名前を entry 名にします。
+
+圧縮 tar の展開結果は `ReadLimits.inMemorySingleFileLimit` 以下なら memory、それより大きければ
+直ちに unlink した一時 file descriptor に保持します。どちらも同じ `TarReader` API を公開します。
 
 LHA の directory 属性は method だけでなく末尾 separator と MS-DOS directory bit からも判定します。
 このため OS/2 の extended-attribute payload を持つ subdirectory も子 entry の親として扱えます。
-先頭 slash と drive prefix は除いて相対名にしますが、`..` は解決せず、安全な展開層で従来どおり
+先頭 slash と drive prefix は除いて相対名にしますが、`..` は解決せず、展開層で従来どおり
 拒否します。古い writer が filename field の NUL より後ろへ付けた metadata は pathname に含めません。
 
 MacLHA の Macintosh OS marker を持つ member は、MacBinary / MacBinary II standard proposals に基づいて
@@ -143,6 +127,45 @@ open 時にすべて検証したい場合は `ReaderOptions(lazyLocalHeaders: fa
 または復号後の coder 構造が不正な場合を `wrongPassword` と判定します。このため、暗号化
 stream 自体の破損も `wrongPassword` として報告される場合があります。KDF の計算量上限は
 `ReaderOptions.maxSevenZipAESCyclesPower` で設定できます。
+
+## 既知の制限
+
+- CAB、ARJ、ACE、StuffIt/SIT、ISO disk image、zstd stream は未対応です。
+- ZIP は multi-disk/spanned と method 93 (zstd)、95 (xz)、96 (JPEG)、98 (PPMd) を扱いません。
+- 7z は IA-64 / SPARC filter を扱いません。
+- RAR4 は unpack version 15/20/26、custom VM、一部の solid 構成、SFX と multi-volume の組合せを
+  扱いません。RAR5 は compression version 1、file-copy redirection、SFX、サイズ不明の暗号化
+  stored entry を扱いません。
+- LHA は `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` を一覧できますが、読み取り時に
+  `unsupportedMethod` になります。resource fork は separate entry として公開しません。
+- XZ は Apple Compression が扱う XZ container が対象で、raw `.lzma` は対象外です。gzip/bzip2/xz の
+  concatenated stream は一つの entry として連結した出力を返します。
+- gzip/bzip2/xz/`.Z` の出力サイズは読み終えるまで不明です。modern API では `nil`、compat API では
+  `entryHasSize == false` / `Int64.max` になります。
+- 圧縮 tar の判定には URL の拡張子 hint を使います。filename を持たない Data/任意 `ByteSource` は
+  単一 file stream として開きます。
+- 組込み cancellation token は未提供です。incremental 処理は caller が `EntryStream` の read loop を
+  終了して制御します。
+
+## 組み込みの注意
+
+`ArchiveReader` と `EntryStream` は thread-safe ではありません。一つの instance の操作は actor や
+serial queue で直列化し、並列展開には `reopen()` で作った独立 reader を使ってください。同じ
+`solidGroup >= 0` の entry は同じ worker へ割り当て、`solidGroup == -1` は entry 単位で並列化できます。
+
+`ReadLimits` は `maxEntrySize`、`maxTotalUncompressedSize`、`maxInMemorySize`、
+`inMemorySingleFileLimit`、entry/metadata/path/dictionary/volume 上限などをまとめます。利用する corpus と
+端末の memory budget に合わせて open 前に設定してください。`read(_:)` より大きい entry は
+`EntryStream` で処理し、最後の 0 または error まで読み切って CRC と stream footer を確定します。
+
+`Data(contentsOf:options:.mappedIfSafe)` は、呼出中に内容が変わらないローカルの単一 file で使います。
+RAR multi-volume は sibling file を解決できる `ArchiveReader.open(url:)` を使い、nested archive のように
+既に memory 上にある bytes は `open(data:)` を使います。SFX prefix scan は URL open で有効、Data と
+任意 `ByteSource` では `ReaderOptions.scanForSFXInData` が既定 `false` です。
+
+展開先 root は処理中に caller が排他的に所有し、別 thread/process から名前や directory を変更しないで
+ください。directory entry は子を展開した後、深い順に処理すると archive の最終日時と permissions を
+保持できます。
 
 ## コマンドライン
 
@@ -217,6 +240,6 @@ Scripts/fuzz/run-mutants.sh --count 200 --password KaitoFuzz \
 
 `Scripts/build-framework.sh` は Apple Silicon / Intel 両対応のユニバーサル `KaitoKit.framework` を生成します。SwiftPM を介さず利用する場合は、ネストされた `KaitoKitCompat` モジュールを見つけられるよう `-I Frameworks/KaitoKit.framework/Modules` も指定してください。
 
-設計判断、安全規則、参照可能な仕様は [Documentation/design.md](Documentation/design.md)、
+設計判断、堅牢性規則、参照可能な仕様は [Documentation/design.md](Documentation/design.md)、
 XADMaster からの移行状況は
 [Documentation/migration-from-xadmaster.md](Documentation/migration-from-xadmaster.md) を参照してください。

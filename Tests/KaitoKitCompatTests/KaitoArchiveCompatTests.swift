@@ -125,10 +125,18 @@ final class KaitoArchiveCompatTests: XCTestCase {
 
         let dataArchive = try XCTUnwrap(KaitoArchive(data: archiveData))
         try assertSurface(dataArchive, payload: payload, temporary: temporary)
+        XCTAssertNil(dataArchive.filename())
+        XCTAssertEqual(dataArchive.formatName(), "Tar")
 
         let fileArchive = try XCTUnwrap(XADArchive(file: archiveURL.path))
         XCTAssertEqual(fileArchive.numberOfEntries(), 3)
         XCTAssertNotNil(fileArchive.name(ofEntry: 0))
+        XCTAssertEqual(fileArchive.filename(), archiveURL.path)
+        XCTAssertEqual(fileArchive.formatName(), "Tar")
+
+        let fileURLArchive = try XCTUnwrap(KaitoArchive(fileURL: archiveURL))
+        XCTAssertEqual(fileURLArchive.filename(), archiveURL.path)
+        XCTAssertEqual(fileURLArchive.numberOfEntries(), 3)
     }
 
     func testRestrictiveUmaskHardLinkStagingIsRemovedAndDestinationModeIsRestored() throws {
@@ -324,9 +332,74 @@ final class KaitoArchiveCompatTests: XCTestCase {
         ] {
             XCTAssertEqual(archive.numberOfEntries(), 1)
             XCTAssertTrue(archive.entryIsEncrypted(0))
-            archive.setPassword("compat-password")
+            let delegate = RecordingArchiveDelegate(password: "compat-password")
+            archive.delegate = delegate
             XCTAssertEqual(archive.contents(ofEntry: 0), payload)
+            XCTAssertEqual(delegate.passwordRequestCount, 1)
+            XCTAssertEqual(delegate.progress.last?.entry, 0)
+            XCTAssertEqual(delegate.progress.last?.bytes, Int64(payload.count))
+            XCTAssertEqual(delegate.progress.last?.total, Int64(payload.count))
         }
+    }
+
+    func testNameEncodingDelegateAndExplicitSetterRebuildEntries() throws {
+        let rawName = [UInt8(0x82), 0xA0, 0x2E, 0x74, 0x78, 0x74]
+        let archiveData = makeStoredZIP(rawName: rawName, payload: Data("name".utf8))
+        let archive = try XCTUnwrap(KaitoArchive(data: archiveData))
+
+        let delegate = RecordingArchiveDelegate(encoding: .isoLatin1)
+        archive.delegate = delegate
+        XCTAssertEqual(delegate.encodingRequestCount, 1)
+        XCTAssertEqual(archive.nameEncoding, .isoLatin1)
+        XCTAssertEqual(
+            archive.name(ofEntry: 0),
+            try XCTUnwrap(String(data: Data(rawName), encoding: .isoLatin1))
+        )
+
+        archive.setNameEncoding(.shiftJIS)
+        XCTAssertEqual(archive.nameEncoding, .shiftJIS)
+        XCTAssertEqual(archive.name(ofEntry: 0), "あ.txt")
+        XCTAssertNil(archive.lastError)
+    }
+
+    func testCompatibilitySurfaceOverZipAndSevenZip() throws {
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "KaitoKitCompatFormats-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let source = temporary.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+        let payload = Data("multi-format compatibility".utf8)
+        try payload.write(to: source.appendingPathComponent("page.txt"))
+
+        let zipURL = temporary.appendingPathComponent("sample.zip")
+        try createArchive(
+            sourceDirectory: source,
+            paths: ["page.txt"],
+            archiveURL: zipURL,
+            format: "zip"
+        )
+        let zip = try XCTUnwrap(KaitoArchive(fileURL: zipURL))
+        XCTAssertEqual(zip.formatName(), "Zip")
+        XCTAssertEqual(zip.dataForEntry(0), payload)
+        XCTAssertEqual(zip.attributesOfEntry(0)[.type] as? FileAttributeType, .typeRegular)
+
+        guard let sevenZip = sevenZipExecutable() else {
+            throw XCTSkip("7zz is not installed")
+        }
+        let sevenZipURL = temporary.appendingPathComponent("sample.7z")
+        try runCommand(
+            executable: sevenZip,
+            arguments: ["a", "-bd", "-y", sevenZipURL.path, "page.txt"],
+            currentDirectory: source
+        )
+        let archive = try XCTUnwrap(KaitoArchive(fileURL: sevenZipURL))
+        XCTAssertEqual(archive.formatName(), "7-Zip")
+        XCTAssertEqual(archive.numberOfEntries(), 1)
+        XCTAssertEqual(archive.data(forEntry: 0), payload)
+        XCTAssertEqual(archive.attributesOfEntry(0)[.type] as? FileAttributeType, .typeRegular)
     }
 
     private func assertSurface(
@@ -351,13 +424,31 @@ final class KaitoArchiveCompatTests: XCTestCase {
         let directory = try XCTUnwrap(directoryIndex)
 
         XCTAssertEqual(archive.contents(ofEntry: file), payload)
+        XCTAssertEqual(archive.dataForEntry(file), payload)
+        XCTAssertEqual(archive.data(forEntry: file), payload)
         XCTAssertEqual(archive.uncompressedSize(ofEntry: file), Int64(payload.count))
         XCTAssertTrue(archive.entryHasSize(file))
         XCTAssertFalse(archive.entryIsDirectory(file))
         XCTAssertTrue(archive.entryIsDirectory(directory))
+        XCTAssertFalse(archive.entryIsLink(file))
+        XCTAssertTrue(archive.entryIsLink(hardLink))
+        XCTAssertFalse(archive.entryIsResourceFork(file))
+        XCTAssertFalse(archive.entryIsResourceFork(hardLink))
         XCTAssertFalse(archive.entryIsEncrypted(file))
         XCTAssertFalse(archive.isEncrypted())
         XCTAssertEqual(archive.solidGroup(ofEntry: file), -1)
+        let fileAttributes = archive.attributesOfEntry(file)
+        XCTAssertEqual(fileAttributes[.type] as? FileAttributeType, .typeRegular)
+        XCTAssertNotNil(fileAttributes[.modificationDate] as? Date)
+        XCTAssertNotNil(fileAttributes[.posixPermissions] as? NSNumber)
+        XCTAssertEqual(
+            archive.attributesOfEntry(directory)[.type] as? FileAttributeType,
+            .typeDirectory
+        )
+        XCTAssertEqual(
+            archive.attributesOfEntry(hardLink)[.type] as? FileAttributeType,
+            .typeRegular
+        )
         // tar type-1 自体のデータは空だが、単独展開時は非公開 staging 内へ参照先も展開する。
         XCTAssertEqual(archive.contents(ofEntry: hardLink), Data())
         XCTAssertEqual(archive.uncompressedSize(ofEntry: hardLink), 0)
@@ -372,6 +463,12 @@ final class KaitoArchiveCompatTests: XCTestCase {
         XCTAssertFalse(archive.entryIsDirectory(Int32.max))
         XCTAssertFalse(archive.entryIsEncrypted(Int32.max))
         XCTAssertEqual(archive.solidGroup(ofEntry: Int32.max), -1)
+        XCTAssertTrue(archive.attributesOfEntry(Int32.max).isEmpty)
+        guard case .notFound? = archive.lastError else {
+            return XCTFail("invalid index should set lastError")
+        }
+        XCTAssertEqual(archive.contents(ofEntry: file), payload)
+        XCTAssertNil(archive.lastError)
 
         let output = temporary.appendingPathComponent("compat-output", isDirectory: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: false)
@@ -594,6 +691,69 @@ final class KaitoArchiveCompatTests: XCTestCase {
         }
     }
 
+    private func sevenZipExecutable() -> String? {
+        let environment = ProcessInfo.processInfo.environment
+        let candidates = [
+            environment["KAITO_7ZZ"],
+            "/opt/homebrew/bin/7zz",
+            "/usr/local/bin/7zz",
+            "/usr/bin/7zz",
+        ].compactMap { $0 }
+        return candidates.first {
+            FileManager.default.isExecutableFile(atPath: $0)
+        }
+    }
+
+    private func makeStoredZIP(rawName: [UInt8], payload: Data) -> Data {
+        var result = Data()
+        let checksum = CRC32.checksum(payload)
+
+        appendLittleEndian(UInt32(0x0403_4B50), to: &result)
+        appendLittleEndian(UInt16(20), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(checksum, to: &result)
+        appendLittleEndian(UInt32(payload.count), to: &result)
+        appendLittleEndian(UInt32(payload.count), to: &result)
+        appendLittleEndian(UInt16(rawName.count), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        result.append(contentsOf: rawName)
+        result.append(payload)
+
+        let centralOffset = UInt32(result.count)
+        appendLittleEndian(UInt32(0x0201_4B50), to: &result)
+        appendLittleEndian(UInt16(20), to: &result)
+        appendLittleEndian(UInt16(20), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(checksum, to: &result)
+        appendLittleEndian(UInt32(payload.count), to: &result)
+        appendLittleEndian(UInt32(payload.count), to: &result)
+        appendLittleEndian(UInt16(rawName.count), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(UInt32(0), to: &result)
+        appendLittleEndian(UInt32(0), to: &result)
+        result.append(contentsOf: rawName)
+
+        let centralSize = UInt32(result.count) - centralOffset
+        appendLittleEndian(UInt32(0x0605_4B50), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        appendLittleEndian(UInt16(1), to: &result)
+        appendLittleEndian(UInt16(1), to: &result)
+        appendLittleEndian(centralSize, to: &result)
+        appendLittleEndian(centralOffset, to: &result)
+        appendLittleEndian(UInt16(0), to: &result)
+        return result
+    }
+
     private func makeUnknownSizeRAR5(payload: Data) -> Data {
         let fileFlags: UInt64 = 0x000c // data CRC plus unknown unpacked size
         let name = Array("unknown.txt".utf8)
@@ -649,8 +809,57 @@ final class KaitoArchiveCompatTests: XCTestCase {
             bytes.append(UInt8(truncatingIfNeeded: value >> shift))
         }
     }
+
+    private func appendLittleEndian(_ value: UInt16, to data: inout Data) {
+        data.append(UInt8(truncatingIfNeeded: value))
+        data.append(UInt8(truncatingIfNeeded: value >> 8))
+    }
+
+    private func appendLittleEndian(_ value: UInt32, to data: inout Data) {
+        data.append(UInt8(truncatingIfNeeded: value))
+        data.append(UInt8(truncatingIfNeeded: value >> 8))
+        data.append(UInt8(truncatingIfNeeded: value >> 16))
+        data.append(UInt8(truncatingIfNeeded: value >> 24))
+    }
 }
 
 private enum CompatTestError: Error {
     case commandFailed(String)
+}
+
+private final class RecordingArchiveDelegate: KaitoArchiveDelegate {
+    let password: String?
+    let encoding: String.Encoding?
+    private(set) var passwordRequestCount = 0
+    private(set) var encodingRequestCount = 0
+    private(set) var progress: [(entry: Int32, bytes: Int64, total: Int64)] = []
+
+    init(password: String? = nil, encoding: String.Encoding? = nil) {
+        self.password = password
+        self.encoding = encoding
+    }
+
+    func archiveNeedsPassword(_ archive: KaitoArchive) {
+        passwordRequestCount += 1
+        archive.setPassword(password)
+    }
+
+    func archive(
+        _ archive: KaitoArchive,
+        nameEncodingForData data: Data,
+        guess: String.Encoding,
+        confidence: Double
+    ) -> String.Encoding? {
+        encodingRequestCount += 1
+        return encoding
+    }
+
+    func archive(
+        _ archive: KaitoArchive,
+        extractionProgressForEntry entry: Int32,
+        bytes: Int64,
+        of total: Int64
+    ) {
+        progress.append((entry, bytes, total))
+    }
 }

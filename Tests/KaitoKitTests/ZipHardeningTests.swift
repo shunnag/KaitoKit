@@ -145,7 +145,7 @@ final class ZipHardeningTests: XCTestCase {
 
     func testZIP64ArchiveWithSFXPrefixUsesRelativeOffsets() throws {
         let payload = Data("ZIP64 plus self-extracting prefix\n".utf8)
-        let prefix = Data(repeating: 0xA5, count: 1_024)
+        let prefix = ZipTestSupport.makePEPrefix(count: 1_024, fill: 0xA5)
         let archive = try ZipTestSupport.makeArchive(
             entries: [HandZipEntry(name: "prefixed.txt", uncompressedData: payload)],
             prefix: prefix,
@@ -153,7 +153,10 @@ final class ZipHardeningTests: XCTestCase {
         )
         XCTAssertEqual(try ZipTestSupport.layout(of: archive).archiveBase, prefix.count)
 
-        let reader = try ArchiveReader.open(data: archive)
+        let reader = try ArchiveReader.open(
+            data: archive,
+            options: ReaderOptions(scanForSFXInData: true)
+        )
         XCTAssertEqual(reader.entries.map(\.name), ["prefixed.txt"])
         XCTAssertEqual(try reader.read(reader.entries[0]), payload)
     }

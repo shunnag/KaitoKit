@@ -198,7 +198,7 @@ final class ZipIntegrationTests: XCTestCase {
 
     func testSFXPrefixAndMaximumEOCDCommentAreAccepted() throws {
         let payload = Data("prefixed archive payload".utf8)
-        let prefix = Data(repeating: 0xCC, count: 1_024)
+        let prefix = ZipTestSupport.makePEPrefix(count: 1_024, fill: 0xCC)
         let comment = Data(repeating: 0x5A, count: Int(UInt16.max))
         let archive = try ZipTestSupport.makeArchive(
             entries: [HandZipEntry(name: "prefixed.txt", uncompressedData: payload)],
@@ -206,7 +206,10 @@ final class ZipIntegrationTests: XCTestCase {
             comment: comment
         )
 
-        let reader = try ArchiveReader.open(data: archive)
+        let reader = try ArchiveReader.open(
+            data: archive,
+            options: ReaderOptions(scanForSFXInData: true)
+        )
         XCTAssertEqual(reader.entries.map(\.name), ["prefixed.txt"])
         XCTAssertEqual(try reader.read(reader.entries[0]), payload)
     }

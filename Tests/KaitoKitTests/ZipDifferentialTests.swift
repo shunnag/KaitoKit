@@ -59,7 +59,7 @@ final class ZipDifferentialTests: XCTestCase {
                     entries: [
                         HandZipEntry(name: "prefixed.txt", uncompressedData: sfxPayload),
                     ],
-                    prefix: Data(repeating: 0xCC, count: 1_024)
+                    prefix: ZipTestSupport.makePEPrefix(count: 1_024, fill: 0xCC)
                 )
             ),
         ]

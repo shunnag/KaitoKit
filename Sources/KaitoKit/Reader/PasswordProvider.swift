@@ -40,14 +40,18 @@ public struct ReaderOptions: Sendable {
     ///
     /// The special direct-key value `0x3f` remains accepted. The default of 24
     /// permits normal 7-Zip archives while bounding attacker-controlled work.
-    public var maxSevenZipAESCyclesPower: UInt8
+    public var maxSevenZipAESCyclesPower: UInt8 {
+        didSet { maxSevenZipAESCyclesPower = min(maxSevenZipAESCyclesPower, 62) }
+    }
 
     /// Maximum binary logarithm of PBKDF2 iterations accepted from RAR5 metadata.
     ///
     /// RAR5 stores an attacker-controlled iteration exponent. The default of 24
     /// matches the milestone's resource ceiling while allowing normal archives.
     /// Values above 24 are clamped to that non-raiseable safety ceiling.
-    public var maxRAR5KDFCountPower: UInt8
+    public var maxRAR5KDFCountPower: UInt8 {
+        didSet { maxRAR5KDFCountPower = min(maxRAR5KDFCountPower, 24) }
+    }
 
     /// Whether optional RAR5 BLAKE2sp digests are verified when present.
     public var verifyRAR5Blake2sp: Bool

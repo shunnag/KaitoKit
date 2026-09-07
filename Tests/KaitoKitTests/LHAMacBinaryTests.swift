@@ -4,11 +4,6 @@ import Foundation
 import XCTest
 
 final class LHAMacBinaryTests: XCTestCase {
-    private static let corpusDirectory = URL(
-        fileURLWithPath: "/private/tmp/claude-501/-Users-nagash-cooViewer/37ef55f3-9116-4440-88b8-9a15060856ad/scratchpad/lha-corpus/maclha_224",
-        isDirectory: true
-    )
-
     func testMacLHAMemberExposesOnlyDataForkAndAuthenticatesEnvelope() throws {
         let dataFork = Data((0..<513).map { UInt8(truncatingIfNeeded: $0 * 17) })
         let resourceFork = Data((0..<197).map { UInt8(truncatingIfNeeded: $0 * 29) })
@@ -274,10 +269,10 @@ final class LHAMacBinaryTests: XCTestCase {
                 "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
             ),
         ]
-        try requireCorpus(fixtures.map(\.0))
+        let corpusDirectory = try requireCorpus(fixtures.map(\.0))
 
         for (filename, expectedSize, expectedDigest) in fixtures {
-            let archive = Self.corpusDirectory.appendingPathComponent(filename)
+            let archive = corpusDirectory.appendingPathComponent(filename)
             let reader = try ArchiveReader.open(url: archive)
             let entry = try XCTUnwrap(reader.entries.first, filename)
             let decoded = try reader.read(entry)
@@ -288,10 +283,10 @@ final class LHAMacBinaryTests: XCTestCase {
 
     func testMacLHAFullPathCorpusMembersAlsoExposeTheirDataForks() throws {
         let filenames = ["l1_full_subdir.lzh", "l2_full_subdir.lzh"]
-        try requireCorpus(filenames)
+        let corpusDirectory = try requireCorpus(filenames)
 
         for filename in filenames {
-            let archive = Self.corpusDirectory.appendingPathComponent(filename)
+            let archive = corpusDirectory.appendingPathComponent(filename)
             let reader = try ArchiveReader.open(url: archive)
             let decoded = try reader.read(try XCTUnwrap(reader.entries.first))
             XCTAssertEqual(decoded, Data("hello world".utf8), filename)
@@ -300,10 +295,10 @@ final class LHAMacBinaryTests: XCTestCase {
 
     func testMacLHANoMacBinaryCorpusMembersRemainPlain() throws {
         let filenames = ["l1_nm_lh5.lzh", "l2_nm_lh5.lzh"]
-        try requireCorpus(filenames)
+        let corpusDirectory = try requireCorpus(filenames)
 
         for filename in filenames {
-            let archive = Self.corpusDirectory.appendingPathComponent(filename)
+            let archive = corpusDirectory.appendingPathComponent(filename)
             let reader = try ArchiveReader.open(url: archive)
             let decoded = try reader.read(try XCTUnwrap(reader.entries.first))
             XCTAssertEqual(decoded.count, 18_092, filename)
@@ -317,8 +312,8 @@ final class LHAMacBinaryTests: XCTestCase {
 
     func testMacLHALevelZeroCorpusMemberRemainsWrappedWithoutOSMarker() throws {
         let filename = "l0_lh0.lzh"
-        try requireCorpus([filename])
-        let archive = Self.corpusDirectory.appendingPathComponent(filename)
+        let corpusDirectory = try requireCorpus([filename])
+        let archive = corpusDirectory.appendingPathComponent(filename)
         let reader = try ArchiveReader.open(url: archive)
         let decoded = try reader.read(try XCTUnwrap(reader.entries.first))
 
@@ -329,16 +324,21 @@ final class LHAMacBinaryTests: XCTestCase {
         )
     }
 
-    private func requireCorpus(_ filenames: [String]) throws {
+    private func requireCorpus(_ filenames: [String]) throws -> URL {
+        guard let root = LHATestSupport.corpusRoot else {
+            throw XCTSkip("set KAITOKIT_LHA_CORPUS to run the LHA corpus tests")
+        }
+        let corpusDirectory = root.appendingPathComponent("maclha_224", isDirectory: true)
         let manager = FileManager.default
         let missing = filenames.filter {
             !manager.fileExists(
-                atPath: Self.corpusDirectory.appendingPathComponent($0).path
+                atPath: corpusDirectory.appendingPathComponent($0).path
             )
         }
         guard missing.isEmpty else {
             throw XCTSkip("MacLHA corpus is absent: \(missing.joined(separator: ", "))")
         }
+        return corpusDirectory
     }
 
     private func sha256(_ data: Data) -> String {

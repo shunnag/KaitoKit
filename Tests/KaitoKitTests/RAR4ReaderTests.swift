@@ -115,6 +115,54 @@ final class RAR4ReaderTests: XCTestCase {
         )
     }
 
+    func testRAR29RepeatWithoutPreviousMatchStopsAtInputEnd() throws {
+        var bits = RAR29TestBitWriter()
+        bits.append(0, count: 1) // LZ block
+        bits.append(0, count: 1) // clear previous code lengths
+        for index in 0..<20 {
+            bits.append(index == 1 || index == 19 ? 1 : 0, count: 4)
+        }
+
+        // Fill 404 code lengths with zeroes except main symbol 258, whose
+        // one-bit code is zero. The byte-padding bits then decode as repeated
+        // symbol 258 tokens without ever producing output.
+        bits.append(1, count: 1)
+        bits.append(127, count: 7) // 138 zero lengths
+        bits.append(1, count: 1)
+        bits.append(109, count: 7) // 120 zero lengths
+        bits.append(0, count: 1)   // symbol 258 has length one
+        bits.append(1, count: 1)
+        bits.append(123, count: 7) // 134 zero lengths
+        bits.append(1, count: 1)
+        bits.append(0, count: 7)   // final 11 zero lengths
+        XCTAssertEqual(bits.bitCount, 115)
+
+        let decoder = try RAR29Decoder(
+            source: DataByteSource(data: Data(bits.bytes)),
+            offset: 0,
+            compressedSize: UInt64(bits.bytes.count),
+            uncompressedSize: 1,
+            unpackVersion: 29,
+            method: 0x31,
+            dictionarySize: 64 * 1_024,
+            isSolid: false,
+            limits: ReadLimits()
+        )
+        let attempt = RAR29BoundedRead(decoder: decoder)
+        attempt.start()
+        guard let outcome = attempt.wait(timeout: .now() + 1) else {
+            return XCTFail("RAR29 symbol loop did not stop at input exhaustion")
+        }
+        switch outcome {
+        case let .failure(error):
+            XCTAssertEqual(error, .truncated)
+        case let .returned(count):
+            XCTFail("RAR29 decoder unexpectedly returned \(count) bytes")
+        case let .unexpected(description):
+            XCTFail("unexpected error: \(description)")
+        }
+    }
+
     func testRAR29SolidLZCoordinatorSupportsSeekingAndReopen() throws {
         // RAR 3.00 `-s` fixture reduced to its first two members.  The second
         // packed stream is only three bytes and depends on the first member's
@@ -181,10 +229,8 @@ final class RAR4ReaderTests: XCTestCase {
     }
 
     func testRAR29SolidPPMdModelPersistsWhenFixtureIsAvailable() throws {
-        let url = URL(
-            fileURLWithPath: "/private/tmp/claude-501/-Users-nagash-cooViewer/37ef55f3-9116-4440-88b8-9a15060856ad/scratchpad/rarppmd/ppmd_solid_rar300.rar"
-        )
-        guard FileManager.default.fileExists(atPath: url.path) else {
+        guard let url = RAR4TestSupport.ppmdSolidArchive,
+              FileManager.default.fileExists(atPath: url.path) else {
             throw XCTSkip("RAR3 solid PPMd fixture is absent")
         }
         let expected = [
@@ -199,10 +245,9 @@ final class RAR4ReaderTests: XCTestCase {
     }
 
     func testRAR29EncryptedSolidCorpusWhenAvailable() throws {
-        let directory = URL(
-            fileURLWithPath: "/private/tmp/claude-501/-Users-nagash-cooViewer/37ef55f3-9116-4440-88b8-9a15060856ad/scratchpad/rar4-corpus",
-            isDirectory: true
-        )
+        guard let directory = RAR4TestSupport.corpusDirectory else {
+            throw XCTSkip("KAITOKIT_RAR4_CORPUS is not configured")
+        }
         let names = [
             "test_read_format_rar4_solid_encrypted.rar",
             "test_read_format_rar4_solid_encrypted_filenames.rar",
@@ -257,6 +302,45 @@ final class RAR4ReaderTests: XCTestCase {
             try reader.stream(for: entry, limits: ReadLimits()).readAll(),
             contents
         )
+    }
+
+    func testRAR4StoredUnixSymlinkPublishesTargetAndExtracts() throws {
+        let archive = try base64Fixture("libarchive_links.rar.b64")
+        XCTAssertEqual(
+            sha256Hex(archive),
+            "d421b86f6290aefad61b2a36737253b2b30fe27c156bd95abfc230f24fe0307e"
+        )
+        let reader = try ArchiveReader.open(data: archive)
+        let link = try XCTUnwrap(reader.entries.first { $0.kind == .symlink })
+        XCTAssertEqual(link.name, "testlink")
+        XCTAssertEqual(link.formatSpecific["linkTargetStoredAsData"], "true")
+        XCTAssertEqual(try reader.read(link), Data("test.txt".utf8))
+
+        let root = try ZipTestSupport.temporaryDirectory(label: "rar4-symlink")
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try reader.extract(reader.entries[0], to: root)
+        let extracted = try reader.extract(link, to: root)
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: extracted.path),
+            "test.txt"
+        )
+    }
+
+    func testRAR4WrongPasswordForCompressedDataIsNormalized() throws {
+        let archive = try base64Fixture("libarchive_encrypted_data.rar.b64")
+        XCTAssertEqual(
+            sha256Hex(archive),
+            "84ba9afcf0673aab0d1421d931e76a19294b12117483879c4b58598d3d71e83e"
+        )
+        let reader = try ArchiveReader.open(
+            data: archive,
+            options: ReaderOptions(password: "incorrect")
+        )
+        XCTAssertTrue(reader.entries.allSatisfy { $0.isEncrypted })
+        XCTAssertTrue(reader.entries.allSatisfy { $0.methodDescription != "stored" })
+        XCTAssertThrowsError(try reader.read(reader.entries[0])) { error in
+            XCTAssertEqual(error as? KaitoError, .wrongPassword)
+        }
     }
 
     func testStoredPayloadCRCMismatchIsRejectedAtEndOfRead() throws {
@@ -480,8 +564,8 @@ final class RAR4ReaderTests: XCTestCase {
     }
 
     func testRealRAR4HeadersParseWhenOracleArchiveExists() throws {
-        let url = URL(fileURLWithPath: "/Users/nagash/Downloads/st1200-pts.rar")
-        guard FileManager.default.fileExists(atPath: url.path) else {
+        guard let url = RAR4TestSupport.filterArchive,
+              FileManager.default.fileExists(atPath: url.path) else {
             throw XCTSkip("RAR4 oracle archive is absent")
         }
         let reader = try RAR4Reader(
@@ -493,8 +577,8 @@ final class RAR4ReaderTests: XCTestCase {
     }
 
     func testRealRAR29FiltersAndTableTransitionsMatchRAR723WhenAvailable() throws {
-        let url = URL(fileURLWithPath: "/Users/nagash/Downloads/st1200-pts.rar")
-        guard FileManager.default.fileExists(atPath: url.path) else {
+        guard let url = RAR4TestSupport.filterArchive,
+              FileManager.default.fileExists(atPath: url.path) else {
             throw XCTSkip("RAR4 oracle archive is absent")
         }
         try RAR5TestSupport.requireRAR()
@@ -555,6 +639,113 @@ final class RAR4ReaderTests: XCTestCase {
                     "\(archiveURL.lastPathComponent):\(entry.index):\(entry.name)"
                 )
             }
+        }
+    }
+
+    func testCheckedInCompressedPayloadMutantsCompleteBoundedly() throws {
+        var limits = ReadLimits(
+            maxEntrySize: 256 * 1_024,
+            maxTotalUncompressedSize: 512 * 1_024,
+            maxInMemorySize: 256 * 1_024,
+            inMemorySingleFileLimit: 256 * 1_024,
+            maxEntryCount: 4,
+            maxMetadataSize: 16 * 1_024,
+            maxMetadataRecordCount: 32,
+            maxPathComponentCount: 8,
+            maxTotalMetadataSize: 64 * 1_024,
+            maxDictionarySize: 2 * 1_024 * 1_024,
+            maxVolumeCount: 4
+        )
+        limits.maxRAR5HeaderKDFWork = 1
+        let options = ReaderOptions(limits: limits)
+        let fixtureNames = [
+            "solid_lz_rar300.rar.b64",
+            "ppmd_lorem_rar300.rar.b64",
+        ]
+        var seeds: [(archive: Data, ranges: [Range<Int>])] = []
+
+        for fixtureName in fixtureNames {
+            let archive = try base64Fixture(fixtureName)
+            let bytes = [UInt8](archive)
+            let reader = try ArchiveReader.open(data: archive, options: options)
+            var ranges: [Range<Int>] = []
+            for entry in reader.entries {
+                let headerOffset = try XCTUnwrap(
+                    entry.formatSpecific["headerOffset"].flatMap(Int.init),
+                    fixtureName
+                )
+                let compressedSize = try XCTUnwrap(
+                    entry.compressedSize.flatMap(Int.init(exactly:)),
+                    fixtureName
+                )
+                guard headerOffset >= 0, headerOffset <= bytes.count - 7 else {
+                    return XCTFail("invalid RAR4 header offset: \(fixtureName)")
+                }
+                let headerSize = Int(bytes[headerOffset + 5])
+                    | (Int(bytes[headerOffset + 6]) << 8)
+                let dataOffset = headerOffset + headerSize
+                guard compressedSize > 0,
+                      dataOffset >= headerOffset,
+                      dataOffset <= bytes.count,
+                      compressedSize <= bytes.count - dataOffset else {
+                    return XCTFail("invalid RAR4 packed range: \(fixtureName)")
+                }
+                ranges.append(dataOffset..<(dataOffset + compressedSize))
+            }
+            XCTAssertFalse(ranges.isEmpty, fixtureName)
+            seeds.append((archive, ranges))
+        }
+
+        let mutationSeeds = seeds
+        let mutationCount = 128
+        let batch = BoundedPayloadMutationBatch {
+            var completed = 0
+            for mutation in 0..<mutationCount {
+                let seedIndex = mutation % mutationSeeds.count
+                let localMutation = mutation / mutationSeeds.count
+                let seed = mutationSeeds[seedIndex]
+                let range = seed.ranges[localMutation % seed.ranges.count]
+                var bytes = [UInt8](seed.archive)
+                let first = range.lowerBound
+                    + (localMutation &* 131 &+ 17) % range.count
+                bytes[first] ^= UInt8(1) << UInt8(localMutation % 8)
+                if localMutation.isMultiple(of: 7), range.count > 1 {
+                    let second = range.lowerBound
+                        + (localMutation &* 43 &+ 5) % range.count
+                    bytes[second] ^= 0x80
+                }
+
+                do {
+                    let reader = try ArchiveReader.open(
+                        data: Data(bytes),
+                        options: options
+                    )
+                    for entry in reader.entries {
+                        try PayloadMutationTestSupport.drain(
+                            reader.stream(entry),
+                            bufferSize: 257
+                        )
+                    }
+                } catch is KaitoError {
+                    // A structured rejection is expected for most packed mutations.
+                } catch {
+                    return .unexpected(
+                        "RAR4 fixture (seedIndex), mutation (localMutation): \(error)"
+                    )
+                }
+                completed += 1
+            }
+            return .completed(completed)
+        }
+        batch.start()
+        guard let outcome = batch.wait(timeout: .now() + 15) else {
+            return XCTFail("RAR4 compressed-payload mutation batch exceeded 15 seconds")
+        }
+        switch outcome {
+        case let .completed(completed):
+            XCTAssertEqual(completed, mutationCount)
+        case let .unexpected(description):
+            XCTFail(description)
         }
     }
 
@@ -715,5 +906,69 @@ private final class RAR4ReadTrackingByteSource: ByteSource, @unchecked Sendable 
         reads += 1
         lock.unlock()
         return 0
+    }
+}
+
+private struct RAR29TestBitWriter {
+    private(set) var bytes: [UInt8] = []
+    private(set) var bitCount = 0
+
+    mutating func append(_ value: Int, count: Int) {
+        precondition((0...32).contains(count))
+        if count < Int.bitWidth {
+            precondition(value >= 0 && value < 1 << count)
+        }
+        for shift in stride(from: count - 1, through: 0, by: -1) {
+            if bitCount.isMultiple(of: 8) { bytes.append(0) }
+            if value & (1 << shift) != 0 {
+                bytes[bytes.count - 1] |= 1 << (7 - bitCount % 8)
+            }
+            bitCount += 1
+        }
+    }
+}
+
+private final class RAR29BoundedRead: @unchecked Sendable {
+    enum Outcome {
+        case returned(Int)
+        case failure(KaitoError)
+        case unexpected(String)
+    }
+
+    private let decoder: RAR29Decoder
+    private let completion = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var outcome: Outcome?
+
+    init(decoder: RAR29Decoder) {
+        self.decoder = decoder
+    }
+
+    func start() {
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            let result: Outcome
+            do {
+                var byte: UInt8 = 0
+                let count = try withUnsafeMutableBytes(of: &byte) {
+                    try decoder.read(into: $0)
+                }
+                result = .returned(count)
+            } catch let error as KaitoError {
+                result = .failure(error)
+            } catch {
+                result = .unexpected(String(describing: error))
+            }
+            lock.lock()
+            outcome = result
+            lock.unlock()
+            completion.signal()
+        }
+    }
+
+    func wait(timeout: DispatchTime) -> Outcome? {
+        guard completion.wait(timeout: timeout) == .success else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        return outcome
     }
 }

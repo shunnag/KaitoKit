@@ -350,9 +350,8 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
     }
 
     func testLiteralMatchAndPresetWindowVectorsMatchLhasaOracleWhenAvailable() throws {
-        let executable = "/opt/homebrew/bin/lha"
-        guard FileManager.default.isExecutableFile(atPath: executable) else {
-            throw XCTSkip("lhasa executable is not installed")
+        guard let executable = LHATestSupport.lhasaExecutableURL else {
+            throw XCTSkip("set KAITOKIT_LHA_EXECUTABLE or install lhasa")
         }
 
         var literalWriter = StaticLHABitWriter()
@@ -436,7 +435,7 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
             let standardOutput = Pipe()
             let standardError = Pipe()
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: executable)
+            process.executableURL = executable
             process.arguments = ["-pq", archiveURL.path, name]
             process.standardOutput = standardOutput
             process.standardError = standardError

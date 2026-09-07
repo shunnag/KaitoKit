@@ -90,19 +90,34 @@ final class RAR5ReaderTests: XCTestCase {
         let hard = try XCTUnwrap(reader.entries.first { $0.name == "hard.txt" })
         let symbolic = try XCTUnwrap(reader.entries.first { $0.name == "symbolic.txt" })
         XCTAssertEqual(hard.kind, .hardlink)
+        XCTAssertEqual(hard.uncompressedSize, 0)
+        XCTAssertEqual(hard.compressedSize, 0)
         XCTAssertEqual(hard.formatSpecific["linkPath"], "original.txt")
         XCTAssertEqual(hard.formatSpecific["hardLinkTargetIndex"], String(original.index))
+        XCTAssertEqual(try reader.read(hard), Data())
         XCTAssertEqual(symbolic.kind, .symlink)
         XCTAssertEqual(symbolic.formatSpecific["linkPath"], "original.txt")
 
-        let output = temporary.appendingPathComponent("output", isDirectory: true)
-        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: false)
-        XCTAssertThrowsError(try reader.extract(hard, to: output)) { error in
+        let unmaterializedOutput = temporary.appendingPathComponent(
+            "unmaterialized-output",
+            isDirectory: true
+        )
+        XCTAssertThrowsError(try reader.extract(hard, to: unmaterializedOutput)) { error in
             guard case let .malformed(reason) = error as? KaitoError else {
                 return XCTFail("unexpected error: \(error)")
             }
             XCTAssertTrue(reason.contains("target was not materialized"), reason)
         }
+
+        // The first extraction creates this `/private/tmp` root. Its
+        // standardized path changes once it exists on Darwin, but the
+        // subsequent hard link must retain the first entry's provenance.
+        let output = URL(
+            fileURLWithPath: "/private/tmp/KaitoKitTests-\(UUID().uuidString)/output",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: output.deletingLastPathComponent()) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
         let extractedOriginal = try reader.extract(original, to: output)
         let extractedHard = try reader.extract(hard, to: output)
         let extractedSymbolic = try reader.extract(symbolic, to: output)
@@ -118,6 +133,164 @@ final class RAR5ReaderTests: XCTestCase {
             try FileManager.default.destinationOfSymbolicLink(atPath: extractedSymbolic.path),
             "original.txt"
         )
+    }
+
+    func testHardLinkExtractionKeepsProvenanceForUncreatedRelativeRootBelowTmp() throws {
+        let payload = Data("RAR5 hard-link root spelling payload".utf8)
+        let target = "original.txt"
+        let redirection = RAR5TestSupport.vint(4)
+            + RAR5TestSupport.vint(0)
+            + RAR5TestSupport.vint(UInt64(target.utf8.count))
+            + Array(target.utf8)
+        let archive = RAR5TestSupport.archive(blocks: [
+            RAR5TestSupport.storedFile(
+                name: target,
+                contents: payload,
+                attributes: 0o100644
+            ),
+            RAR5TestSupport.storedFile(
+                name: "alias.txt",
+                contents: Data(),
+                unpackedSize: UInt64(payload.count),
+                dataCRC32: CRC32.checksum(payload),
+                attributes: 0o100644,
+                extra: RAR5TestSupport.extraRecord(type: 0x05, payload: redirection)
+            ),
+        ])
+        let reader = try ArchiveReader.open(data: archive)
+        XCTAssertEqual(reader.entries.map(\.kind), [.file, .hardlink])
+
+        func assertHardLinkExtraction(to root: URL) throws {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
+            let original = try reader.extract(reader.entries[0], to: root)
+            let alias = try reader.extract(reader.entries[1], to: root)
+            XCTAssertEqual(try Data(contentsOf: alias), payload)
+            let originalAttributes = try FileManager.default.attributesOfItem(
+                atPath: original.path
+            )
+            let aliasAttributes = try FileManager.default.attributesOfItem(
+                atPath: alias.path
+            )
+            XCTAssertEqual(
+                originalAttributes[.systemFileNumber] as? NSNumber,
+                aliasAttributes[.systemFileNumber] as? NSNumber
+            )
+        }
+
+        let manager = FileManager.default
+        let originalWorkingDirectory = manager.currentDirectoryPath
+        let workingDirectory = URL(
+            fileURLWithPath: "/tmp/KaitoKitTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try manager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        guard manager.changeCurrentDirectoryPath(workingDirectory.path) else {
+            return XCTFail("could not enter the temporary working directory")
+        }
+        defer {
+            _ = manager.changeCurrentDirectoryPath(originalWorkingDirectory)
+            try? manager.removeItem(at: workingDirectory)
+        }
+        try assertHardLinkExtraction(
+            to: URL(fileURLWithPath: "relative-output", isDirectory: true)
+        )
+    }
+
+    func testGeneratedSolidHardLinkDoesNotInterruptLaterCompressedMember() throws {
+        try RAR5TestSupport.requireRAR()
+        let temporary = try ZipTestSupport.temporaryDirectory(label: "rar5-solid-hard-link")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let source = temporary.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+
+        let shared = Data(String(repeating: "solid hard-link history 日本語\n", count: 2_048).utf8)
+        let firstPayload = shared
+            + RAR5TestSupport.deterministicPayload(count: 8_193, seed: 0x48_4c_31)
+        let finalPayload = shared
+            + RAR5TestSupport.deterministicPayload(count: 8_193, seed: 0x48_4c_32)
+        let original = try ZipTestSupport.write(
+            firstPayload,
+            relativePath: "original.bin",
+            below: source
+        )
+        try FileManager.default.linkItem(
+            at: original,
+            to: source.appendingPathComponent("hard.bin")
+        )
+        _ = try ZipTestSupport.write(
+            finalPayload,
+            relativePath: "after.bin",
+            below: source
+        )
+
+        let archive = temporary.appendingPathComponent("solid-hard-link.rar")
+        try RAR5TestSupport.makeGeneratedArchive(
+            sourceDirectory: source,
+            paths: ["original.bin", "hard.bin", "after.bin"],
+            archiveURL: archive,
+            options: ["-m5", "-s", "-ds", "-oh", "-md1m"]
+        )
+
+        let reader = try ArchiveReader.open(url: archive)
+        XCTAssertEqual(reader.entries.map(\.solidGroup), [0, -1, 0])
+        XCTAssertEqual(reader.entries[1].kind, .hardlink)
+        XCTAssertEqual(try reader.read(reader.entries[1]), Data())
+        XCTAssertEqual(try reader.read(reader.entries[2]), finalPayload)
+        XCTAssertEqual(try reader.read(reader.entries[0]), firstPayload)
+
+        let output = temporary.appendingPathComponent("solid-output", isDirectory: true)
+        for entry in reader.entries {
+            _ = try reader.extract(entry, to: output)
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: output.appendingPathComponent("after.bin")),
+            finalPayload
+        )
+    }
+
+    func testGeneratedSolidFileReferenceDoesNotInterruptLaterCompressedMember() throws {
+        try RAR5TestSupport.requireRAR()
+        let temporary = try ZipTestSupport.temporaryDirectory(label: "rar5-solid-file-reference")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let source = temporary.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+
+        let shared = Data(String(repeating: "solid file-reference history 日本語\n", count: 2_048).utf8)
+        let repeatedPayload = shared
+            + RAR5TestSupport.deterministicPayload(count: 8_193, seed: 0x46_52_31)
+        let finalPayload = shared
+            + RAR5TestSupport.deterministicPayload(count: 8_193, seed: 0x46_52_32)
+        _ = try ZipTestSupport.write(
+            repeatedPayload,
+            relativePath: "original.bin",
+            below: source
+        )
+        _ = try ZipTestSupport.write(
+            repeatedPayload,
+            relativePath: "reference.bin",
+            below: source
+        )
+        _ = try ZipTestSupport.write(
+            finalPayload,
+            relativePath: "after.bin",
+            below: source
+        )
+
+        let archive = temporary.appendingPathComponent("solid-file-reference.rar")
+        try RAR5TestSupport.makeGeneratedArchive(
+            sourceDirectory: source,
+            paths: ["original.bin", "reference.bin", "after.bin"],
+            archiveURL: archive,
+            options: ["-m5", "-s", "-ds", "-oi", "-md1m"]
+        )
+
+        let reader = try ArchiveReader.open(url: archive)
+        XCTAssertEqual(reader.entries.map(\.solidGroup), [0, -1, 0])
+        XCTAssertEqual(reader.entries[1].kind, .other)
+        XCTAssertEqual(reader.entries[1].formatSpecific["redirectionType"], "5")
+        XCTAssertEqual(try reader.read(reader.entries[1]), Data())
+        XCTAssertEqual(try reader.read(reader.entries[2]), finalPayload)
+        XCTAssertEqual(try reader.read(reader.entries[0]), repeatedPayload)
     }
 
     func testGeneratedMaximumCompressionRoundTrips() throws {
@@ -692,12 +865,12 @@ final class RAR5ReaderTests: XCTestCase {
             XCTAssertEqual(error as? KaitoError, .checksumMismatch(entry: 0))
         }
 
-        XCTAssertThrowsError(
-            try ArchiveReader.open(
-                url: archive,
-                options: ReaderOptions(maxRAR5KDFCountPower: 0)
-            )
-        ) { error in
+        let limitedKDFReader = try ArchiveReader.open(
+            url: archive,
+            options: ReaderOptions(maxRAR5KDFCountPower: 0)
+        )
+        let limitedKDFEntry = try XCTUnwrap(limitedKDFReader.entries.first)
+        XCTAssertThrowsError(try limitedKDFReader.stream(limitedKDFEntry)) { error in
             guard case let .unsupportedMethod(reason) = error as? KaitoError else {
                 return XCTFail("unexpected error: \(error)")
             }
@@ -710,6 +883,11 @@ final class RAR5ReaderTests: XCTestCase {
             ReaderOptions(maxRAR5KDFCountPower: .max).maxRAR5KDFCountPower,
             24
         )
+        var raised = ReaderOptions()
+        raised.maxRAR5KDFCountPower = .max
+        XCTAssertEqual(raised.maxRAR5KDFCountPower, 24)
+        raised.maxSevenZipAESCyclesPower = .max
+        XCTAssertEqual(raised.maxSevenZipAESCyclesPower, 62)
         try RAR5TestSupport.requireRAR()
         let temporary = try ZipTestSupport.temporaryDirectory(label: "rar5-encrypted-crc")
         defer { try? FileManager.default.removeItem(at: temporary) }
@@ -1151,7 +1329,7 @@ final class RAR5ReaderTests: XCTestCase {
         }
     }
 
-    func testFileCopyRedirectionListsButReadAndExtractionAreExplicitlyUnsupported() throws {
+    func testFileCopyRedirectionHasAnEmptyDataStreamButExtractionIsUnsupported() throws {
         let target = "original.txt"
         let payload = RAR5TestSupport.vint(5)
             + RAR5TestSupport.vint(0)
@@ -1171,13 +1349,10 @@ final class RAR5ReaderTests: XCTestCase {
         let reader = try ArchiveReader.open(data: archive)
         let copy = try XCTUnwrap(reader.entries.first { $0.name == "copy.txt" })
         XCTAssertEqual(copy.kind, .other)
+        XCTAssertEqual(copy.uncompressedSize, 0)
+        XCTAssertEqual(copy.compressedSize, 0)
         XCTAssertEqual(copy.formatSpecific["redirectionType"], "5")
-        XCTAssertThrowsError(try reader.read(copy)) { error in
-            XCTAssertEqual(
-                error as? KaitoError,
-                .unsupportedMethod("RAR5 file-copy redirection")
-            )
-        }
+        XCTAssertEqual(try reader.read(copy), Data())
 
         let output = try ZipTestSupport.temporaryDirectory(label: "rar5-file-copy")
         defer { try? FileManager.default.removeItem(at: output) }
@@ -1186,6 +1361,164 @@ final class RAR5ReaderTests: XCTestCase {
                 error as? KaitoError,
                 .unsupportedMethod("RAR5 file-copy redirection")
             )
+        }
+    }
+
+    func testHardLinksAndFileReferencesAreZeroBodyAndDoNotJoinSolidOutputAccounting() throws {
+        func redirection(
+            type: UInt64,
+            name: String,
+            target: String,
+            declaredSize: UInt64
+        ) -> Data {
+            let payload = RAR5TestSupport.vint(type)
+                + RAR5TestSupport.vint(0)
+                + RAR5TestSupport.vint(UInt64(target.utf8.count))
+                + Array(target.utf8)
+            return RAR5TestSupport.storedFile(
+                name: name,
+                contents: Data(),
+                unpackedSize: declaredSize,
+                dataCRC32: CRC32.checksum(Data("declared target bytes".utf8)),
+                compressionInfo: type == 4
+                    ? 0x40 | 2
+                    : 0x40 | (UInt64(6) << 7),
+                extra: RAR5TestSupport.extraRecord(type: 0x05, payload: payload)
+            )
+        }
+
+        let firstPayload = Data("declared target bytes".utf8)
+        let finalPayload = Data("solid member after links".utf8)
+        let archive = RAR5TestSupport.archive(mainFlags: 0x04, blocks: [
+            RAR5TestSupport.storedFile(name: "original.txt", contents: firstPayload),
+            redirection(
+                type: 4,
+                name: "hard.txt",
+                target: "original.txt",
+                declaredSize: UInt64(firstPayload.count)
+            ),
+            redirection(
+                type: 5,
+                name: "reference.txt",
+                target: "original.txt",
+                declaredSize: UInt64(firstPayload.count)
+            ),
+            RAR5TestSupport.storedFile(
+                name: "after.txt",
+                contents: finalPayload,
+                compressionInfo: 0x40
+            ),
+        ])
+        var limits = ReadLimits()
+        limits.maxTotalUncompressedSize = UInt64(firstPayload.count + finalPayload.count)
+        let reader = try ArchiveReader.open(
+            data: archive,
+            options: ReaderOptions(limits: limits)
+        )
+
+        XCTAssertEqual(reader.entries.map(\.solidGroup), [0, -1, -1, 0])
+        let hard = reader.entries[1]
+        let reference = reader.entries[2]
+        XCTAssertEqual(hard.kind, .hardlink)
+        XCTAssertEqual(reference.kind, .other)
+        for link in [hard, reference] {
+            XCTAssertEqual(link.uncompressedSize, 0)
+            XCTAssertEqual(link.compressedSize, 0)
+            XCTAssertEqual(try reader.read(link), Data())
+            let stream = try reader.stream(link)
+            var byte: UInt8 = 0xff
+            XCTAssertEqual(
+                try withUnsafeMutableBytes(of: &byte) { try stream.read(into: $0) },
+                0
+            )
+        }
+
+        // A direct request for the later member skips both zero-body records
+        // while retaining the preceding data-bearing solid member.
+        XCTAssertEqual(try reader.read(reader.entries[3]), finalPayload)
+        XCTAssertEqual(try reader.read(reader.entries[0]), firstPayload)
+    }
+
+    func testUnixSymlinkWithoutRedirectionReadsItsTargetFromStoredData() throws {
+        let target = "target.txt"
+        let archive = RAR5TestSupport.archive(blocks: [
+            RAR5TestSupport.storedFile(
+                name: "symbolic.txt",
+                contents: Data(target.utf8),
+                attributes: 0o120777
+            ),
+        ])
+        let reader = try ArchiveReader.open(data: archive)
+        let entry = try XCTUnwrap(reader.entries.first)
+        XCTAssertEqual(entry.kind, .symlink)
+        XCTAssertEqual(entry.formatSpecific["linkTargetStoredAsData"], "true")
+        XCTAssertNil(entry.formatSpecific["linkPath"])
+        XCTAssertEqual(try reader.read(entry), Data(target.utf8))
+
+        let output = try ZipTestSupport.temporaryDirectory(label: "rar5-unix-symlink")
+        defer { try? FileManager.default.removeItem(at: output) }
+        let extracted = try reader.extract(entry, to: output)
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: extracted.path),
+            target
+        )
+    }
+
+    func testUnusualPerFileCompatibilityValuesFailOnlyWhenThatEntryStreams() throws {
+        func encryptionExtra(version: UInt64, kdfCount: UInt8) -> [UInt8] {
+            var payload = RAR5TestSupport.vint(version)
+            guard version == 0 else {
+                return RAR5TestSupport.extraRecord(type: 0x01, payload: payload)
+            }
+            payload += RAR5TestSupport.vint(0)
+            payload.append(kdfCount)
+            payload += [UInt8](repeating: 0, count: 32)
+            return RAR5TestSupport.extraRecord(type: 0x01, payload: payload)
+        }
+
+        let goodPayload = Data("ordinary entry remains readable".utf8)
+        let archive = RAR5TestSupport.archive(blocks: [
+            RAR5TestSupport.storedFile(name: "good.txt", contents: goodPayload),
+            RAR5TestSupport.storedFile(
+                name: "method-6.bin",
+                contents: Data([0]),
+                compressionInfo: UInt64(6) << 7
+            ),
+            RAR5TestSupport.storedFile(
+                name: "version-2.bin",
+                contents: Data(),
+                compressionInfo: 2 | (UInt64(31) << 10)
+            ),
+            RAR5TestSupport.storedFile(
+                name: "encryption-version-1.bin",
+                contents: Data(),
+                includeCRC32: false,
+                extra: encryptionExtra(version: 1, kdfCount: 0)
+            ),
+            RAR5TestSupport.storedFile(
+                name: "kdf-1.bin",
+                contents: Data(),
+                includeCRC32: false,
+                extra: encryptionExtra(version: 0, kdfCount: 1)
+            ),
+        ])
+        let reader = try ArchiveReader.open(
+            data: archive,
+            options: ReaderOptions(maxRAR5KDFCountPower: 0)
+        )
+        XCTAssertEqual(reader.entries.count, 5)
+        XCTAssertEqual(try reader.read(reader.entries[0]), goodPayload)
+
+        let expected: [KaitoError] = [
+            .unsupportedMethod("RAR5 compression method 6"),
+            .unsupportedMethod("RAR compression version 2"),
+            .unsupportedMethod("RAR5 file encryption version 1"),
+            .unsupportedMethod("RAR5 KDF count 1"),
+        ]
+        for (entry, expectedError) in zip(reader.entries.dropFirst(), expected) {
+            XCTAssertThrowsError(try reader.stream(entry)) { error in
+                XCTAssertEqual(error as? KaitoError, expectedError)
+            }
         }
     }
 
@@ -1222,6 +1555,54 @@ final class RAR5ReaderTests: XCTestCase {
             }
             XCTAssertTrue(reason.contains("extra record count"), reason)
         }
+
+        let oneRecordPerHeader = RAR5TestSupport.archive(blocks: [
+            RAR5TestSupport.storedFile(
+                name: "first.bin",
+                contents: Data(),
+                extra: RAR5TestSupport.extraRecord(type: 0x40)
+            ),
+            RAR5TestSupport.storedFile(
+                name: "second.bin",
+                contents: Data(),
+                extra: RAR5TestSupport.extraRecord(type: 0x41)
+            ),
+        ])
+        let perHeaderReader = try RAR5Reader(
+            source: DataByteSource(data: oneRecordPerHeader),
+            options: ReaderOptions(limits: limits)
+        )
+        XCTAssertEqual(perHeaderReader.entries.map(\.name), ["first.bin", "second.bin"])
+    }
+
+    func testSixtyFiveThousandSixHundredHeadersMayEachCarryOneTimeRecord() throws {
+        let memberCount = 65_600
+        let timePayload: [UInt8] = [0x03, 0, 0, 0, 0]
+        let timeExtra = RAR5TestSupport.extraRecord(
+            type: 0x03,
+            payload: timePayload
+        )
+        var blocks: [Data] = []
+        blocks.reserveCapacity(memberCount)
+        for index in 0..<memberCount {
+            blocks.append(RAR5TestSupport.storedFile(
+                name: String(format: "%05d", index),
+                contents: Data(),
+                includeCRC32: false,
+                extra: timeExtra
+            ))
+        }
+
+        let archive = RAR5TestSupport.archive(blocks: blocks)
+        let reader = try RAR5Reader(
+            source: DataByteSource(data: archive),
+            options: ReaderOptions()
+        )
+        XCTAssertEqual(reader.entries.count, memberCount)
+        XCTAssertEqual(
+            reader.entries.last?.modificationDate,
+            Date(timeIntervalSince1970: 0)
+        )
     }
 
     func testNamesRequireStrictUTF8AndWindowsRejectsBackslashes() throws {
@@ -1266,7 +1647,7 @@ final class RAR5ReaderTests: XCTestCase {
         XCTAssertEqual(try reader.read(try XCTUnwrap(reader.entries.first)), payload)
     }
 
-    func testServiceHeadersRejectFileOnlyFlagsAndUnknownCompressionMethods() throws {
+    func testServiceHeadersRejectFileOnlyFlagsAndSkipUnknownCompressionMethods() throws {
         func service(fileFlags: UInt64, compression: UInt64) -> Data {
             var specific = RAR5TestSupport.vint(fileFlags)
             specific += RAR5TestSupport.vint(0) // unpacked size
@@ -1288,13 +1669,14 @@ final class RAR5ReaderTests: XCTestCase {
             category: "malformed",
             containing: "solid flag"
         )
-        assertOpenThrows(
-            RAR5TestSupport.archive(
-                blocks: [service(fileFlags: 0, compression: UInt64(6) << 7)]
-            ),
-            category: "unsupported",
-            containing: "service compression method"
-        )
+        let payload = Data("after unusual service".utf8)
+        let unusualMethod = RAR5TestSupport.archive(blocks: [
+            service(fileFlags: 0, compression: UInt64(6) << 7),
+            RAR5TestSupport.storedFile(name: "after.txt", contents: payload),
+        ])
+        let reader = try ArchiveReader.open(data: unusualMethod)
+        XCTAssertEqual(reader.entries.map(\.name), ["after.txt"])
+        XCTAssertEqual(try reader.read(reader.entries[0]), payload)
     }
 
     func testForwardAndUnsafeHardLinkTargetsRemainUnresolved() throws {

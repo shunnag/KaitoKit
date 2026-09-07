@@ -338,6 +338,132 @@ final class RAR5DecoderTests: XCTestCase {
         )
     }
 
+    func testDeltaFilterOutputResumesAcrossArbitraryBufferSizes() throws {
+        let filteredLength = 200_123
+        let compressed = makeRepeatingLiteralFilterBlock(
+            byte: 1,
+            count: filteredLength,
+            type: 0,
+            channelsMinusOne: 0
+        )
+        var expectedBytes: [UInt8] = []
+        expectedBytes.reserveCapacity(filteredLength)
+        var sample: UInt8 = 0
+        for _ in 0..<filteredLength {
+            sample &-= 1
+            expectedBytes.append(sample)
+        }
+        let expected = Data(expectedBytes)
+
+        for outputChunk in [4_096, 100_000, 65_537] {
+            let decoder = try makeDecoder(
+                source: DataByteSource(data: compressed),
+                compressedSize: compressed.count,
+                expectedSize: filteredLength
+            )
+            XCTAssertEqual(try drain(decoder, bufferSize: outputChunk), expected)
+            XCTAssertTrue(decoder.isFinished)
+        }
+    }
+
+    func testE8FilterOutputResumesAcrossArbitraryBufferSizes() throws {
+        let encoded = [[UInt8]](
+            repeating: [0xe8, 0, 0, 0, 0],
+            count: 40_025
+        ).flatMap { $0 }
+        let compressed = makeLiteralSequenceFilterBlock(
+            encoded,
+            type: 1
+        )
+        var expectedBytes = encoded
+        try RARStandardFilters.e8(
+            &expectedBytes,
+            fileOffset: 0,
+            includeE9: false
+        )
+        XCTAssertNotEqual(expectedBytes, encoded)
+        let expected = Data(expectedBytes)
+
+        for outputChunk in [4_096, 100_000, 65_537] {
+            let decoder = try makeDecoder(
+                source: DataByteSource(data: compressed),
+                compressedSize: compressed.count,
+                expectedSize: encoded.count
+            )
+            XCTAssertEqual(try drain(decoder, bufferSize: outputChunk), expected)
+            XCTAssertTrue(decoder.isFinished)
+        }
+    }
+
+    func testDeterministicFilterPayloadMutantsCompleteBoundedly() throws {
+        let expectedSize = 4_097
+        let seed = makeRepeatingLiteralFilterBlock(
+            byte: 1,
+            count: expectedSize,
+            type: 0,
+            channelsMinusOne: 0
+        )
+        let limits = ReadLimits(
+            maxEntrySize: 8 * 1_024,
+            maxTotalUncompressedSize: 8 * 1_024,
+            maxInMemorySize: 8 * 1_024,
+            inMemorySingleFileLimit: 8 * 1_024,
+            maxEntryCount: 1,
+            maxMetadataSize: 8 * 1_024,
+            maxMetadataRecordCount: 16,
+            maxPathComponentCount: 4,
+            maxTotalMetadataSize: 8 * 1_024,
+            maxDictionarySize: 128 * 1_024,
+            maxVolumeCount: 1,
+            maxRAR5HeaderKDFWork: 1
+        )
+        let mutationCount = 128
+        let batch = BoundedPayloadMutationBatch {
+            var completed = 0
+            for mutation in 0..<mutationCount {
+                var bytes = [UInt8](seed)
+                let first = (mutation &* 131 &+ 17) % bytes.count
+                bytes[first] ^= UInt8(1) << UInt8(mutation % 8)
+                if mutation.isMultiple(of: 7), bytes.count > 1 {
+                    let second = (mutation &* 43 &+ 5) % bytes.count
+                    bytes[second] ^= 0x80
+                }
+
+                do {
+                    let decoder = try RAR5Decoder(
+                        source: DataByteSource(data: Data(bytes)),
+                        offset: 0,
+                        compressedSize: UInt64(bytes.count),
+                        unpackedSize: UInt64(expectedSize),
+                        dictionarySize: 128 * 1_024,
+                        limits: limits
+                    )
+                    try PayloadMutationTestSupport.drain(
+                        decoder,
+                        bufferSize: 257,
+                        maximumIterations: 8_192
+                    )
+                } catch is KaitoError {
+                    // A structured rejection is expected for most packed mutations.
+                } catch {
+                    return .unexpected("RAR5 filter mutation (mutation): \(error)")
+                }
+                completed += 1
+            }
+            return .completed(completed)
+        }
+        batch.start()
+        guard let outcome = batch.wait(timeout: .now() + 10) else {
+            return XCTFail("RAR5 filter mutation batch exceeded 10 seconds")
+        }
+        switch outcome {
+        case let .completed(completed):
+            XCTAssertEqual(completed, mutationCount)
+        case let .unexpected(description):
+            XCTFail(description)
+        }
+    }
+
     private func makeDecoder(
         source: any ByteSource,
         compressedSize: Int,
@@ -503,6 +629,66 @@ final class RAR5DecoderTests: XCTestCase {
         )
     }
 
+    private func makeRepeatingLiteralFilterBlock(
+        byte: UInt8,
+        count: Int,
+        type: Int,
+        channelsMinusOne: Int?
+    ) -> Data {
+        precondition(count > 0 && count <= Int(UInt32.max))
+        var bits = RAR5DecoderBitWriter()
+        appendTwoMainSymbolTables(first: Int(byte), second: 256, to: &bits)
+        bits.append(1, count: 1) // Symbol 256 schedules the filter at offset zero.
+        appendFilterInteger(0, to: &bits)
+        appendFilterInteger(UInt32(count), to: &bits)
+        bits.append(type, count: 3)
+        if let channelsMinusOne { bits.append(channelsMinusOne, count: 5) }
+        for _ in 0..<count {
+            bits.append(0, count: 1) // The lower main symbol is the literal byte.
+        }
+        return makeRawBlock(
+            payload: bits.bytes,
+            validBitCount: bits.validBitsInFinalByte,
+            includesTables: true,
+            isLast: true
+        )
+    }
+
+    private func makeLiteralSequenceFilterBlock(
+        _ bytes: [UInt8],
+        type: Int
+    ) -> Data {
+        precondition(!bytes.isEmpty && bytes.count <= Int(UInt32.max))
+        let symbols = Array(Set(bytes.map(Int.init)).union([256])).sorted()
+        precondition(symbols.count == 3)
+
+        var bits = RAR5DecoderBitWriter()
+        // Code-length symbols 0 and 2 form one-bit codes. The three main
+        // symbols then receive canonical two-bit codes 00, 01, and 10.
+        for index in 0..<20 {
+            bits.append(index == 0 || index == 2 ? 1 : 0, count: 4)
+        }
+        for index in 0..<430 {
+            bits.append(symbols.contains(index) ? 1 : 0, count: 1)
+        }
+        func appendSymbol(_ symbol: Int) {
+            bits.append(symbols.firstIndex(of: symbol)!, count: 2)
+        }
+
+        appendSymbol(256)
+        appendFilterInteger(0, to: &bits)
+        appendFilterInteger(UInt32(bytes.count), to: &bits)
+        bits.append(type, count: 3)
+        for byte in bytes { appendSymbol(Int(byte)) }
+
+        return makeRawBlock(
+            payload: bits.bytes,
+            validBitCount: bits.validBitsInFinalByte,
+            includesTables: true,
+            isLast: true
+        )
+    }
+
     private func appendSingleMainSymbolTables(
         symbol: Int,
         to bits: inout RAR5DecoderBitWriter
@@ -511,6 +697,21 @@ final class RAR5DecoderTests: XCTestCase {
         // The bit-length alphabet has two one-bit codes: 0 -> 0 and 1 -> 1.
         for index in 0..<20 { bits.append(index < 2 ? 1 : 0, count: 4) }
         for index in 0..<430 { bits.append(index == symbol ? 1 : 0, count: 1) }
+    }
+
+    private func appendTwoMainSymbolTables(
+        first: Int,
+        second: Int,
+        to bits: inout RAR5DecoderBitWriter
+    ) {
+        precondition((0..<306).contains(first))
+        precondition((0..<306).contains(second))
+        precondition(first < second)
+        // The bit-length alphabet has two one-bit codes: 0 -> 0 and 1 -> 1.
+        for index in 0..<20 { bits.append(index < 2 ? 1 : 0, count: 4) }
+        for index in 0..<430 {
+            bits.append(index == first || index == second ? 1 : 0, count: 1)
+        }
     }
 
     private func appendFilterInteger(

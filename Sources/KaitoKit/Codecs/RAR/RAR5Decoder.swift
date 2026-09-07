@@ -266,7 +266,10 @@ final class RAR5Decoder: Decompressor {
         while written < buffer.count, !finished {
             if nextFilterIndex < scheduledFilters.count {
                 let filter = scheduledFilters[nextFilterIndex]
-                guard emitted <= filter.start else {
+                let isBeforeFilter = filterEmitCount == 0 && emitted <= filter.start
+                let isResumingFilter = filterEmitCount > 0
+                    && emitted == filter.start + UInt64(filterEmitCount)
+                guard isBeforeFilter || isResumingFilter else {
                     failure = .malformed("RAR5 filter starts behind emitted output")
                     break
                 }

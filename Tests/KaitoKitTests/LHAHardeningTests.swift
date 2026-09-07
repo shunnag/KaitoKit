@@ -243,7 +243,7 @@ final class LHAHardeningTests: XCTestCase {
         }
     }
 
-    func testExtendedHeaderCountLimitIsAppliedAcrossMembers() throws {
+    func testExtendedHeaderCountLimitIsAppliedPerMember() throws {
         let extras = (0..<8).map {
             HandLHAExtendedHeader(UInt8(0x60 + $0), [UInt8($0)])
         }
@@ -265,6 +265,26 @@ final class LHAHardeningTests: XCTestCase {
             guard case KaitoError.limitExceeded = error else {
                 return XCTFail("expected limitExceeded, got \(error)")
             }
+        }
+    }
+
+    func testDefaultExtendedHeaderLimitAllows13108FiveRecordMembers() throws {
+        let extra = HandLHAExtendedHeader(0x60, [0x41])
+        let counts = [13_107, 13_108]
+        for count in counts {
+            let archive = try LHATestSupport.makeArchive(entries: (0..<count).map { index in
+                HandLHAEntry(
+                    name: "member-\(index)",
+                    method: "-lhd-",
+                    headerLevel: 2,
+                    directoryBytes: Array("folder".utf8) + [0xFF],
+                    permissions: 0o755,
+                    extraHeaders: [extra]
+                )
+            })
+            let reader = try ArchiveReader.open(data: archive)
+            XCTAssertEqual(reader.entries.count, count)
+            XCTAssertEqual(reader.entries.last?.index, count - 1)
         }
     }
 

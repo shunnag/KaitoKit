@@ -37,8 +37,8 @@
   cooViewer `book.lzh` と lhasa の SHA-256 差分を追加。Swift 6.4 AddressSanitizer では
   parser / container 384 件と実 archive seed の method 320 件、計 704 deterministic mutant を実行し、
   test / sanitizer failure は 0 件だった。
-- 供給された corpus directory の 227 archive は、203 件が lhasa と byte-identical、8 件が Unix symlink
-  semantics の差、9 件が KaitoKit 側の想定内 failure (PM1 系 4 件: 非対応 3 / truncated 1、PM2 非対応
+- 供給された corpus directory の 227 archive は、当時の集計で 203 件が lhasa と byte-identical、8 件が
+  Unix symlink semantics の差(後述のレビュー修正で `.symlink` として展開)、9 件が KaitoKit 側の想定内 failure (PM1 系 4 件: 非対応 3 / truncated 1、PM2 非対応
   3 件、4.5 GiB member に対する既定 4 GiB 上限 1 件、parent traversal 拒否 1 件)、7 件が
   lhasa / oracle 側の failure (LH2 / LH3 2、malformed PM2 1、truncated 1、unusual link / EA 3) だった。
 - 中央ディレクトリ駆動、ZIP64、SFX prefix、遅延ローカルヘッダ検証に対応した ZIP reader。
@@ -78,9 +78,10 @@
   `ReadLimits.maxRAR5HeaderKDFWork` へ HMAC-SHA256 iteration 単位で `2^count + 32` ずつ累積する。
   同一 context の key-cache hit は再加算せず、既定値は最大コストの `count = 24` context 4 件分
   (`4 * (2^24 + 32)`)。
-- RAR5 の file-copy redirection、RAR5 SFX、Data / 任意 `ByteSource` からの volume 継続、
-  サイズ不明の暗号化 stored entry は明示的に非対応。圧縮アルゴリズム version 1 は、
-  ユーザー指定の M3 境界として全件を検出して拒否する。codec 辞書の既定上限は 1 GiB。
+- RAR5 の file-copy redirection の展開、RAR5 SFX、Data / 任意 `ByteSource` からの volume 継続、
+  サイズ不明の暗号化 stored entry は明示的に非対応。圧縮アルゴリズム version 1 と version 2 以上、
+  method 6 以上、file-encryption record version 1 以上、KDF count 上限超過は、対象 entry の
+  stream 作成時に拒否し、他の entry の一覧・読み取りを妨げない。codec 辞書の既定上限は 1 GiB。
 - RAR5 実書庫 5 本、431 file stream、915,433,332 bytes を RAR 7.23 と SHA-256 差分確認。
   RAR4 は `st1200-pts.rar` の 19/19 file と 241,647,978-byte PPMd↔LZ entry が一致した。
   追加 corpus 20 書庫では 47 regular file と 5 symlink target が一致し、既知 password で
@@ -103,3 +104,21 @@
 - エントリ・PAX・パス・総メタデータの上限と、ASan/UBSan ミュータント実行スクリプト。
 - ユニバーサル `KaitoKit.framework` を組み立てるスクリプトと移行ガイド。
 - 設計書: 要件、安全規則、実装方式、API 層、検証方針、マイルストーン。
+- RAR / LHA の敵対レビュー(39 エージェント)確定 9 件の修正。RAR29 LZ は symbol ループの
+  各 iteration で入力枯渇を検査し(履歴の無い symbol 258 の no-op 経路)、RAR5 filter は caller
+  buffer 長に依存せず途中再開する。RAR5 の hard link (redirection type 4) / file reference (type 5)
+  は body なしの 0-byte entry として一覧・読み取りでき、solid chain と総展開サイズに参加しない
+  (type 4 は展開時に hard link、type 5 の copy 展開は非対応)。`ArchiveReader.extract` の
+  hard link 出所 key は最寄りの既存 ancestor を解決する(未作成の `/private/tmp` と `/tmp` 表記)。
+  RAR4 / RAR5 の Unix symlink は `linkTargetStoredAsData` を公開して stored target から展開し、
+  LHA の `-lhd-` + `S_IFLNK` は `name|target` を `.symlink` / `linkPath` に分離する。
+  `ReadLimits.maxMetadataRecordCount` は書庫累計ではなく record set 単位(LHA member の
+  extension chain、RAR5 header の extra area)の上限になった。RAR4 `-p` の compressed entry は
+  decoder の malformed / truncated を `.wrongPassword` に正規化し、`-hp` は物理的に短い
+  envelope と後続切断を `.truncated` として区別する。`ReaderOptions.maxRAR5KDFCountPower` /
+  `maxSevenZipAESCyclesPower` は代入時にも 24 / 62 へ clamp する。
+- Scripts/fuzz: RAR4 LZ / PPMd-H、RAR5 LZ、LHA lh4 / lh6 / lh7 の packed-range locator と
+  compressed seed 生成、`--require-payload-ranges`。corpus 依存テストは
+  `KAITOKIT_RAR4_CORPUS` / `KAITOKIT_LHA_CORPUS` などの環境変数で指定し、libarchive
+  (BSD-2-Clause)/ ISC 由来の小さな fixture を `Tests/Fixtures` に base64 で固定する
+  (`Tests/Fixtures/NOTICE`)。

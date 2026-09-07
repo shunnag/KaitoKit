@@ -99,6 +99,35 @@ enum LHATestSupport {
         | (UInt32(4) << 5)
         | UInt32(3)
 
+    static var corpusRoot: URL? {
+        guard let path = ProcessInfo.processInfo.environment["KAITOKIT_LHA_CORPUS"],
+              !path.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    static var lhasaExecutableURL: URL? {
+        let environment = ProcessInfo.processInfo.environment
+        if let override = environment["KAITOKIT_LHA_EXECUTABLE"], !override.isEmpty {
+            let url = URL(fileURLWithPath: override)
+            return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
+        }
+        for directory in (environment["PATH"] ?? "").split(separator: ":") {
+            let url = URL(fileURLWithPath: String(directory), isDirectory: true)
+                .appendingPathComponent("lha")
+            if FileManager.default.isExecutableFile(atPath: url.path) {
+                return url
+            }
+        }
+        for path in ["/opt/homebrew/bin/lha", "/usr/local/bin/lha"] {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return URL(fileURLWithPath: path)
+            }
+        }
+        return nil
+    }
+
     static func makeArchive(entries: [HandLHAEntry]) throws -> Data {
         var archive = Data()
         for entry in entries {

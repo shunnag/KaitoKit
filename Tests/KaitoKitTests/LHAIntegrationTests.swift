@@ -92,6 +92,84 @@ final class LHAIntegrationTests: XCTestCase {
         XCTAssertEqual(try reopened.read(reopened.entries[2]), payloads[2])
     }
 
+    func testUnixDirectoryMethodSymbolicLinkSplitsStoredNameAndTarget() throws {
+        let payload = Data("linked LHA member".utf8)
+        let archive = try LHATestSupport.makeArchive(entries: [
+            HandLHAEntry(
+                name: "links/shortcut|target.txt",
+                method: "-lhd-",
+                headerLevel: 2,
+                permissions: 0o120777
+            ),
+            HandLHAEntry(
+                name: "links/target.txt",
+                contents: payload,
+                headerLevel: 2
+            ),
+        ])
+
+        let reader = try ArchiveReader.open(data: archive)
+        XCTAssertEqual(reader.entries.map(\.name), ["links/shortcut", "links/target.txt"])
+        XCTAssertEqual(reader.entries.map(\.kind), [.symlink, .file])
+        XCTAssertEqual(reader.entries[0].formatSpecific["linkPath"], "target.txt")
+
+        let output = try temporaryDirectory(label: "symlink")
+        defer { try? FileManager.default.removeItem(at: output) }
+        let implicitParent = output.appendingPathComponent("links", isDirectory: true)
+        let link = implicitParent.appendingPathComponent("shortcut")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: implicitParent.path))
+
+        // Extracting the link first materializes its implicit parent directory.
+        // The `-lhd-` member itself must remain a link rather than becoming a
+        // directory named `shortcut|target.txt`.
+        _ = try reader.extract(reader.entries[0], to: output)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: implicitParent.path))
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: implicitParent.appendingPathComponent("shortcut|target.txt").path
+            )
+        )
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: link.path),
+            "target.txt"
+        )
+
+        _ = try reader.extract(reader.entries[1], to: output)
+        XCTAssertEqual(
+            try Data(contentsOf: implicitParent.appendingPathComponent("target.txt")),
+            payload
+        )
+    }
+
+    func testUnixSymbolicLinkWithParentTargetRejectsOnlyThatEntry() throws {
+        let payload = Data("ordinary member after unusual link".utf8)
+        let archive = try LHATestSupport.makeArchive(entries: [
+            HandLHAEntry(
+                name: "shortcut|../outside.txt",
+                method: "-lhd-",
+                headerLevel: 2,
+                permissions: 0o120777
+            ),
+            HandLHAEntry(name: "after.txt", contents: payload, headerLevel: 2),
+        ])
+        let reader = try ArchiveReader.open(data: archive)
+        XCTAssertEqual(reader.entries[0].kind, .symlink)
+        XCTAssertEqual(reader.entries[0].formatSpecific["linkPath"], "../outside.txt")
+
+        let output = try temporaryDirectory(label: "parent-link")
+        defer { try? FileManager.default.removeItem(at: output) }
+        XCTAssertThrowsError(try reader.extract(reader.entries[0], to: output)) { error in
+            guard case KaitoError.malformed = error else {
+                return XCTFail("expected malformed, got \(error)")
+            }
+        }
+        _ = try reader.extract(reader.entries[1], to: output)
+        XCTAssertEqual(
+            try Data(contentsOf: output.appendingPathComponent("after.txt")),
+            payload
+        )
+    }
+
     func testCodePage65001And936AreDeclaredAndSkipArchiveGuessing() throws {
         let utf8Name = "宣言済み.txt"
         let gbkName: [UInt8] = [0xD6, 0xD0, 0xCE, 0xC4] + Array(".txt".utf8)
@@ -542,11 +620,13 @@ final class LHAIntegrationTests: XCTestCase {
     }
 
     func testCooViewerBookFixtureMatchesLhasaMemberDigests() throws {
-        let fixture = URL(
-            fileURLWithPath: "/Users/nagash/cooViewer/CooViewerTests/Fixtures/book.lzh"
-        )
+        guard let fixturePath = ProcessInfo.processInfo.environment["KAITOKIT_BOOK_LHA"],
+              !fixturePath.isEmpty else {
+            throw XCTSkip("set KAITOKIT_BOOK_LHA to run the book fixture comparison")
+        }
+        let fixture = URL(fileURLWithPath: fixturePath)
         guard FileManager.default.fileExists(atPath: fixture.path) else {
-            throw XCTSkip("cooViewer book.lzh is not installed on this host")
+            throw XCTSkip("KAITOKIT_BOOK_LHA is not readable")
         }
         let temporary = try temporaryDirectory(label: "book")
         defer { try? FileManager.default.removeItem(at: temporary) }
@@ -612,6 +692,146 @@ final class LHAIntegrationTests: XCTestCase {
         }
     }
 
+    func testCheckedInISCStaticHuffmanFixtures() throws {
+        let fixtures = [
+            ("lh4-small.lzh.b64", "-lh4-"),
+            ("lh6-small.lzh.b64", "-lh6-"),
+            ("lh7-small.lzh.b64", "-lh7-"),
+        ]
+        let expectedDigest =
+            "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+        let directory = ZipTestSupport.repositoryRoot
+            .appendingPathComponent("Tests/Fixtures/lha", isDirectory: true)
+
+        for (fixture, method) in fixtures {
+            let encoded = try String(
+                contentsOf: directory.appendingPathComponent(fixture),
+                encoding: .utf8
+            )
+            let archive = try XCTUnwrap(
+                Data(base64Encoded: encoded, options: .ignoreUnknownCharacters),
+                fixture
+            )
+            let reader = try ArchiveReader.open(data: archive)
+            let entry = try XCTUnwrap(reader.entries.first, fixture)
+            XCTAssertEqual(reader.entries.count, 1, fixture)
+            XCTAssertEqual(entry.methodDescription, method, fixture)
+            let decoded = try reader.read(entry)
+            XCTAssertEqual(decoded.count, 18_092, fixture)
+            XCTAssertEqual(
+                SHA256.hash(data: decoded).map { String(format: "%02x", $0) }.joined(),
+                expectedDigest,
+                fixture
+            )
+        }
+    }
+
+    func testCheckedInStaticHuffmanPayloadMutantsCompleteBoundedly() throws {
+        let fixtureNames = [
+            "lh4-small.lzh.b64",
+            "lh6-small.lzh.b64",
+            "lh7-small.lzh.b64",
+        ]
+        let fixtureDirectory = ZipTestSupport.repositoryRoot
+            .appendingPathComponent("Tests/Fixtures/lha", isDirectory: true)
+        let limits = ReadLimits(
+            maxEntrySize: 32 * 1_024,
+            maxTotalUncompressedSize: 64 * 1_024,
+            maxInMemorySize: 32 * 1_024,
+            inMemorySingleFileLimit: 32 * 1_024,
+            maxEntryCount: 4,
+            maxMetadataSize: 8 * 1_024,
+            maxMetadataRecordCount: 32,
+            maxPathComponentCount: 8,
+            maxTotalMetadataSize: 32 * 1_024,
+            maxDictionarySize: 128 * 1_024,
+            maxVolumeCount: 1,
+            maxRAR5HeaderKDFWork: 1
+        )
+        let options = ReaderOptions(limits: limits)
+        var seeds: [(archive: Data, range: Range<Int>)] = []
+
+        for fixtureName in fixtureNames {
+            let encoded = try String(
+                contentsOf: fixtureDirectory.appendingPathComponent(fixtureName),
+                encoding: .utf8
+            )
+            let archive = try XCTUnwrap(
+                Data(base64Encoded: encoded, options: .ignoreUnknownCharacters),
+                fixtureName
+            )
+            let reader = try ArchiveReader.open(data: archive, options: options)
+            let entry = try XCTUnwrap(reader.entries.first, fixtureName)
+            let dataOffset = try XCTUnwrap(
+                entry.formatSpecific["dataOffset"].flatMap(Int.init),
+                fixtureName
+            )
+            let compressedSize = try XCTUnwrap(
+                entry.compressedSize.flatMap(Int.init(exactly:)),
+                fixtureName
+            )
+            guard dataOffset >= 0,
+                  dataOffset <= archive.count,
+                  compressedSize > 0,
+                  compressedSize <= archive.count - dataOffset else {
+                return XCTFail("invalid LHA packed range: \(fixtureName)")
+            }
+            seeds.append((archive, dataOffset..<(dataOffset + compressedSize)))
+        }
+
+        let mutationSeeds = seeds
+        let mutationCount = 192
+        let batch = BoundedPayloadMutationBatch {
+            var completed = 0
+            for mutation in 0..<mutationCount {
+                let seedIndex = mutation % mutationSeeds.count
+                let localMutation = mutation / mutationSeeds.count
+                let seed = mutationSeeds[seedIndex]
+                var bytes = [UInt8](seed.archive)
+                let first = seed.range.lowerBound
+                    + (localMutation &* 131 &+ 17) % seed.range.count
+                bytes[first] ^= UInt8(1) << UInt8(localMutation % 8)
+                if localMutation.isMultiple(of: 7), seed.range.count > 1 {
+                    let second = seed.range.lowerBound
+                        + (localMutation &* 43 &+ 5) % seed.range.count
+                    bytes[second] ^= 0x80
+                }
+
+                do {
+                    let reader = try ArchiveReader.open(
+                        data: Data(bytes),
+                        options: options
+                    )
+                    for entry in reader.entries {
+                        try PayloadMutationTestSupport.drain(
+                            reader.stream(entry),
+                            bufferSize: 257,
+                            maximumIterations: 32_768
+                        )
+                    }
+                } catch is KaitoError {
+                    // A structured rejection is expected for most packed mutations.
+                } catch {
+                    return .unexpected(
+                        "LHA fixture (seedIndex), mutation (localMutation): \(error)"
+                    )
+                }
+                completed += 1
+            }
+            return .completed(completed)
+        }
+        batch.start()
+        guard let outcome = batch.wait(timeout: .now() + 15) else {
+            return XCTFail("LHA static-Huffman mutation batch exceeded 15 seconds")
+        }
+        switch outcome {
+        case let .completed(completed):
+            XCTAssertEqual(completed, mutationCount)
+        case let .unexpected(description):
+            XCTFail(description)
+        }
+    }
+
     func testCLIListIncludesLHAHeaderLevel() throws {
         let temporary = try temporaryDirectory(label: "cli")
         defer { try? FileManager.default.removeItem(at: temporary) }
@@ -635,14 +855,17 @@ final class LHAIntegrationTests: XCTestCase {
     }
 
     private func requireLhasa() throws {
-        guard FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/lha") else {
-            throw XCTSkip("/opt/homebrew/bin/lha is not installed")
+        guard LHATestSupport.lhasaExecutableURL != nil else {
+            throw XCTSkip("set KAITOKIT_LHA_EXECUTABLE or install lhasa")
         }
     }
 
     private func lhasaMember(archive: URL, name: String) throws -> Data {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/lha")
+        guard let executable = LHATestSupport.lhasaExecutableURL else {
+            throw XCTSkip("set KAITOKIT_LHA_EXECUTABLE or install lhasa")
+        }
+        process.executableURL = executable
         process.arguments = ["-pq", archive.path, name]
         let output = Pipe()
         let errors = Pipe()

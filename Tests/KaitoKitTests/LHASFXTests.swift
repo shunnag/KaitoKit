@@ -4,11 +4,6 @@ import Foundation
 import XCTest
 
 final class LHASFXTests: XCTestCase {
-    private static let corpusRoot = URL(
-        fileURLWithPath: "/private/tmp/claude-501/-Users-nagash-cooViewer/37ef55f3-9116-4440-88b8-9a15060856ad/scratchpad/lha-corpus",
-        isDirectory: true
-    )
-
     func testNineCorpusSelfExtractorsMatchLhasa() throws {
         let relativePaths = [
             "explzh_723/declha_sfx_ansi.exe",
@@ -21,11 +16,14 @@ final class LHASFXTests: XCTestCase {
             "lhmelt_16536/sfx_winsfx_213.exe",
             "lhmelt_16536/sfx_winsfxm_250.exe",
         ]
-        let archives = relativePaths.map { Self.corpusRoot.appendingPathComponent($0) }
+        guard let corpusRoot = LHATestSupport.corpusRoot else {
+            throw XCTSkip("set KAITOKIT_LHA_CORPUS to run the LHA corpus tests")
+        }
+        let archives = relativePaths.map { corpusRoot.appendingPathComponent($0) }
         guard archives.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else {
             throw XCTSkip("read-only lhasa compatibility corpus is unavailable")
         }
-        guard FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/lha") else {
+        guard LHATestSupport.lhasaExecutableURL != nil else {
             throw XCTSkip("lhasa executable is unavailable")
         }
 
@@ -102,7 +100,10 @@ final class LHASFXTests: XCTestCase {
 
     private func lhasaMember(archive: URL, name: String) throws -> Data {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/lha")
+        guard let executable = LHATestSupport.lhasaExecutableURL else {
+            throw XCTSkip("lhasa executable is unavailable")
+        }
+        process.executableURL = executable
         process.arguments = ["-pq", archive.path, name]
         let output = Pipe()
         let errors = Pipe()

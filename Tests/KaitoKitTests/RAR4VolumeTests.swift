@@ -3,10 +3,6 @@ import Foundation
 import XCTest
 
 final class RAR4VolumeTests: XCTestCase {
-    private static let corpus = URL(
-        fileURLWithPath: "/private/tmp/claude-501/-Users-nagash-cooViewer/37ef55f3-9116-4440-88b8-9a15060856ad/scratchpad/rar4-corpus",
-        isDirectory: true
-    )
     private static let stem = "test_read_format_rar_multivolume"
 
     func testOldRarR00NumberingMergesSplitStoredEntry() throws {
@@ -88,7 +84,10 @@ final class RAR4VolumeTests: XCTestCase {
     }
 
     func testRealNewNumberedVolumesAreMergedAndReopenRetainsSources() throws {
-        let first = Self.corpus.appendingPathComponent("\(Self.stem).part0001.rar")
+        guard let corpus = RAR4TestSupport.corpusDirectory else {
+            throw XCTSkip("KAITOKIT_RAR4_CORPUS is not configured")
+        }
+        let first = corpus.appendingPathComponent("\(Self.stem).part0001.rar")
         guard FileManager.default.fileExists(atPath: first.path) else {
             throw XCTSkip("RAR4 multi-volume corpus is absent")
         }
@@ -111,7 +110,10 @@ final class RAR4VolumeTests: XCTestCase {
     }
 
     func testNonfinalPackedPartCRCIsCheckedBeforeDecoding() throws {
-        let original = Self.corpus.appendingPathComponent("\(Self.stem).part0001.rar")
+        guard let corpus = RAR4TestSupport.corpusDirectory else {
+            throw XCTSkip("KAITOKIT_RAR4_CORPUS is not configured")
+        }
+        let original = corpus.appendingPathComponent("\(Self.stem).part0001.rar")
         guard FileManager.default.fileExists(atPath: original.path) else {
             throw XCTSkip("RAR4 multi-volume corpus is absent")
         }
@@ -120,7 +122,7 @@ final class RAR4VolumeTests: XCTestCase {
         for number in 1...4 {
             let name = String(format: "%@.part%04d.rar", Self.stem, number)
             try FileManager.default.copyItem(
-                at: Self.corpus.appendingPathComponent(name),
+                at: corpus.appendingPathComponent(name),
                 to: directory.appendingPathComponent(name)
             )
         }
@@ -138,7 +140,10 @@ final class RAR4VolumeTests: XCTestCase {
     }
 
     func testVolumeCountLimitStopsBeforeOpeningUnboundedContinuations() throws {
-        let first = Self.corpus.appendingPathComponent("\(Self.stem).part0001.rar")
+        guard let corpus = RAR4TestSupport.corpusDirectory else {
+            throw XCTSkip("KAITOKIT_RAR4_CORPUS is not configured")
+        }
+        let first = corpus.appendingPathComponent("\(Self.stem).part0001.rar")
         guard FileManager.default.fileExists(atPath: first.path) else {
             throw XCTSkip("RAR4 multi-volume corpus is absent")
         }

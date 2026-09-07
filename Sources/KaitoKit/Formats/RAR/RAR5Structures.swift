@@ -59,26 +59,30 @@ struct RAR5CompressionInfo: Sendable, Equatable {
 
     init(rawValue: UInt64) throws {
         let version = UInt8(rawValue & 0x3f)
-        guard version <= 1 else {
-            throw KaitoError.unsupportedMethod("RAR compression version \(version)")
-        }
+        let dictionarySize: UInt64
+        if version > 1 {
+            // Later layouts are listable, but their version-specific dictionary
+            // fields are deliberately not interpreted before stream creation.
+            dictionarySize = 128 * 1_024
+        } else {
+            let exponent = UInt8((rawValue >> 10) & 0x1f)
+            if version == 0, exponent > 15 {
+                throw KaitoError.malformed(
+                    "RAR5 version 0 dictionary exponent exceeds 15"
+                )
+            }
+            guard exponent <= 23 else {
+                throw KaitoError.malformed("RAR dictionary exponent exceeds 23")
+            }
 
-        let exponent = UInt8((rawValue >> 10) & 0x1f)
-        if version == 0, exponent > 15 {
-            throw KaitoError.malformed(
-                "RAR5 version 0 dictionary exponent exceeds 15"
-            )
-        }
-        guard exponent <= 23 else {
-            throw KaitoError.malformed("RAR dictionary exponent exceeds 23")
-        }
-
-        let base = try Checked.shiftLeft(128 * 1_024, by: UInt64(exponent))
-        var dictionarySize = base
-        if version == 1 {
-            let fraction = (rawValue >> 15) & 0x1f
-            let increment = try Checked.mul(base, fraction) / 32
-            dictionarySize = try Checked.add(base, increment)
+            let base = try Checked.shiftLeft(128 * 1_024, by: UInt64(exponent))
+            if version == 1 {
+                let fraction = (rawValue >> 15) & 0x1f
+                let increment = try Checked.mul(base, fraction) / 32
+                dictionarySize = try Checked.add(base, increment)
+            } else {
+                dictionarySize = base
+            }
         }
         self.rawValue = rawValue
         self.version = version

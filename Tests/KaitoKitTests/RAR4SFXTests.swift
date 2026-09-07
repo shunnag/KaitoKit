@@ -4,17 +4,17 @@ import Foundation
 import XCTest
 
 final class RAR4SFXTests: XCTestCase {
-    private static let archive = URL(
-        fileURLWithPath: "/private/tmp/claude-501/-Users-nagash-cooViewer/37ef55f3-9116-4440-88b8-9a15060856ad/scratchpad/rar4-corpus/test_read_format_rar_sfx.exe"
-    )
-
     func testRealSFXPrefixIsBoundedlyLocatedAndExtractsExactly() throws {
-        guard FileManager.default.fileExists(atPath: Self.archive.path) else {
+        guard let corpus = RAR4TestSupport.corpusDirectory else {
+            throw XCTSkip("KAITOKIT_RAR4_CORPUS is not configured")
+        }
+        let archive = corpus.appendingPathComponent("test_read_format_rar_sfx.exe")
+        guard FileManager.default.fileExists(atPath: archive.path) else {
             throw XCTSkip("RAR4 SFX corpus is absent")
         }
         try RAR5TestSupport.requireRAR()
 
-        let source = try FileByteSource(url: Self.archive)
+        let source = try FileByteSource(url: archive)
         let match = try XCTUnwrap(FormatDetector.findRARSignature(source: source))
         XCTAssertEqual(match.offset, 98_816)
         XCTAssertEqual(match.version, .rar4)
@@ -26,13 +26,13 @@ final class RAR4SFXTests: XCTestCase {
             .rar
         )
 
-        let reader = try ArchiveReader.open(url: Self.archive)
+        let reader = try ArchiveReader.open(url: archive)
         XCTAssertEqual(reader.entries.count, 5)
         for entry in reader.entries where entry.kind != .directory {
             let decoded = try reader.read(entry)
             let oracle = try ZipTestSupport.checkedRun(
                 RAR5TestSupport.executablePath,
-                arguments: ["p", "-inul", Self.archive.path, entry.name]
+                arguments: ["p", "-inul", archive.path, entry.name]
             ).standardOutput
             XCTAssertEqual(
                 SHA256.hash(data: decoded),

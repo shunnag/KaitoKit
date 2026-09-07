@@ -343,7 +343,7 @@ public final class ArchiveReader {
         options extractionOptions: ExtractionOptions = ExtractionOptions()
     ) throws -> URL {
         try validate(entry)
-        let rootKey = directory.standardizedFileURL.path
+        let rootKey = Self.stableExtractionRootKey(directory)
         if extractionRootKey != rootKey {
             extractionRootKey = rootKey
             extractedFiles.removeAll(keepingCapacity: false)
@@ -396,6 +396,32 @@ public final class ArchiveReader {
         guard canonical == entry else {
             throw KaitoError.notFound("archive entry \(entry.index)")
         }
+    }
+
+    /// Resolves the nearest existing ancestor before adding any missing path
+    /// suffix. This gives an uncreated `/private/tmp` path and its later
+    /// `/tmp` spelling the same key without creating the extraction root before
+    /// the entry stream has been validated.
+    private static func stableExtractionRootKey(_ directory: URL) -> String {
+        let manager = FileManager.default
+        var ancestor = directory.standardizedFileURL
+        var missingComponents: [String] = []
+
+        while !manager.fileExists(atPath: ancestor.path) {
+            let parent = ancestor.deletingLastPathComponent()
+            guard parent.path != ancestor.path else {
+                return directory.standardizedFileURL.path
+            }
+            let component = ancestor.lastPathComponent
+            if !component.isEmpty { missingComponents.append(component) }
+            ancestor = parent
+        }
+
+        var resolved = ancestor.resolvingSymlinksInPath().standardizedFileURL
+        for component in missingComponents.reversed() {
+            resolved.appendPathComponent(component, isDirectory: true)
+        }
+        return resolved.path
     }
 
     private func preparePassword(for entry: ArchiveEntry) throws {

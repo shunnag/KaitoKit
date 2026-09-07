@@ -3,13 +3,8 @@ import Foundation
 import XCTest
 
 final class LHACompatibilityCorpusTests: XCTestCase {
-    private static let corpusRoot = URL(
-        fileURLWithPath: "/private/tmp/claude-501/-Users-nagash-cooViewer/37ef55f3-9116-4440-88b8-9a15060856ad/scratchpad/lha-corpus",
-        isDirectory: true
-    )
-
     func testDirectoryAndRelativeNameCorpusArchivesExtractSafely() throws {
-        let fixtures = [
+        var fixtures = try [
             "lhmelt_16536/h0_subdir.lzh",
             "lhmelt_16536/h1_subdir.lzh",
             "lhmelt_16536/h2_subdir.lzh",
@@ -18,14 +13,18 @@ final class LHACompatibilityCorpusTests: XCTestCase {
             "maclha_224/l1_full_subdir.lzh",
             "maclha_224/l2_full_subdir.lzh",
             "tascal_lha_051h/abspath.lzh",
-            "regression/abspath.lzh",
-            "regression/badterm.lzh",
             "lha_amiga_122/lh0_dirs_bug.lzh",
-            "regression/empty_fn.lzh",
-        ]
+        ].map { (label: $0, url: try corpusFixture($0)) }
+        for index in [1, 2, 5] {
+            fixtures.append((
+                label: "regression directory index \(index)",
+                url: try regressionFixture(index: index)
+            ))
+        }
 
-        for relativePath in fixtures {
-            let archive = try corpusFixture(relativePath)
+        for fixture in fixtures {
+            let relativePath = fixture.label
+            let archive = fixture.url
             let reader = try ArchiveReader.open(url: archive)
             let stopsAtEmptyRoot = relativePath == "lha_osk_201/h0_subdir.lzh"
                 || relativePath == "lha_unix114i/h0_subdir.lzh"
@@ -45,7 +44,7 @@ final class LHACompatibilityCorpusTests: XCTestCase {
         XCTAssertEqual(amiga.entries[2].kind, .directory)
 
         let anonymous = try ArchiveReader.open(
-            url: corpusFixture("regression/empty_fn.lzh")
+            url: regressionFixture(index: 5)
         )
         XCTAssertEqual(anonymous.entries.count, 2)
         XCTAssertEqual(
@@ -55,6 +54,61 @@ final class LHACompatibilityCorpusTests: XCTestCase {
                 "Picasso96Install/Picasso96/P96Speed/Compare.dat",
             ]
         )
+    }
+
+    func testUnixSymbolicLinkCorpusPublishesAndExtractsTargets() throws {
+        let ordinaryCases: [(String, String, String, Bool)] = [
+            ("lha_unix114i/h2_symlink.lzh", "symlink", "target", true),
+            ("lha_unix114i/h2_symlink2.lzh", "symlink", "path/to/target", true),
+            ("lha_unix114i/h2_symlink3.lzh", "subdir/symlink", "/absolute/path", false),
+        ]
+        var cases = try ordinaryCases.map {
+            (label: $0.0, url: try corpusFixture($0.0), name: $0.1, target: $0.2, extracts: $0.3)
+        }
+        let regressionCases: [(Int, String, String, Bool)] = [
+            (8, "foo.txt", "bar.txt", true),
+            (9, "etc", "../../etc", false),
+            (10, "etc", "/tmp", false),
+        ]
+        for item in regressionCases {
+            cases.append((
+                label: "regression directory index \(item.0)",
+                url: try regressionFixture(index: item.0),
+                name: item.1,
+                target: item.2,
+                extracts: item.3
+            ))
+        }
+
+        for fixture in cases {
+            let reader = try ArchiveReader.open(url: fixture.url)
+            let link = try XCTUnwrap(reader.entries.first, fixture.label)
+            XCTAssertEqual(link.kind, .symlink, fixture.label)
+            XCTAssertEqual(link.name, fixture.name, fixture.label)
+            XCTAssertEqual(link.formatSpecific["linkPath"], fixture.target, fixture.label)
+
+            let destination = temporaryDestination(label: "symlink")
+            defer { try? FileManager.default.removeItem(at: destination) }
+            if fixture.extracts {
+                _ = try reader.extract(link, to: destination)
+                XCTAssertTrue(
+                    try destination.appendingPathComponent(fixture.name)
+                        .resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true,
+                    fixture.label
+                )
+            } else {
+                XCTAssertThrowsError(try reader.extract(link, to: destination), fixture.label) {
+                    error in
+                    guard case KaitoError.malformed = error else {
+                        return XCTFail("expected malformed, got \(error)", file: #filePath, line: #line)
+                    }
+                }
+            }
+
+            for entry in reader.entries.dropFirst() where entry.kind == .file {
+                _ = try reader.extract(entry, to: destination)
+            }
+        }
     }
 
     func testAbsoluteDrivePrefixesBecomeRelativeButDotDotRemainsUnsafe() throws {
@@ -178,11 +232,31 @@ final class LHACompatibilityCorpusTests: XCTestCase {
     }
 
     private func corpusFixture(_ relativePath: String) throws -> URL {
-        let url = Self.corpusRoot.appendingPathComponent(relativePath)
+        guard let root = LHATestSupport.corpusRoot else {
+            throw XCTSkip("set KAITOKIT_LHA_CORPUS to run the LHA corpus tests")
+        }
+        let url = root.appendingPathComponent(relativePath)
         guard FileManager.default.isReadableFile(atPath: url.path) else {
-            throw XCTSkip("LHA compatibility corpus is unavailable: \(url.path)")
+            throw XCTSkip("LHA compatibility corpus member is unavailable: \(relativePath)")
         }
         return url
+    }
+
+    private func regressionFixture(index: Int) throws -> URL {
+        guard let root = LHATestSupport.corpusRoot else {
+            throw XCTSkip("set KAITOKIT_LHA_CORPUS to run the LHA corpus tests")
+        }
+        let directory = root.appendingPathComponent("regression", isDirectory: true)
+        let files = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey]
+        ).filter {
+            try $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true
+        }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard index > 0, files.indices.contains(index - 1) else {
+            throw XCTSkip("LHA regression directory index \(index) is unavailable")
+        }
+        return files[index - 1]
     }
 
     private func extractAll(_ reader: ArchiveReader, label: String) throws {

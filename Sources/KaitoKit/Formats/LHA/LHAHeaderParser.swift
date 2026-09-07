@@ -165,7 +165,6 @@ enum LHAHeaderParser {
         var offset = startOffset
         var foundEndMarker = false
         var sawAnonymousRegularMember = false
-        var totalExtensionRecords = 0
         var retainedPendingMetadataSize: UInt64 = 0
         var reader = try ByteReader(source: source)
 
@@ -235,13 +234,6 @@ enum LHAHeaderParser {
             guard pendingEntries.count < limits.maxEntryCount else {
                 throw KaitoError.limitExceeded("archive entry count")
             }
-            let (newRecordCount, recordCountOverflow) = totalExtensionRecords
-                .addingReportingOverflow(parsed.extensionRecordCount)
-            guard !recordCountOverflow,
-                  newRecordCount <= limits.maxMetadataRecordCount else {
-                throw KaitoError.limitExceeded("LHA extended-header count")
-            }
-            totalExtensionRecords = newRecordCount
 
             guard parsed.nextOffset > offset else {
                 throw KaitoError.malformed("LHA member made no forward progress")
@@ -1043,9 +1035,19 @@ enum LHAHeaderParser {
             let separatorNormalizedName = pending.headerLevel <= 1
                 ? decodedName.replacingOccurrences(of: "\\", with: "/")
                 : decodedName
-            let isDirectory = pending.directoryHint
-                || separatorNormalizedName.hasSuffix("/")
-            var name = relativeArchivePath(separatorNormalizedName)
+            let unixFileType = pending.extended.unixMode.map { $0 & 0o170000 }
+            let isUnixSymbolicLink = pending.method == "-lhd-"
+                && unixFileType == 0o120000
+            var storedName = separatorNormalizedName
+            var linkPath: String?
+            if isUnixSymbolicLink,
+               let separator = storedName.firstIndex(of: "|") {
+                linkPath = String(storedName[storedName.index(after: separator)...])
+                storedName = String(storedName[..<separator])
+            }
+            let isDirectory = !isUnixSymbolicLink
+                && (pending.directoryHint || storedName.hasSuffix("/"))
+            var name = relativeArchivePath(storedName)
             if name.isEmpty, isDirectory {
                 // Empty -lhd- names denote the archive root. Keeping a dot
                 // entry lets extraction drain/authenticate the member without
@@ -1083,7 +1085,12 @@ enum LHAHeaderParser {
             }
             assert(pathComponents.count == componentCount)
 
-            let kind: EntryKind = isDirectory ? .directory : .file
+            let kind: EntryKind
+            if isUnixSymbolicLink {
+                kind = .symlink
+            } else {
+                kind = isDirectory ? .directory : .file
+            }
             var specific: [String: String] = [
                 "attribute": String(format: "0x%02x", pending.attribute),
                 "dataCRC16": String(format: "%04x", pending.crc16),
@@ -1093,6 +1100,9 @@ enum LHAHeaderParser {
                 "method": pending.method,
                 "os": osDescription(pending.osID),
             ]
+            if let linkPath {
+                specific["linkPath"] = linkPath
+            }
             if let osID = pending.osID {
                 specific["osID"] = printableOSID(osID)
             }

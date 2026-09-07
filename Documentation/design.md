@@ -25,7 +25,10 @@
 安全(#1〜#48、ファジング):
 - 攻撃者制御の長さ・カウント・シフト量・オフセットは**読んだ場所で**上限と符号を検証する(VLA なし、`Int` の符号付き演算に頼らない、`<<` の前に範囲確認、64bit で計算してから 32bit へ落とさない)。
 - ハフマン/ラン長テーブルの充填は必ずテーブル長で打ち切る。
-- ループの前進保証(RAR5 ブロック、XZ ブロック、CFBF FAT、ISO CE 連鎖)。
+- ループの前進保証(RAR29 LZ 記号、RAR5 ブロック、XZ ブロック、CFBF FAT、ISO CE 連鎖)。
+  RAR29 は table / match 境界のみの検査では、履歴が無い symbol 258 が no-op となる経路を
+  捕捉できない。そのため記号ループの各 iteration で `bits.overrun` を検査し、入力を
+  使い切った malformed archive を `.truncated` で終了させる。
 - 宣言サイズ由来の確保は上限つきにし、符号化(圧縮)ヘッダが宣言する復号サイズを信用しない(実バイトの裏付けがあるカウントだけを厳密に扱う)。
 - `ReadLimits.maxTotalUncompressedSize` (既定 64 GiB) は reader が公開する全 entry の宣言サイズを
   open 時に合算し、サイズ不明 entry は実際に生成した最大 byte 数を entry ごとに一度だけ加算する。
@@ -33,6 +36,9 @@
   probe で正常終端か超過かを確定する。超過が判明した reader の合算枠は以後 terminal とする。
   `reopen()` は独立した合算枠を持つ。この上限が無い場合、構造上は非重複でも既定の他上限内で
   およそ 10 TiB の総出力を宣言できる。
+- `ReadLimits.maxMetadataRecordCount` は書庫全体の累積値ではなく、1 つの metadata record set の
+  上限である。LHA は member ごとの extension chain、RAR5 は header ごとの extra area に
+  個別に適用し、書庫全体は `maxEntryCount` / `maxTotalMetadataSize` で制限する。
 - ZIP の local header から payload 終端までの範囲は entry 間で重複させない。eager local-header
   検証では open 時に全範囲を拒否する。lazy 検証でも、要求 entry までを local offset 順に prefix
   検証するため、alias された同一 start と、前の entry の payload が次の local start を越える形を
@@ -78,6 +84,9 @@ streaming 検証契約:
   CLI は最後まで drain し、検証成功後だけ
   完成結果を返す。WinZip AE 仕様が示す検証順序とは異なる、bounded-memory streaming の明示的な
   trade-off とする。
+- RAR5 の filter 済み出力は呼出側の buffer 長に依存せず、filter の途中で `read(into:)` が
+  戻っても次回に再開する。再開状態 `emitted == filter.start + filterEmitCount` を正常経路とし、
+  4,096 / 100,000 / 65,537 byte の buffer と solid random access で同一出力を検証する。
 - archive に permissions が無い場合、または `preserveMetadata == false` の場合、新規 file は
   `0666 & ~umask`、明示・暗黙 directory は `0777 & ~umask` を使う。
 - 呼出側が所有する展開 root / 中間 directory に owner access が足りない場合は、固定済み descriptor
@@ -141,10 +150,17 @@ streaming 検証契約:
 - 7zz / xz oracle は環境変数 (`KAITO_7ZZ` / `KAITO_XZ`) を最優先し、次に `PATH`、最後に既知の
   Homebrew path から解決する。CI の差分 job は必要 tool を導入し、`KAITO_REQUIRE_7ZZ=1` /
   `KAITO_REQUIRE_XZ=1` の必須 oracle mode では skip を failure にする。
-- フィクスチャ生成: 7zz、RAR 7.23 の RAR5、RAR 3.00 の RAR4/PPMd-H、lha(作成には LHa for UNIX が必要、lhasa は展開のみ)、bsdtar、zip(Info-ZIP)+ makesjiszip.py。生成済み RAR4 binary は review 可能な base64 として固定する。
+- RAR / LHA の外部 corpus は `KAITOKIT_RAR4_CORPUS` / `KAITOKIT_LHA_CORPUS`、個別の RAR4
+  archive は `KAITOKIT_RAR4_PPMD_SOLID_ARCHIVE` / `KAITOKIT_RAR4_FILTER_ARCHIVE` で指定する。
+  oracle executable は `KAITOKIT_RAR_EXECUTABLE` / `KAITOKIT_LHA_EXECUTABLE` を優先し、ホスト固有の
+  scratch path をテストの前提にしない。
+- フィクスチャ生成: 7zz、RAR 7.23 の RAR5、RAR 3.00 の RAR4/PPMd-H、lha(作成には LHa for UNIX が必要、lhasa は展開のみ)、bsdtar、zip(Info-ZIP)+ makesjiszip.py。生成済み binary は review 可能な base64 として固定する。`Tests/Fixtures/rar4` の libarchive 由来フィクスチャは BSD-2-Clause、`Tests/Fixtures/lha` の小さな lh4 / lh6 / lh7 フィクスチャは ISC で、出自とライセンスは `Tests/Fixtures/NOTICE` に記録する。
 - 堅牢性: ASan/UBSan ビルド + ミュータント(`Scripts/fuzz/mutate.py`)+ malformed / unusual archive、巨大宣言サイズ・循環参照の回帰テスト。`make-compressed-seeds.sh` は ZIP の
-  Deflate / Deflate64 / BZip2 / LZMA / AES と 7z の LZMA2 / PPMd / BCJ2 / AES seed を 7zz で作り、
-  payload-aware mutant は container header だけでなく、認識した packed-data region も直接変更する。
+  Deflate / Deflate64 / BZip2 / LZMA / AES、7z の LZMA2 / PPMd / BCJ2 / AES に加え、RAR4 LZ / PPMd-H、
+  RAR5 LZ、LHA lh4 / lh6 / lh7 の compressed seed を用意する。ZIP / 7z / RAR4 / RAR5 / LHA の
+  locator が認識した packed-data region を payload-aware mutant が直接変更し、
+  `--require-payload-ranges` で未認識 seed を受け入れない。過去の whole-container 変異の実行数は、
+  この packed-payload 対応の実行数とは扱わない。
 - 性能: Scripts/bench の方法論(交互実行、同一ハーネス、SHA 相互検証)を kaito CLI に移植し、XADMaster final と比較。目標は原則 1.3 倍以内、RAR decoder は指定基準の 1.5 倍以内。
 
 ## 9. マイルストーン(beads 子 issue)
@@ -244,6 +260,12 @@ count は候補を black-box parsing し、5-bit count だけが完全な canoni
 `unrar` は source を参照せず executable oracle として試したが、この環境では引数なしでも停止したため、
 M3 の実差分では RAR 7.23 の `rar p -inul` を使用した。
 
+2026-09-07 の RAR / LHA format-compatibility / robustness review で追加した実装入力は、
+供給された review 報告と clean-room 要件、既存の許可済み資料、RAR 7.23 / installed lhasa の
+black-box 入出力だけである。新たな第三者 decoder source は参照していない。固定テストに追加した
+`Tests/Fixtures/rar4/libarchive_*.rar.b64` は libarchive test suite の BSD-2-Clause フィクスチャ、
+`Tests/Fixtures/lha/lh{4,6,7}-small.lzh.b64` は ISC フィクスチャであり、`Tests/Fixtures/NOTICE` に記録する。
+
 ## 11. 実装記録(2026-09-06〜07)
 
 - M0(コミット da98a9f, 16d27f8): 骨格・コア・tar・互換層・CLI・fuzz 基盤。CI は macos-26 / macos-26-intel。
@@ -288,15 +310,20 @@ M3 の実差分では RAR 7.23 の `rar p -inul` を使用した。
     独立 state を持つ。暗号化 solid も扱うが、stored member、unpack version 29 以外、dictionary size
     変更を含む RAR4 solid group は M3 では明示的に非対応。
   - RAR4 暗号は RAR3 per-file AES-128-CBC / SHA-1 KDF と `-hp` archive header encryption を実装し、
-    password provider、派生鍵 cache、wrong-password / CRC semantics を実書庫で検証した。
+    password provider と派生鍵 cache を実書庫で検証した。`-p` の compressed entry は
+    decoder の `.malformed` / `.truncated` を、独立の password check を持たない暗号文の
+    `.wrongPassword` として正規化する。`-hp` は password 不一致を `.wrongPassword`、物理的に短い
+    encrypted-header envelope と後続切断を `.truncated` として区別する。
   - RAR5 は CRC 付き main / file / service / encryption / end header、vint / extra record、stored、
     圧縮アルゴリズム version 0 の LZ (method 1〜5)、Delta / E8 / E8E9 / ARM filter を実装した。
     E8 / E8E9 の位置は RAR5 の下位 24 bit 規則で変換し、サイズ不明 stream でも filter 待機時の
-    前進を保証する。
+    前進を保証する。filter 出力の途中で caller buffer が満杯になった場合も、
+    `filterEmitCount` を保持して次回の `read(into:)` から buffer 長に依存せず再開する。
   - RAR5 solid は window / Huffman / repeat-distance state を継続し、順方向 skip と group 先頭からの
     後方再開を行う。stored member は順序には参加するが LZ history を変更せず、member ごとの
     dictionary 値は minimum として扱い group 最大値を確保するため、圧縮 / stored の混在と
-    dictionary minimum の変更を扱える。
+    dictionary minimum の変更を扱える。body を持たない redirection type 4 / 5 は solid chain に
+    参加せず、後続 member の history に影響しない。
   - RAR5 per-file AES-256-CBC と archive `-hp` header encryption、PBKDF2-HMAC-SHA256、password
     check、暗号化 CRC / BLAKE2sp HashMAC を実装した。URL-backed multi-volume は visible / encrypted
     header、暗号化 data、solid とその組合せを含め、分割 ciphertext を一つの stream として扱う。
@@ -310,9 +337,11 @@ M3 の実差分では RAR 7.23 の `rar p -inul` を使用した。
     暗号化 checksum の HashMAC、非最終 file part に存在する packed CRC32 / BLAKE2sp を検証する。
     サイズ不明の圧縮 entry は `uncompressedSize == nil` のまま終端まで streaming する。
     codec 辞書は stream 作成時に `ReadLimits.maxDictionarySize` (既定 1 GiB) で制限する。
-  - M3 の明示的な RAR5 非対応は file-copy redirection、RAR5 SFX、Data / 任意 `ByteSource` からの
-    sibling volume 継続、サイズ不明の暗号化 stored entry である。圧縮アルゴリズム version 1 は、
-    technote の version-field 解釈とは別に、ユーザー指定の M3 境界としてすべて検出して拒否する。
+  - M3 の明示的な RAR5 非対応は file-copy redirection の展開、RAR5 SFX、
+    Data / 任意 `ByteSource` からの sibling volume 継続、サイズ不明の暗号化 stored entry である。
+    redirection type 5 は一覧と 0-byte read / stream を行えるが、copy target の展開は行わない。
+    compression method 1〜5 の algorithm version 1 は stream 作成時に拒否し、stored method 0 は
+    圧縮 grammar を使わない。version 2 以上も対象 entry の stream 作成時に拒否する。
   - 最終 RAR5 release `bench` の warm median は `book-rar5.cbr` extract 29.965 ms、
     `book-tiff-rar5.cbr` extract 518.363 ms。XADMaster 基準 34 / 352 ms に対して 0.881 / 1.473 倍で、
     RAR 固有の 1.5 倍目標内。同じ実行環境での 784b37a は 29.698 / 512.411 ms で、差は
@@ -322,10 +351,15 @@ M3 の実差分では RAR 7.23 の `rar p -inul` を使用した。
   - RAR5 は 5 corpus の全 431 file stream (915,433,332 bytes)を RAR 7.23 `rar p -inul` と比較し、
     SHA-256 が全件一致した。RAR4 は `st1200-pts.rar` の 19/19 file、PPMd↔LZ 変換の
     241,647,978-byte entry が一致した。追加 RAR4 corpus 20 書庫では 47 regular file の byte count /
-    SHA-256 と 5 symlink の名前 / target bytes が一致した。既知 password 集合で oracle を得られない
-    暗号化 entry は 1 件残り、破損 `seek_data_cursor0` は RAR 7.23 と KaitoKit の双方が拒否した。
-    RAR4 / RAR5 の unit-level deterministic mutant 544 件に加え、8 種の RAR seed から作った
-    400 件を `Scripts/fuzz/run-mutants.sh` の ASan build で実行し、crash / hang / sanitizer finding は 0 件だった。
+    SHA-256 と 5 symlink の名前 / target bytes が一致した。この 5 件は当時 read 結果のみの
+    検証で、現在は checked-in BSD-2-Clause fixture で `linkTargetStoredAsData` と実際の
+    symlink 展開も回帰テストする。既知 password 集合で oracle を得られない暗号化 entry は
+    1 件残り、供給 RAR4 corpus 内の malformed archive 1 件は RAR 7.23 と KaitoKit の双方が
+    拒否した。RAR4 / RAR5 の unit-level deterministic mutant 544 件は stored seed を使った
+    container 変異である。旧 locator で 8 種の RAR seed から作った 400 件も whole-container 変異で、
+    8 種のうち 4 種は stored、2 種は password を与えなければ packed decoder へ進まない。
+    これら 944 件は ASan build で crash / hang / sanitizer finding 0 件だが、payload-aware の
+    圧縮 RAR 実行数とは数えない。
   - プロベナンス: RAR5 の sole external format-specific source は RARLab technote で、圧縮 grammar の
     実装入力は同 technote、task orchestrator 供給の clean-room 仕様、RAR 7.23 black-box vector だけである。
     RAR4 の format-specific input は bitplane/rar-research note と BSD-2 libarchive RAR4 `rar.c` の
@@ -337,7 +371,8 @@ M3 の実差分では RAR 7.23 の `rar p -inul` を使用した。
   (LZ・標準 VM フィルタ 6 種・PPMd var.H・solid・AES-128・ヘッダ暗号化・分割・SFX 前置)。RAR5 corpus と実書庫、
   RAR4 の st1200(19 JPEG)と libarchive の BSD 試験書庫が `rar` オラクル / XADMaster と一致。第 1 段の敵対
   レビュー(35 エージェント)で見つかった E8 の 16 MiB 位置還元漏れ・未知サイズ entry の無限ループ・
-  解析時の上限適用は第 2 段で修正。未対応: RAR5 圧縮 v1、file-copy リダイレクト、RAR4 unpack version 15/20/26、
+  decoder dictionary 上限の適用時点は第 2 段で修正。未対応: RAR5 圧縮 v1、file-copy リダイレクトの展開、
+  RAR4 unpack version 15/20/26、
   SFX と分割の併用。Swift 6.3.3(Xcode 26.6)では暗黙メンバ推論と private 構造体の init に互換修正が必要だった。
 - M4(本変更): LHA / LZH header level 0 / 1 / 2 / 3、header byte sum / optional 0x00 CRC16、
   拡張 header、書庫単位 legacy-name 判定と 0x46 codepage 932 / 65001 / 936、member CRC16 を
@@ -370,15 +405,19 @@ M3 の実差分では RAR 7.23 の `rar p -inul` を使用した。
   black-box vector で installed liblhasa の +3 挙動を確認した。
   - これは自前 decoder library に対する通常の format-compatibility / robustness 追補であり、
     supplied corpus directory の unusual / malformed archive と black-box 出力を境界条件の検証に使った。
-    227 archive の最終 tally は、lhasa と byte-identical 203 件、Unix symlink semantics の差 8 件、
+    227 archive の当時の tally は、lhasa と byte-identical 203 件、Unix symlink semantics の差 8 件、
     KaitoKit 側の想定内 failure 9 件 (PM1 系 4 件: 非対応 3 / truncated 1、PM2 非対応 3 件、
     4.5 GiB member に対する既定 4 GiB 上限 1 件、parent traversal 拒否 1 件)、lhasa / oracle 側の
-    failure 7 件 (LH2 / LH3 2、malformed PM2 1、truncated 1、unusual link / EA 3) だった。
+    failure 7 件 (LH2 / LH3 2、malformed PM2 1、truncated 1、unusual link / EA 3) だった。symlink の 8 件は
+    decoded byte の差ではなく、`-lhd-` + `S_IFLNK` を directory として公開し、展開で directory を
+    作っていた semantics の差だった。現在は `name|target` を name / `linkPath` に分離して
+    `.symlink` とし、許容される相対 target は symlink として展開、absolute / parent target はその entry だけ拒否する。
     hand-built level 0 / 1 / 2 と extension / codepage / decoder vector、cooViewer `book.lzh` の
     level-2 `-lh0-` 4 member (合計 33,104 bytes)、hand-built `-lh5-`、`-lh1-`、`-lz5-`、`-lzs-`
     vector は installed lhasa の出力と SHA-256 が一致した。Swift 6.4 AddressSanitizer では
-    parser / container 384 件と実 archive seed の method 320 件、計 704 deterministic mutant を実行し、
-    test / sanitizer failure は 0 件だった。
+    hand-built stored seed 全体を変更する parser / container 384 件と、外部 corpus の LHX / LHArk
+    packed range を直接変更する 320 件の計 704 deterministic mutant を実行し、test / sanitizer
+    failure は 0 件だった。後者は corpus 依存で、checked-in lh4 / lh6 / lh7 seed の coverage ではない。
   - release `kaito bench book.lzh 9` の warm median は open 0.049 ms、4 member / 33,104 bytes の
     extract 0.189 ms だった。総合 SHA-256 は
     `53bbe8926086ebd7d4e65b9c90dc9c367385ee0808a23bae3972cbfe5e3ce97c`。
@@ -388,11 +427,42 @@ M3 の実差分では RAR 7.23 の `rar p -inul` を使用した。
   互換層のディレクトリ名/不明サイズを修正。
 - M5(本コミット): gzip/bzip2/xz/.Z と圧縮 tar、SFX 判定、KaitoKitCompat の完成(delegate・attributes・
   nameEncoding・extractEntry はディレクトリ)、DocC、.spi.yml、移行ガイド完成。
+- RAR / LHA format-compatibility / robustness review 追補(2026-09-07):
+  - RAR29 LZ は全 symbol iteration で `bits.overrun` を検査する。直前 match の無い symbol 258 が
+    no-op となる場合も、入力終端で `.truncated` となり前進不変条件を満たす。
+  - RAR5 filter は途中まで出力した状態を次の `read(into:)` で再開できる。手組み Delta / E8 と
+    RAR 7.23 `rar a -s` の executable archive を 4,096 / 100,000 / 65,537 byte buffer で drain し、
+    12 MiB + 1 byte の predecessor を持つ solid group の random access を含めて元バイトと一致した。
+  - RAR5 redirection type 4 (hard link) / 5 (file reference) は宣言サイズにかかわらず
+    `uncompressedSize == compressedSize == 0` の body なし entry とし、read / stream は 0 byte を返す。
+    solid chain と archive output budget に参加させず、type 4 は既に展開した先行 file への hard link として
+    展開する。type 5 の copy 展開は引き続き非対応である。
+  - `ArchiveReader.extract` の hard-link provenance key は、最寄りの存在する ancestor を
+    `resolvingSymlinksInPath()` して未作成 suffix を戻す。これにより未作成の `/private/tmp`
+    root と作成後の `/tmp` spelling、および `/tmp` 下の relative root で tar / RAR5 hard link を継続できる。
+  - RAR4 / RAR5 の Unix symlink は redirection record を持たない場合に
+    `linkTargetStoredAsData=true` を公開し、stored target bytes から展開する。LHA は
+    `-lhd-` + `S_IFLNK` の `name|target` を `.symlink` / `linkPath` として扱う。absolute または
+    parent traversal を含む unusual target の展開失敗はその entry だけに限定する。
+  - `maxMetadataRecordCount` は LHA の extension chain と RAR5 の extra area ごとにリセットする。
+    5 record を持つ LHA level-2 member の 13,107 / 13,108 件と、htime extra を持つ RAR5 header
+    65,600 件を列挙する境界テストを持つ。
+  - RAR5 file header の method > 5、compression version > 1、file-encryption record version != 0、
+    `maxRAR5KDFCountPower` 超過は open / listing を妨げず、その entry の stream 作成時に拒否する。
+    他の public entry は引き続き読める。service header は public `ArchiveEntry` にはならないため、
+    stream 作成時の検査対象を持たない。method > 5 も enclosing header の境界内で構造検査した後に
+    service payload と共に skip し、open で拒否せず後続 public file を読める。これを requested
+    stream-time check に対する API 上の deviation として明記する。
+  - corpus 依存テストは環境変数 override と checked-in base64 fixture を使う。fuzz tooling は
+    RAR4 / RAR5 / LHA の packed-range locator と RAR4 LZ / PPMd-H、RAR5 LZ、LHA lh4 / lh6 / lh7
+    seed を追加した。旧 whole-container 変異の集計を新しい packed-payload coverage としては扱わない。
 - cooViewer PoC(cooViewer 9153ef2、ローカル): ArchiveEngine 抽象で XADMaster/KaitoKit を設定切替、
   両エンジンの同値テスト、snapshot A/B 12/12 一致。
 - **ホットループの方針(確定)**: 復号器のホットループは、辞書(窓)・確率表・入力を一度だけ確保した生バッファで
-  持ち、状態はループ内ローカルに保持し、算術検証はチャンク/ブロック境界で行う(ループ内で throw しない、
-  番兵で物理的読み越しを防ぐ)。安全性は境界での検証と不変条件のコメントで担保する。バイト単位の安全な
+  持ち、状態はループ内ローカルに保持し、算術検証は原則としてチャンク/ブロック境界で行う(番兵で
+  物理的読み越しを防ぐ)。ただし RAR29 symbol 258 のように入力消費も出力もしない分岐を
+  持つ loop は、各 iteration で入力枯渇を検査し、失敗状態を記録して抜ける。安全性は
+  境界での検証と前進不変条件のコメントで担保する。バイト単位の安全な
   配列アクセスは排他検査と COW 検査で 8 倍遅くなることを実測した(book-tiff.7z 4.9 s → 0.64〜0.94 s)。
 - 性能(release、M4 Max、`kaito sha` のプロセス全体 / XADMaster 同条件): stored cbz 0.17 / 0.18 s、deflate cbz
   0.82 / 0.84 s、book-tiff.7z 0.94 / 0.57 s、book-solid.7z 10.1 / 7.65 s。§4 の目標 1.3 倍以内を LZMA2 solid は

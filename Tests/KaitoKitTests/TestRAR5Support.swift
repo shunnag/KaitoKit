@@ -3,13 +3,35 @@ import Foundation
 import XCTest
 
 enum RAR5TestSupport {
-    static let executablePath = "/opt/homebrew/bin/rar"
+    static let executablePath = resolveRARExecutablePath()
 
     struct BlockLayout {
         let offset: Int
         let sizeField: Range<Int>
         let body: Range<Int>
         let data: Range<Int>
+    }
+
+    private static func resolveRARExecutablePath() -> String {
+        let environment = ProcessInfo.processInfo.environment
+        if let configured = environment["KAITOKIT_RAR_EXECUTABLE"],
+           !configured.isEmpty {
+            return configured
+        }
+        if let path = environment["PATH"] {
+            for directory in path.split(separator: ":", omittingEmptySubsequences: true) {
+                let candidate = URL(fileURLWithPath: String(directory), isDirectory: true)
+                    .appendingPathComponent("rar").path
+                if FileManager.default.isExecutableFile(atPath: candidate) {
+                    return candidate
+                }
+            }
+        }
+        for candidate in ["/opt/homebrew/bin/rar", "/usr/local/bin/rar"]
+        where FileManager.default.isExecutableFile(atPath: candidate) {
+            return candidate
+        }
+        return "/opt/homebrew/bin/rar"
     }
 
     static func requireRAR() throws {
@@ -57,6 +79,7 @@ enum RAR5TestSupport {
         dataCRC32: UInt32? = nil,
         includeCRC32: Bool = true,
         hostOS: UInt64 = 1,
+        attributes: UInt64 = 0,
         fileFlags additionalFileFlags: UInt64 = 0,
         compressionInfo: UInt64 = 0,
         extra: [UInt8] = [],
@@ -65,7 +88,7 @@ enum RAR5TestSupport {
         let fileFlags = additionalFileFlags | (includeCRC32 ? 0x0004 : 0)
         var specific = vint(fileFlags)
         specific += vint(unpackedSize ?? UInt64(contents.count))
-        specific += vint(0)
+        specific += vint(attributes)
         if includeCRC32 {
             appendLittle(dataCRC32 ?? CRC32.checksum(contents), to: &specific)
         }
@@ -89,6 +112,7 @@ enum RAR5TestSupport {
         dataCRC32: UInt32? = nil,
         includeCRC32: Bool = true,
         hostOS: UInt64 = 1,
+        attributes: UInt64 = 0,
         fileFlags: UInt64 = 0,
         compressionInfo: UInt64 = 0,
         extra: [UInt8] = [],
@@ -101,6 +125,7 @@ enum RAR5TestSupport {
             dataCRC32: dataCRC32,
             includeCRC32: includeCRC32,
             hostOS: hostOS,
+            attributes: attributes,
             fileFlags: fileFlags,
             compressionInfo: compressionInfo,
             extra: extra,

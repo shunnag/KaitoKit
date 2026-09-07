@@ -212,6 +212,72 @@ final class TarHardeningTests: XCTestCase {
         XCTAssertEqual(try inode(of: original), try inode(of: alias))
     }
 
+    func testHardLinkExtractionKeepsProvenanceForUncreatedPrivateRoot() throws {
+        let root = URL(
+            fileURLWithPath: "/private/tmp/KaitoKitTests-\(UUID().uuidString)/output",
+            isDirectory: true
+        )
+        defer {
+            try? FileManager.default.removeItem(
+                at: root.deletingLastPathComponent()
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
+
+        let payload = Data("hard-link private-root payload".utf8)
+        let archive = try TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "original.txt", contents: payload),
+            HandTarEntry(name: "alias.txt", type: 0x31, linkName: "original.txt"),
+        ])
+        let reader = try ArchiveReader.open(data: archive)
+
+        _ = try reader.extract(reader.entries[0], to: root)
+        _ = try reader.extract(reader.entries[1], to: root)
+
+        let original = root.appendingPathComponent("original.txt")
+        let alias = root.appendingPathComponent("alias.txt")
+        XCTAssertEqual(try Data(contentsOf: alias), payload)
+        XCTAssertEqual(try inode(of: original), try inode(of: alias))
+    }
+
+    func testHardLinkExtractionKeepsProvenanceForRelativeRootBelowTmp() throws {
+        let manager = FileManager.default
+        let originalWorkingDirectory = manager.currentDirectoryPath
+        let workingDirectory = URL(
+            fileURLWithPath: "/tmp/KaitoKitTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try manager.createDirectory(
+            at: workingDirectory,
+            withIntermediateDirectories: true
+        )
+        guard manager.changeCurrentDirectoryPath(workingDirectory.path) else {
+            return XCTFail("could not enter the temporary working directory")
+        }
+        defer {
+            _ = manager.changeCurrentDirectoryPath(originalWorkingDirectory)
+            try? manager.removeItem(at: workingDirectory)
+        }
+
+        let root = URL(fileURLWithPath: "relative-output", isDirectory: true)
+        XCTAssertFalse(manager.fileExists(atPath: root.path))
+
+        let payload = Data("hard-link relative-root payload".utf8)
+        let archive = try TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "original.txt", contents: payload),
+            HandTarEntry(name: "alias.txt", type: 0x31, linkName: "original.txt"),
+        ])
+        let reader = try ArchiveReader.open(data: archive)
+
+        _ = try reader.extract(reader.entries[0], to: root)
+        _ = try reader.extract(reader.entries[1], to: root)
+
+        let original = root.appendingPathComponent("original.txt")
+        let alias = root.appendingPathComponent("alias.txt")
+        XCTAssertEqual(try Data(contentsOf: alias), payload)
+        XCTAssertEqual(try inode(of: original), try inode(of: alias))
+    }
+
     func testHardLinkChainEndingAtEarlierRegularFileSucceeds() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }

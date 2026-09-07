@@ -423,7 +423,6 @@ final class RAR5Reader: FormatReader {
         var sawEndHeader = false
         var endFlags = RAR5EndFlags()
         var serviceHeaderCount = 0
-        var extraRecordCount = 0
         var retainedMetadataSize: UInt64 = 0
     }
 
@@ -523,23 +522,24 @@ final class RAR5Reader: FormatReader {
             try Checked.size(unpackedSize, limit: limits.maxEntrySize)
         }
 
-        if record.redirectionType == 5 {
-            throw KaitoError.unsupportedMethod("RAR5 file-copy redirection")
+        if Self.isZeroBodyRedirection(record.redirectionType) {
+            return try EntryStream(
+                source: source,
+                offset: 0,
+                length: 0,
+                limits: limits
+            )
         }
+        try Self.validateStreamCompatibility(
+            record,
+            options: options,
+            sourceURL: sourceURL
+        )
         if record.compression.method != 0 {
-            guard record.compression.version == 0 else {
-                throw KaitoError.unsupportedMethod("RAR compression algorithm version 1")
-            }
             try Checked.size(
                 record.compression.dictionarySize,
                 limit: limits.maxDictionarySize
             )
-        }
-        if record.requiresPreviousVolume || record.requiresNextVolume {
-            if sourceURL == nil {
-                throw KaitoError.unsupportedMethod("multi-volume from Data")
-            }
-            throw KaitoError.truncated
         }
 
         if entry.solidGroup >= 0 {
@@ -662,27 +662,11 @@ final class RAR5Reader: FormatReader {
             let dictionarySize = groupIndices.reduce(UInt64(128 * 1_024)) {
                 indexMaximum, index in
                 let member = records[index]
-                return member.compression.method == 0
-                    ? indexMaximum
-                    : max(indexMaximum, member.compression.dictionarySize)
-            }
-            for index in groupIndices {
-                let member = records[index]
-                guard member.compression.method == 0
-                        || member.compression.version == 0 else {
-                    throw KaitoError.unsupportedMethod(
-                        "RAR compression algorithm version 1"
-                    )
+                guard (1...5).contains(member.compression.method),
+                      member.compression.version == 0 else {
+                    return indexMaximum
                 }
-                guard !member.requiresPreviousVolume,
-                      !member.requiresNextVolume else {
-                    if sourceURL == nil {
-                        throw KaitoError.unsupportedMethod(
-                            "multi-volume from Data"
-                        )
-                    }
-                    throw KaitoError.truncated
-                }
+                return max(indexMaximum, member.compression.dictionarySize)
             }
 
             let capturedEntries = entries
@@ -690,6 +674,7 @@ final class RAR5Reader: FormatReader {
             let capturedOptions = options
             let capturedPassword = password
             let capturedKeyCache = keyCache
+            let capturedSourceURL = sourceURL
             coordinator = SolidCoordinator(
                 entryIndices: groupIndices,
                 dictionarySize: dictionarySize,
@@ -708,6 +693,7 @@ final class RAR5Reader: FormatReader {
                     limits: limits,
                     password: capturedPassword,
                     keyCache: capturedKeyCache,
+                    sourceURL: capturedSourceURL,
                     state: state
                 )
             }
@@ -748,13 +734,14 @@ final class RAR5Reader: FormatReader {
         limits: ReadLimits,
         password: String?,
         keyCache: RAR5KeyCache,
+        sourceURL: URL?,
         state: RAR5Decoder.SolidState
     ) throws -> EntryStream {
-        guard record.compression.method == 0 || record.compression.version == 0 else {
-            throw KaitoError.unsupportedMethod(
-                "RAR compression algorithm version 1"
-            )
-        }
+        try validateStreamCompatibility(
+            record,
+            options: options,
+            sourceURL: sourceURL
+        )
         let prepared = try preparePayload(
             record,
             entryIndex: entry.index,
@@ -829,6 +816,51 @@ final class RAR5Reader: FormatReader {
             checksumMismatchIsWrongPassword: prepared.mismatchIsWrongPassword,
             crc32Transform: crc32Transform
         )
+    }
+
+    private static func validateStreamCompatibility(
+        _ record: Record,
+        options: ReaderOptions,
+        sourceURL: URL?
+    ) throws {
+        guard record.compression.version <= 1 else {
+            throw KaitoError.unsupportedMethod(
+                "RAR compression version \(record.compression.version)"
+            )
+        }
+        guard record.compression.method <= 5 else {
+            throw KaitoError.unsupportedMethod(
+                "RAR5 compression method \(record.compression.method)"
+            )
+        }
+        if record.compression.method != 0,
+           record.compression.version != 0 {
+            throw KaitoError.unsupportedMethod(
+                "RAR compression algorithm version 1"
+            )
+        }
+        if let encryption = record.encryption {
+            guard encryption.version == 0 else {
+                throw KaitoError.unsupportedMethod(
+                    "RAR5 file encryption version \(encryption.version)"
+                )
+            }
+            guard encryption.kdfCount <= options.maxRAR5KDFCountPower else {
+                throw KaitoError.unsupportedMethod(
+                    "RAR5 KDF count \(encryption.kdfCount)"
+                )
+            }
+        }
+        if record.requiresPreviousVolume || record.requiresNextVolume {
+            if sourceURL == nil {
+                throw KaitoError.unsupportedMethod("multi-volume from Data")
+            }
+            throw KaitoError.truncated
+        }
+    }
+
+    private static func isZeroBodyRedirection(_ type: UInt64?) -> Bool {
+        type == 4 || type == 5
     }
 
     private static func makeCompressedDecompressor(
@@ -1118,7 +1150,6 @@ final class RAR5Reader: FormatReader {
         var current = first
         var volumeNumber: UInt64 = 0
         var totalRetainedMetadata = current.retainedMetadataSize
-        var totalExtraRecords = current.extraRecordCount
         var totalServiceHeaders = current.serviceHeaderCount
 
         try mergeFragments(
@@ -1170,12 +1201,6 @@ final class RAR5Reader: FormatReader {
             try Checked.size(
                 totalRetainedMetadata,
                 limit: options.limits.maxTotalMetadataSize
-            )
-            totalExtraRecords = try checkedMetadataRecordSum(
-                totalExtraRecords,
-                next.extraRecordCount,
-                limit: options.limits.maxMetadataRecordCount,
-                label: "RAR5 extra record count"
             )
             totalServiceHeaders = try checkedMetadataRecordSum(
                 totalServiceHeaders,
@@ -1319,7 +1344,7 @@ final class RAR5Reader: FormatReader {
                 guard state.serviceHeaderCount <= options.limits.maxMetadataRecordCount else {
                     throw KaitoError.limitExceeded("RAR5 service header count")
                 }
-                try validateServiceHeader(block, limits: options.limits, state: &state)
+                try validateServiceHeader(block, limits: options.limits)
 
             case .encryption:
                 throw KaitoError.malformed(
@@ -1335,7 +1360,7 @@ final class RAR5Reader: FormatReader {
                 guard cursor.isAtEnd else {
                     throw KaitoError.malformed("RAR5 end header has trailing fields")
                 }
-                try validateExtraArea(block.extra, state: &state, limits: options.limits)
+                try validateExtraArea(block.extra, limits: options.limits)
                 guard block.dataSize == 0 else {
                     throw KaitoError.malformed("RAR5 end header has a data area")
                 }
@@ -1345,7 +1370,7 @@ final class RAR5Reader: FormatReader {
                 guard block.flags.contains(.skipIfUnknown) else {
                     throw KaitoError.unsupportedMethod("RAR5 header type \(block.typeValue)")
                 }
-                try validateExtraArea(block.extra, state: &state, limits: options.limits)
+                try validateExtraArea(block.extra, limits: options.limits)
             }
             offset = block.nextOffset
         }
@@ -1615,7 +1640,7 @@ final class RAR5Reader: FormatReader {
         }
         state.archiveFlags = archiveFlags
         state.volumeNumber = volumeNumber
-        try validateExtraArea(block.extra, state: &state, limits: limits)
+        try validateExtraArea(block.extra, limits: limits)
     }
 
     private static func parseFileHeader(
@@ -1640,9 +1665,6 @@ final class RAR5Reader: FormatReader {
         }
         let dataCRC = fileFlags.contains(.crc32) ? try cursor.readUInt32LE() : nil
         let compression = try RAR5CompressionInfo(rawValue: cursor.readVInt())
-        guard compression.method <= 5 else {
-            throw KaitoError.unsupportedMethod("RAR5 compression method \(compression.method)")
-        }
         let hostOS = try cursor.readVInt()
         let nameLength = try cursor.readVInt()
         try Checked.size(nameLength, limit: options.limits.maxMetadataSize)
@@ -1675,7 +1697,7 @@ final class RAR5Reader: FormatReader {
         var extraCursor = block.extra
         var extras = FileExtras()
         var singletonExtraTypes: Set<UInt64> = []
-        try parseExtraRecords(&extraCursor, state: &state, limits: options.limits) {
+        try parseExtraRecords(&extraCursor, limits: options.limits) {
             type, record in
             try rejectDuplicateSingletonExtra(
                 type,
@@ -1684,10 +1706,7 @@ final class RAR5Reader: FormatReader {
             )
             switch type {
             case 0x01:
-                extras.encryption = try parseEncryptionRecord(
-                    &record,
-                    maximumKDFCount: options.maxRAR5KDFCountPower
-                )
+                extras.encryption = try parseEncryptionRecord(&record)
             case 0x02:
                 extras.hash = try parseHashRecord(&record)
             case 0x03:
@@ -1771,8 +1790,7 @@ final class RAR5Reader: FormatReader {
 
     private static func validateServiceHeader(
         _ block: Block,
-        limits: ReadLimits,
-        state: inout ParseState
+        limits: ReadLimits
     ) throws {
         var cursor = block.specific
         _ = try cursor.readVInt() // service file flags
@@ -1793,11 +1811,6 @@ final class RAR5Reader: FormatReader {
         guard !compression.isSolid else {
             throw KaitoError.malformed("RAR5 service header has the solid flag")
         }
-        guard compression.method <= 5 else {
-            throw KaitoError.unsupportedMethod(
-                "RAR5 service compression method \(compression.method)"
-            )
-        }
         _ = try cursor.readVInt() // host OS
         let nameSize = try cursor.readVInt()
         guard nameSize <= UInt64(cursor.remaining) else { throw KaitoError.truncated }
@@ -1807,7 +1820,7 @@ final class RAR5Reader: FormatReader {
         }
         var extra = block.extra
         var singletonExtraTypes: Set<UInt64> = []
-        try parseExtraRecords(&extra, state: &state, limits: limits) { type, _ in
+        try parseExtraRecords(&extra, limits: limits) { type, _ in
             try rejectDuplicateSingletonExtra(
                 type,
                 seen: &singletonExtraTypes,
@@ -1818,22 +1831,21 @@ final class RAR5Reader: FormatReader {
 
     private static func validateExtraArea(
         _ input: RAR5ByteCursor,
-        state: inout ParseState,
         limits: ReadLimits
     ) throws {
         var cursor = input
-        try parseExtraRecords(&cursor, state: &state, limits: limits) { _, _ in }
+        try parseExtraRecords(&cursor, limits: limits) { _, _ in }
     }
 
     private static func parseExtraRecords(
         _ cursor: inout RAR5ByteCursor,
-        state: inout ParseState,
         limits: ReadLimits,
         body: (UInt64, inout RAR5ByteCursor) throws -> Void
     ) throws {
+        var recordCount = 0
         while !cursor.isAtEnd {
-            state.extraRecordCount += 1
-            guard state.extraRecordCount <= limits.maxMetadataRecordCount else {
+            recordCount += 1
+            guard recordCount <= limits.maxMetadataRecordCount else {
                 throw KaitoError.limitExceeded("RAR5 extra record count")
             }
             let size = try cursor.readVInt()
@@ -1861,18 +1873,21 @@ final class RAR5Reader: FormatReader {
     }
 
     private static func parseEncryptionRecord(
-        _ cursor: inout RAR5ByteCursor,
-        maximumKDFCount: UInt8
+        _ cursor: inout RAR5ByteCursor
     ) throws -> RAR5EncryptionRecord {
         let version = try cursor.readVInt()
         guard version == 0 else {
-            throw KaitoError.unsupportedMethod("RAR5 file encryption version \(version)")
+            return RAR5EncryptionRecord(
+                version: version,
+                flags: 0,
+                kdfCount: 0,
+                salt: [],
+                initializationVector: [],
+                checkValue: nil
+            )
         }
         let flags = try cursor.readVInt()
         let kdfCount = try cursor.readUInt8()
-        guard kdfCount <= min(maximumKDFCount, 24) else {
-            throw KaitoError.unsupportedMethod("RAR5 KDF count \(kdfCount)")
-        }
         let salt = try cursor.readBytes(16)
         let iv = try cursor.readBytes(16)
         let check = flags & 0x0001 != 0 ? try cursor.readBytes(12) : nil
@@ -2177,7 +2192,9 @@ final class RAR5Reader: FormatReader {
         var solidGroups = [Int](repeating: -1, count: pending.count)
         if archiveFlags.contains(RAR5ArchiveFlags.solid) {
             var previousFileIndex: Int?
-            for index in pending.indices where pending[index].kind != .directory {
+            for index in pending.indices
+            where pending[index].kind != .directory
+                && !isZeroBodyRedirection(pending[index].extras.redirection?.type) {
                 if pending[index].compression.isSolid {
                     guard let predecessor = previousFileIndex else {
                         throw KaitoError.malformed(
@@ -2192,7 +2209,11 @@ final class RAR5Reader: FormatReader {
                 }
                 previousFileIndex = index
             }
-        } else if pending.contains(where: { $0.compression.isSolid }) {
+        } else if pending.contains(where: {
+            $0.kind != .directory
+                && !isZeroBodyRedirection($0.extras.redirection?.type)
+                && $0.compression.isSolid
+        }) {
             throw KaitoError.malformed("RAR5 solid file is not in a solid archive")
         }
 
@@ -2203,6 +2224,13 @@ final class RAR5Reader: FormatReader {
         records.reserveCapacity(pending.count)
 
         for (index, item) in pending.enumerated() {
+            let zeroBodyRedirection = isZeroBodyRedirection(
+                item.extras.redirection?.type
+            )
+            let publishedUnpackedSize: UInt64? = zeroBodyRedirection
+                ? 0
+                : item.unpackedSize
+            let publishedPackedSize = zeroBodyRedirection ? 0 : item.packedSize
             var specific: [String: String] = [
                 "rarVersion": item.compression.version == 0 ? "5" : "7",
                 "compressionInfo": String(format: "0x%llx", item.compression.rawValue),
@@ -2238,6 +2266,8 @@ final class RAR5Reader: FormatReader {
                         specific["hardLinkTargetIndex"] = String(targetIndex)
                     }
                 }
+            } else if item.kind == .symlink {
+                specific["linkTargetStoredAsData"] = "true"
             }
             if let date = item.extras.creationDate {
                 specific["creationTime"] = String(date.timeIntervalSince1970)
@@ -2263,13 +2293,13 @@ final class RAR5Reader: FormatReader {
                 name: item.name,
                 pathComponents: item.pathComponents,
                 kind: item.kind,
-                uncompressedSize: item.unpackedSize,
-                compressedSize: item.packedSize,
+                uncompressedSize: publishedUnpackedSize,
+                compressedSize: publishedPackedSize,
                 modificationDate: item.modificationDate,
                 posixPermissions: item.permissions,
-                isEncrypted: item.extras.encryption != nil,
+                isEncrypted: !zeroBodyRedirection && item.extras.encryption != nil,
                 solidGroup: solidGroups[index],
-                crc32: item.crc32,
+                crc32: zeroBodyRedirection ? nil : item.crc32,
                 methodDescription: methodDescription,
                 formatSpecific: specific
             )
@@ -2280,16 +2310,18 @@ final class RAR5Reader: FormatReader {
                 lastEntryByNormalizedPath[normalizedName] = entry.index
             }
             records.append(Record(
-                packedSegments: item.packedSegments,
-                packedPartIntegrity: item.packedPartIntegrity,
-                packedSize: item.packedSize,
-                unpackedSize: item.unpackedSize,
+                packedSegments: zeroBodyRedirection ? [] : item.packedSegments,
+                packedPartIntegrity: zeroBodyRedirection
+                    ? []
+                    : item.packedPartIntegrity,
+                packedSize: publishedPackedSize,
+                unpackedSize: publishedUnpackedSize,
                 compression: item.compression,
                 encryption: item.extras.encryption,
                 hash: item.extras.hash,
                 redirectionType: item.extras.redirection?.type,
-                requiresPreviousVolume: item.splitBefore,
-                requiresNextVolume: item.splitAfter
+                requiresPreviousVolume: !zeroBodyRedirection && item.splitBefore,
+                requiresNextVolume: !zeroBodyRedirection && item.splitAfter
             ))
         }
         return (entries, records)

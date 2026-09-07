@@ -20,7 +20,8 @@ public struct ReadLimits: Sendable, Equatable {
     /// Maximum size of a single format metadata allocation.
     public var maxMetadataSize: UInt64
 
-    /// Maximum number of key/value records retained from format metadata.
+    /// Maximum number of records accepted in one format metadata record set,
+    /// such as one entry's extra fields or one archive header's extras.
     public var maxMetadataRecordCount: Int
 
     /// Maximum number of components in one decoded archive path.
@@ -53,7 +54,8 @@ public struct ReadLimits: Sendable, Equatable {
     ///     retained in memory. The default is 64 MiB.
     ///   - maxEntryCount: Maximum number of entries. The default is one million.
     ///   - maxMetadataSize: Maximum single metadata allocation. The default is 16 MiB.
-    ///   - maxMetadataRecordCount: Maximum retained metadata records. The default is 65,536.
+    ///   - maxMetadataRecordCount: Maximum records in one metadata record set.
+    ///     The default is 65,536.
     ///   - maxPathComponentCount: Maximum components in one path. The default is 1,024.
     ///   - maxTotalMetadataSize: Maximum aggregate retained metadata. The default is 256 MiB.
     ///   - maxDictionarySize: Maximum codec dictionary size. The default is 1 GiB.

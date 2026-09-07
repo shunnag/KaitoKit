@@ -4,11 +4,6 @@ import Foundation
 import XCTest
 
 final class LHAMethodCorpusTests: XCTestCase {
-    private static let corpusRoot = URL(
-        fileURLWithPath: "/private/tmp/claude-501/-Users-nagash-cooViewer/37ef55f3-9116-4440-88b8-9a15060856ad/scratchpad/lha-corpus",
-        isDirectory: true
-    )
-
     func testUNLHA32Level2LHXCorpus() throws {
         try assertCorpusMember(
             relativePath: "unlha32/h2_lhx.lzh",
@@ -53,7 +48,9 @@ final class LHAMethodCorpusTests: XCTestCase {
         ]
         var foundCount = 0
         for relativePath in relativePaths {
-            let archive = Self.corpusRoot.appendingPathComponent(relativePath)
+            guard let archive = try optionalCorpusFixture(relativePath) else {
+                continue
+            }
             guard FileManager.default.fileExists(atPath: archive.path) else {
                 continue
             }
@@ -103,7 +100,9 @@ final class LHAMethodCorpusTests: XCTestCase {
         ]
         var seeds: [(bytes: [UInt8], dataOffset: Int, dataCount: Int)] = []
         for relativePath in relativePaths {
-            let archive = Self.corpusRoot.appendingPathComponent(relativePath)
+            guard let archive = try optionalCorpusFixture(relativePath) else {
+                continue
+            }
             guard FileManager.default.fileExists(atPath: archive.path) else {
                 continue
             }
@@ -163,7 +162,7 @@ final class LHAMethodCorpusTests: XCTestCase {
         size: UInt64,
         sha256: String
     ) throws {
-        let archive = Self.corpusRoot.appendingPathComponent(relativePath)
+        let archive = try corpusFixture(relativePath)
         guard FileManager.default.fileExists(atPath: archive.path) else {
             throw XCTSkip("lhasa corpus archive is absent: \(relativePath)")
         }
@@ -177,14 +176,27 @@ final class LHAMethodCorpusTests: XCTestCase {
         XCTAssertEqual(UInt64(decoded.count), size, relativePath)
         XCTAssertEqual(hex(SHA256.hash(data: decoded)), sha256, relativePath)
 
-        let executable = "/opt/homebrew/bin/lha"
-        if FileManager.default.isExecutableFile(atPath: executable) {
+        if let executable = LHATestSupport.lhasaExecutableURL {
             XCTAssertEqual(
                 decoded,
-                try lhasaMember(executable: executable, archive: archive),
+                try lhasaMember(executable: executable.path, archive: archive),
                 relativePath
             )
         }
+    }
+
+    private func corpusFixture(_ relativePath: String) throws -> URL {
+        guard let root = LHATestSupport.corpusRoot else {
+            throw XCTSkip("set KAITOKIT_LHA_CORPUS to run the LHA corpus tests")
+        }
+        return root.appendingPathComponent(relativePath)
+    }
+
+    private func optionalCorpusFixture(_ relativePath: String) throws -> URL? {
+        guard let root = LHATestSupport.corpusRoot else {
+            return nil
+        }
+        return root.appendingPathComponent(relativePath)
     }
 
     private func lhasaMember(executable: String, archive: URL) throws -> Data {

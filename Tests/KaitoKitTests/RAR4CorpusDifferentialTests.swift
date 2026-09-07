@@ -7,10 +7,6 @@ import XCTest
 /// fixture corpus supplied to the M3 work. CI cleanly skips these tests when
 /// either the corpus or the black-box `rar` executable is absent.
 final class RAR4CorpusDifferentialTests: XCTestCase {
-    private static let corpus = URL(
-        fileURLWithPath: "/private/tmp/claude-501/-Users-nagash-cooViewer/37ef55f3-9116-4440-88b8-9a15060856ad/scratchpad/rar4-corpus",
-        isDirectory: true
-    )
     private static let passwords: [String?] = [nil, "password", "test", "12345678"]
     private static let malformedNames: Set<String> = [
         "test_read_format_rar_invalid1.rar",
@@ -189,11 +185,12 @@ final class RAR4CorpusDifferentialTests: XCTestCase {
     }
 
     private func corpusArchives(excludingMalformed: Bool) throws -> [URL] {
-        guard FileManager.default.fileExists(atPath: Self.corpus.path) else {
+        guard let corpus = RAR4TestSupport.corpusDirectory,
+              FileManager.default.fileExists(atPath: corpus.path) else {
             return []
         }
         return try FileManager.default.contentsOfDirectory(
-            at: Self.corpus,
+            at: corpus,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ).filter { url in

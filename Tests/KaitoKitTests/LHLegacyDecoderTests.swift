@@ -75,9 +75,8 @@ final class LHLegacyDecoderTests: XCTestCase {
     }
 
     func testHandcraftedLegacyArchiveAgainstLhasa() throws {
-        let lhasaURL = URL(fileURLWithPath: "/opt/homebrew/bin/lha")
-        guard FileManager.default.isExecutableFile(atPath: lhasaURL.path) else {
-            throw XCTSkip("/opt/homebrew/bin/lha is not installed")
+        guard let lhasaURL = LHATestSupport.lhasaExecutableURL else {
+            throw XCTSkip("set KAITOKIT_LHA_EXECUTABLE or install lhasa")
         }
 
         let repeated = Data("ABCABC".utf8)

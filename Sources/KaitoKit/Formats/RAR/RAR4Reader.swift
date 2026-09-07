@@ -128,6 +128,53 @@ final class RAR4Reader: FormatReader {
         let physicalEnd: UInt64
     }
 
+    /// Structural decoder failures cannot distinguish malformed ciphertext
+    /// from a wrong key when a file has no independent password check.
+    private final class PasswordAmbiguousDecompressor: Decompressor {
+        private let base: any Decompressor
+        private let expectedSize: UInt64
+        private var produced: UInt64 = 0
+
+        init(base: any Decompressor, expectedSize: UInt64) {
+            self.base = base
+            self.expectedSize = expectedSize
+        }
+
+        var isFinished: Bool {
+            base.isFinished && produced == expectedSize
+        }
+
+        func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+            do {
+                let count = try base.read(into: buffer)
+                guard count >= 0, count <= buffer.count else { return count }
+                if count == 0, produced < expectedSize {
+                    throw KaitoError.wrongPassword
+                }
+                let (total, overflow) = produced.addingReportingOverflow(UInt64(count))
+                if overflow || total > expectedSize {
+                    throw KaitoError.wrongPassword
+                }
+                produced = total
+                return count
+            } catch {
+                try Self.rethrowNormalized(error)
+            }
+        }
+
+        static func rethrowNormalized(_ error: Error) throws -> Never {
+            if let kaitoError = error as? KaitoError {
+                switch kaitoError {
+                case .malformed, .truncated:
+                    throw KaitoError.wrongPassword
+                default:
+                    break
+                }
+            }
+            throw error
+        }
+    }
+
     /// Advances one RAR3 solid group in archive order.  Each caller receives
     /// a generation-checked view of the coordinator's retained, CRC-verifying
     /// entry stream.  Forward seeks drain predecessors; backward seeks replace
@@ -533,7 +580,7 @@ final class RAR4Reader: FormatReader {
                 compressedSize: record.unpackedSize
             )
         case 0x31...0x35:
-            decompressor = try RAR29Decoder(
+            decompressor = try Self.makeCompressedDecompressor(
                 source: compressedSource,
                 offset: compressedOffset,
                 compressedSize: record.packedSize,
@@ -542,7 +589,8 @@ final class RAR4Reader: FormatReader {
                 method: record.method,
                 dictionarySize: record.dictionarySize,
                 isSolid: record.firstFlags & FileFlag.solid != 0,
-                limits: limits
+                limits: limits,
+                mismatchIsWrongPassword: record.isEncrypted
             )
         default:
             throw KaitoError.unsupportedMethod(
@@ -720,7 +768,7 @@ final class RAR4Reader: FormatReader {
             compressed = packed
         }
 
-        let decompressor = try RAR29Decoder(
+        let decompressor = try makeCompressedDecompressor(
             source: compressed.source,
             offset: compressed.offset,
             compressedSize: record.packedSize,
@@ -730,7 +778,8 @@ final class RAR4Reader: FormatReader {
             dictionarySize: record.dictionarySize,
             isSolid: record.firstFlags & FileFlag.solid != 0,
             limits: limits,
-            solidState: state
+            solidState: state,
+            mismatchIsWrongPassword: record.isEncrypted
         )
         return try EntryStream(
             decompressor: decompressor,
@@ -740,6 +789,43 @@ final class RAR4Reader: FormatReader {
             limits: limits,
             checksumMismatchIsWrongPassword: record.isEncrypted
         )
+    }
+
+    private static func makeCompressedDecompressor(
+        source: any ByteSource,
+        offset: UInt64,
+        compressedSize: UInt64,
+        uncompressedSize: UInt64,
+        unpackVersion: UInt8,
+        method: UInt8,
+        dictionarySize: UInt64,
+        isSolid: Bool,
+        limits: ReadLimits,
+        solidState: RAR29Decoder.SolidState? = nil,
+        mismatchIsWrongPassword: Bool
+    ) throws -> any Decompressor {
+        do {
+            let decoder = try RAR29Decoder(
+                source: source,
+                offset: offset,
+                compressedSize: compressedSize,
+                uncompressedSize: uncompressedSize,
+                unpackVersion: unpackVersion,
+                method: method,
+                dictionarySize: dictionarySize,
+                isSolid: isSolid,
+                limits: limits,
+                solidState: solidState
+            )
+            guard mismatchIsWrongPassword else { return decoder }
+            return PasswordAmbiguousDecompressor(
+                base: decoder,
+                expectedSize: uncompressedSize
+            )
+        } catch {
+            guard mismatchIsWrongPassword else { throw error }
+            try PasswordAmbiguousDecompressor.rethrowNormalized(error)
+        }
     }
 
     private static func validatePackedParts(
@@ -1054,9 +1140,12 @@ final class RAR4Reader: FormatReader {
         var pendingEntries: [PendingEntry] = []
         var records: [Record] = []
         var retainedMetadataSize: UInt64 = 0
+        var encryptedHeaderWasValidated = false
 
         while offset < source.length {
             let encryptedHeader = mainHeader?.hasEncryptedHeaders == true
+            let encryptedHeaderEnvelopeIsShort = encryptedHeader
+                && source.length - offset < 24
             let parsedHeader: ParsedHeader
             do {
                 parsedHeader = try readHeader(
@@ -1067,9 +1156,16 @@ final class RAR4Reader: FormatReader {
                     keyCache: headerKeyCache,
                     limits: limits
                 )
+                if encryptedHeader { encryptedHeaderWasValidated = true }
             } catch let error as KaitoError where encryptedHeader {
                 switch error {
                 case .passwordRequired, .limitExceeded:
+                    throw error
+                case .truncated where encryptedHeaderWasValidated
+                    || encryptedHeaderEnvelopeIsShort:
+                    // A salt plus one AES block needs 24 bytes. That physical
+                    // shortage is unambiguous even before a header CRC passes;
+                    // after one CRC passes, later short ranges are truncation.
                     throw error
                 default:
                     // RAR3 has no independent password-check field for archive
@@ -1403,7 +1499,7 @@ final class RAR4Reader: FormatReader {
         mainHeader: MainHeader
     ) -> (entry: PendingEntry, record: Record) {
         let methodName = methodDescription(method)
-        let specific: [String: String] = [
+        var specific: [String: String] = [
             "attributes": String(format: "0x%08x", attributes),
             "dictionarySize": String(dictionarySize),
             "flags": String(format: "0x%04x", flags),
@@ -1421,6 +1517,9 @@ final class RAR4Reader: FormatReader {
                 ? "true" : "false",
             "versionedName": flags & FileFlag.version != 0 ? "true" : "false",
         ]
+        if kind == .symlink {
+            specific["linkTargetStoredAsData"] = "true"
+        }
         let pending = PendingEntry(
             rawName: rawName,
             fallbackName: decodedName.fallback,

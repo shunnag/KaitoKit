@@ -25,8 +25,9 @@ import Foundation
 ///   peek cannot physically overread even when logical input is truncated;
 /// - the per-symbol loop keeps bit position, window position, repeat distances,
 ///   and pending-match state in local variables, writing them back once;
-/// - logical input and match bounds are checked at table/match boundaries; the
-///   symbol loop records a failure and throws only after leaving the loop;
+/// - logical input exhaustion is checked on every symbol-loop iteration, while
+///   match bounds are checked at token boundaries; failures are thrown after
+///   leaving the hot loop;
 /// - non-wrapping, non-dependent match chunks use `copyMemory` through the
 ///   caller buffer, with byte copying retained for overlapping repetitions.
 final class RAR29Decoder: Decompressor {
@@ -368,6 +369,13 @@ final class RAR29Decoder: Decompressor {
         var failure: DecodeFailure?
 
         while outputCount < buffer.count, !reachedEnd, failure == nil {
+            // Every token iteration must observe logical input exhaustion.
+            // In particular, symbol 258 is a no-op before the first match and
+            // can otherwise keep decoding zero sentinel bits indefinitely.
+            if bits.overrun {
+                failure = .truncated
+                break
+            }
             if filteredOutputIndex < filteredOutput.count {
                 let count = min(
                     filteredOutput.count - filteredOutputIndex,

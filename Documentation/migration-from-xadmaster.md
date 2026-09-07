@@ -1,7 +1,7 @@
 # XADMaster から KaitoKit への移行
 
 この文書は移行ガイドの骨格です。cooViewer が利用する `XADArchive` の狭い面を
-`KaitoKitCompat.KaitoArchive` で再現し、M3 までに ZIP、7z、段階実装中の RAR4 / RAR5 を
+`KaitoKitCompat.KaitoArchive` で再現し、M3 までに ZIP、7z、RAR4 / RAR5 を
 追加しました。より広い delegate、属性、進捗 API は後続版で設計し、ここへ具体例を
 追加します。
 
@@ -35,7 +35,7 @@ throwing API なので、非対応形式、破損、上限超過、I/O エラー
 | `entryIsDirectory(_:)` | 同名 | `kind == .directory` | 実装 |
 | `entryIsEncrypted(_:)` | 同名 | `isEncrypted` | 実装 (暗号対応は ZIP / 7z / RAR) |
 | `isEncrypted()` | 同名 | `entries.contains { $0.isEncrypted }` | 実装 |
-| `setPassword(_:)` | 同名 | settable `password` | ZIP / 7z / RAR5 で実装。RAR4 は実 oracle 未検証 |
+| `setPassword(_:)` | 同名 | settable `password` | ZIP / 7z / RAR4 / RAR5 で実装・実 oracle 検証済み |
 | `solidGroup(ofEntry:)` | 同名 (`Int32`) | `solidGroup` | 7z / RAR4 / RAR5 で実装 (独立 entry は `-1`) |
 | `entryIsSolid(_:)` | 未提供 | 直接対応なし | continuation flag であり `solidGroup` とは意味が異なる |
 | `extractEntry(_:to:)` | 同名 | `extract(_:to:)` | 安全な展開として実装 |
@@ -60,13 +60,13 @@ throwing API なので、非対応形式、破損、上限超過、I/O エラー
 したがって `solidGroup >= 0` を `entryIsSolid` の置換として使うことはできません。
 `KaitoKitCompat` は現在 `solidGroup(ofEntry:)` だけを公開し、`entryIsSolid(_:)` は提供しません。
 
-同じ group の後方 entry をランダムに読む場合、一般には group 先頭から対象までを再復号して
-途中の出力を捨てる必要があり、再開コストは対象より前の非圧縮データ量に比例します。7z は
-folder stream と一部の dictionary-reset index を利用します。RAR は将来この再開動作を実装する
-予定ですが、圧縮 solid stream は現時点では展開せず `unsupportedMethod` を返します。
-`reopen()` で reader を増やしても依存と辞書メモリは消えないため、利用側は group ごとに一つの
-job として直列化してください。RAR の `solidGroup` は依存関係を事前に組むための metadata であり、
-展開対応の保証ではありません。
+同じ group の後方 entry をランダムに読む場合、group 先頭から対象までを再復号して途中の出力を
+捨てる必要があり、再開コストは対象より前の非圧縮データ量に比例します。7z は folder stream と
+一部の dictionary-reset index を利用します。RAR4 / RAR5 は per-group coordinator が archive 順に
+先行 entry を検証しながら進め、後方 seek では group 先頭から再開します。同じ reader の新しい
+solid stream は以前の未完了 stream を無効化します。独立して読みたい場合は `reopen()` で byte
+source を共有しつつ別の password / decoder state を持つ reader を作り、各 reader 内では直列に
+処理してください。
 
 ## サイズ不明の RAR5 entry
 
@@ -80,15 +80,25 @@ modern API は RAR5 が非圧縮サイズを宣言しない entry を `uncompres
 空 entry と区別するには必ず `entryHasSize(_:)` を併用してください。サイズ不明の暗号化
 stored RAR5 entry は現時点では明示的に非対応です。
 
-## RAR5 multi-volume と `reopen()`
+## RAR4 / RAR5 multi-volume と `reopen()`
 
-URL-backed RAR5 は `.part1.rar` と同じ directory の continuation を検証し、分割 entry を
-一つの stream として公開します。volume 数は `ReadLimits.maxVolumeCount` (既定 128) で制限され、
-非最終 part に packed CRC32 があれば検証し、BLAKE2sp があれば `verifyRAR5Blake2sp` が true
-(既定) のとき読み取り前に検証します。open 完了後の `reopen()` は
+URL-backed RAR4 / RAR5 は最初の volume と同じ directory の deterministic な continuation 名を
+検証し、分割 entry を一つの stream として公開します。RAR4 は新形式の `.partNNNN.rar` と旧形式の
+`.rar` / `.r00` の両方、RAR5 は `.part1.rar` 系列に対応します。volume 数は
+`ReadLimits.maxVolumeCount` (既定 128) で制限され、非最終 part の packed CRC32、RAR5 の任意の
+BLAKE2sp (`verifyRAR5Blake2sp == true` が既定) を読み取り前に検証します。通常暗号化と header
+暗号化を含む volume chain に対応します。open 完了後の `reopen()` は
 同じ検証済み file handle 一式を共有するため、volume path を再検索せず、各 reader の password /
 decoder state だけを独立させます。Data / 任意 `ByteSource` には sibling 検索の provenance がないため、
-multi-volume continuation は利用できません。
+multi-volume continuation は利用できません。RAR4 の SFX prefix と multi-volume continuation の
+組合せも M3 では非対応です。
+
+RAR5 archive header の KDF は、個々の `count` を
+`ReaderOptions.maxRAR5KDFCountPower` (既定かつ上限 24) で制限します。全 header-encrypted volume の
+異なる `(password, salt, count)` context は `ReadLimits.maxRAR5HeaderKDFWork` へ累積され、同じ
+context の key-cache hit は再加算されません。work は HMAC-SHA256 iteration 単位で、各 context を
+`2^count + 32` と数えます。既定値は `4 * (2^24 + 32)`、つまり最大コストの `count = 24`
+context 4 件分です。
 
 ## ZIP ローカルヘッダの検証時期
 
@@ -113,14 +123,18 @@ print(KaitoArchive.defaultZipLazyLocalHeaders) // false
 
 `KaitoArchive` は失敗を `nil` / `false` に変換する、範囲外のエントリ番号を拒否する、
 サイズ不明を 0 として返す、設定済みパスワードを reader へ渡す、という XADArchive 型の
-利用で期待される基本動作を再現します。一方、KaitoKit の安全上限とパストラバーサル拒否は
+利用で期待される基本動作を再現します。一方、KaitoKit の読み取り上限と不正な相対パスの拒否は
 互換層からも無効化しません。
 
 M3 が開ける書庫形式は非圧縮 tar コンテナ、ZIP / ZIP64、7z、RAR4 / RAR5 です。
-RAR の reader は段階実装です。RAR5 は URL から同じディレクトリの非暗号化 volume を継続できますが、
-Data / 任意 `ByteSource` では分割 entry、RAR4 では全 volume 継続が非対応です。非対応の圧縮方式、
-solid continuation、暗号化 header などは `KaitoError.unsupportedMethod` を返します。ZIP の DOS 日時にはタイムゾーン
-情報がないため、現在のローカルタイムゾーンとして解釈します。LHA、gzip、bzip2、xz は
+RAR4 は stored と unpack version 29 の LZ / PPMd-H、6 種の標準 filter、solid、SFX、旧・新
+multi-volume、通常暗号化と header 暗号化に対応します。RAR5 は stored と compression version 0 の
+LZ / filter、solid、multi-volume、通常暗号化と header 暗号化に対応します。RAR4 の圧縮
+unpack version 15 / 20 / 26、custom RAR VM program、RAR5 compression version 1、RAR5 file-copy
+redirection と SFX、および RAR4 の SFX prefix と multi-volume の組合せは明示的に
+`KaitoError.unsupportedMethod` を返します。Data / 任意
+`ByteSource` では continuation volume を検索できません。ZIP の DOS 日時にはタイムゾーン情報が
+ないため、現在のローカルタイムゾーンとして解釈します。LHA、gzip、bzip2、xz は
 シグネチャ検出だけを行い、reader は `KaitoError.unsupportedFormat` を返します。
 
 通常の tar hard link member はデータ本体を持たないため、`contents(ofEntry:)` は空の

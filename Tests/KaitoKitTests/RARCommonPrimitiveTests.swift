@@ -111,11 +111,21 @@ final class RARCommonPrimitiveTests: XCTestCase {
             keys.passwordCheckValue,
             try hex("adc29773483c99c8323aa356")
         )
-        XCTAssertNoThrow(
+        XCTAssertTrue(
             try keys.verify(passwordCheckValue: Array(keys.passwordCheckValue))
         )
-        XCTAssertThrowsError(
+        // A damaged self-check is unusable rather than evidence of a wrong
+        // password; readers fall back to decrypted-header/payload integrity.
+        XCTAssertFalse(
             try keys.verify(passwordCheckValue: Array(repeating: 0, count: 12))
+        )
+        let wrongKeys = try RAR5KeyDerivation.derive(
+            password: "wrong",
+            salt: Array(try hex("ead583e148dc040e9fcc14b20a9a3bf4")),
+            count: 15
+        )
+        XCTAssertThrowsError(
+            try keys.verify(passwordCheckValue: Array(wrongKeys.passwordCheckValue))
         ) { error in
             XCTAssertEqual(error as? KaitoError, .wrongPassword)
         }
@@ -270,7 +280,43 @@ final class RARCommonPrimitiveTests: XCTestCase {
             includeE9: false,
             addressMode: .rar5
         )
-        XCTAssertEqual(e8PastTranslationRange, [0xE8, 0x1F, 0, 0, 0xFF])
+        XCTAssertEqual(e8PastTranslationRange, [0xE8, 0x1F, 0, 0, 0])
+
+        var e8e9PastTranslationRange: [UInt8] = [0xE9, 0x20, 0, 0, 0]
+        try RARStandardFilters.e8(
+            &e8e9PastTranslationRange,
+            fileOffset: 0x0100_0000,
+            includeE9: true,
+            addressMode: .rar5
+        )
+        XCTAssertEqual(e8e9PastTranslationRange, [0xE9, 0x1F, 0, 0, 0])
+
+        var e8CrossingTranslationBoundary: [UInt8] = [0x90, 0xE8, 0x20, 0, 0, 0]
+        try RARStandardFilters.e8(
+            &e8CrossingTranslationBoundary,
+            fileOffset: 0x00FF_FFFE,
+            includeE9: false,
+            addressMode: .rar5
+        )
+        XCTAssertEqual(e8CrossingTranslationBoundary, [0x90, 0xE8, 0x20, 0, 0, 0])
+
+        var e8SignedRangeUsesReducedPosition: [UInt8] = [0xE8, 0xFF, 0xFF, 0xFF, 0xFF]
+        try RARStandardFilters.e8(
+            &e8SignedRangeUsesReducedPosition,
+            fileOffset: 0x7FFF_FFFF,
+            includeE9: false,
+            addressMode: .rar5
+        )
+        XCTAssertEqual(e8SignedRangeUsesReducedPosition, [0xE8, 0xFF, 0xFF, 0xFF, 0xFF])
+
+        var rar3PositionIsNotReduced: [UInt8] = [0xE8, 0x20, 0, 0, 0]
+        try RARStandardFilters.e8(
+            &rar3PositionIsNotReduced,
+            fileOffset: 0x0100_0000,
+            includeE9: false,
+            addressMode: .rar3
+        )
+        XCTAssertEqual(rar3PositionIsNotReduced, [0xE8, 0x1F, 0, 0, 0xFF])
 
         var arm: [UInt8] = [0x20, 0, 0, 0xEB, 1, 2, 3, 4]
         try RARStandardFilters.arm(&arm, fileOffset: 0x10)
@@ -283,6 +329,55 @@ final class RARCommonPrimitiveTests: XCTestCase {
         var audio: [UInt8] = [255, 255, 246, 255]
         try RARStandardFilters.audio(&audio, channels: 2)
         XCTAssertEqual(audio, [1, 10, 2, 11])
+
+        XCTAssertEqual(
+            RARStandardFilters.recognizeRAR3Program(
+                byteCount: 53,
+                crc32: 0xAD57_6887
+            ),
+            .e8
+        )
+        XCTAssertEqual(
+            RARStandardFilters.recognizeRAR3Program(
+                byteCount: 57,
+                crc32: 0x3CD7_E57E
+            ),
+            .e8e9
+        )
+        XCTAssertEqual(
+            RARStandardFilters.recognizeRAR3Program(
+                byteCount: 120,
+                crc32: 0x3769_893F
+            ),
+            .itanium
+        )
+        XCTAssertEqual(
+            RARStandardFilters.recognizeRAR3Program(
+                byteCount: 29,
+                crc32: 0x0E06_077D
+            ),
+            .delta
+        )
+        XCTAssertEqual(
+            RARStandardFilters.recognizeRAR3Program(
+                byteCount: 149,
+                crc32: 0x1C2C_5DC8
+            ),
+            .rgb
+        )
+        XCTAssertEqual(
+            RARStandardFilters.recognizeRAR3Program(
+                byteCount: 158,
+                crc32: 0xBC85_E701
+            ),
+            .audio
+        )
+        XCTAssertNil(
+            RARStandardFilters.recognizeRAR3Program(
+                byteCount: 216,
+                crc32: 0xBC85_E701
+            )
+        )
 
         XCTAssertNil(RARStandardFilters.recognizeRAR3Program([1, 2, 3]))
         XCTAssertThrowsError(try RARStandardFilters.requireRAR3Program([1, 2, 3])) {
@@ -401,6 +496,52 @@ final class RARCommonPrimitiveTests: XCTestCase {
                 .malformed("RAR5 volume number 2 does not match expected 1")
             )
         }
+    }
+
+    func testRARVolumeLocatorPreservesPartMarkerAndExtensionSpelling() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "KaitoKit-RARVolumeCase-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let rar4Signature = Data([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00])
+        let rar4First = directory.appendingPathComponent("Four.PaRt0001.RAR")
+        let rar4Second = directory.appendingPathComponent("Four.PaRt0002.RAR")
+        try rar4Signature.write(to: rar4First)
+        try rar4Signature.write(to: rar4Second)
+        let rar4Locator = try RARVolumeLocator(
+            firstVolumeURL: rar4First,
+            naming: .rar4New
+        )
+        XCTAssertEqual(try rar4Locator.locate(volumeNumber: 1).url, rar4Second)
+
+        let rar5First = directory.appendingPathComponent("Five.PART1.RaR")
+        let rar5Second = directory.appendingPathComponent("Five.PART2.RaR")
+        try rar5Volume(number: 0).write(to: rar5First)
+        try rar5Volume(number: 1).write(to: rar5Second)
+        let rar5Locator = try RARVolumeLocator(
+            firstVolumeURL: rar5First,
+            naming: .rar5
+        )
+        XCTAssertEqual(try rar5Locator.locate(volumeNumber: 1).url, rar5Second)
+
+        let fallbackFirst = directory.appendingPathComponent("Fallback.RAR")
+        let fallbackSecond = directory.appendingPathComponent("Fallback.part2.RAR")
+        try rar5Volume(number: 0).write(to: fallbackFirst)
+        try rar5Volume(number: 1).write(to: fallbackSecond)
+        let fallbackLocator = try RARVolumeLocator(
+            firstVolumeURL: fallbackFirst,
+            naming: .rar5
+        )
+        XCTAssertEqual(
+            try fallbackLocator.locate(volumeNumber: 1).url,
+            fallbackSecond
+        )
     }
 
     func testRAR5VolumeLocatorBoundsMainHeaderBeforeAllocating() throws {

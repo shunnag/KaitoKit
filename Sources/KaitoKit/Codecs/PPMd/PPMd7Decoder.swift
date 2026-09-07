@@ -1,5 +1,18 @@
 import Foundation
 
+/// Range-coder operations consumed by the shared PPMd variant-H model.
+///
+/// Subrange updates deliberately do not normalize.  The model normalizes
+/// after a selected symbol and before each suffix descent, which is equivalent
+/// to the 7z coder's per-subrange refill and is required by RAR's carry-less
+/// coder.
+protocol PPMd7RangeDecoding: AnyObject {
+    func threshold(total: Int) throws -> Int
+    func remove(start: Int, size: Int) throws
+    func decodeBinary(probability: Int) throws -> Bool
+    func normalize() throws
+}
+
 // 参照仕様: 公開ドメインの LZMA SDK `C/Ppmd7.c`、`C/Ppmd7.h`、
 // `C/Ppmd7Dec.c` と Dmitry Shkarin の PPMd var.H model description。
 // 7z 固有の carryless range coder と 5-byte properties を境界検査付きで再実装する。
@@ -78,7 +91,7 @@ final class PPMd7Decoder: Decompressor {
 }
 
 // 7z の PPMd7z range coder。入力範囲を越える normalize は必ず truncated。
-final class PPMd7RangeDecoder {
+final class PPMd7RangeDecoder: PPMd7RangeDecoding {
     private static let topValue: UInt32 = 1 << 24
     private static let bufferSize = 64 * 1_024
 
@@ -135,7 +148,6 @@ final class PPMd7RangeDecoder {
         }
         code -= UInt32(startProduct)
         range = UInt32(sizeProduct)
-        try normalize()
     }
 
     // escape 側なら true、binary symbol 側なら false を返す。
@@ -150,16 +162,14 @@ final class PPMd7RangeDecoder {
         }
         if code < bound {
             range = bound
-            try normalize()
             return false
         }
         range -= bound
         code -= bound
-        try normalize()
         return true
     }
 
-    private func normalize() throws {
+    func normalize() throws {
         while range < Self.topValue {
             range <<= 8
             code = (code << 8) | UInt32(try readByte())

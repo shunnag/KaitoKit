@@ -120,7 +120,7 @@ final class PPMd7Model {
         try restartModel()
     }
 
-    func decodeByte(using decoder: PPMd7RangeDecoder) throws -> UInt8 {
+    func decodeByte(using decoder: any PPMd7RangeDecoding) throws -> UInt8 {
         var minimumContext = maximumContext
         try requireContext(minimumContext)
 
@@ -132,6 +132,10 @@ final class PPMd7Model {
 
         var escapedContexts = 0
         while foundState == Self.null {
+            // Range normalization belongs between an escape interval update
+            // and the next suffix context.  Keeping it here also preserves the
+            // 7z decoder's former one-normalize-per-subrange behavior.
+            try decoder.normalize()
             orderFall += 1
             var suffix = try suffix(of: minimumContext)
             guard suffix != Self.null else {
@@ -156,6 +160,10 @@ final class PPMd7Model {
             minimumContext = suffix
             try decodeSymbol2(in: minimumContext, using: decoder)
         }
+
+        // A selected symbol commits the final interval before model updates
+        // change the probabilities used for the next symbol.
+        try decoder.normalize()
 
         let selected = foundState
         guard selected != Self.null else {
@@ -187,7 +195,7 @@ final class PPMd7Model {
 
     private func decodeSymbol1(
         in context: Offset,
-        using decoder: PPMd7RangeDecoder
+        using decoder: any PPMd7RangeDecoding
     ) throws {
         try validate(context)
         let scale = try summaryFrequency(of: context)
@@ -235,7 +243,7 @@ final class PPMd7Model {
 
     private func decodeBinarySymbol(
         in context: Offset,
-        using decoder: PPMd7RangeDecoder
+        using decoder: any PPMd7RangeDecoding
     ) throws {
         try validate(context)
         let state = try stateRef(in: context, index: 0)
@@ -289,7 +297,7 @@ final class PPMd7Model {
 
     private func decodeSymbol2(
         in context: Offset,
-        using decoder: PPMd7RangeDecoder
+        using decoder: any PPMd7RangeDecoding
     ) throws {
         try validate(context)
         let stats = try numberOfStats(in: context)

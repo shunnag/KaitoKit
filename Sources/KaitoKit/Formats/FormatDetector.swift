@@ -5,6 +5,19 @@ public enum FormatDetector {
     private static let tarBlockSize = 512
     private static let zipEOCDMinimumSize = 22
     private static let zipMaximumCommentSize = 65_535
+    /// RARLab bounds an SFX module to one MiB. Include the longest signature
+    /// so a marker beginning at the final permitted byte remains visible.
+    static let maximumRARSFXSize: UInt64 = 1 * 1_024 * 1_024
+
+    enum RARVersion {
+        case rar4
+        case rar5
+    }
+
+    struct RARSignatureMatch {
+        let offset: UInt64
+        let version: RARVersion
+    }
 
     /// Detects the archive format exposed by `source`.
     public static func detect(source: any ByteSource) throws -> ArchiveFormat {
@@ -48,6 +61,9 @@ public enum FormatDetector {
         }
         if try containsZipEOCD(source: source) {
             return .zip
+        }
+        if try findRARSignature(source: source) != nil {
+            return .rar
         }
 
         throw KaitoError.unsupportedFormat
@@ -226,6 +242,45 @@ public enum FormatDetector {
             }
         }
         return false
+    }
+
+    /// Locates a RAR4 or RAR5 marker at offset zero or after a bounded SFX
+    /// executable prefix. The format readers authenticate the following main
+    /// header, so this routine deliberately performs only marker recognition.
+    static func findRARSignature(
+        source: any ByteSource
+    ) throws -> RARSignatureMatch? {
+        let rar4: [UInt8] = [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00]
+        let rar5: [UInt8] = rar4.dropLast() + [0x01, 0x00]
+        let prefixCount = try Checked.toInt(min(source.length, UInt64(rar5.count)))
+        let prefix = try read(source: source, at: 0, count: prefixCount)
+        if prefix.count >= rar5.count, prefix.prefix(rar5.count).elementsEqual(rar5) {
+            return RARSignatureMatch(offset: 0, version: .rar5)
+        }
+        if prefix.count >= rar4.count, prefix.prefix(rar4.count).elementsEqual(rar4) {
+            return RARSignatureMatch(offset: 0, version: .rar4)
+        }
+
+        let maximumRead = try Checked.add(maximumRARSFXSize, UInt64(rar5.count))
+        let count = try Checked.toInt(min(source.length, maximumRead))
+        guard count >= rar4.count else { return nil }
+        let bytes = try read(source: source, at: 0, count: count)
+
+        let maximumStart = min(
+            Int(maximumRARSFXSize),
+            bytes.count - rar4.count
+        )
+        guard maximumStart >= 1 else { return nil }
+        for index in 1...maximumStart where bytes[index] == rar4[0] {
+            if index <= bytes.count - rar5.count,
+               bytes[index..<(index + rar5.count)].elementsEqual(rar5) {
+                return RARSignatureMatch(offset: UInt64(index), version: .rar5)
+            }
+            if bytes[index..<(index + rar4.count)].elementsEqual(rar4) {
+                return RARSignatureMatch(offset: UInt64(index), version: .rar4)
+            }
+        }
+        return nil
     }
 
     private static func read(

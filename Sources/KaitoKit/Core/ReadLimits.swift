@@ -27,6 +27,13 @@ public struct ReadLimits: Sendable, Equatable {
     /// Maximum number of volumes accepted in one multi-volume archive.
     public var maxVolumeCount: Int
 
+    /// Maximum aggregate PBKDF2 work used to decrypt RAR5 archive headers.
+    ///
+    /// Work is measured in HMAC-SHA256 iterations and is charged only when a
+    /// new password/salt/count context must be derived. Repeated envelopes that
+    /// hit the reader-owned key cache do not consume the budget again.
+    public var maxRAR5HeaderKDFWork: UInt64
+
     /// Creates a set of archive resource limits.
     ///
     /// - Parameters:
@@ -39,6 +46,9 @@ public struct ReadLimits: Sendable, Equatable {
     ///   - maxTotalMetadataSize: Maximum aggregate retained metadata. The default is 256 MiB.
     ///   - maxDictionarySize: Maximum codec dictionary size. The default is 1 GiB.
     ///   - maxVolumeCount: Maximum volumes in one archive. The default is 128.
+    ///   - maxRAR5HeaderKDFWork: Maximum aggregate RAR5 encrypted-header KDF
+    ///     work. The default permits four derivations at the maximum accepted
+    ///     iteration exponent.
     public init(
         maxEntrySize: UInt64 = 4 * 1_024 * 1_024 * 1_024,
         maxInMemorySize: UInt64 = 1 * 1_024 * 1_024 * 1_024,
@@ -48,7 +58,8 @@ public struct ReadLimits: Sendable, Equatable {
         maxPathComponentCount: Int = 1_024,
         maxTotalMetadataSize: UInt64 = 256 * 1_024 * 1_024,
         maxDictionarySize: UInt64 = 1 * 1_024 * 1_024 * 1_024,
-        maxVolumeCount: Int = 128
+        maxVolumeCount: Int = 128,
+        maxRAR5HeaderKDFWork: UInt64 = 4 * ((UInt64(1) << 24) + 32)
     ) {
         self.maxEntrySize = maxEntrySize
         self.maxInMemorySize = maxInMemorySize
@@ -59,5 +70,6 @@ public struct ReadLimits: Sendable, Equatable {
         self.maxTotalMetadataSize = maxTotalMetadataSize
         self.maxDictionarySize = maxDictionarySize
         self.maxVolumeCount = max(0, maxVolumeCount)
+        self.maxRAR5HeaderKDFWork = maxRAR5HeaderKDFWork
     }
 }

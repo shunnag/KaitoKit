@@ -30,29 +30,42 @@
   dictionary reset からの後方再開。
 - 7zAES の AES-256-CBC / SHA-256 KDF、header encryption、派生鍵 cache、KDF 計算量上限。
   独立した認証 tag がないため、最初の CRC 不一致または coder 構造不正を誤 password と判定。
-- M3 の RAR4 reader。main / file / end header と header CRC、64-bit size、RAR Unicode 名、
-  legacy 名判定、`EXT_TIME`、stored、展開後 CRC32 を実装。独立した unpack version 29 の
-  RAR 2.9/3.x LZ は部分対応で、実 sample 19 file 中 3 file が一致。PPMd / filter descriptor と
-  standard filter の decoder 接続 / custom VM / solid 辞書継続、unpack version 29 以外
-  (15 / 20 / 26 を含む)、
-  multi-volume continuation、encrypted header は明示的に非対応。
-- M3 の RAR5 reader。CRC 付き header / vint / extra record、サイズ不明 entry の streaming、
-  stored と圧縮アルゴリズム version 0 の独立 LZ、`solidGroup` の列挙、URL-backed RAR5
-  multi-volume の検証・列挙・分割 stream 結合を実装。非最終 part に存在する packed CRC32 / BLAKE2sp、
-  race-free な sibling open、既定 128 volume 上限、path を再解決しない `reopen()` を含む。
-  Delta filter は TIFF 実コーパスで検証し、E8 / E8E9 / ARM は復号コードを実装して実コーパス検証待ち。
-- RAR5 per-file AES-256-CBC / PBKDF2-HMAC-SHA256、password check、暗号化 CRC と
-  BLAKE2sp HashMAC。rar 7.23 の stored / method 5 と誤 password を end-to-end 検証。
-  RAR4 per-file AES-128-CBC は primitive test 済みだが、実暗号化 RAR4 oracle は未検証。
-- RAR5 の圧縮アルゴリズム version 1、圧縮 solid continuation、header encryption、
-  Data / 任意 `ByteSource` からの volume 継続、暗号化 entry の volume 継続、サイズ不明の
-  暗号化 stored entry は明示的に非対応。codec 辞書の既定上限は 1 GiB。
-- RAR5 実書庫 5 本、431 file stream、915,433,332 bytes を black-box `rar` と SHA-256
-  差分確認。RAR4 実書庫は 19 file 中 3 file が一致し、残りは明示的な非対応 / malformed。
-  RAR4 / RAR5 の決定的 mutant を合計 544 件実行。
+- M3 の RAR4 reader。main / file / end header、header CRC、64-bit size、RAR Unicode / legacy 名、
+  `EXT_TIME`、stored、unpack version 29 の LZ / PPMd-H と block transition、展開後 CRC32 を実装。
+  RAR3 standard VM の E8 / E8E9 / Itanium / Delta / RGB / Audio は native 実装し、custom VM は
+  明示的に拒否する。圧縮 version 15 / 20 / 26 を含む version 29 以外も明示的に非対応。
+- RAR4 solid は window / Huffman / 距離 / filter program / PPMd model を entry 間で継続し、
+  順方向 skip、後方再開、暗号化 solid を扱う。RAR3 per-file AES-128-CBC と `-hp` header
+  encryption、old (`.rar` / `.r00`) / new (`.partN.rar`) multi-volume、上限付き SFX prefix、
+  非最終 split part の packed CRC32 を実装。SFX prefix と multi-volume の組合せは明示的に非対応。
+- M3 の RAR5 reader。CRC 付き main / file / service / encryption / end header、vint / extra record、
+  サイズ不明 entry、stored と圧縮アルゴリズム version 0 の LZ (method 1〜5)、Delta / E8 /
+  E8E9 / ARM filter を実装。solid は stored member の混在、member ごとの dictionary minimum
+  変更、順方向 skip / 後方再開を扱う。
+- RAR5 per-file AES-256-CBC と archive `-hp` header encryption、PBKDF2-HMAC-SHA256、password
+  check、暗号化 CRC / BLAKE2sp HashMAC、暗号化 multi-volume を end-to-end 実装。非最終 part の
+  packed CRC32 / BLAKE2sp、保持した directory descriptor からの sibling open、既定 128 volume
+  上限、path を再解決しない `reopen()` を含む。archive-header KDF は個別の `count` を最大 24 に
+  制限し、全 header-encrypted volume の異なる `(password, salt, count)` context を public API の
+  `ReadLimits.maxRAR5HeaderKDFWork` へ HMAC-SHA256 iteration 単位で `2^count + 32` ずつ累積する。
+  同一 context の key-cache hit は再加算せず、既定値は最大コストの `count = 24` context 4 件分
+  (`4 * (2^24 + 32)`)。
+- RAR5 の file-copy redirection、RAR5 SFX、Data / 任意 `ByteSource` からの volume 継続、
+  サイズ不明の暗号化 stored entry は明示的に非対応。圧縮アルゴリズム version 1 は、
+  ユーザー指定の M3 境界として全件を検出して拒否する。codec 辞書の既定上限は 1 GiB。
+- RAR5 実書庫 5 本、431 file stream、915,433,332 bytes を RAR 7.23 と SHA-256 差分確認。
+  RAR4 は `st1200-pts.rar` の 19/19 file と 241,647,978-byte PPMd↔LZ entry が一致した。
+  追加 corpus 20 書庫では 47 regular file と 5 symlink target が一致し、既知 password で
+  oracle を得られない暗号化 entry は 1 件、破損 `seek_data_cursor0` は双方が拒否した。
+  RAR4 / RAR5 の unit-level deterministic mutant を合計 544 件実行。さらに 8 種の RAR seed から
+  400 件を `Scripts/fuzz/run-mutants.sh` の ASan build で実行し、crash / hang / sanitizer finding は 0 件。
 - test 時に 7zz で生成する各 7z method / AES / solid fixture、10 MiB streaming、cooViewer
   fixture の SHA-256 差分テスト (`/opt/homebrew/bin/7zz` がない環境では明示的に skip)。
 - 検出、一覧、展開、SHA-256 差分 oracle、ベンチマークを提供する `kaito` CLI。
+  `sha` は entry 全体の `Data` を保持せず、再利用する有界 buffer で逐次 hash する。
+  controlled before/after median は book RAR5 155.346→155.431 ms、TIFF RAR5
+  637.541→610.447 ms、最終 warm wall time は 0.15 / 0.61 s。以前の約 0.62 秒差は
+  `swift run` の cold-start / planning 混入だった。
 - memory-mapped `Data` 経路を計測する `kaito bench --data`。
 - 最大 20 エントリの再現可能なランダムアクセスを計測する `kaito bench --random`。
 - 圧縮方式と暗号化状態を表示する `kaito list`。

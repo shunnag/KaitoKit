@@ -44,6 +44,57 @@ final class RAR5DecoderTests: XCTestCase {
         }
     }
 
+    func testSolidStateCarriesDictionaryTablesDistancesAndLastLength() throws {
+        let blocks = makeSyntheticSolidStateBlocks()
+        let state = try RAR5Decoder.SolidState(dictionarySize: 128 * 1_024)
+        let first = try RAR5Decoder(
+            source: DataByteSource(data: blocks.first),
+            offset: 0,
+            compressedSize: UInt64(blocks.first.count),
+            unpackedSize: 22,
+            dictionarySize: 128 * 1_024,
+            limits: ReadLimits(),
+            solidState: state
+        )
+        XCTAssertEqual(
+            try drain(first, bufferSize: 3),
+            Data("ABCDEFGHHHQRQRSTRSUVRS".utf8)
+        )
+
+        // The continuation has no table description. Its first token repeats
+        // the prior file's last length/distance, then index-three repeats walk
+        // all four carried distances while literals keep results observable.
+        let continuation = try RAR5Decoder(
+            source: DataByteSource(data: blocks.continuation),
+            offset: 0,
+            compressedSize: UInt64(blocks.continuation.count),
+            unpackedSize: 18,
+            dictionarySize: 128 * 1_024,
+            limits: ReadLimits(),
+            solidState: state
+        )
+        XCTAssertEqual(
+            try drain(continuation, bufferSize: 1),
+            Data("UVWXXXYZYZabZacdZa".utf8)
+        )
+
+        XCTAssertThrowsError(
+            try RAR5Decoder(
+                source: DataByteSource(data: blocks.continuation),
+                offset: 0,
+                compressedSize: UInt64(blocks.continuation.count),
+                unpackedSize: 18,
+                dictionarySize: 128 * 1_024,
+                limits: ReadLimits()
+            )
+        ) { error in
+            guard case let .malformed(reason) = error as? KaitoError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertTrue(reason.contains("no Huffman tables"), reason)
+        }
+    }
+
     func testGeneratedMatchStreamHandlesShortSourceAndTinyOutputReads() throws {
         try RAR5TestSupport.requireRAR()
         let temporary = try ZipTestSupport.temporaryDirectory(label: "rar5-decoder-stream")
@@ -272,6 +323,21 @@ final class RAR5DecoderTests: XCTestCase {
         }
     }
 
+    func testUnknownSizeFutureFilterFailsTruncatedAfterRawStreamEnds() throws {
+        let futureFilter = makeFilterBlock(
+            relativeStart: 1,
+            length: 1,
+            type: 1,
+            channelsMinusOne: nil
+        )
+        assertDecoderReadThrows(
+            futureFilter,
+            expectedSize: nil,
+            category: "truncated",
+            containing: ""
+        )
+    }
+
     private func makeDecoder(
         source: any ByteSource,
         compressedSize: Int,
@@ -324,6 +390,95 @@ final class RAR5DecoderTests: XCTestCase {
             validBitCount: bits.validBitsInFinalByte,
             includesTables: includesTables,
             isLast: isLast
+        )
+    }
+
+    private func makeSyntheticSolidStateBlocks() -> (
+        first: Data,
+        continuation: Data
+    ) {
+        let mainSymbols = Array(65...72)
+            + Array(81...90)
+            + Array(97...100)
+            + [257, 261, 262]
+        precondition(mainSymbols.count <= 32)
+        let sortedMainSymbols = mainSymbols.sorted()
+
+        func appendMain(_ symbol: Int, to bits: inout RAR5DecoderBitWriter) {
+            let code = sortedMainSymbols.firstIndex(of: symbol)!
+            bits.append(code, count: 5)
+        }
+        func appendNewMatch(
+            distanceSlot: Int,
+            to bits: inout RAR5DecoderBitWriter
+        ) {
+            appendMain(262, to: &bits) // length slot zero => length two
+            bits.append(distanceSlot, count: 2)
+        }
+        func appendRepeatIndexThree(to bits: inout RAR5DecoderBitWriter) {
+            appendMain(261, to: &bits)
+            bits.append(0, count: 1) // repeat-length slot zero => length two
+        }
+
+        var first = RAR5DecoderBitWriter()
+        // Code-length alphabet: symbols 0, 1, 2 and 5 use canonical two-bit
+        // codes 00, 01, 10 and 11 respectively.
+        for symbol in 0..<20 {
+            first.append([0, 1, 2, 5].contains(symbol) ? 2 : 0, count: 4)
+        }
+        let repeatLengthStart = 306 + 64 + 16
+        for index in 0..<430 {
+            let length: Int
+            if index < 306, sortedMainSymbols.contains(index) {
+                length = 5
+            } else if (306..<(306 + 4)).contains(index) {
+                length = 2
+            } else if index == repeatLengthStart {
+                length = 1
+            } else {
+                length = 0
+            }
+            let code: Int
+            switch length {
+            case 0: code = 0
+            case 1: code = 1
+            case 2: code = 2
+            case 5: code = 3
+            default: preconditionFailure("unexpected synthetic table length")
+            }
+            first.append(code, count: 2)
+        }
+
+        for literal in 65...72 { appendMain(literal, to: &first) }
+        appendNewMatch(distanceSlot: 0, to: &first)
+        for literal in 81...82 { appendMain(literal, to: &first) }
+        appendNewMatch(distanceSlot: 1, to: &first)
+        for literal in 83...84 { appendMain(literal, to: &first) }
+        appendNewMatch(distanceSlot: 2, to: &first)
+        for literal in 85...86 { appendMain(literal, to: &first) }
+        appendNewMatch(distanceSlot: 3, to: &first)
+
+        var continuation = RAR5DecoderBitWriter()
+        appendMain(257, to: &continuation)
+        for pair in [(87, 88), (89, 90), (97, 98), (99, 100)] {
+            appendMain(pair.0, to: &continuation)
+            appendMain(pair.1, to: &continuation)
+            appendRepeatIndexThree(to: &continuation)
+        }
+
+        return (
+            makeRawBlock(
+                payload: first.bytes,
+                validBitCount: first.validBitsInFinalByte,
+                includesTables: true,
+                isLast: true
+            ),
+            makeRawBlock(
+                payload: continuation.bytes,
+                validBitCount: continuation.validBitsInFinalByte,
+                includesTables: false,
+                isLast: true
+            )
         )
     }
 

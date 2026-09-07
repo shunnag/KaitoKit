@@ -11,9 +11,10 @@ import Foundation
 
 /// Reader for the RAR 1.5-4.x container (normally called "RAR4").
 ///
-/// Header parsing and the stored method are complete here. The RAR 2.9/3.x
-/// compressed-data path is kept behind `RAR29Decoder`, so an archive using a
-/// method that is not bit-exact never silently produces bytes.
+/// Implements the RAR 2.9/3.x (unpack version 29) container and data paths:
+/// stored and LZ/PPMd-H streams, native standard filters, solid groups, SFX,
+/// old/new multi-volume sets, and data/header encryption. Older compressed
+/// unpack versions and custom RAR VM programs fail explicitly.
 final class RAR4Reader: FormatReader {
     static let signature: [UInt8] = [
         0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00,
@@ -58,27 +59,37 @@ final class RAR4Reader: FormatReader {
         static let skipIfUnknown: UInt16 = 0x4000
     }
 
+    private enum EndFlag {
+        static let nextVolume: UInt16 = 0x0001
+    }
+
     private struct MainHeader {
         let flags: UInt16
 
         var isVolume: Bool { flags & MainFlag.volume != 0 }
         var isSolid: Bool { flags & MainFlag.solid != 0 }
+        var hasEncryptedHeaders: Bool {
+            flags & MainFlag.encryptedHeaders != 0
+        }
     }
 
     private struct Record {
-        let dataOffset: UInt64
+        let packedSegments: [RARSourceSegment]
+        let packedPartCRC32: [UInt32?]
         let packedSize: UInt64
         let unpackedSize: UInt64
         let crc32: UInt32
-        let flags: UInt16
+        let firstFlags: UInt16
+        let lastFlags: UInt16
         let unpackVersion: UInt8
         let method: UInt8
         let dictionarySize: UInt64
         let salt: [UInt8]?
 
-        var isEncrypted: Bool { flags & FileFlag.encrypted != 0 }
+        var isEncrypted: Bool { firstFlags & FileFlag.encrypted != 0 }
         var isSplit: Bool {
-            flags & (FileFlag.splitBefore | FileFlag.splitAfter) != 0
+            firstFlags & FileFlag.splitBefore != 0 ||
+                lastFlags & FileFlag.splitAfter != 0
         }
     }
 
@@ -98,10 +109,246 @@ final class RAR4Reader: FormatReader {
         let formatSpecific: [String: String]
     }
 
+    private struct ParsedVolume {
+        let pendingEntries: [PendingEntry]
+        let records: [Record]
+        let mainHeader: MainHeader
+        let requestsNextVolume: Bool
+    }
+
     private struct ParsedArchive {
         let entries: [ArchiveEntry]
         let records: [Record]
         let nameEncoding: String.Encoding?
+        let resolvedPassword: String?
+    }
+
+    private struct ParsedHeader {
+        let bytes: [UInt8]
+        let physicalEnd: UInt64
+    }
+
+    /// Advances one RAR3 solid group in archive order.  Each caller receives
+    /// a generation-checked view of the coordinator's retained, CRC-verifying
+    /// entry stream.  Forward seeks drain predecessors; backward seeks replace
+    /// the shared compression state and restart at the group leader.
+    private final class SolidCoordinator {
+        typealias StreamFactory = (
+            Int,
+            RAR29Decoder.SolidState
+        ) throws -> EntryStream
+
+        private let entryIndices: [Int]
+        private let entryPositions: [Int: Int]
+        private let dictionarySize: UInt64
+        private let limits: ReadLimits
+        private let factory: StreamFactory
+
+        private var state: RAR29Decoder.SolidState?
+        private var nextPosition = 0
+        private var activePosition: Int?
+        private var activeStream: EntryStream?
+        private var generation: UInt64 = 0
+
+        init(
+            entryIndices: [Int],
+            dictionarySize: UInt64,
+            limits: ReadLimits,
+            factory: @escaping StreamFactory
+        ) {
+            self.entryIndices = entryIndices
+            self.entryPositions = Dictionary(uniqueKeysWithValues:
+                entryIndices.enumerated().map { ($0.element, $0.offset) }
+            )
+            self.dictionarySize = dictionarySize
+            self.limits = limits
+            self.factory = factory
+        }
+
+        func stream(entryIndex: Int, unpackedSize: UInt64) throws -> any Decompressor {
+            guard let requestedPosition = entryPositions[entryIndex] else {
+                throw KaitoError.malformed(
+                    "RAR4 solid entry is not in its published group"
+                )
+            }
+            generation = try Checked.add(generation, 1)
+
+            do {
+                if state == nil || requestedPosition < nextPosition
+                    || activePosition.map({ requestedPosition <= $0 }) == true {
+                    try restart()
+                }
+                if activeStream != nil { try drainActiveStream() }
+                while nextPosition < requestedPosition {
+                    try openNextStream()
+                    try drainActiveStream()
+                }
+                guard nextPosition == requestedPosition else {
+                    throw KaitoError.malformed(
+                        "RAR4 solid coordinator passed its requested entry"
+                    )
+                }
+                try openNextStream()
+                let initiallyFinished = activeStream?.remaining == 0
+                if initiallyFinished { completeActiveStream(preserveState: true) }
+                return SolidRangeDecompressor(
+                    coordinator: self,
+                    generation: generation,
+                    entryIndex: entryIndex,
+                    unpackedSize: unpackedSize,
+                    initiallyFinished: initiallyFinished
+                )
+            } catch {
+                abandonState()
+                throw error
+            }
+        }
+
+        fileprivate func read(
+            generation expectedGeneration: UInt64,
+            entryIndex: Int,
+            remaining: inout UInt64,
+            finished: inout Bool,
+            into buffer: UnsafeMutableRawBufferPointer
+        ) throws -> Int {
+            guard expectedGeneration == generation else {
+                throw KaitoError.malformed(
+                    "a newer RAR4 solid stream invalidated this stream"
+                )
+            }
+            guard !finished, !buffer.isEmpty else { return 0 }
+            guard let activePosition,
+                  entryIndices[activePosition] == entryIndex,
+                  let activeStream else {
+                throw KaitoError.malformed(
+                    "RAR4 solid coordinator has no active entry stream"
+                )
+            }
+
+            do {
+                let actual = try activeStream.read(into: buffer)
+                remaining = try Checked.sub(remaining, UInt64(actual))
+                if activeStream.remaining == 0 {
+                    finished = true
+                    remaining = 0
+                    completeActiveStream(preserveState: true)
+                } else if actual == 0 {
+                    throw KaitoError.truncated
+                }
+                return actual
+            } catch {
+                abandonState()
+                throw error
+            }
+        }
+
+        private func restart() throws {
+            try Checked.size(dictionarySize, limit: limits.maxDictionarySize)
+            state = try RAR29Decoder.SolidState(dictionarySize: dictionarySize)
+            nextPosition = 0
+            activePosition = nil
+            activeStream = nil
+        }
+
+        private func openNextStream() throws {
+            guard activeStream == nil,
+                  entryIndices.indices.contains(nextPosition),
+                  let state else {
+                throw KaitoError.malformed(
+                    "RAR4 solid coordinator cannot open its next entry"
+                )
+            }
+            let position = nextPosition
+            activeStream = try factory(entryIndices[position], state)
+            activePosition = position
+        }
+
+        private func drainActiveStream() throws {
+            guard let activeStream else { return }
+            var scratch = [UInt8](repeating: 0, count: 256 * 1_024)
+            while activeStream.remaining != 0 {
+                let count = try scratch.withUnsafeMutableBytes {
+                    try activeStream.read(into: $0)
+                }
+                guard count > 0 || activeStream.remaining == 0 else {
+                    throw KaitoError.truncated
+                }
+            }
+            completeActiveStream(preserveState: true)
+        }
+
+        private func completeActiveStream(preserveState: Bool) {
+            guard let position = activePosition else { return }
+            nextPosition = position + 1
+            activePosition = nil
+            activeStream = nil
+            if !preserveState || nextPosition == entryIndices.count {
+                state = nil
+            }
+        }
+
+        fileprivate func invalidateAndRelease() {
+            generation &+= 1
+            abandonState()
+        }
+
+        fileprivate func releaseAbandonedRange(
+            generation expectedGeneration: UInt64,
+            entryIndex: Int
+        ) {
+            guard expectedGeneration == generation,
+                  let activePosition,
+                  entryIndices[activePosition] == entryIndex else { return }
+            invalidateAndRelease()
+        }
+
+        private func abandonState() {
+            state = nil
+            nextPosition = 0
+            activePosition = nil
+            activeStream = nil
+        }
+    }
+
+    private final class SolidRangeDecompressor: Decompressor {
+        private let coordinator: SolidCoordinator
+        private let generation: UInt64
+        private let entryIndex: Int
+        private var remaining: UInt64
+        private var finished: Bool
+
+        init(
+            coordinator: SolidCoordinator,
+            generation: UInt64,
+            entryIndex: Int,
+            unpackedSize: UInt64,
+            initiallyFinished: Bool
+        ) {
+            self.coordinator = coordinator
+            self.generation = generation
+            self.entryIndex = entryIndex
+            self.remaining = unpackedSize
+            self.finished = initiallyFinished
+        }
+
+        var isFinished: Bool { finished }
+
+        deinit {
+            coordinator.releaseAbandonedRange(
+                generation: generation,
+                entryIndex: entryIndex
+            )
+        }
+
+        func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+            try coordinator.read(
+                generation: generation,
+                entryIndex: entryIndex,
+                remaining: &remaining,
+                finished: &finished,
+                into: buffer
+            )
+        }
     }
 
     let format: ArchiveFormat = .rar
@@ -109,27 +356,89 @@ final class RAR4Reader: FormatReader {
     private(set) var nameEncoding: String.Encoding?
 
     private let source: any ByteSource
+    private let sourceURL: URL?
+    private let options: ReaderOptions
     private let records: [Record]
+    private let solidGroupMembers: [Int: [Int]]
     private let keyCache = RAR3KeyCache()
     private var password: String?
+    private var solidCoordinators: [Int: SolidCoordinator] = [:]
+    private var activeSolidGroup: Int?
 
-    init(source: any ByteSource, options: ReaderOptions) throws {
+    var resolvedPassword: String? { password }
+
+    init(
+        source: any ByteSource,
+        options: ReaderOptions,
+        sourceURL: URL? = nil,
+        sourceDirectoryAnchor: FileByteSource.DirectoryAnchor? = nil,
+        signatureOffset: UInt64? = nil
+    ) throws {
         self.source = source
-        self.password = options.password
+        self.sourceURL = sourceURL
+        self.options = options
+        let resolvedSignatureOffset: UInt64
+        if let signatureOffset {
+            resolvedSignatureOffset = signatureOffset
+        } else {
+            guard let match = try FormatDetector.findRARSignature(source: source),
+                  match.version == .rar4 else {
+                throw KaitoError.unsupportedFormat
+            }
+            resolvedSignatureOffset = match.offset
+        }
         let parsed = try Self.parse(
             source: source,
-            policy: options.encodingPolicy,
-            limits: options.limits
+            sourceURL: sourceURL,
+            sourceDirectoryAnchor: sourceDirectoryAnchor,
+            options: options,
+            signatureOffset: resolvedSignatureOffset
         )
         self.entries = parsed.entries
         self.records = parsed.records
+        self.solidGroupMembers = Self.indexSolidGroups(parsed.entries)
         self.nameEncoding = parsed.nameEncoding
+        self.password = parsed.resolvedPassword
+    }
+
+    private init(
+        source: any ByteSource,
+        sourceURL: URL?,
+        options: ReaderOptions,
+        entries: [ArchiveEntry],
+        records: [Record],
+        nameEncoding: String.Encoding?
+    ) {
+        self.source = source
+        self.sourceURL = sourceURL
+        self.options = options
+        self.entries = entries
+        self.records = records
+        self.solidGroupMembers = Self.indexSolidGroups(entries)
+        self.nameEncoding = nameEncoding
+        self.password = options.password
+    }
+
+    func reopened(options: ReaderOptions) -> RAR4Reader {
+        RAR4Reader(
+            source: source,
+            sourceURL: sourceURL,
+            options: options,
+            entries: entries,
+            records: records,
+            nameEncoding: nameEncoding
+        )
     }
 
     func setPassword(_ password: String?) {
         guard self.password != password else { return }
         self.password = password
         keyCache.removeAll()
+        for coordinator in solidCoordinators.values {
+            coordinator.invalidateAndRelease()
+        }
+        solidCoordinators.removeAll(keepingCapacity: false)
+        activeSolidGroup = nil
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
@@ -141,13 +450,43 @@ final class RAR4Reader: FormatReader {
 
         let record = records[entry.index]
         guard !record.isSplit else {
-            throw KaitoError.unsupportedMethod("RAR4 multi-volume continuation")
+            if sourceURL == nil {
+                throw KaitoError.unsupportedMethod("multi-volume from Data")
+            }
+            throw KaitoError.truncated
         }
         guard record.unpackVersion >= 15 else {
             throw KaitoError.unsupportedMethod(
                 "RAR4 unpack version \(record.unpackVersion)"
             )
         }
+        if entry.solidGroup >= 0 {
+            return try streamSolidEntry(
+                entry,
+                group: entry.solidGroup,
+                limits: limits
+            )
+        }
+        try Checked.size(record.packedSize, limit: limits.maxEntrySize)
+        try Self.validatePackedParts(record, entryIndex: entry.index)
+        let packedSource: any ByteSource
+        let packedOffset: UInt64
+        if record.packedSegments.count == 1,
+           let segment = record.packedSegments.first {
+            packedSource = segment.source
+            packedOffset = segment.offset
+        } else if record.packedSize == 0 {
+            packedSource = DataByteSource(data: Data())
+            packedOffset = 0
+        } else {
+            packedSource = try RARConcatenatedByteSource(
+                segments: record.packedSegments,
+                maximumLength: record.packedSize,
+                maximumSegmentCount: limits.maxVolumeCount
+            )
+            packedOffset = 0
+        }
+
         let compressedSource: any ByteSource
         let compressedOffset: UInt64
         if record.isEncrypted {
@@ -159,8 +498,8 @@ final class RAR4Reader: FormatReader {
             }
             let derived = try keyCache.key(password: password, salt: salt)
             compressedSource = try RARAESCBCByteSource(
-                source: source,
-                ciphertextOffset: record.dataOffset,
+                source: packedSource,
+                ciphertextOffset: packedOffset,
                 ciphertextSize: record.packedSize,
                 // RAR does not retain the pre-padding packed byte count.  The
                 // compression end marker (or stored logical size below) keeps
@@ -171,8 +510,8 @@ final class RAR4Reader: FormatReader {
             )
             compressedOffset = 0
         } else {
-            compressedSource = source
-            compressedOffset = record.dataOffset
+            compressedSource = packedSource
+            compressedOffset = packedOffset
         }
 
         let decompressor: any Decompressor
@@ -202,7 +541,7 @@ final class RAR4Reader: FormatReader {
                 unpackVersion: record.unpackVersion,
                 method: record.method,
                 dictionarySize: record.dictionarySize,
-                isSolid: record.flags & FileFlag.solid != 0,
+                isSolid: record.firstFlags & FileFlag.solid != 0,
                 limits: limits
             )
         default:
@@ -221,44 +560,529 @@ final class RAR4Reader: FormatReader {
         )
     }
 
+    private func streamSolidEntry(
+        _ entry: ArchiveEntry,
+        group: Int,
+        limits: ReadLimits
+    ) throws -> EntryStream {
+        if let activeSolidGroup, activeSolidGroup != group {
+            solidCoordinators[activeSolidGroup]?.invalidateAndRelease()
+        }
+        activeSolidGroup = group
+
+        let coordinator: SolidCoordinator
+        if let existing = solidCoordinators[group] {
+            coordinator = existing
+        } else {
+            guard let groupIndices = solidGroupMembers[group],
+                  !groupIndices.isEmpty,
+                  groupIndices.first == group,
+                  groupIndices.contains(entry.index) else {
+                throw KaitoError.malformed(
+                    "RAR4 solid group membership is inconsistent"
+                )
+            }
+
+            let dictionarySize = records[groupIndices[0]].dictionarySize
+            for index in groupIndices {
+                let member = records[index]
+                guard (0x31...0x35).contains(member.method) else {
+                    throw KaitoError.unsupportedMethod(
+                        "RAR4 solid group containing a stored entry"
+                    )
+                }
+                guard member.unpackVersion == 29 else {
+                    throw KaitoError.unsupportedMethod(
+                        "RAR4 solid unpack version \(member.unpackVersion)"
+                    )
+                }
+                guard member.dictionarySize == dictionarySize else {
+                    throw KaitoError.malformed(
+                        "RAR4 solid dictionary size changes within a group"
+                    )
+                }
+                guard !member.isSplit else {
+                    if sourceURL == nil {
+                        throw KaitoError.unsupportedMethod(
+                            "multi-volume from Data"
+                        )
+                    }
+                    throw KaitoError.truncated
+                }
+            }
+
+            let capturedEntries = entries
+            let capturedRecords = records
+            let capturedPassword = password
+            let capturedKeyCache = keyCache
+            coordinator = SolidCoordinator(
+                entryIndices: groupIndices,
+                dictionarySize: dictionarySize,
+                limits: limits
+            ) { index, state in
+                guard capturedEntries.indices.contains(index),
+                      capturedRecords.indices.contains(index) else {
+                    throw KaitoError.malformed(
+                        "RAR4 solid coordinator references an invalid entry"
+                    )
+                }
+                return try Self.makeSolidVerifiedStream(
+                    entry: capturedEntries[index],
+                    record: capturedRecords[index],
+                    limits: limits,
+                    state: state,
+                    password: capturedPassword,
+                    keyCache: capturedKeyCache
+                )
+            }
+            solidCoordinators[group] = coordinator
+        }
+
+        let range = try coordinator.stream(
+            entryIndex: entry.index,
+            unpackedSize: records[entry.index].unpackedSize
+        )
+        // The retained inner stream verifies every skipped member and the
+        // requested member.  The outer stream only enforces caller-facing size
+        // semantics, avoiding a duplicate CRC pass.
+        return try EntryStream(
+            decompressor: range,
+            length: records[entry.index].unpackedSize,
+            expectedCRC32: nil,
+            entryIndex: entry.index,
+            limits: limits
+        )
+    }
+
+    private static func indexSolidGroups(
+        _ entries: [ArchiveEntry]
+    ) -> [Int: [Int]] {
+        var result: [Int: [Int]] = [:]
+        for index in entries.indices where entries[index].solidGroup >= 0 {
+            result[entries[index].solidGroup, default: []].append(index)
+        }
+        return result
+    }
+
+    private static func makeSolidVerifiedStream(
+        entry: ArchiveEntry,
+        record: Record,
+        limits: ReadLimits,
+        state: RAR29Decoder.SolidState,
+        password: String?,
+        keyCache: RAR3KeyCache
+    ) throws -> EntryStream {
+        guard (0x31...0x35).contains(record.method),
+              record.unpackVersion == 29 else {
+            throw KaitoError.unsupportedMethod("RAR4 unsupported solid stream member")
+        }
+        try Checked.size(record.packedSize, limit: limits.maxEntrySize)
+        try validatePackedParts(record, entryIndex: entry.index)
+
+        let packed: (source: any ByteSource, offset: UInt64)
+        if record.packedSegments.count == 1,
+           let segment = record.packedSegments.first {
+            packed = (segment.source, segment.offset)
+        } else if record.packedSize == 0 {
+            packed = (DataByteSource(data: Data()), 0)
+        } else {
+            packed = (
+                try RARConcatenatedByteSource(
+                    segments: record.packedSegments,
+                    maximumLength: record.packedSize,
+                    maximumSegmentCount: limits.maxVolumeCount
+                ),
+                0
+            )
+        }
+
+        let compressed: (source: any ByteSource, offset: UInt64)
+        if record.isEncrypted {
+            guard let password else { throw KaitoError.passwordRequired }
+            guard let salt = record.salt else {
+                throw KaitoError.unsupportedMethod(
+                    "RAR4 encrypted file data without a RAR3 salt"
+                )
+            }
+            let derived = try keyCache.key(password: password, salt: salt)
+            compressed = (
+                try RARAESCBCByteSource(
+                    source: packed.source,
+                    ciphertextOffset: packed.offset,
+                    ciphertextSize: record.packedSize,
+                    plaintextSize: record.packedSize,
+                    key: derived.key,
+                    initializationVector: derived.initializationVector
+                ),
+                0
+            )
+        } else {
+            compressed = packed
+        }
+
+        let decompressor = try RAR29Decoder(
+            source: compressed.source,
+            offset: compressed.offset,
+            compressedSize: record.packedSize,
+            uncompressedSize: record.unpackedSize,
+            unpackVersion: record.unpackVersion,
+            method: record.method,
+            dictionarySize: record.dictionarySize,
+            isSolid: record.firstFlags & FileFlag.solid != 0,
+            limits: limits,
+            solidState: state
+        )
+        return try EntryStream(
+            decompressor: decompressor,
+            length: record.unpackedSize,
+            expectedCRC32: record.crc32,
+            entryIndex: entry.index,
+            limits: limits,
+            checksumMismatchIsWrongPassword: record.isEncrypted
+        )
+    }
+
+    private static func validatePackedParts(
+        _ record: Record,
+        entryIndex: Int
+    ) throws {
+        guard record.packedPartCRC32.count == record.packedSegments.count else {
+            throw KaitoError.malformed("RAR4 split integrity metadata is inconsistent")
+        }
+        guard record.packedPartCRC32.contains(where: { $0 != nil }) else { return }
+
+        var buffer = [UInt8](repeating: 0, count: 256 * 1_024)
+        for (segment, expected) in zip(
+            record.packedSegments,
+            record.packedPartCRC32
+        ) {
+            guard let expected else { continue }
+            let end = try Checked.add(segment.offset, segment.length)
+            guard end <= segment.source.length else { throw KaitoError.truncated }
+            var crc = CRC32()
+            var consumed: UInt64 = 0
+            while consumed < segment.length {
+                let wanted = try Checked.toInt(min(
+                    UInt64(buffer.count),
+                    try Checked.sub(segment.length, consumed)
+                ))
+                let count = try buffer.withUnsafeMutableBytes { storage in
+                    try segment.source.read(
+                        into: UnsafeMutableRawBufferPointer(rebasing: storage[..<wanted]),
+                        at: try Checked.add(segment.offset, consumed)
+                    )
+                }
+                guard count > 0, count <= wanted else { throw KaitoError.truncated }
+                buffer.withUnsafeBytes { storage in
+                    crc.update(UnsafeRawBufferPointer(rebasing: storage[..<count]))
+                }
+                consumed = try Checked.add(consumed, UInt64(count))
+            }
+            guard crc.value == expected else {
+                throw KaitoError.checksumMismatch(entry: entryIndex)
+            }
+        }
+    }
+
     private static func parse(
         source: any ByteSource,
-        policy: EncodingPolicy,
-        limits: ReadLimits
+        sourceURL: URL?,
+        sourceDirectoryAnchor: FileByteSource.DirectoryAnchor?,
+        options: ReaderOptions,
+        signatureOffset: UInt64
     ) throws -> ParsedArchive {
-        guard source.length >= UInt64(signature.count) else {
+        var resolvedPassword = options.password
+        let headerKeyCache = RAR3KeyCache()
+        let first = try parseVolume(
+            source: source,
+            limits: options.limits,
+            password: &resolvedPassword,
+            passwordProvider: options.passwordProvider,
+            headerKeyCache: headerKeyCache,
+            signatureOffset: signatureOffset
+        )
+        guard first.mainHeader.isVolume, let sourceURL else {
+            return try publish(
+                pendingEntries: first.pendingEntries,
+                records: first.records,
+                mainHeader: first.mainHeader,
+                policy: options.encodingPolicy,
+                limits: options.limits,
+                resolvedPassword: resolvedPassword
+            )
+        }
+
+        let naming: RARVolumeNaming = first.mainHeader.flags & MainFlag.newNumbering != 0
+            ? .rar4New
+            : .rar4Old
+        let locator = try RARVolumeLocator(
+            firstVolumeURL: sourceURL,
+            firstVolumeSource: source,
+            firstVolumeDirectory: sourceDirectoryAnchor,
+            naming: naming,
+            maxMetadataSize: options.limits.maxMetadataSize,
+            maxVolumeCount: options.limits.maxVolumeCount
+        )
+        var mergedEntries: [PendingEntry] = []
+        var mergedRecords: [Record] = []
+        var activeEntry: PendingEntry?
+        var activeRecord: Record?
+        var retainedMetadataSize: UInt64 = 0
+        try mergeFragments(
+            entries: first.pendingEntries,
+            records: first.records,
+            into: &mergedEntries,
+            mergedRecords: &mergedRecords,
+            activeEntry: &activeEntry,
+            activeRecord: &activeRecord,
+            retainedMetadataSize: &retainedMetadataSize,
+            limits: options.limits
+        )
+
+        var current = first
+        var volumeNumber: UInt64 = 0
+        while current.requestsNextVolume {
+            let nextNumber = try Checked.add(volumeNumber, 1)
+            guard nextNumber < UInt64(options.limits.maxVolumeCount) else {
+                throw KaitoError.limitExceeded("RAR4 volume count")
+            }
+            let located = try locator.locate(volumeNumber: nextNumber)
+            let next = try parseVolume(
+                source: located.source,
+                limits: options.limits,
+                password: &resolvedPassword,
+                passwordProvider: options.passwordProvider,
+                headerKeyCache: headerKeyCache,
+                signatureOffset: 0
+            )
+            guard next.mainHeader.isVolume else {
+                throw KaitoError.malformed("RAR4 continuation is not marked as a volume")
+            }
+            guard next.mainHeader.isSolid == first.mainHeader.isSolid else {
+                throw KaitoError.malformed("RAR4 solid flag changes between volumes")
+            }
+            guard (next.mainHeader.flags & MainFlag.newNumbering != 0) ==
+                    (first.mainHeader.flags & MainFlag.newNumbering != 0) else {
+                throw KaitoError.malformed("RAR4 numbering mode changes between volumes")
+            }
+            guard next.mainHeader.flags & MainFlag.firstVolume == 0 else {
+                throw KaitoError.malformed("RAR4 continuation is marked as first volume")
+            }
+            try mergeFragments(
+                entries: next.pendingEntries,
+                records: next.records,
+                into: &mergedEntries,
+                mergedRecords: &mergedRecords,
+                activeEntry: &activeEntry,
+                activeRecord: &activeRecord,
+                retainedMetadataSize: &retainedMetadataSize,
+                limits: options.limits
+            )
+            current = next
+            volumeNumber = nextNumber
+        }
+        guard activeEntry == nil, activeRecord == nil else { throw KaitoError.truncated }
+        return try publish(
+            pendingEntries: mergedEntries,
+            records: mergedRecords,
+            mainHeader: first.mainHeader,
+            policy: options.encodingPolicy,
+            limits: options.limits,
+            resolvedPassword: resolvedPassword
+        )
+    }
+
+    private static func mergeFragments(
+        entries: [PendingEntry],
+        records: [Record],
+        into completedEntries: inout [PendingEntry],
+        mergedRecords: inout [Record],
+        activeEntry: inout PendingEntry?,
+        activeRecord: inout Record?,
+        retainedMetadataSize: inout UInt64,
+        limits: ReadLimits
+    ) throws {
+        guard entries.count == records.count else {
+            throw KaitoError.malformed("RAR4 volume entry records are inconsistent")
+        }
+        for (entry, record) in zip(entries, records) {
+            if record.firstFlags & FileFlag.splitBefore != 0 {
+                guard let precedingEntry = activeEntry,
+                      let precedingRecord = activeRecord,
+                      precedingRecord.lastFlags & FileFlag.splitAfter != 0 else {
+                    throw KaitoError.malformed(
+                        "RAR4 split continuation has no preceding file part"
+                    )
+                }
+                let merged = try mergeSplitParts(
+                    precedingEntry,
+                    precedingRecord,
+                    entry,
+                    record
+                )
+                activeEntry = merged.entry
+                activeRecord = merged.record
+            } else {
+                guard activeEntry == nil, activeRecord == nil else {
+                    throw KaitoError.malformed("RAR4 split continuation is missing")
+                }
+                activeEntry = entry
+                activeRecord = record
+            }
+
+            if let finishedEntry = activeEntry,
+               let finishedRecord = activeRecord,
+               finishedRecord.lastFlags & FileFlag.splitAfter == 0 {
+                guard completedEntries.count < limits.maxEntryCount else {
+                    throw KaitoError.limitExceeded("archive entry count")
+                }
+                let nextRetainedMetadataSize = try Checked.add(
+                    retainedMetadataSize,
+                    pendingMetadataCost(finishedEntry)
+                )
+                try Checked.size(
+                    nextRetainedMetadataSize,
+                    limit: limits.maxTotalMetadataSize
+                )
+                retainedMetadataSize = nextRetainedMetadataSize
+                completedEntries.append(finishedEntry)
+                mergedRecords.append(finishedRecord)
+                activeEntry = nil
+                activeRecord = nil
+            }
+        }
+    }
+
+    private static func mergeSplitParts(
+        _ firstEntry: PendingEntry,
+        _ firstRecord: Record,
+        _ continuationEntry: PendingEntry,
+        _ continuationRecord: Record
+    ) throws -> (entry: PendingEntry, record: Record) {
+        let splitMask = FileFlag.splitBefore | FileFlag.splitAfter
+        guard firstEntry.rawName == continuationEntry.rawName,
+              firstEntry.fallbackName == continuationEntry.fallbackName,
+              firstEntry.decodedUnicodeName == continuationEntry.decodedUnicodeName,
+              firstEntry.declaredEncoding == continuationEntry.declaredEncoding,
+              firstEntry.kind == continuationEntry.kind,
+              firstEntry.unpackedSize == continuationEntry.unpackedSize,
+              firstEntry.modificationDate == continuationEntry.modificationDate,
+              firstEntry.permissions == continuationEntry.permissions,
+              firstEntry.isEncrypted == continuationEntry.isEncrypted,
+              firstRecord.unpackVersion == continuationRecord.unpackVersion,
+              firstRecord.method == continuationRecord.method,
+              firstRecord.dictionarySize == continuationRecord.dictionarySize,
+              firstRecord.salt == continuationRecord.salt,
+              firstRecord.lastFlags & ~splitMask ==
+                continuationRecord.firstFlags & ~splitMask else {
+            throw KaitoError.malformed("RAR4 split file metadata changes between volumes")
+        }
+
+        let packedSize = try Checked.add(
+            firstRecord.packedSize,
+            continuationRecord.packedSize
+        )
+        let segmentCount = try Checked.add(
+            UInt64(firstRecord.packedSegments.count),
+            UInt64(continuationRecord.packedSegments.count)
+        )
+        guard segmentCount <= 65_536 else {
+            throw KaitoError.limitExceeded("RAR4 split stream has too many segments")
+        }
+        var specific = firstEntry.formatSpecific
+        specific["splitAfter"] = continuationRecord.lastFlags & FileFlag.splitAfter != 0
+            ? "true"
+            : "false"
+        specific["volumeSegmentCount"] = String(segmentCount)
+        specific["multiVolume"] = "true"
+
+        return (
+            PendingEntry(
+                rawName: firstEntry.rawName,
+                fallbackName: firstEntry.fallbackName,
+                decodedUnicodeName: firstEntry.decodedUnicodeName,
+                declaredEncoding: firstEntry.declaredEncoding,
+                kind: firstEntry.kind,
+                unpackedSize: firstEntry.unpackedSize,
+                packedSize: packedSize,
+                modificationDate: firstEntry.modificationDate,
+                permissions: firstEntry.permissions,
+                isEncrypted: firstEntry.isEncrypted,
+                crc32: continuationEntry.crc32,
+                methodDescription: firstEntry.methodDescription,
+                formatSpecific: specific
+            ),
+            Record(
+                packedSegments: firstRecord.packedSegments
+                    + continuationRecord.packedSegments,
+                packedPartCRC32: firstRecord.packedPartCRC32
+                    + continuationRecord.packedPartCRC32,
+                packedSize: packedSize,
+                unpackedSize: firstRecord.unpackedSize,
+                crc32: continuationRecord.crc32,
+                firstFlags: firstRecord.firstFlags,
+                lastFlags: continuationRecord.lastFlags,
+                unpackVersion: firstRecord.unpackVersion,
+                method: firstRecord.method,
+                dictionarySize: firstRecord.dictionarySize,
+                salt: firstRecord.salt
+            )
+        )
+    }
+
+    private static func parseVolume(
+        source: any ByteSource,
+        limits: ReadLimits,
+        password: inout String?,
+        passwordProvider: (any PasswordProvider)?,
+        headerKeyCache: RAR3KeyCache,
+        signatureOffset: UInt64
+    ) throws -> ParsedVolume {
+        let markerEnd = try Checked.add(signatureOffset, UInt64(signature.count))
+        guard source.length >= markerEnd else {
             throw KaitoError.truncated
         }
-        let marker = try readByteRange(source: source, offset: 0, count: signature.count)
+        let marker = try readByteRange(
+            source: source,
+            offset: signatureOffset,
+            count: signature.count
+        )
         guard marker == signature else { throw KaitoError.unsupportedFormat }
 
-        var offset = UInt64(signature.count)
+        var offset = markerEnd
         var mainHeader: MainHeader?
         var pendingEntries: [PendingEntry] = []
         var records: [Record] = []
         var retainedMetadataSize: UInt64 = 0
 
         while offset < source.length {
-            let remaining = try Checked.sub(source.length, offset)
-            guard remaining >= 7 else { throw KaitoError.truncated }
+            let encryptedHeader = mainHeader?.hasEncryptedHeaders == true
+            let parsedHeader: ParsedHeader
+            do {
+                parsedHeader = try readHeader(
+                    source: source,
+                    offset: offset,
+                    encrypted: encryptedHeader,
+                    password: password,
+                    keyCache: headerKeyCache,
+                    limits: limits
+                )
+            } catch let error as KaitoError where encryptedHeader {
+                switch error {
+                case .passwordRequired, .limitExceeded:
+                    throw error
+                default:
+                    // RAR3 has no independent password-check field for archive
+                    // headers. A bad first decrypted CRC is its password oracle.
+                    throw KaitoError.wrongPassword
+                }
+            }
 
-            let common = try readByteRange(source: source, offset: offset, count: 7)
+            let header = parsedHeader.bytes
+            let common = header
             let typeByte = common[2]
             let flags = littleUInt16(common, at: 3)
-            let headerSize = UInt64(littleUInt16(common, at: 5))
-            guard headerSize >= 7 else {
-                throw KaitoError.malformed("RAR4 header size is smaller than 7")
-            }
-            try Checked.size(headerSize, limit: limits.maxMetadataSize)
-            let headerEnd = try Checked.add(offset, headerSize)
-            guard headerEnd <= source.length else { throw KaitoError.truncated }
-
-            let header = try readByteRange(
-                source: source,
-                offset: offset,
-                count: try Checked.toInt(headerSize)
-            )
-            try validateHeaderCRC(header, offset: offset)
+            let headerEnd = parsedHeader.physicalEnd
 
             var dataSize: UInt64 = 0
             if flags & FileFlag.additionalSize != 0 {
@@ -290,7 +1114,7 @@ final class RAR4Reader: FormatReader {
                 guard mainHeader == nil else {
                     throw KaitoError.malformed("duplicate RAR4 main header")
                 }
-                guard offset == UInt64(signature.count) else {
+                guard offset == markerEnd else {
                     throw KaitoError.malformed("RAR4 main header is not first")
                 }
                 guard header.count >= 13 else {
@@ -302,7 +1126,12 @@ final class RAR4Reader: FormatReader {
                     )
                 }
                 if flags & MainFlag.encryptedHeaders != 0 {
-                    throw KaitoError.unsupportedMethod("RAR4 encrypted headers")
+                    if password == nil {
+                        password = try passwordProvider?.password(for: .rar)
+                    }
+                    guard password != nil else {
+                        throw KaitoError.passwordRequired
+                    }
                 }
                 mainHeader = MainHeader(flags: flags)
                 dataSize = 0
@@ -313,6 +1142,7 @@ final class RAR4Reader: FormatReader {
                 }
                 let parsed = try parseFileHeader(
                     header,
+                    source: source,
                     headerOffset: offset,
                     dataOffset: headerEnd,
                     mainHeader: mainHeader,
@@ -363,12 +1193,11 @@ final class RAR4Reader: FormatReader {
                 guard endOffset > offset else {
                     throw KaitoError.malformed("RAR4 end block does not advance")
                 }
-                return try publish(
+                return ParsedVolume(
                     pendingEntries: pendingEntries,
                     records: records,
                     mainHeader: mainHeader!,
-                    policy: policy,
-                    limits: limits
+                    requestsNextVolume: flags & EndFlag.nextVolume != 0
                 )
 
             case .comment, .authenticity, .subblock, .recovery, .signature:
@@ -391,17 +1220,17 @@ final class RAR4Reader: FormatReader {
         }
         // ENDARC was historically optional. Physical EOF immediately after a
         // validated block is therefore an accepted terminator.
-        return try publish(
+        return ParsedVolume(
             pendingEntries: pendingEntries,
             records: records,
             mainHeader: mainHeader,
-            policy: policy,
-            limits: limits
+            requestsNextVolume: false
         )
     }
 
     private static func parseFileHeader(
         _ header: [UInt8],
+        source: any ByteSource,
         headerOffset: UInt64,
         dataOffset: UInt64,
         mainHeader: MainHeader,
@@ -507,6 +1336,7 @@ final class RAR4Reader: FormatReader {
             // Unknown methods remain listable, and fail explicitly when read.
             // This is intentionally not a parse failure.
             return makePendingAndRecord(
+                source: source,
                 rawName: rawName,
                 decodedName: decodedName,
                 kind: kind,
@@ -529,6 +1359,7 @@ final class RAR4Reader: FormatReader {
         }
 
         return makePendingAndRecord(
+            source: source,
             rawName: rawName,
             decodedName: decodedName,
             kind: kind,
@@ -551,6 +1382,7 @@ final class RAR4Reader: FormatReader {
     }
 
     private static func makePendingAndRecord(
+        source: any ByteSource,
         rawName: [UInt8],
         decodedName: (fallback: [UInt8], unicode: String?, declared: String.Encoding?),
         kind: EntryKind,
@@ -605,11 +1437,17 @@ final class RAR4Reader: FormatReader {
             formatSpecific: specific
         )
         let record = Record(
-            dataOffset: dataOffset,
+            packedSegments: [RARSourceSegment(
+                source: source,
+                offset: dataOffset,
+                length: packedSize
+            )],
+            packedPartCRC32: [flags & FileFlag.splitAfter != 0 ? fileCRC : nil],
             packedSize: packedSize,
             unpackedSize: unpackedSize,
             crc32: fileCRC,
-            flags: flags,
+            firstFlags: flags,
+            lastFlags: flags,
             unpackVersion: unpackVersion,
             method: method,
             dictionarySize: dictionarySize,
@@ -623,7 +1461,8 @@ final class RAR4Reader: FormatReader {
         records: [Record],
         mainHeader: MainHeader,
         policy: EncodingPolicy,
-        limits: ReadLimits
+        limits: ReadLimits,
+        resolvedPassword: String?
     ) throws -> ParsedArchive {
         guard pendingEntries.count == records.count else {
             throw KaitoError.malformed("RAR4 entry index is inconsistent")
@@ -652,7 +1491,7 @@ final class RAR4Reader: FormatReader {
         var solidGroups = [Int](repeating: -1, count: pendingEntries.count)
         var previousFileIndex: Int?
         for index in pendingEntries.indices where pendingEntries[index].kind != .directory {
-            let continuesSolidStream = records[index].flags & FileFlag.solid != 0
+            let continuesSolidStream = records[index].firstFlags & FileFlag.solid != 0
             if continuesSolidStream {
                 guard mainHeader.isSolid else {
                     throw KaitoError.malformed(
@@ -720,8 +1559,88 @@ final class RAR4Reader: FormatReader {
         return ParsedArchive(
             entries: entries,
             records: records,
-            nameEncoding: archiveEncoding
+            nameEncoding: archiveEncoding,
+            resolvedPassword: resolvedPassword
         )
+    }
+
+    /// Reads one plaintext or archive-password-encrypted header and returns the
+    /// first physical byte after its padded representation. In `-hp` archives
+    /// every post-main header is independently prefixed by an 8-byte RAR3 salt.
+    private static func readHeader(
+        source: any ByteSource,
+        offset: UInt64,
+        encrypted: Bool,
+        password: String?,
+        keyCache: RAR3KeyCache,
+        limits: ReadLimits
+    ) throws -> ParsedHeader {
+        if !encrypted {
+            let remaining = try Checked.sub(source.length, offset)
+            guard remaining >= 7 else { throw KaitoError.truncated }
+            let common = try readByteRange(
+                source: source,
+                offset: offset,
+                count: 7
+            )
+            let headerSize = UInt64(littleUInt16(common, at: 5))
+            guard headerSize >= 7 else {
+                throw KaitoError.malformed("RAR4 header size is smaller than 7")
+            }
+            try Checked.size(headerSize, limit: limits.maxMetadataSize)
+            let end = try Checked.add(offset, headerSize)
+            guard end <= source.length else { throw KaitoError.truncated }
+            let bytes = try readByteRange(
+                source: source,
+                offset: offset,
+                count: try Checked.toInt(headerSize)
+            )
+            try validateHeaderCRC(bytes, offset: offset)
+            return ParsedHeader(bytes: bytes, physicalEnd: end)
+        }
+
+        guard let password else { throw KaitoError.passwordRequired }
+        let remaining = try Checked.sub(source.length, offset)
+        guard remaining >= 24 else { throw KaitoError.truncated }
+        let salt = try readByteRange(
+            source: source,
+            offset: offset,
+            count: 8
+        )
+        let ciphertextOffset = try Checked.add(offset, 8)
+        let derived = try keyCache.key(password: password, salt: salt)
+        let commonSource = try RARAESCBCByteSource(
+            source: source,
+            ciphertextOffset: ciphertextOffset,
+            ciphertextSize: 16,
+            plaintextSize: 16,
+            key: derived.key,
+            initializationVector: derived.initializationVector
+        )
+        let common = try readByteRange(source: commonSource, offset: 0, count: 7)
+        let headerSize = UInt64(littleUInt16(common, at: 5))
+        guard headerSize >= 7 else {
+            throw KaitoError.malformed("RAR4 header size is smaller than 7")
+        }
+        try Checked.size(headerSize, limit: limits.maxMetadataSize)
+        let paddedSize = try Checked.add(headerSize, 15) & ~UInt64(15)
+        let end = try Checked.add(ciphertextOffset, paddedSize)
+        guard end <= source.length else { throw KaitoError.truncated }
+        let decrypted = try RARAESCBCByteSource(
+            source: source,
+            ciphertextOffset: ciphertextOffset,
+            ciphertextSize: paddedSize,
+            plaintextSize: headerSize,
+            key: derived.key,
+            initializationVector: derived.initializationVector
+        )
+        let bytes = try readByteRange(
+            source: decrypted,
+            offset: 0,
+            count: try Checked.toInt(headerSize)
+        )
+        try validateHeaderCRC(bytes, offset: offset)
+        return ParsedHeader(bytes: bytes, physicalEnd: end)
     }
 
     private static func validateHeaderCRC(

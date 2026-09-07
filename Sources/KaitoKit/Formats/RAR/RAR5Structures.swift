@@ -53,12 +53,11 @@ struct RAR5EndFlags: OptionSet, Sendable {
 struct RAR5CompressionInfo: Sendable, Equatable {
     let rawValue: UInt64
     let version: UInt8
-    let usesVersionZeroAlgorithm: Bool
     let isSolid: Bool
     let method: UInt8
     let dictionarySize: UInt64
 
-    init(rawValue: UInt64, limits: ReadLimits) throws {
+    init(rawValue: UInt64) throws {
         let version = UInt8(rawValue & 0x3f)
         guard version <= 1 else {
             throw KaitoError.unsupportedMethod("RAR compression version \(version)")
@@ -81,15 +80,8 @@ struct RAR5CompressionInfo: Sendable, Equatable {
             let increment = try Checked.mul(base, fraction) / 32
             dictionarySize = try Checked.add(base, increment)
         }
-        guard dictionarySize <= limits.maxDictionarySize else {
-            throw KaitoError.unsupportedMethod(
-                "RAR dictionary size \(dictionarySize) exceeds configured maximum \(limits.maxDictionarySize)"
-            )
-        }
-
         self.rawValue = rawValue
         self.version = version
-        self.usesVersionZeroAlgorithm = version == 0 || rawValue & 0x10_0000 != 0
         self.isSolid = rawValue & 0x40 != 0
         self.method = UInt8((rawValue >> 7) & 0x07)
         self.dictionarySize = dictionarySize
@@ -226,4 +218,3 @@ enum RAR5VInt {
         throw KaitoError.malformed("RAR vint exceeds 10 bytes")
     }
 }
-

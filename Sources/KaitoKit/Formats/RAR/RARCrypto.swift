@@ -202,13 +202,26 @@ struct RAR5DerivedKeys: Sendable, Equatable {
     let hashKey: Data
     let passwordCheckValue: Data
 
-    func verify(passwordCheckValue storedValue: [UInt8]) throws {
+    /// Returns `false` when the stored check field is internally corrupt.
+    /// RAR's final four bytes authenticate the first eight bytes of this
+    /// advisory verifier; an invalid field must be ignored so callers can
+    /// fall back to encrypted-header or payload-integrity verification.
+    @discardableResult
+    func verify(passwordCheckValue storedValue: [UInt8]) throws -> Bool {
         guard storedValue.count == 12 else {
             throw KaitoError.malformed("RAR5 password check is not 12 bytes")
+        }
+        let recordedChecksum = Data(storedValue[8..<12])
+        let calculatedChecksum = Data(
+            SHA256.hash(data: Data(storedValue[0..<8])).prefix(4)
+        )
+        guard RARConstantTime.equals(recordedChecksum, calculatedChecksum) else {
+            return false
         }
         guard RARConstantTime.equals(passwordCheckValue, Data(storedValue)) else {
             throw KaitoError.wrongPassword
         }
+        return true
     }
 }
 

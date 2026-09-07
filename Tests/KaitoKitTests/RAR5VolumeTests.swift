@@ -97,6 +97,37 @@ final class RAR5VolumeTests: XCTestCase {
         }
     }
 
+    func testMixedCasePartMarkerAndExtensionArePreserved() throws {
+        let directory = try ZipTestSupport.temporaryDirectory(
+            label: "rar5-volume-case"
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = directory.appendingPathComponent("Mixed.PaRt1.RAR")
+        let second = directory.appendingPathComponent("Mixed.PaRt2.RAR")
+        try RAR5TestSupport.archive(
+            mainFlags: 0x0001,
+            endFlags: 0x0001,
+            blocks: []
+        ).write(to: first)
+        try RAR5TestSupport.archive(
+            mainFlags: 0x0003,
+            mainVolumeNumber: 1,
+            blocks: []
+        ).write(to: second)
+        let locator = try RARVolumeLocator(
+            firstVolumeURL: first,
+            naming: .rar5
+        )
+        XCTAssertEqual(
+            try locator.locate(volumeNumber: 1).url?.lastPathComponent,
+            second.lastPathComponent
+        )
+
+        let reader = try ArchiveReader.open(url: first)
+        XCTAssertTrue(reader.entries.isEmpty)
+        XCTAssertTrue(try reader.reopen().entries.isEmpty)
+    }
+
     func testGeneratedStoredMultiVolumeChainRoundTripsBytePerfectly() throws {
         try RAR5TestSupport.requireRAR()
         let temporary = try ZipTestSupport.temporaryDirectory(label: "rar5-volume-stored")
@@ -307,7 +338,7 @@ final class RAR5VolumeTests: XCTestCase {
         XCTAssertThrowsError(try ArchiveReader.open(url: fixture.volumes[1])) { error in
             XCTAssertEqual(
                 error as? KaitoError,
-                .malformed("RAR5 numbered input is not the first .part1.rar volume")
+                .malformed("RAR5 volume number 1 does not match expected 0")
             )
         }
 

@@ -4,6 +4,239 @@ import Foundation
 import XCTest
 
 final class RAR4ReaderTests: XCTestCase {
+    func testRAR29EmptySubordinateTablesAreAllowed() throws {
+        for symbolCount in [60, 17, 28] {
+            let table = RAR29HuffmanTable()
+            let empty = [UInt8](repeating: 0, count: symbolCount)
+
+            XCTAssertNoThrow(try table.build(empty[...], requireSymbol: false))
+            XCTAssertThrowsError(try table.build(empty[...])) { error in
+                XCTAssertEqual(
+                    error as? KaitoError,
+                    .malformed("RAR4 Huffman table is empty")
+                )
+            }
+        }
+    }
+
+    func testRAR29PPMdFixtureDecodesWithSingleByteReads() throws {
+        // Produced by the RAR 3.00 command-line encoder with `-m5 -mct`.
+        // The committed representation is base64 so the generated binary
+        // fixture remains reviewable and deterministic in a text-only patch.
+        let fixtureURL = ZipTestSupport.repositoryRoot
+            .appendingPathComponent("Tests/Fixtures/rar4/ppmd_lorem_rar300.rar.b64")
+        let encoded = try String(contentsOf: fixtureURL, encoding: .utf8)
+        let archive = try XCTUnwrap(
+            Data(base64Encoded: encoded, options: .ignoreUnknownCharacters)
+        )
+        XCTAssertEqual(
+            sha256Hex(archive),
+            "2c263bf552de74d0a4d36142ae83fe44563a6fc18d1910b0ffcce3958aa24574"
+        )
+
+        let reader = try ArchiveReader.open(data: archive)
+        let entry = try XCTUnwrap(reader.entries.first)
+        XCTAssertEqual(reader.entries.count, 1)
+        XCTAssertEqual(entry.uncompressedSize, 130_048)
+        XCTAssertEqual(entry.methodDescription, "RAR4 best")
+        XCTAssertEqual(entry.formatSpecific["unpackVersion"], "29")
+
+        let stream = try reader.stream(entry)
+        var decoded = Data()
+        decoded.reserveCapacity(130_048)
+        var byte: UInt8 = 0
+        while stream.remaining > 0 {
+            let count = try withUnsafeMutableBytes(of: &byte) {
+                try stream.read(into: $0)
+            }
+            XCTAssertEqual(count, 1)
+            decoded.append(byte)
+        }
+        XCTAssertEqual(decoded.count, 130_048)
+        XCTAssertEqual(
+            sha256Hex(decoded),
+            "a434d9be88dd0f9d314776f4bca0f0022695c46d09a9c59e8c77c337f843fa92"
+        )
+    }
+
+    func testRAR29MalformedPPMdHeadersFailBoundedlyAndStayTerminal() throws {
+        func assertTerminalFailure(
+            _ packed: [UInt8],
+            limits: ReadLimits = ReadLimits(),
+            expected: KaitoError,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) throws {
+            let decoder = try RAR29Decoder(
+                source: DataByteSource(data: Data(packed)),
+                offset: 0,
+                compressedSize: UInt64(packed.count),
+                uncompressedSize: 1,
+                unpackVersion: 29,
+                method: 0x31,
+                dictionarySize: 64 * 1_024,
+                isSolid: false,
+                limits: limits
+            )
+            for _ in 0..<2 {
+                var byte: UInt8 = 0
+                XCTAssertThrowsError(
+                    try withUnsafeMutableBytes(of: &byte) {
+                        try decoder.read(into: $0)
+                    },
+                    file: file,
+                    line: line
+                ) { error in
+                    XCTAssertEqual(error as? KaitoError, expected, file: file, line: line)
+                }
+            }
+        }
+
+        // Continuation before a reset, reset with encoded order one, and a
+        // reset whose memory request exceeds the caller's model bound.
+        try assertTerminalFailure(
+            [0x80, 0, 0, 0, 0],
+            expected: .malformed("RAR4 PPMd continuation has no model")
+        )
+        try assertTerminalFailure(
+            [0xa0, 0, 0, 0, 0, 0],
+            expected: .malformed("RAR4 PPMd order is outside 2...64")
+        )
+        var oneMiBLimits = ReadLimits()
+        oneMiBLimits.maxDictionarySize = 1 * 1_024 * 1_024
+        try assertTerminalFailure(
+            [0xa1, 1, 0, 0, 0, 0],
+            limits: oneMiBLimits,
+            expected: .limitExceeded("size 2097152 exceeds limit 1048576")
+        )
+        try assertTerminalFailure(
+            [0xa1, 0, 0, 0, 0],
+            expected: .truncated
+        )
+    }
+
+    func testRAR29SolidLZCoordinatorSupportsSeekingAndReopen() throws {
+        // RAR 3.00 `-s` fixture reduced to its first two members.  The second
+        // packed stream is only three bytes and depends on the first member's
+        // window, repeat state and Huffman end-marker reuse policy.
+        let archive = try base64Fixture("solid_lz_rar300.rar.b64")
+        XCTAssertEqual(
+            sha256Hex(archive),
+            "a2771b950416d3df441de579b76646d203fe75eb176536c2b8fb8e67a235a0ed"
+        )
+        let expected = [
+            "71c66fb47aa972a496cce5ea8be77f28ceb6733a7687d3247472350dec3b0120",
+            "62de6306211cb0e6bd25c6fa452659e65f759b01fce630d027f5b781b14bd858",
+        ]
+
+        let reader = try ArchiveReader.open(data: archive)
+        XCTAssertEqual(reader.entries.map(\.solidGroup), [0, 0])
+        for index in [1, 0, 1, 0] {
+            XCTAssertEqual(sha256Hex(try reader.read(reader.entries[index])), expected[index])
+        }
+
+        let overlapping = try ArchiveReader.open(data: archive)
+        let abandoned = try overlapping.stream(overlapping.entries[0])
+        var prefix = Data(count: 7)
+        let prefixCount = try prefix.withUnsafeMutableBytes {
+            try abandoned.read(into: $0)
+        }
+        XCTAssertEqual(prefixCount, prefix.count)
+        XCTAssertEqual(
+            sha256Hex(try overlapping.read(overlapping.entries[1])),
+            expected[1]
+        )
+        var staleByte: UInt8 = 0
+        XCTAssertThrowsError(
+            try withUnsafeMutableBytes(of: &staleByte) {
+                try abandoned.read(into: $0)
+            }
+        ) { error in
+            guard case let .malformed(reason) = error as? KaitoError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertTrue(reason.contains("invalidated this stream"), reason)
+        }
+
+        let independent = try ArchiveReader.open(data: archive)
+        let originalStream = try independent.stream(independent.entries[0])
+        var original = Data(count: 5)
+        _ = try original.withUnsafeMutableBytes { try originalStream.read(into: $0) }
+        let reopened = try independent.reopen()
+        XCTAssertEqual(
+            sha256Hex(try reopened.read(reopened.entries[1])),
+            expected[1]
+        )
+        original.append(try originalStream.readAll())
+        XCTAssertEqual(sha256Hex(original), expected[0])
+
+        // The returned stream owns the coordinator, immutable records and
+        // packed sources it needs; it must not depend on the reader's lifetime.
+        let detachedStream: EntryStream
+        do {
+            let shortLivedReader = try ArchiveReader.open(data: archive)
+            detachedStream = try shortLivedReader.stream(shortLivedReader.entries[1])
+        }
+        XCTAssertEqual(sha256Hex(try detachedStream.readAll()), expected[1])
+    }
+
+    func testRAR29SolidPPMdModelPersistsWhenFixtureIsAvailable() throws {
+        let url = URL(
+            fileURLWithPath: "/private/tmp/claude-501/-Users-nagash-cooViewer/37ef55f3-9116-4440-88b8-9a15060856ad/scratchpad/rarppmd/ppmd_solid_rar300.rar"
+        )
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw XCTSkip("RAR3 solid PPMd fixture is absent")
+        }
+        let expected = [
+            "5fd15ccd2fd256f2491c20c6736c6634907004b6a7b4415036885e469b457a44",
+            "49252795557688b56e90755d0e8bc17e633d4c1f3bb8a7c5b9716d1abe23a1fd",
+        ]
+        let reader = try ArchiveReader.open(url: url)
+        XCTAssertEqual(reader.entries.map(\.solidGroup), [0, 0])
+        for index in [1, 0, 1] {
+            XCTAssertEqual(sha256Hex(try reader.read(reader.entries[index])), expected[index])
+        }
+    }
+
+    func testRAR29EncryptedSolidCorpusWhenAvailable() throws {
+        let directory = URL(
+            fileURLWithPath: "/private/tmp/claude-501/-Users-nagash-cooViewer/37ef55f3-9116-4440-88b8-9a15060856ad/scratchpad/rar4-corpus",
+            isDirectory: true
+        )
+        let names = [
+            "test_read_format_rar4_solid_encrypted.rar",
+            "test_read_format_rar4_solid_encrypted_filenames.rar",
+        ]
+        guard names.allSatisfy({
+            FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent($0).path
+            )
+        }) else {
+            throw XCTSkip("libarchive RAR4 encrypted-solid fixtures are absent")
+        }
+        let expected = [
+            "02dc86d8b326a1cd07526f75b66bb7207c43376b21d9ac2c20bfedf510898861",
+            "7ff61dd11ab812fc7f28f4f3b2e2ddf482148942a10ee079ac19295076ff741e",
+            "0b8a3f12dc4e493b99fb5e0699c96006b51b05c0461c2e048f25d86a50a58eb8",
+            "7e57320eb71e376207695ee851ed2f339cb2000fa3359a19de4c494b472699e1",
+        ]
+
+        for name in names {
+            let reader = try ArchiveReader.open(
+                url: directory.appendingPathComponent(name),
+                options: ReaderOptions(password: "password")
+            )
+            XCTAssertEqual(reader.entries.map(\.solidGroup), [0, 0, 0, 0])
+            for index in [3, 1, 0, 2] {
+                XCTAssertEqual(
+                    sha256Hex(try reader.read(reader.entries[index])),
+                    expected[index],
+                    name
+                )
+            }
+        }
+    }
+
     func testStoredFileListsAndStreamsWithCRC() throws {
         let contents = Data("stored RAR4 payload".utf8)
         let archive = makeArchive(files: [
@@ -259,6 +492,39 @@ final class RAR4ReaderTests: XCTestCase {
         XCTAssertTrue(reader.entries.allSatisfy { !$0.name.isEmpty })
     }
 
+    func testRealRAR29FiltersAndTableTransitionsMatchRAR723WhenAvailable() throws {
+        let url = URL(fileURLWithPath: "/Users/nagash/Downloads/st1200-pts.rar")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw XCTSkip("RAR4 oracle archive is absent")
+        }
+        try RAR5TestSupport.requireRAR()
+        let reader = try RAR4Reader(
+            source: FileByteSource(url: url),
+            options: ReaderOptions()
+        )
+        let files = reader.entries.filter { $0.kind != .directory }
+        XCTAssertEqual(files.count, 19)
+
+        for entry in files {
+            let decoded = try reader.stream(
+                for: entry,
+                limits: ReadLimits()
+            ).readAll()
+            let oracle = try ZipTestSupport.checkedRun(
+                RAR5TestSupport.executablePath,
+                arguments: ["p", "-inul", url.path, entry.name]
+            ).standardOutput
+            XCTAssertEqual(
+                decoded.count,
+                Int(try XCTUnwrap(entry.uncompressedSize))
+            )
+            XCTAssertTrue(
+                SHA256.hash(data: decoded).elementsEqual(SHA256.hash(data: oracle)),
+                "\(entry.index):\(entry.name)"
+            )
+        }
+    }
+
     func testAdditionalRAR4FixturesMatchBlackBoxOracleWhenPresent() throws {
         let fixtureDirectory = ZipTestSupport.repositoryRoot
             .appendingPathComponent("Tests/Fixtures/rar4", isDirectory: true)
@@ -408,6 +674,20 @@ final class RAR4ReaderTests: XCTestCase {
     private func appendLittle<T: FixedWidthInteger>(_ value: T, to bytes: inout [UInt8]) {
         var little = value.littleEndian
         withUnsafeBytes(of: &little) { bytes.append(contentsOf: $0) }
+    }
+
+    private func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func base64Fixture(_ name: String) throws -> Data {
+        let url = ZipTestSupport.repositoryRoot
+            .appendingPathComponent("Tests/Fixtures/rar4", isDirectory: true)
+            .appendingPathComponent(name)
+        let encoded = try String(contentsOf: url, encoding: .utf8)
+        return try XCTUnwrap(
+            Data(base64Encoded: encoded, options: .ignoreUnknownCharacters)
+        )
     }
 }
 

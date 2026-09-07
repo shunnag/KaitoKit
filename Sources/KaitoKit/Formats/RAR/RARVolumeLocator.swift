@@ -26,8 +26,10 @@ struct RARLocatedVolume: Sendable {
 final class RARVolumeLocator {
     private struct PartPattern: Sendable {
         let prefix: String
+        let marker: String
         let width: Int
         let firstPartNumber: UInt64
+        let archiveExtension: String
     }
 
     private enum Origin: Sendable {
@@ -263,10 +265,16 @@ final class RARVolumeLocator {
 
         case .rar4New, .rar5:
             let fallbackPrefix = firstURL.deletingPathExtension().lastPathComponent
+            let firstName = firstURL.lastPathComponent
+            let fallbackExtension = firstName.lowercased().hasSuffix(".rar")
+                ? String(firstName.suffix(4))
+                : ".rar"
             let selected = pattern ?? PartPattern(
                 prefix: fallbackPrefix,
+                marker: ".part",
                 width: 1,
-                firstPartNumber: 1
+                firstPartNumber: 1,
+                archiveExtension: fallbackExtension
             )
             let (partNumber, overflow) = selected.firstPartNumber
                 .addingReportingOverflow(volumeNumber)
@@ -278,7 +286,8 @@ final class RARVolumeLocator {
                 repeating: "0",
                 count: max(0, selected.width - rawDigits.count)
             ) + rawDigits
-            return selected.prefix + ".part" + digits + ".rar"
+            return selected.prefix + selected.marker + digits
+                + selected.archiveExtension
         }
     }
 
@@ -299,8 +308,10 @@ final class RARVolumeLocator {
         }
         return PartPattern(
             prefix: String(stem[..<marker.lowerBound]),
+            marker: String(stem[marker]),
             width: digitText.count,
-            firstPartNumber: number
+            firstPartNumber: number,
+            archiveExtension: String(name.suffix(4))
         )
     }
 
@@ -366,12 +377,47 @@ final class RARVolumeLocator {
         }
 
         var cursor = VIntCursor(body)
-        guard try cursor.read() == 1 else {
+        let type = try cursor.read()
+        let headerFlags = try cursor.read()
+        let extraSize = headerFlags & 0x0001 != 0 ? try cursor.read() : 0
+        let dataSize = headerFlags & 0x0002 != 0 ? try cursor.read() : 0
+
+        if type == 4 {
+            guard headerFlags == 0, extraSize == 0, dataSize == 0 else {
+                throw KaitoError.malformed(
+                    "RAR5 archive encryption header has invalid common flags"
+                )
+            }
+            let version = try cursor.read()
+            guard version == 0 else {
+                throw KaitoError.unsupportedMethod(
+                    "RAR5 archive encryption version \(version)"
+                )
+            }
+            let encryptionFlags = try cursor.read()
+            guard encryptionFlags & ~UInt64(0x0001) == 0 else {
+                throw KaitoError.unsupportedMethod(
+                    "RAR5 archive encryption flags 0x\(String(encryptionFlags, radix: 16))"
+                )
+            }
+            _ = try cursor.readUInt8() // KDF count is bounded by RAR5Reader.
+            try cursor.skip(16) // global archive-header salt
+            if encryptionFlags & 0x0001 != 0 { try cursor.skip(12) }
+            guard cursor.isAtEnd else {
+                throw KaitoError.malformed(
+                    "RAR5 archive encryption header has trailing fields"
+                )
+            }
+            // The encrypted main header is authenticated and its volume number
+            // checked by RAR5Reader immediately after this structural check.
+            return
+        }
+
+        guard type == 1 else {
             throw KaitoError.malformed("RAR5 volume does not start with a main header")
         }
-        let headerFlags = try cursor.read()
-        if headerFlags & 0x0001 != 0 { _ = try cursor.read() }
-        if headerFlags & 0x0002 != 0 { _ = try cursor.read() }
+        _ = extraSize
+        _ = dataSize
         let archiveFlags = try cursor.read()
         guard archiveFlags & 0x0001 != 0 else {
             throw KaitoError.malformed("RAR5 continuation is not marked as a volume")
@@ -413,6 +459,21 @@ final class RARVolumeLocator {
         var offset = 0
 
         init(_ bytes: [UInt8]) { self.bytes = bytes }
+
+        var isAtEnd: Bool { offset == bytes.count }
+
+        mutating func readUInt8() throws -> UInt8 {
+            guard offset < bytes.count else { throw KaitoError.truncated }
+            defer { offset += 1 }
+            return bytes[offset]
+        }
+
+        mutating func skip(_ count: Int) throws {
+            guard count >= 0, count <= bytes.count - offset else {
+                throw KaitoError.truncated
+            }
+            offset += count
+        }
 
         mutating func read() throws -> UInt64 {
             var value: UInt64 = 0

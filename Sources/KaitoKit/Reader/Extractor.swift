@@ -190,6 +190,9 @@ enum Extractor {
             }
 
         case .other:
+            if entry.formatSpecific["redirectionType"] == "5" {
+                throw KaitoError.unsupportedMethod("RAR5 file-copy redirection")
+            }
             throw KaitoError.unsupportedMethod("tar entry kind cannot be extracted")
         }
         return ExtractionResult(url: destination, fileIdentity: extractedIdentity)

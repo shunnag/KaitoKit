@@ -205,6 +205,38 @@ private func entryData(_ entry: ArchiveEntry, reader: ArchiveReader) throws -> D
     return try reader.read(entry)
 }
 
+private func entrySHA256(
+    _ entry: ArchiveEntry,
+    reader: ArchiveReader,
+    buffer: inout [UInt8]
+) throws -> (byteCount: UInt64, digest: SHA256.Digest) {
+    guard entry.kind != .directory else {
+        return (0, SHA256.hash(data: Data()))
+    }
+
+    let stream = try reader.stream(entry)
+    var byteCount: UInt64 = 0
+    var digest = SHA256()
+    while true {
+        let count = try buffer.withUnsafeMutableBytes { storage -> Int in
+            let count = try stream.read(into: storage)
+            if count > 0 {
+                digest.update(
+                    bufferPointer: UnsafeRawBufferPointer(rebasing: storage[..<count])
+                )
+            }
+            return count
+        }
+        guard count > 0 else { break }
+        let nextCount = byteCount.addingReportingOverflow(UInt64(count))
+        guard !nextCount.overflow else {
+            throw KaitoError.limitExceeded("SHA-256 byte count")
+        }
+        byteCount = nextCount.partialValue
+    }
+    return (byteCount, digest.finalize())
+}
+
 private func runSHA(_ arguments: [String]) throws {
     var path: String?
     var password: String?
@@ -228,14 +260,16 @@ private func runSHA(_ arguments: [String]) throws {
     guard let path else { throw CLIError.usage(usage) }
     let reader = try openArchive(path, password: password)
     var total = SHA256()
+    // Hash incrementally so `sha` does not allocate each complete entry and
+    // traverse it again after decompression. Reuse one buffer for the archive.
+    var buffer = [UInt8](repeating: 0, count: 4 * 1_024 * 1_024)
 
     for entry in reader.entries {
-        let data = try entryData(entry, reader: reader)
-        let digest = SHA256.hash(data: data)
-        let digestText = hexadecimal(digest)
+        let result = try entrySHA256(entry, reader: reader, buffer: &buffer)
+        let digestText = hexadecimal(result.digest)
         // 既存の差分 oracle と同様、各 digest の 16 進表現を連結して総合 hash にする。
         total.update(data: Data(digestText.utf8))
-        print("\(entry.index)\t\(data.count)\t\(digestText)\t\(oneLine(entry.name))")
+        print("\(entry.index)\t\(result.byteCount)\t\(digestText)\t\(oneLine(entry.name))")
     }
 
     let totalText = hexadecimal(total.finalize())

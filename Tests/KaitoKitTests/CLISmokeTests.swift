@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 
@@ -73,6 +74,27 @@ final class CLISmokeTests: XCTestCase {
         XCTAssertTrue(lines[0].hasPrefix("0\t\(contents.count)\t"))
         XCTAssertTrue(lines[0].hasSuffix("\t日本語.txt"))
         XCTAssertTrue(lines[1].hasPrefix("total\t1\t"))
+    }
+
+    func testSHAStreamsAcrossReusableBufferBoundary() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let archive = temporary.appendingPathComponent("cli-sha-large.tar")
+        let contents = Data(repeating: 0xA5, count: 4 * 1_024 * 1_024 + 17)
+        try TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "large.bin", contents: contents),
+        ]).write(to: archive)
+
+        let output = try runKaito(
+            findKaitoExecutable(),
+            arguments: ["sha", archive.path]
+        )
+        let lines = output.split(separator: "\n")
+        XCTAssertEqual(lines.count, 2)
+        let digest = SHA256.hash(data: contents)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        XCTAssertEqual(lines[0], "0\t\(contents.count)\t\(digest)\tlarge.bin")
     }
 
     func testBenchSupportsMappedDataAndLegacyArgumentOrder() throws {

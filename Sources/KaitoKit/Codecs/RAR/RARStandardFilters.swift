@@ -44,14 +44,23 @@ enum RARStandardFilters {
         ProgramID(byteCount: 120, crc32: 0x3769_893F): .itanium,
         ProgramID(byteCount: 29, crc32: 0x0E06_077D): .delta,
         ProgramID(byteCount: 149, crc32: 0x1C2C_5DC8): .rgb,
-        ProgramID(byteCount: 216, crc32: 0xBC85_E701): .audio,
+        ProgramID(byteCount: 158, crc32: 0xBC85_E701): .audio,
     ]
 
     static func recognizeRAR3Program(_ bytes: [UInt8]) -> RARStandardFilterKind? {
-        stockRAR3Programs[ProgramID(
+        recognizeRAR3Program(
             byteCount: bytes.count,
             crc32: CRC32.checksum(bytes)
-        )]
+        )
+    }
+
+    /// Testable fingerprint lookup kept separate from CRC calculation so every
+    /// published stock-program (length, CRC32) pair has a direct regression.
+    static func recognizeRAR3Program(
+        byteCount: Int,
+        crc32: UInt32
+    ) -> RARStandardFilterKind? {
+        stockRAR3Programs[ProgramID(byteCount: byteCount, crc32: crc32)]
     }
 
     static func requireRAR3Program(_ bytes: [UInt8]) throws -> RARStandardFilterKind {
@@ -168,11 +177,13 @@ enum RARStandardFilters {
 
             let operand = cursor + 1
             let encodedAddress = loadUInt32LE(bytes, operand)
-            let position = UInt32(truncatingIfNeeded: fileOffset) &+ UInt32(operand)
+            let unboundedPosition = UInt32(truncatingIfNeeded: fileOffset)
+                &+ UInt32(operand)
 
             var replacement: UInt32?
             switch addressMode {
             case .rar3:
+                let position = unboundedPosition
                 if encodedAddress < translationRange {
                     replacement = encodedAddress &- position
                 } else if encodedAddress & 0x8000_0000 != 0 {
@@ -182,6 +193,10 @@ enum RARStandardFilters {
                     }
                 }
             case .rar5:
+                // RAR5 x86 addresses are relative to a 24-bit position. This
+                // reduction applies both to the signed-range test and to the
+                // subtraction, including when a filter block crosses 16 MiB.
+                let position = unboundedPosition & 0x00FF_FFFF
                 if encodedAddress & 0x8000_0000 != 0 {
                     if (encodedAddress &+ position) & 0x8000_0000 == 0 {
                         replacement = encodedAddress &+ translationRange

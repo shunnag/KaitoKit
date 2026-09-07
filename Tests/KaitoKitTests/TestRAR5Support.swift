@@ -193,6 +193,153 @@ enum RAR5TestSupport {
         }
     }
 
+    static func fileEncryptionCheckRange(
+        in bytes: [UInt8],
+        layout: BlockLayout
+    ) throws -> Range<Int>? {
+        var cursor = layout.body.lowerBound
+        guard try readVInt(bytes, offset: &cursor) == 2 else {
+            throw ZipTestSupportError.fixture("RAR5 fixture block is not a file header")
+        }
+        let headerFlags = try readVInt(bytes, offset: &cursor)
+        let extraSize = headerFlags & 0x0001 != 0
+            ? try readVInt(bytes, offset: &cursor)
+            : 0
+        if headerFlags & 0x0002 != 0 {
+            _ = try readVInt(bytes, offset: &cursor)
+        }
+
+        let fileFlags = try readVInt(bytes, offset: &cursor)
+        _ = try readVInt(bytes, offset: &cursor) // unpacked size
+        _ = try readVInt(bytes, offset: &cursor) // attributes
+        if fileFlags & 0x0004 != 0 {
+            cursor = try checkedIndex(cursor, adding: 4, limit: layout.body.upperBound)
+        }
+        _ = try readVInt(bytes, offset: &cursor) // compression info
+        _ = try readVInt(bytes, offset: &cursor) // host OS
+        let nameSize = try readVInt(bytes, offset: &cursor)
+        cursor = try checkedIndex(cursor, adding: nameSize, limit: layout.body.upperBound)
+        let extrasEnd = try checkedIndex(
+            cursor,
+            adding: extraSize,
+            limit: layout.body.upperBound
+        )
+
+        while cursor < extrasEnd {
+            let recordSize = try readVInt(bytes, offset: &cursor)
+            let recordEnd = try checkedIndex(cursor, adding: recordSize, limit: extrasEnd)
+            let type = try readVInt(bytes, offset: &cursor)
+            if type == 1 {
+                _ = try readVInt(bytes, offset: &cursor) // version
+                let flags = try readVInt(bytes, offset: &cursor)
+                cursor = try checkedIndex(cursor, adding: 33, limit: recordEnd)
+                if flags & 0x0001 == 0 { return nil }
+                let end = try checkedIndex(cursor, adding: 12, limit: recordEnd)
+                return cursor..<end
+            }
+            cursor = recordEnd
+        }
+        return nil
+    }
+
+    /// Removes the optional twelve-byte verifier from a generated file
+    /// encryption record while keeping every surrounding vint at its original
+    /// width. Returning the shifted layout lets callers continue to mutate the
+    /// same block if needed.
+    @discardableResult
+    static func removeFileEncryptionCheck(
+        _ bytes: inout [UInt8],
+        layout: BlockLayout
+    ) throws -> BlockLayout {
+        var headerSizeCursor = layout.sizeField.lowerBound
+        let headerSize = try readVInt(bytes, offset: &headerSizeCursor)
+        guard headerSizeCursor == layout.sizeField.upperBound,
+              headerSize == UInt64(layout.body.count) else {
+            throw ZipTestSupportError.fixture("RAR5 fixture header layout is inconsistent")
+        }
+
+        var cursor = layout.body.lowerBound
+        guard try readVInt(bytes, offset: &cursor) == 2 else {
+            throw ZipTestSupportError.fixture("RAR5 fixture block is not a file header")
+        }
+        let headerFlags = try readVInt(bytes, offset: &cursor)
+        guard headerFlags & 0x0001 != 0 else {
+            throw ZipTestSupportError.fixture("RAR5 fixture file header has no extra area")
+        }
+        let extraSizeStart = cursor
+        let extraSize = try readVInt(bytes, offset: &cursor)
+        let extraSizeField = extraSizeStart..<cursor
+        if headerFlags & 0x0002 != 0 {
+            _ = try readVInt(bytes, offset: &cursor)
+        }
+
+        let fileFlags = try readVInt(bytes, offset: &cursor)
+        _ = try readVInt(bytes, offset: &cursor) // unpacked size
+        _ = try readVInt(bytes, offset: &cursor) // attributes
+        if fileFlags & 0x0002 != 0 {
+            cursor = try checkedIndex(cursor, adding: 4, limit: layout.body.upperBound)
+        }
+        if fileFlags & 0x0004 != 0 {
+            cursor = try checkedIndex(cursor, adding: 4, limit: layout.body.upperBound)
+        }
+        _ = try readVInt(bytes, offset: &cursor) // compression info
+        _ = try readVInt(bytes, offset: &cursor) // host OS
+        let nameSize = try readVInt(bytes, offset: &cursor)
+        cursor = try checkedIndex(cursor, adding: nameSize, limit: layout.body.upperBound)
+        let extrasEnd = try checkedIndex(
+            cursor,
+            adding: extraSize,
+            limit: layout.body.upperBound
+        )
+
+        while cursor < extrasEnd {
+            let recordSizeStart = cursor
+            let recordSize = try readVInt(bytes, offset: &cursor)
+            let recordSizeField = recordSizeStart..<cursor
+            let recordEnd = try checkedIndex(cursor, adding: recordSize, limit: extrasEnd)
+            let type = try readVInt(bytes, offset: &cursor)
+            guard type == 1 else {
+                cursor = recordEnd
+                continue
+            }
+
+            _ = try readVInt(bytes, offset: &cursor) // version
+            let encryptionFlagsStart = cursor
+            let encryptionFlags = try readVInt(bytes, offset: &cursor)
+            let encryptionFlagsField = encryptionFlagsStart..<cursor
+            guard encryptionFlags & 0x0001 != 0 else {
+                throw ZipTestSupportError.fixture(
+                    "RAR5 fixture file encryption record has no password check"
+                )
+            }
+            cursor = try checkedIndex(cursor, adding: 1 + 16 + 16, limit: recordEnd)
+            let checkEnd = try checkedIndex(cursor, adding: 12, limit: recordEnd)
+            let check = cursor..<checkEnd
+
+            try writeVInt(
+                encryptionFlags & ~UInt64(0x0001),
+                into: encryptionFlagsField,
+                bytes: &bytes
+            )
+            try writeVInt(recordSize - 12, into: recordSizeField, bytes: &bytes)
+            try writeVInt(extraSize - 12, into: extraSizeField, bytes: &bytes)
+            try writeVInt(headerSize - 12, into: layout.sizeField, bytes: &bytes)
+            bytes.removeSubrange(check)
+
+            let result = BlockLayout(
+                offset: layout.offset,
+                sizeField: layout.sizeField,
+                body: layout.body.lowerBound..<(layout.body.upperBound - 12),
+                data: (layout.data.lowerBound - 12)..<(layout.data.upperBound - 12)
+            )
+            repairHeaderCRC(&bytes, layout: result)
+            return result
+        }
+        throw ZipTestSupportError.fixture(
+            "RAR5 fixture file header has no encryption record"
+        )
+    }
+
     static func markFileUnpackedSizeUnknown(
         _ bytes: inout [UInt8],
         layout: BlockLayout
@@ -253,6 +400,25 @@ enum RAR5TestSupport {
         let result = offset + Int(count)
         guard result <= limit else { throw KaitoError.truncated }
         return result
+    }
+
+    private static func writeVInt(
+        _ suppliedValue: UInt64,
+        into range: Range<Int>,
+        bytes: inout [UInt8]
+    ) throws {
+        guard !range.isEmpty, range.upperBound <= bytes.count else {
+            throw ZipTestSupportError.fixture("RAR5 fixture vint range is invalid")
+        }
+        var value = suppliedValue
+        for (offset, index) in range.enumerated() {
+            let isLast = offset == range.count - 1
+            bytes[index] = UInt8(value & 0x7f) | (isLast ? 0 : 0x80)
+            value >>= 7
+        }
+        guard value == 0 else {
+            throw ZipTestSupportError.fixture("RAR5 fixture vint no longer fits its field")
+        }
     }
 
     private static func appendLittle(_ value: UInt32, to bytes: inout [UInt8]) {

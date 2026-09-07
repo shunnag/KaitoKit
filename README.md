@@ -1,7 +1,7 @@
 # KaitoKit (解凍Kit)
 
 KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。ustar、pax、GNU 拡張
-tar、ZIP / ZIP64、7z に加え、M3 では RAR4 / RAR5 を段階的に実装しています。
+tar、ZIP / ZIP64、7z に加え、M3 では RAR4 / RAR5 reader を実装しています。
 書庫の検出から列挙、ストリーミング読み取り、安全な展開までを一つのパイプラインとして
 提供します。LHA と圧縮 tar は後続マイルストーンで追加します。
 
@@ -72,35 +72,44 @@ for entry in directories {
 | 7z solid | folder stream の継続利用、`solidGroup`、block-split、pure LZMA2 の後方 seek 用 dictionary-reset index |
 | 7z 整合性 | start / next header、packed stream、folder、substream の CRC32 |
 | 7z 非対応 | IA64 / SPARC filter |
-| RAR4 コンテナ | main / file / end header、header CRC、64-bit size、RAR Unicode 名、legacy 名の書庫単位判定、DOS 日時 / `EXT_TIME` |
-| RAR4 圧縮方式 | stored (`0x30`)。unpack version 29 の独立 RAR 2.9/3.x LZ (`0x31`〜`0x35`) は部分対応 |
-| RAR4 暗号化 | per-file RAR3 AES-128-CBC の KDF / 復号を実装。primitive test 済み、実暗号化 RAR4 oracle は未検証 |
-| RAR4 整合性 | header CRC、展開後 CRC32 |
-| RAR4 非対応 | encrypted header、unpack version 29 以外 (15 / 20 / 26 を含む) の圧縮、PPMd、custom VM、standard filter の decoder 接続、圧縮データの solid 辞書継続、multi-volume continuation |
-| RAR5 コンテナ | main / file / service / end header、header CRC32、vint、UTF-8 名、64-bit size、日時・属性・extra record、URL からの同一ディレクトリ multi-volume 列挙・結合 |
-| RAR5 圧縮方式 | stored (method 0)、圧縮アルゴリズム version 0 の独立 LZ (method 1〜5) |
-| RAR5 filter | Delta は TIFF 実コーパスで SHA-256 検証済み。E8 / E8E9 / ARM は復号コードあり、実コーパス検証待ち |
-| RAR5 暗号化 | per-file AES-256-CBC、PBKDF2-HMAC-SHA256、password check、暗号化 CRC / BLAKE2sp HashMAC。rar 7.23 の stored / method 5 で検証済み |
+| RAR4 コンテナ | main / file / end header、header CRC、64-bit size、RAR Unicode 名、legacy 名の書庫単位判定、DOS 日時 / `EXT_TIME`、上限付き SFX prefix、old (`.rar` / `.r00`) / new (`.partN.rar`) multi-volume |
+| RAR4 圧縮方式 | stored (`0x30`)、unpack version 29 の LZ / PPMd-H (`0x31`〜`0x35`) と相互 block transition、E8 / E8E9 / Itanium / Delta / RGB / Audio の 6 native standard filter |
+| RAR4 solid | LZ window、Huffman table、距離、filter program、PPMd model を entry 間で継続。順方向 skip と group 先頭からの後方再開、暗号化 solid を実装 |
+| RAR4 暗号化 | per-file RAR3 AES-128-CBC と `-hp` header encryption、RAR3 KDF、password provider / key cache |
+| RAR4 整合性 | header CRC、展開後 CRC32、分割 entry の非最終 part に存在する packed CRC32 |
+| RAR4 非対応 | unpack version 15 / 20 / 26 を含む version 29 以外の圧縮、custom RAR VM、stored member または dictionary size 変更を含む solid group、Data / 任意 `ByteSource` からの volume 継続、SFX prefix と multi-volume の組合せ |
+| RAR5 コンテナ | main / file / service / encryption / end header、header CRC32、vint、UTF-8 名、64-bit size、日時・属性・extra record、URL-backed multi-volume |
+| RAR5 圧縮方式 | stored (method 0)、圧縮アルゴリズム version 0 の LZ (method 1〜5)、Delta / E8 / E8E9 / ARM filter |
+| RAR5 solid | 圧縮 / stored member の混在、member ごとの dictionary minimum 変更、順方向 skip と group 先頭からの後方再開 |
+| RAR5 暗号化 | per-file AES-256-CBC、archive `-hp` header encryption、PBKDF2-HMAC-SHA256、password check、CRC / BLAKE2sp HashMAC、暗号化 multi-volume |
 | RAR5 整合性 | header CRC32、展開後 CRC32、任意の BLAKE2sp-256 (既定で検証)、分割 entry の非最終 volume に存在する packed CRC32 / BLAKE2sp |
-| RAR5 非対応 | 圧縮アルゴリズム version 1、圧縮データの solid continuation、header encryption、Data / 任意 `ByteSource` からの volume 継続、暗号化 entry の volume 継続、サイズ不明の暗号化 stored entry |
+| RAR5 非対応 | ユーザー指定により圧縮アルゴリズム version 1 はすべて明示的に拒否、file-copy redirection、RAR5 SFX、Data / 任意 `ByteSource` からの volume 継続、サイズ不明の暗号化 stored entry |
 
-RAR4 の圧縮対応は部分実装です。現在の実 RAR4 サンプルは 19 file 中 3 file の SHA-256 が
-black-box oracle と一致しました。4 file は filter token で停止しますが、descriptor / program
-をまだ接続していないため standard / custom の識別前に `RAR3 filter block decoding` として返します。
-残る 12 file は空 Huffman table として明示的に拒否し、誤った展開結果は返しません。
-RAR4 / RAR5 の `solidGroup` は依存関係を列挙できますが、RAR の圧縮 solid stream 自体は
-まだ展開できません。
+RAR4 の `st1200-pts.rar` は 19 file 全件が RAR 7.23 の black-box 出力と一致し、
+PPMd↔LZ 変換の 241,647,978-byte entry も一致しました。さらに RAR4 corpus 20 書庫では
+47 regular file の byte count / SHA-256 と 5 symlink の名前 / target bytes が一致しました。
+既知 password 集合では oracle を得られない暗号化 entry が 1 件あり、破損した
+`seek_data_cursor0` 書庫は RAR 7.23 と KaitoKit の双方が拒否します。
 
-RAR5 の非暗号化 multi-volume は、`.part1.rar` を URL から開いた場合に同じディレクトリの
-`.partN.rar` を検証しながらたどり、stored と圧縮 method 1〜5 の分割 entry を一つの
-stream として読みます。continuation は固定した directory descriptor から symlink を追わず
-regular file として開き、既定 128 volume の `ReadLimits.maxVolumeCount` で制限します。
-`reopen()` は検証済みの全 volume handle を共有し、path を再解決しません。Data / 任意
-`ByteSource` は sibling volume を安全に特定できないため、分割 entry の読み取り時に
+RAR4 / RAR5 の URL-backed multi-volume は、最初の volume と同じ directory の deterministic
+sibling 名だけを、保持した directory descriptor から symlink を追わず regular file として開き、
+既定 128 volume の `ReadLimits.maxVolumeCount` で制限します。RAR4 は old / new numbering、
+RAR5 は `.partN.rar` と暗号化 data / header の継続に対応します。`reopen()` は検証済みの全
+volume handle を共有し、path を再解決しません。Data / 任意 `ByteSource` は sibling volume を
+一意に特定できないため、未解決の分割 entry を読むと
 `unsupportedMethod("multi-volume from Data")` を返します。
 
+RAR5 archive header の KDF は、個々の `count` を
+`ReaderOptions.maxRAR5KDFCountPower` (既定かつ上限 24) で制限します。さらに、header encryption
+を使う全 volume を通した実際の派生処理を `ReadLimits.maxRAR5HeaderKDFWork` で累積します。
+work は HMAC-SHA256 iteration 単位で、各 context を `2^count + 32` と数えます。既定値は
+`4 * (2^24 + 32)`、つまり最大コストの `count = 24` context 4 件分です。同じ
+`(password, salt, count)` context を複数 volume が
+再利用すると key cache が使われ、一度だけ加算されます。異なる context は volume をまたいで
+累積されます。
+
 RAR5 のサイズ不明 entry は `uncompressedSize == nil` のまま、復号器の終端まで逐次
-streaming します。`read(_:)` も宣言サイズを仮定せず、安全上限内で段階的にバッファを
+streaming します。`read(_:)` も宣言サイズを仮定せず、設定された上限内で段階的にバッファを
 増やします。codec の辞書サイズ上限は `ReadLimits.maxDictionarySize` で設定し、既定値は
 1 GiB です。
 
@@ -140,8 +149,17 @@ $ swift run kaito bench --random samples/book-encrypted.7z 5 -p secret
 後方シークを含むアクセスを再現可能な条件で計測します。表示する `bytes` は選択した
 エントリの合計です。
 
+`bench` の時間は process 内の open / extract だけを複数回計測した median で、process 起動、
+SHA-256、標準出力は含みません。`swift run` には SwiftPM の planning / build も含まれるため、
+CLI 全体の性能は release build 済みの `.build/release/kaito` を直接実行して比較します。
+`sha` は再利用する 4 MiB buffer で逐次 hash します。release binary を warm 条件で直接測ると、
+変更前→変更後の median は book RAR5 が 155.346→155.431 ms、TIFF RAR5 が
+637.541→610.447 ms でした。最終確認の wall time はそれぞれ 0.15 / 0.61 s です。
+以前観測した約 0.62 秒の差は decoder ではなく、`swift run` の cold-start / build planning を
+測定へ混ぜたことが原因でした。
+
 `list`、`extract`、`sha`、`bench` は `-p <password>` を受け付けます。ヘッダも暗号化された
-7z は、一覧やベンチマークの開始時にも password が必要です。
+7z / RAR は、一覧やベンチマークの開始時にも password が必要です。
 
 ## 開発
 

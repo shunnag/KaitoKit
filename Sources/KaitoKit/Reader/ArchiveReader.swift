@@ -62,9 +62,13 @@ public final class ArchiveReader {
             entries = sevenZip.entries
             password = sevenZip.resolvedPassword
         case .rar:
-            let prefixCount = try Checked.toInt(min(source.length, UInt64(8)))
-            let prefix = try readByteRange(source: source, offset: 0, count: prefixCount)
-            if prefix == RAR5Reader.signature {
+            guard let signature = try FormatDetector.findRARSignature(source: source) else {
+                throw KaitoError.unsupportedFormat
+            }
+            if signature.version == .rar5 {
+                guard signature.offset == 0 else {
+                    throw KaitoError.unsupportedMethod("RAR5 SFX archive")
+                }
                 let rar = try RAR5Reader(
                     source: source,
                     options: options,
@@ -74,13 +78,19 @@ public final class ArchiveReader {
                 reader = rar
                 entries = rar.entries
                 password = rar.resolvedPassword
-            } else if prefix.count >= RAR4Reader.signature.count,
-                      Array(prefix.prefix(RAR4Reader.signature.count)) == RAR4Reader.signature {
-                let rar = try RAR4Reader(source: source, options: options)
+            } else {
+                let rar = try RAR4Reader(
+                    source: source,
+                    options: options,
+                    sourceURL: signature.offset == 0 ? sourceURL : nil,
+                    sourceDirectoryAnchor: signature.offset == 0
+                        ? sourceDirectoryAnchor
+                        : nil,
+                    signatureOffset: signature.offset
+                )
                 reader = rar
                 entries = rar.entries
-            } else {
-                throw KaitoError.unsupportedFormat
+                password = rar.resolvedPassword
             }
         case .lha, .gzip, .bzip2, .xz:
             throw KaitoError.unsupportedFormat
@@ -193,6 +203,14 @@ public final class ArchiveReader {
                 sourceURL: sourceURL,
                 options: reopenedOptions,
                 parsedReader: rar5.reopened(options: reopenedOptions)
+            )
+        }
+        if let rar4 = reader as? RAR4Reader {
+            return ArchiveReader(
+                sharing: source,
+                sourceURL: sourceURL,
+                options: reopenedOptions,
+                parsedReader: rar4.reopened(options: reopenedOptions)
             )
         }
         return try ArchiveReader(

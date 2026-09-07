@@ -119,6 +119,10 @@
 - 読んでよい一次資料(公開ドメイン/公式): LZMA SDK の `lzma-specification.txt`・`7zFormat.txt`・`C/Ppmd7.c`・`C/Ppmd7.h`・`C/Ppmd7Dec.c`、Shkarin の PPMd var.H / var.I、RARLab の RAR 5.0 technote、LHa for UNIX の `header.doc`、PKWARE APPNOTE、POSIX tar、RFC 1951/1952。
 - RAR5 の形式固有の外部資料は **RARLab の RAR 5.0 technote だけ**とする。RAR5 LZ grammar を定義・検証した入力は、(1) container を定義する同 technote (圧縮 grammar の詳細は非公開)、(2) task orchestrator から供給された clean-room 仕様、(3) RAR 7.23 が生成・展開した black-box 入出力 vector、の 3 つである。orchestrator 仕様は第三者 decoder の source ではなく、`rar` / `unrar` executable は oracle としてだけ使い、その source は参照しない。
 - RAR 1.5-4.x の形式固有の参照は bitplane/rar-research の非公式ノートと libarchive の BSD-2 `archive_read_support_format_rar.c` の挙動に限る。7-Zip の Rar29 復号器、unrar、XADMaster、The Unarchiver の source は参照しない。
+- LHA の container と method parameter は LHa for UNIX `header.doc.md`、同 project の公開
+  format note、Lhasa の利用者向け文書、task の clean-room grammar を入力にする。static Huffman
+  は Haruhiko Okumura の公開記述、展開結果は installed `lha` (Lhasa) の black-box 出力で検証する。
+  Lhasa、XADMaster、The Unarchiver の decoder source は参照しない。
 - 汎用 algorithm の参照として、既存 KaitoKit BCJ / Delta、XZ Utils の 0BSD IA-64 branch encoding 解説、RFC 7693 / 8018、BLAKE2 / AES / NIST の公開仕様を使う。これらは RAR5 container や LZ grammar を定義する形式固有資料とは区別する。
 - 参照はいずれも「挙動と仕様」を学ぶためで、コードを写さない。ライセンスは MIT 単一。
 - 作業中に禁止対象 source を誤って開いた 1 件とその是正は §11 に開示する。現在の実装入力に関する上記の記述は、その incident をなかったことにする記述ではない。
@@ -149,10 +153,42 @@ RAR 関連 source file ごとの実装入力は次のとおり。表の「black-
 | `Sources/KaitoKit/Core/ReadLimits.swift` | task の dictionary / volume / metadata / archive-header KDF work の resource-limit 要件のみ |
 | `Sources/kaito/main.swift` | task の list / SHA / benchmark harness 要件と CryptoKit incremental SHA API のみ |
 
+LHA 関連 source file ごとの実装入力は次のとおり。`lha` / liblhasa は生成物と公開 API の
+入出力だけを black-box oracle として使い、その実装 source は含まない。
+
+| source file | 参照した仕様・挙動 |
+|---|---|
+| `Sources/KaitoKit/Formats/FormatDetector.swift` | LHa for UNIX `header.doc.md` の level 0〜2 common prefix / size layout と task の LHA detection / level-3 recognition・unsupported 要件 |
+| `Sources/KaitoKit/Reader/ArchiveReader.swift` | 既存 `FormatReader` dispatch と task の LHA reader integration 要件 |
+| `Sources/kaito/main.swift` | 既存 list output と task の LHA method / header-level 表示要件 |
+| `Sources/KaitoKit/Formats/LHA/LHAHeaderParser.swift` | LHa for UNIX `header.doc.md` と公開 README の header / extension note、task の 0x40〜0x46 要件、lhasa black-box listing |
+| `Sources/KaitoKit/Formats/LHA/LHAReader.swift` | 既存 `FormatReader` / `EntryStream` API と task の method dispatch / independent-member 要件 |
+| `Sources/KaitoKit/Codecs/LHA/LZSStaticHuffmanDecoder.swift` | task の pt-len / c-len / position grammar、LHa method parameter、Haruhiko Okumura の public-domain static-Huffman description、ARJ/ar002 `read_pt_len` の search-result snippet (zero-run grammar の曖昧さだけ)、lhasa black-box vector |
+| `Sources/KaitoKit/Codecs/LHA/LZHUFDecoder.swift` | task の 314-symbol / fixed-position 要件、LHa / Lhasa の LZHUF format note、Okumura の公開 LZHUF 解説、CiderPress2 の LZHUF format note、Debian `lzhuf.c` の search-result snippet (64-symbol prefix-length distribution)、liblhasa public raw-decoder API の black-box vector |
+| `Sources/KaitoKit/Codecs/LHA/LArcDecoder.swift` | task の LArc parameters、LHa / Lhasa の LArc format note、Okumura の公開 LZSS 解説、LHa `larc.c` / `delharc` の search-result snippet (token / seed semantics)、liblhasa public raw-decoder API の black-box vector |
+| `Sources/KaitoKit/Codecs/LHA/LHABoundedWindow.swift` | task の shared bounded-copy requirement と既存 KaitoKit ring-window contract |
+| `Sources/KaitoKit/Codecs/LHA/LHAPackedInputStorage.swift` / `Sources/KaitoKit/Core/BitReader.swift` | task / §11 の one-allocation raw-input と sentinel 方針、既存 MSB-first reader contract |
+| `Sources/KaitoKit/Core/CRC16.swift` / `Sources/KaitoKit/Reader/EntryStream.swift` | LHa header CRC polynomial / member CRC contract と既存 streaming completion path |
+
+指定資料だけでは `-lh1-` の固定 position code の詳細が不足したため、追加の format description
+として CiderPress2 の LZHUF note を参照し、検索結果が自動表示した Debian `lzhuf.c` の短い
+snippet で 64-symbol prefix-length distribution を確認した。これは task で列挙された参照集合
+からの明示的な deviation である。file 自体は開かずコードも転記せず、実装結果は liblhasa の
+black-box vector で独立に確認した。
+
+調査中、検索結果画面に LHa for UNIX `larc.c`、`delharc`、libarchive の LHA 実装、
+ARJ/ar002 `read_pt_len`、Debian `lzhuf.c`、および Lhasa `ext_header.c` の 0x41 field 名の短い
+snippet が自動表示された。`larc.c` / `delharc` の token / seed semantics、`read_pt_len` の
+zero-run grammar、`lzhuf.c` の position prefix-length distribution は曖昧さの解消に参照した。
+各 file 自体は開かずコードは転記しておらず、該当 semantics は公開文書と installed lhasa /
+liblhasa の black-box vector で独立に確認した。libarchive と Lhasa の snippet は実装入力に
+せず、header edge case / 0x41 field は一次文書と black-box で確認した。XADMaster と
+The Unarchiver の implementation source は開いていない。
+
 `unrar` は source を参照せず executable oracle として試したが、この環境では引数なしでも停止したため、
 M3 の実差分では RAR 7.23 の `rar p -inul` を使用した。
 
-## 11. 実装記録(2026-09-06)
+## 11. 実装記録(2026-09-06〜07)
 
 - M0(コミット da98a9f, 16d27f8): 骨格・コア・tar・互換層・CLI・fuzz 基盤。CI は macos-26 / macos-26-intel。
 - M1(592b230, d05da82): ZIP 一式。名前の文字コード判定は **書庫単位**(XADMaster と同じ契約)に変更し、
@@ -227,6 +263,23 @@ M3 の実差分では RAR 7.23 の `rar p -inul` を使用した。
   レビュー(35 エージェント)で見つかった E8 の 16 MiB 位置還元漏れ・未知サイズ entry の無限ループ・
   解析時の上限適用は第 2 段で修正。未対応: RAR5 圧縮 v1、file-copy リダイレクト、RAR4 unpack version 15/20/26、
   SFX と分割の併用。Swift 6.3.3(Xcode 26.6)では暗黙メンバ推論と private 構造体の init に互換修正が必要だった。
+- M4(本変更): LHA / LZH header level 0 / 1 / 2、header byte sum / optional 0x00 CRC16、拡張 header、
+  書庫単位 legacy-name 判定と 0x46 codepage 932 / 65001 / 936、member CRC16 を実装した。
+  `-lh0-` / `-lz4-` / `-pm0-` は stored、`-lh1-` は 4 KiB adaptive Huffman、
+  `-lh4-`〜`-lh7-` は 4 / 8 / 32 / 64 KiB static Huffman、`-lz5-` / `-lzs-` は
+  LArc decoder で展開する。全 member の `solidGroup` は `-1`。header level 3 と `-pm2-` は
+  明示的に `unsupportedMethod` とした。
+  `-lz5-` の length nibble は +3 (3〜18 bytes)、`-lzs-` は +2 (2〜17 bytes) として扱う。
+  LHa `header.doc` の `-lz5-` max 17 表記とは 1 byte 異なるため、後続 literal と区別できる
+  black-box vector で installed liblhasa の +3 挙動を確認した。
+  - hand-built level 0 / 1 / 2 と extension / codepage / decoder vector、384 deterministic
+    mutant を実行した。cooViewer `book.lzh` の level-2 `-lh0-` 4 member (合計 33,104 bytes)、
+    hand-built `-lh5-`、`-lh1-`、`-lz5-`、`-lzs-` vector は installed lhasa の出力と
+    SHA-256 が一致した。実 archive の `-lh1-` / `-lh4-`〜`-lh7-` / `-lz5-` / `-lzs-`
+    corpus はこの host になく、hand-built / raw black-box vector までを検証範囲とした。
+  - release `kaito bench book.lzh 9` の warm median は open 0.049 ms、4 member / 33,104 bytes の
+    extract 0.189 ms だった。総合 SHA-256 は
+    `53bbe8926086ebd7d4e65b9c90dc9c367385ee0808a23bae3972cbfe5e3ce97c`。
 - **ホットループの方針(確定)**: 復号器のホットループは、辞書(窓)・確率表・入力を一度だけ確保した生バッファで
   持ち、状態はループ内ローカルに保持し、算術検証はチャンク/ブロック境界で行う(ループ内で throw しない、
   番兵で物理的読み越しを防ぐ)。安全性は境界での検証と不変条件のコメントで担保する。バイト単位の安全な

@@ -1,7 +1,7 @@
 # XADMaster から KaitoKit への移行
 
 この文書は移行ガイドの骨格です。cooViewer が利用する `XADArchive` の狭い面を
-`KaitoKitCompat.KaitoArchive` で再現し、M3 までに ZIP、7z、RAR4 / RAR5 を
+`KaitoKitCompat.KaitoArchive` で再現し、M4 までに ZIP、7z、RAR4 / RAR5、LHA / LZH を
 追加しました。より広い delegate、属性、進捗 API は後続版で設計し、ここへ具体例を
 追加します。
 
@@ -24,8 +24,8 @@ throwing API なので、非対応形式、破損、上限超過、I/O エラー
 
 | XADArchive | KaitoArchive | ArchiveReader | 対応状況 |
 |---|---|---|---|
-| `init?(file:)` | 同名 | `open(url:)` | tar / ZIP / 7z / RAR4 / RAR5 で実装 |
-| `init?(data:)` | 同名 | `open(data:)` | tar / ZIP / 7z / RAR4 / RAR5 で実装 |
+| `init?(file:)` | 同名 | `open(url:)` | tar / ZIP / 7z / RAR4 / RAR5 / LHA で実装 |
+| `init?(data:)` | 同名 | `open(data:)` | tar / ZIP / 7z / RAR4 / RAR5 / LHA で実装 |
 | `defaultZipLazyLocalHeaders` / `setDefaultZipLazyLocalHeaders(_:)` | 同名 | `ReaderOptions.lazyLocalHeaders` | M1 で実装 |
 | `numberOfEntries()` | 同名 | `entries.count` | 実装 |
 | `name(ofEntry:)` | 同名 | `entries[i].name` | 実装 |
@@ -36,7 +36,7 @@ throwing API なので、非対応形式、破損、上限超過、I/O エラー
 | `entryIsEncrypted(_:)` | 同名 | `isEncrypted` | 実装 (暗号対応は ZIP / 7z / RAR) |
 | `isEncrypted()` | 同名 | `entries.contains { $0.isEncrypted }` | 実装 |
 | `setPassword(_:)` | 同名 | settable `password` | ZIP / 7z / RAR4 / RAR5 で実装・実 oracle 検証済み |
-| `solidGroup(ofEntry:)` | 同名 (`Int32`) | `solidGroup` | 7z / RAR4 / RAR5 で実装 (独立 entry は `-1`) |
+| `solidGroup(ofEntry:)` | 同名 (`Int32`) | `solidGroup` | 7z / RAR4 / RAR5 で実装。LHA など独立 entry は `-1` |
 | `entryIsSolid(_:)` | 未提供 | 直接対応なし | continuation flag であり `solidGroup` とは意味が異なる |
 | `extractEntry(_:to:)` | 同名 | `extract(_:to:)` | 安全な展開として実装 |
 | `attributesOfEntry(_:)` | 未提供 | `ArchiveEntry` の日時・権限・属性 | 後続版 |
@@ -67,6 +67,14 @@ throwing API なので、非対応形式、破損、上限超過、I/O エラー
 solid stream は以前の未完了 stream を無効化します。独立して読みたい場合は `reopen()` で byte
 source を共有しつつ別の password / decoder state を持つ reader を作り、各 reader 内では直列に
 処理してください。
+
+## LHA / LZH
+
+M4 は header level 0 / 1 / 2 と `-lh0-` / `-lh1-` / `-lh4-`〜`-lh7-` /
+`-lz4-` / `-lz5-` / `-lzs-` / `-pm0-` / `-lhd-` を扱います。LHA member は独立しているため、
+`solidGroup(ofEntry:)` は `-1` です。legacy 名は ZIP / RAR4 と同じ書庫単位の判定を使い、
+0x46 codepage が 932 / 65001 / 936 を宣言した名前は推測しません。`-pm2-` は一覧できますが
+読み取り時に `KaitoError.unsupportedMethod` となり、header level 3 は open 時に同エラーとなります。
 
 ## サイズ不明の RAR5 entry
 
@@ -126,16 +134,17 @@ print(KaitoArchive.defaultZipLazyLocalHeaders) // false
 利用で期待される基本動作を再現します。一方、KaitoKit の読み取り上限と不正な相対パスの拒否は
 互換層からも無効化しません。
 
-M3 が開ける書庫形式は非圧縮 tar コンテナ、ZIP / ZIP64、7z、RAR4 / RAR5 です。
+M4 が開ける書庫形式は非圧縮 tar コンテナ、ZIP / ZIP64、7z、RAR4 / RAR5、LHA / LZH です。
 RAR4 は stored と unpack version 29 の LZ / PPMd-H、6 種の標準 filter、solid、SFX、旧・新
 multi-volume、通常暗号化と header 暗号化に対応します。RAR5 は stored と compression version 0 の
 LZ / filter、solid、multi-volume、通常暗号化と header 暗号化に対応します。RAR4 の圧縮
 unpack version 15 / 20 / 26、custom RAR VM program、RAR5 compression version 1、RAR5 file-copy
 redirection と SFX、および RAR4 の SFX prefix と multi-volume の組合せは明示的に
 `KaitoError.unsupportedMethod` を返します。Data / 任意
-`ByteSource` では continuation volume を検索できません。ZIP の DOS 日時にはタイムゾーン情報が
-ないため、現在のローカルタイムゾーンとして解釈します。LHA、gzip、bzip2、xz は
-シグネチャ検出だけを行い、reader は `KaitoError.unsupportedFormat` を返します。
+`ByteSource` では continuation volume を検索できません。ZIP と LHA header level 0 / 1 の
+DOS 日時にはタイムゾーン情報がないため、現在のローカルタイムゾーンとして解釈します。LHA の header level 3 と
+`-pm2-` は `KaitoError.unsupportedMethod`、gzip、bzip2、xz はシグネチャ検出だけを行い、
+reader は `KaitoError.unsupportedFormat` を返します。
 
 通常の tar hard link member はデータ本体を持たないため、`contents(ofEntry:)` は空の
 `Data` を返します。PAX linkdata member では、書庫が持つ本文を返します。

@@ -1,9 +1,9 @@
 # KaitoKit (解凍Kit)
 
 KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。ustar、pax、GNU 拡張
-tar、ZIP / ZIP64、7z に加え、M3 では RAR4 / RAR5 reader を実装しています。
+tar、ZIP / ZIP64、7z、RAR4 / RAR5 に加え、M4 では LHA / LZH reader を実装しています。
 書庫の検出から列挙、ストリーミング読み取り、安全な展開までを一つのパイプラインとして
-提供します。LHA と圧縮 tar は後続マイルストーンで追加します。
+提供します。圧縮 tar は後続マイルストーンで追加します。
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon / Intel
 - 外部依存: なし。zlib、libbz2 など OS 同梱ライブラリだけを使用
@@ -58,6 +58,12 @@ for entry in directories {
 | 形式・機能 | 対応状況 |
 |---|---|
 | tar | ustar、pax、GNU long name/link |
+| LHA コンテナ | header level 0 / 1 / 2、独立 member (`solidGroup == -1`)、`-lhd-` directory |
+| LHA 圧縮方式 | stored: `-lh0-` / `-lz4-` / `-pm0-`、compressed: `-lh1-` / `-lh4-` / `-lh5-` / `-lh6-` / `-lh7-` / `-lz5-` / `-lzs-` |
+| LHA ファイル名 | legacy 名の書庫単位判定、level 0 / 1 の `\` 区切り、0x01 / 0x02、0x46 codepage 932 / 65001 / 936 |
+| LHA メタデータ | DOS / Unix / Windows 日時、64-bit size、MS-DOS 属性、Unix permission / uid / gid / group / user、comment |
+| LHA 整合性 | level 0 / 1 header byte sum、level 2 の 0x00 header CRC16 (存在時)、展開後 CRC16、拡張 header の件数・サイズ・前進上限 |
+| LHA 非対応 | header level 3、`-pm2-`、`-lh2-` / `-lh3-` ほか上記 matrix 外の method |
 | ZIP コンテナ | 中央ディレクトリ、ZIP64、SFX prefix、遅延ローカルヘッダ |
 | ZIP 圧縮方式 | stored (0)、deflate (8)、Deflate64 (9)、bzip2 (12)、LZMA (14) |
 | ZIP 暗号化 | Traditional PKWARE (ZipCrypto)、WinZip AES-128/192/256 (AE-1/AE-2) |
@@ -84,6 +90,11 @@ for entry in directories {
 | RAR5 暗号化 | per-file AES-256-CBC、archive `-hp` header encryption、PBKDF2-HMAC-SHA256、password check、CRC / BLAKE2sp HashMAC、暗号化 multi-volume |
 | RAR5 整合性 | header CRC32、展開後 CRC32、任意の BLAKE2sp-256 (既定で検証)、分割 entry の非最終 volume に存在する packed CRC32 / BLAKE2sp |
 | RAR5 非対応 | ユーザー指定により圧縮アルゴリズム version 1 はすべて明示的に拒否、file-copy redirection、RAR5 SFX、Data / 任意 `ByteSource` からの volume 継続、サイズ不明の暗号化 stored entry |
+
+cooViewer の `book.lzh` は level 2 の `-lh0-` 4 member をすべて lhasa の black-box
+出力と SHA-256 比較しています。`-lh5-` の literal / match / preset-window vector も、
+hand-built archive を lhasa と KaitoKit の双方で展開して一致を確認しています。release の
+`kaito bench book.lzh 9` は open 0.049 ms、合計 33,104 bytes の extract 0.189 ms でした。
 
 RAR4 の `st1200-pts.rar` は 19 file 全件が RAR 7.23 の black-box 出力と一致し、
 PPMd↔LZ 変換の 241,647,978-byte entry も一致しました。さらに RAR4 corpus 20 書庫では
@@ -142,8 +153,11 @@ $ swift run kaito bench --random samples/book-encrypted.7z 5 -p secret
 
 `sha` はエントリ順の SHA-256 と総合ダイジェストを出力し、別の展開実装との
 差分テストに利用できます。`list` は index、size、kind、method、暗号方式 (`plain`、
-`ZipCrypto`、`AES-128/192/256`、`7zAES-256`)、name の順でタブ区切り表示し、`--raw` は
-名前の元バイト列を末尾へ 16 進数で併記します。`bench --data` は `mappedIfSafe` で作った `Data`
+`ZipCrypto`、`AES-128/192/256`、`7zAES-256`)、name の順でタブ区切り表示し、LHA では
+末尾に `level=N` を追加します。`--raw` は
+名前の format 上の論理バイト列を末尾へ 16 進数で併記します。LHA の 0x02 directory + 0x01
+filename は一つの path に組み立て、0xFF directory 区切りは `/` に正規化されます。
+`bench --data` は `mappedIfSafe` で作った `Data`
 から書庫を開き、map 作成を含む `open-median-ms` を表示します。`bench --random` は
 固定 seed で選んだ最大 20 件の非ディレクトリエントリをランダム順に読み、solid 書庫の
 後方シークを含むアクセスを再現可能な条件で計測します。表示する `bytes` は選択した

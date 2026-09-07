@@ -130,6 +130,10 @@ private func runList(_ arguments: [String]) throws {
             oneLine(encryption),
             oneLine(entry.name),
         ]
+        if reader.format == ArchiveFormat.lha,
+           let headerLevel = entry.formatSpecific["headerLevel"] {
+            fields.append("level=\(headerLevel)")
+        }
         if printRaw {
             fields.append(hexadecimal(entry.rawName.bytes))
         }

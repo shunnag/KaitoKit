@@ -11,12 +11,15 @@ public final class EntryStream {
     private let entrySizeLimit: UInt64
     private let inMemoryLimit: UInt64
     private let expectedCRC32: UInt32?
+    private let expectedCRC16: UInt16?
     private let entryIndex: Int
     private let completionCheck: (() throws -> Void)?
     private let checksumMismatchIsWrongPassword: Bool
     private let crc32Transform: ((UInt32) -> UInt32)?
     private var checksum = CRC32()
+    private var checksum16 = CRC16()
     private var completionWasVerified = false
+    private var terminalError: Error?
 
     /// The number of bytes that have not yet been read.
     /// For streams whose format does not declare a size, this is `UInt64.max`
@@ -41,6 +44,7 @@ public final class EntryStream {
         self.entrySizeLimit = limits.maxEntrySize
         self.inMemoryLimit = limits.maxInMemorySize
         self.expectedCRC32 = nil
+        self.expectedCRC16 = nil
         self.entryIndex = -1
         self.completionCheck = nil
         self.checksumMismatchIsWrongPassword = false
@@ -54,6 +58,7 @@ public final class EntryStream {
         decompressor: any Decompressor,
         length: UInt64?,
         expectedCRC32: UInt32?,
+        expectedCRC16: UInt16? = nil,
         entryIndex: Int,
         limits: ReadLimits,
         completionCheck: (() throws -> Void)? = nil,
@@ -68,6 +73,7 @@ public final class EntryStream {
         self.entrySizeLimit = limits.maxEntrySize
         self.inMemoryLimit = limits.maxInMemorySize
         self.expectedCRC32 = expectedCRC32
+        self.expectedCRC16 = expectedCRC16
         self.entryIndex = entryIndex
         self.completionCheck = completionCheck
         self.checksumMismatchIsWrongPassword = checksumMismatchIsWrongPassword
@@ -79,6 +85,16 @@ public final class EntryStream {
 
     /// Reads up to `buffer.count` bytes and returns the number read.
     public func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+        if let terminalError { throw terminalError }
+        do {
+            return try readOnce(into: buffer)
+        } catch {
+            terminalError = error
+            throw error
+        }
+    }
+
+    private func readOnce(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
         guard !buffer.isEmpty else { return 0 }
         if bytesRemaining == 0 {
             try verifyCompletion()
@@ -116,6 +132,9 @@ public final class EntryStream {
         bytesProduced = try Checked.add(bytesProduced, amount)
         try Checked.size(bytesProduced, limit: entrySizeLimit)
         checksum.update(UnsafeRawBufferPointer(rebasing: buffer[..<actual]))
+        if expectedCRC16 != nil {
+            checksum16.update(UnsafeRawBufferPointer(rebasing: buffer[..<actual]))
+        }
         if bytesRemaining == 0 || (bytesRemaining == nil && decompressor.isFinished) {
             // 最終チャンクを呼出側へ渡す前に、終端・認証・CRC を全て確定する。
             try verifyCompletion()
@@ -125,8 +144,17 @@ public final class EntryStream {
 
     /// Reads the remaining entry bytes into one exactly sized `Data` value.
     public func readAll() throws -> Data {
+        if let terminalError { throw terminalError }
         guard let bytesRemaining else {
-            return try readAllUnknownLength()
+            do {
+                return try readAllUnknownLength()
+            } catch {
+                // Unknown-length reads may discover an in-memory limit only
+                // after consuming decoder output. Keep that failure terminal
+                // just like errors raised by read(into:).
+                terminalError = error
+                throw error
+            }
         }
         try Checked.size(bytesRemaining, limit: inMemoryLimit)
         let size = try Checked.toInt(bytesRemaining)
@@ -140,7 +168,12 @@ public final class EntryStream {
 
         if size >= CopyDecompressor.directReadMinimumSize,
            let copy = decompressor as? CopyDecompressor {
-            return try readAllDirectly(from: copy, size: size)
+            do {
+                return try readAllDirectly(from: copy, size: size)
+            } catch {
+                terminalError = error
+                throw error
+            }
         }
 
         var result = Data(count: size)
@@ -180,6 +213,9 @@ public final class EntryStream {
                 }
                 let remaining = try Checked.sub(currentRemaining, UInt64(bytes.count))
                 checksum.update(bytes)
+                if expectedCRC16 != nil {
+                    checksum16.update(bytes)
+                }
                 bytesRemaining = remaining
                 bytesProduced = try Checked.add(bytesProduced, UInt64(bytes.count))
             }
@@ -254,6 +290,9 @@ public final class EntryStream {
                 // 7zAES は独立した認証 tag を持たないため CRC を password 判定に使う。
                 throw KaitoError.wrongPassword
             }
+            throw KaitoError.checksumMismatch(entry: entryIndex)
+        }
+        if let expectedCRC16, checksum16.value != expectedCRC16 {
             throw KaitoError.checksumMismatch(entry: entryIndex)
         }
         completionWasVerified = true

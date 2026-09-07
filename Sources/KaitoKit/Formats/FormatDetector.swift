@@ -95,7 +95,7 @@ public enum FormatDetector {
         _ bytes: [UInt8],
         sourceLength: UInt64
     ) throws -> Bool {
-        guard bytes.count >= 7,
+        guard bytes.count >= 21,
               bytes[2] == 0x2D,
               bytes[6] == 0x2D else {
             return false
@@ -108,12 +108,34 @@ public enum FormatDetector {
             return false
         }
 
-        // Level 0/1 のヘッダ長は先頭 1 バイトで、固定部より短い値は受け付けない。
-        let headerSize = UInt64(bytes[0])
-        guard headerSize >= 20 else {
+        let level = bytes[20]
+        let totalSize: UInt64
+        switch level {
+        case 0:
+            // Level 0/1 store the base-header size excluding the two leading
+            // size/checksum bytes. Both fixed fields and the name CRC must fit.
+            guard bytes[0] >= 22 else { return false }
+            totalSize = try Checked.add(UInt64(bytes[0]), 2)
+        case 1:
+            guard bytes[0] >= 25 else { return false }
+            totalSize = try Checked.add(UInt64(bytes[0]), 2)
+        case 2:
+            // Level 2 uses a little-endian total header size. A low byte of
+            // zero is the archive end marker, and the format therefore
+            // forbids total header sizes that are multiples of 256.
+            guard bytes[0] != 0 else { return false }
+            totalSize = UInt64(bytes[0]) | (UInt64(bytes[1]) << 8)
+            guard totalSize >= 26 else { return false }
+        case 3:
+            // Level 3 has the same method/size/time prefix through this byte.
+            // Parsing it is deliberately unsupported, but recognizing the
+            // structural prefix lets ArchiveReader report unsupportedMethod
+            // instead of misclassifying the container.
+            guard bytes[0] != 0 else { return false }
+            totalSize = 21
+        default:
             return false
         }
-        let totalSize = try Checked.add(headerSize, 2)
         return totalSize <= sourceLength
     }
 

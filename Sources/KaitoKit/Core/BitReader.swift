@@ -102,7 +102,19 @@ public struct LSBFirstBitReader: Sendable {
 /// buffer returns zero for missing bits and sets `overrun`; callers must check
 /// that flag before accepting parsed data.
 public struct MSBFirstBitReader: Sendable {
+    private struct BorrowedBuffer: @unchecked Sendable {
+        let baseAddress: UnsafePointer<UInt8>
+        let count: Int
+
+        init(baseAddress: UnsafePointer<UInt8>, count: Int) {
+            self.baseAddress = baseAddress
+            self.count = count
+        }
+    }
+
     private let bytes: [UInt8]
+    private let borrowedBuffer: BorrowedBuffer?
+    private let byteCount: Int
     private var byteOffset: Int
     private var reservoir: UInt64
     private var availableBits: Int
@@ -113,12 +125,29 @@ public struct MSBFirstBitReader: Sendable {
 
     /// Indicates that no real input bits remain.
     public var isExhausted: Bool {
-        byteOffset >= bytes.count && availableBits == 0
+        byteOffset >= byteCount && availableBits == 0
     }
 
     /// Creates a reader over a byte array.
     public init(bytes: [UInt8]) {
         self.bytes = bytes
+        self.borrowedBuffer = nil
+        self.byteCount = bytes.count
+        self.byteOffset = 0
+        self.reservoir = 0
+        self.availableBits = 0
+        self.alignment = 0
+        self.overrun = false
+    }
+
+    /// Creates a reader over storage whose owner guarantees that the pointer
+    /// remains valid for the reader's lifetime. Internal high-throughput
+    /// decoders use this to avoid an additional Array/COW layer.
+    init(borrowing bytes: UnsafePointer<UInt8>, count: Int) {
+        precondition(count >= 0)
+        self.bytes = []
+        self.borrowedBuffer = BorrowedBuffer(baseAddress: bytes, count: count)
+        self.byteCount = count
         self.byteOffset = 0
         self.reservoir = 0
         self.availableBits = 0
@@ -164,10 +193,11 @@ public struct MSBFirstBitReader: Sendable {
     }
 
     private mutating func refill(for requested: Int) {
-        while availableBits < requested, byteOffset < bytes.count {
+        while availableBits < requested, byteOffset < byteCount {
             // availableBits は refill 開始時に 0...31 なので、左詰め位置は常に 0...63 の範囲内。
             let shift = 56 - availableBits
-            reservoir |= UInt64(bytes[byteOffset]) << shift
+            let byte = borrowedBuffer?.baseAddress[byteOffset] ?? bytes[byteOffset]
+            reservoir |= UInt64(byte) << shift
             byteOffset += 1
             availableBits += 8
         }

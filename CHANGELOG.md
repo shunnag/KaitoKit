@@ -13,6 +13,16 @@
 - 生の名前を保持する文字コード判定と、書庫・エントリの公開モデル。
 - copy、raw deflate、bzip2 のストリーミング復号基盤。
 - ustar、pax (`x` / Solaris `X`)、GNU long name/link を扱う tar reader。
+- M4 の LHA / LZH reader。header level 0 / 1 / 2、level 0 / 1 の byte sum、level 2 の
+  optional 0x00 header CRC16、拡張 header 0x00 / 0x01 / 0x02 / 0x3f / 0x40〜0x42 / 0x46 /
+  0x50〜0x54、32 / 64-bit size、DOS / Unix / Windows 日時、directory を扱う。
+- LHA の `-lh0-` / `-lz4-` / `-pm0-` stored、`-lh1-` adaptive Huffman、
+  `-lh4-`〜`-lh7-` static Huffman、`-lz5-` / `-lzs-` LArc を実装し、member ごとの
+  CRC16 を検証する。`-pm2-` と header level 3 は明示的に非対応。
+- LHA legacy 名を書庫単位で判定し、0x46 codepage の 932 / 65001 / 936 は宣言済み
+  encoding として扱う。各 member は独立しており `solidGroup == -1`。
+- hand-built level 0 / 1 / 2、codepage、metadata、static / legacy decoder vector、
+  384 deterministic mutant、cooViewer `book.lzh` と lhasa の SHA-256 差分を追加。
 - 中央ディレクトリ駆動、ZIP64、SFX prefix、遅延ローカルヘッダ検証に対応した ZIP reader。
 - ZIP の stored、deflate、Deflate64、bzip2、raw LZMA1 圧縮方式と UNIX symlink。
 - Traditional PKWARE (ZipCrypto) と WinZip AES-128/192/256 (AE-1/AE-2) の復号・認証。

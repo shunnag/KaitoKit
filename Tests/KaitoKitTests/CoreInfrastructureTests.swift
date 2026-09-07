@@ -294,6 +294,31 @@ final class CoreInfrastructureTests: XCTestCase {
         XCTAssertTrue(fullWidth.isExhausted)
     }
 
+    func testMSBFirstBitReaderBorrowedRawStorageMatchesArrayStorage() throws {
+        let bytes: [UInt8] = [0xD6, 0x63, 0xA5, 0x7C]
+        let storage = UnsafeMutablePointer<UInt8>.allocate(capacity: bytes.count)
+        storage.initialize(from: bytes, count: bytes.count)
+        defer {
+            storage.deinitialize(count: bytes.count)
+            storage.deallocate()
+        }
+
+        var arrayReader = MSBFirstBitReader(bytes: bytes)
+        var borrowedReader = MSBFirstBitReader(
+            borrowing: UnsafePointer(storage),
+            count: bytes.count
+        )
+        for width in [3, 9, 1, 11, 8] {
+            XCTAssertEqual(
+                try borrowedReader.read(width),
+                try arrayReader.read(width),
+                "width \(width)"
+            )
+            XCTAssertEqual(borrowedReader.overrun, arrayReader.overrun)
+            XCTAssertEqual(borrowedReader.isExhausted, arrayReader.isExhausted)
+        }
+    }
+
     func testBitReaderOverrunPadsMissingBitsWithZero() throws {
         var lsb = LSBFirstBitReader(bytes: [0xA5])
         XCTAssertEqual(try lsb.read(12), 0x0A5)

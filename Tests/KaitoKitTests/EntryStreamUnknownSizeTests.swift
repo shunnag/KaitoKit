@@ -32,9 +32,11 @@ final class EntryStreamUnknownSizeTests: XCTestCase {
             limits: limits
         )
 
-        XCTAssertThrowsError(try stream.readAll()) { error in
-            guard case KaitoError.limitExceeded = error else {
-                return XCTFail("unexpected error: \(error)")
+        for _ in 0..<2 {
+            XCTAssertThrowsError(try stream.readAll()) { error in
+                guard case KaitoError.limitExceeded = error else {
+                    return XCTFail("unexpected error: \(error)")
+                }
             }
         }
     }
@@ -52,9 +54,11 @@ final class EntryStreamUnknownSizeTests: XCTestCase {
             limits: limits
         )
 
-        XCTAssertThrowsError(try stream.readAll()) { error in
-            guard case KaitoError.limitExceeded = error else {
-                return XCTFail("unexpected error: \(error)")
+        for _ in 0..<2 {
+            XCTAssertThrowsError(try stream.readAll()) { error in
+                guard case KaitoError.limitExceeded = error else {
+                    return XCTFail("unexpected error: \(error)")
+                }
             }
         }
     }

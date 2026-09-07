@@ -92,7 +92,11 @@ public final class ArchiveReader {
                 entries = rar.entries
                 password = rar.resolvedPassword
             }
-        case .lha, .gzip, .bzip2, .xz:
+        case .lha:
+            let lha = try LHAReader(source: source, options: options)
+            reader = lha
+            entries = lha.entries
+        case .gzip, .bzip2, .xz:
             throw KaitoError.unsupportedFormat
         }
     }

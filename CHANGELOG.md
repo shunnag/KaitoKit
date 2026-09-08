@@ -11,6 +11,9 @@
 
 ### 修正・高速化（2026-09-08）
 
+- RAR4 solid 群内の stored member を共有状態に影響させず読み取り、RAR5 symbolic link の
+  read / stream が header target の UTF-8 bytes を返すよう修正。
+
 - RAR5 の重複 match コピー・局所状態・Huffman lookup と PPMd の固定確率表 / mask を高速化し、
   TIFF RAR5 と solid PPMd の展開を XADMaster の 1.5 倍以内に改善。
 

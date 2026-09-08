@@ -599,11 +599,11 @@ final class RAR4ReaderTests: XCTestCase {
     func testSolidGroupsFollowFileContinuationsAndExcludeDirectories() throws {
         let archive = makeArchive(
             files: [
-                FileFixture(name: Array("a".utf8), contents: Data("a".utf8)),
+                FileFixture(name: Array("a".utf8), contents: Data("a".utf8), method: 0x33),
                 FileFixture(name: Array("folder".utf8), contents: Data(), flags: 0x00e0),
-                FileFixture(name: Array("b".utf8), contents: Data("b".utf8), flags: 0x0010),
-                FileFixture(name: Array("c".utf8), contents: Data("c".utf8)),
-                FileFixture(name: Array("d".utf8), contents: Data("d".utf8), flags: 0x0010),
+                FileFixture(name: Array("b".utf8), contents: Data("b".utf8), flags: 0x0010, method: 0x33),
+                FileFixture(name: Array("c".utf8), contents: Data("c".utf8), method: 0x33),
+                FileFixture(name: Array("d".utf8), contents: Data("d".utf8), flags: 0x0010, method: 0x33),
             ],
             mainFlags: 0x0008
         )
@@ -849,11 +849,13 @@ final class RAR4ReaderTests: XCTestCase {
         let name: [UInt8]
         let contents: Data
         let flags: UInt16
+        let method: UInt8
 
-        init(name: [UInt8], contents: Data, flags: UInt16 = 0) {
+        init(name: [UInt8], contents: Data, flags: UInt16 = 0, method: UInt8 = 0x30) {
             self.name = name
             self.contents = contents
             self.flags = flags
+            self.method = method
         }
     }
 
@@ -884,7 +886,7 @@ final class RAR4ReaderTests: XCTestCase {
         appendLittle(crc, to: &fields)
         appendLittle(UInt32(0), to: &fields) // no DOS timestamp
         fields.append(29)
-        fields.append(0x30)
+        fields.append(file.method)
         appendLittle(UInt16(file.name.count), to: &fields)
         appendLittle(UInt32(0x20), to: &fields)
         fields.append(contentsOf: file.name)

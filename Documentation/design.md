@@ -307,7 +307,8 @@ black-box 入出力だけである。新たな第三者 decoder source は参照
   - RAR4 solid は window / history、Huffman table、repeat distance、standard-filter program、PPMd
     model / escape を group 内で共有する。順方向要求は predecessor を CRC 検証しながら捨て読みし、
     同一 / 後方要求は group 先頭から再開する。世代番号で古い同時 stream を無効化し、`reopen()` は
-    独立 state を持つ。暗号化 solid も扱うが、stored member、unpack version 29 以外、dictionary size
+    独立 state を持つ。stored member は共有状態を変えず独立に読む。暗号化 solid も扱うが、
+    unpack version 29 以外、dictionary size
     変更を含む RAR4 solid group は M3 では明示的に非対応。
   - RAR4 暗号は RAR3 per-file AES-128-CBC / SHA-1 KDF と `-hp` archive header encryption を実装し、
     password provider と派生鍵 cache を実書庫で検証した。`-p` の compressed entry は
@@ -593,9 +594,36 @@ NFC 正規化し、内容は展開木の全ファイルの SHA-256 で比較す�
 - 検証ツールの注意: `swift build` に `-Xswiftc -sanitize=address -Xswiftc -sanitize=undefined` と
   フラグを分けて渡すと sanitizer runtime だけがリンクされ **instrumentation が入らない**。
   `Scripts/fuzz/build-asan.sh` は `-sanitize=address,undefined` と 1 つにまとめており正しい。
-- U1（既知の非対応、上記 M3 記載）: rar が `-s -ol` で書く symbolic link は
+- U1（当時の非対応、batch 13 で解消）: rar が `-s -ol` で書く symbolic link は
   "RAR 1.5(v20) -m0" + solid flag になるため、圧縮メンバより後ろに並ぶと
   `RAR4Reader.streamSolidEntry` の method 検査が群全体を拒否する。XADMaster は展開できるため
-  移行時の差になる。unrar 同様に stored メンバを LZ window に触れず読み飛ばす対応を検討する。
+  移行時の差になっていた。この U1 は下記 batch 13 で解消した。
 - 逆に XADMaster 側の欠陥も確定した。`m5-solid.rar`（RAR4 solid、24 メンバ）で XADMaster は
   10 メンバを 0 バイトで返すが、KaitoKit は rar 6.24 の展開結果と 24/24 一致する。同型は 8 書庫。
+
+### RAR symbolic link の読み取り互換性（2026-09-08、batch 13）
+
+- RAR4 の method 0x30 は solid group 構築から除外し、最後の圧縮 member を predecessor
+  として維持する。task 仕様の RAR 6.24 black-box 測定では target 長 0 / 5 / 200 / 1000 と
+  stored member 数を変えても後続圧縮データが一致し、window、table、距離、filter を含む
+  共有状態への完全な no-op が確定している。solid flag、unpackVersion、サイズ一致では判別しない。
+  stored member は従来の CopyDecompressor / AES 復号 / padding 切り詰め経路を使う。
+- RAR5 redirection type 1 / 2 / 3 は header target の UTF-8 bytes を read / stream の内容とする。
+  direct read と solid predecessor の捨て読みの双方に適用し、宣言サイズとの不一致は malformed、
+  出力上限超過は limitExceeded とする。target は header CRC で検証済みであり、data-body の
+  checksum は適用しない。公開サイズと type 4 / 5 の zero-body 動作は維持する。
+- 新規入力は task の実測仕様、既存 KaitoKit コード、RAR 6.24 の生成物と展開結果だけである。
+  禁止対象の実装ソースは参照していない。小さな base64 fixture と出自を Tests/Fixtures に追加し、
+  暗号化 stored、solid 再読と並行 stream、UTF-8 target、type 1〜3、サイズ不一致と上限を検証する。
+- 検証（本コミットの受け入れとして host で実行）: 実測 fixture 17 書庫の全 entry が
+  `rar6 x -ol`（symbolic link の target を含む）と完全一致。実ツール書庫 671 件の全数比較で
+  判定が変わったのは 5 書庫（いずれも失敗→一致）だけで、内容不一致は引き続き 0 件。
+  既存 corpus 87 書庫で `a70bd9d` と出力差 0。
+- 残る 2 つの失敗は本修正の欠陥ではない。(a) `meta-solid.rar` の絶対 target を持つ
+  symbolic link 2 件は、設計どおり拒否している（rar は作成する）。内容の読み取り自体は
+  57 entry すべて成功するようになった。(b) target の末尾成分が 255 バイトを超える
+  symbolic link は `Extractor.validateSymbolicLinkTarget` の `fstatat` が ENAMETOOLONG を
+  返して失敗する。これは本修正の前から存在する Extractor 側の欠陥で、別途起票した。
+- Swift 6.3.3 / 6.4 の全テストは 632 件、既存 skip 33 件、失敗 0。既存 corpus 51 書庫の
+  SHA / 終了値と、password 付き 93 ケースは a70bd9d と差分 0。指定 59 seed の ASan/UBSan
+  400 mutants と、新規 fixture 4 seed の password 付き 400 mutants は crash / hang / 所見 0。

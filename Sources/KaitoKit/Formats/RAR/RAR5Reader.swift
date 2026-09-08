@@ -535,6 +535,9 @@ final class RAR5Reader: FormatReader {
             options: options,
             sourceURL: sourceURL
         )
+        if let stream = try Self.symbolicLinkStream(entry: entry, record: record, limits: limits) {
+            return stream
+        }
         if record.compression.method != 0 {
             try Checked.size(
                 record.compression.dictionarySize,
@@ -742,6 +745,9 @@ final class RAR5Reader: FormatReader {
             options: options,
             sourceURL: sourceURL
         )
+        if let stream = try symbolicLinkStream(entry: entry, record: record, limits: limits) {
+            return stream
+        }
         let prepared = try preparePayload(
             record,
             entryIndex: entry.index,
@@ -861,6 +867,32 @@ final class RAR5Reader: FormatReader {
 
     private static func isZeroBodyRedirection(_ type: UInt64?) -> Bool {
         type == 4 || type == 5
+    }
+
+    private static func symbolicLinkStream(
+        entry: ArchiveEntry,
+        record: Record,
+        limits: ReadLimits
+    ) throws -> EntryStream? {
+        guard let type = record.redirectionType, (1...3).contains(type) else {
+            return nil
+        }
+        guard let target = entry.formatSpecific["linkPath"] else {
+            throw KaitoError.malformed("RAR5 symbolic link has no target")
+        }
+        let length = UInt64(target.utf8.count)
+        if let declared = record.unpackedSize, declared != length {
+            throw KaitoError.malformed("RAR5 symbolic link target size differs")
+        }
+        try Checked.size(length, limit: limits.maxEntrySize)
+        // The target is authenticated by the header CRC, not a data-body digest.
+        // Returning these header bytes also leaves a continuing solid state intact.
+        return try EntryStream(
+            source: DataByteSource(data: Data(target.utf8)),
+            offset: 0,
+            length: length,
+            limits: limits
+        )
     }
 
     private static func makeCompressedDecompressor(

@@ -188,3 +188,32 @@ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+Batch 13 symbolic-link fixtures (project-generated, MIT)
+-------------------------------------------------------
+Generated 2026-09-08 with RAR 6.24 as a black-box writer. No external
+decoder implementation sources were consulted. All payloads are synthetic.
+
+  rar4/solid-stored.rar.b64 (1346 bytes decoded)
+  rar4/solid-stored-p.rar.b64 (1393 bytes decoded)
+  rar4/solid-stored-hp.rar.b64 (1476 bytes decoded)
+    Command: rar6 a -ma4 -m3 -s -ds -ol -idq [password option] archive.rar
+             a.txt s.lnk b.txt
+    Password options: none, -ppw123, -hppw123 respectively.
+    a.txt and b.txt: identical 1600-byte Python random.Random(1234) streams,
+    each byte chosen with rng.choice(b'abcdefghijklmno ').
+    s.lnk: target 'x' repeated 200 times.
+    Payload SHA-256: 74afbb86e62b28d58e0ed4535792c9d2d932ae7556dd0a8e90562ba92c933a85
+    Archive SHA-256 (same order):
+      2c2cad7841e368af377087cd83eea5fc2585cd0b08c957191cec41b96c219664
+      a176535996dea7870663f7f39c39cca3a3024320d49e2a6206457261ba50a298
+      6296cfc07aa045c5641500f8f0130e015b7979ab967b68c9a79d85d501fe7af8
+
+  rar4/symlink-targets.rar.b64 (384 bytes decoded)
+  rar5/symlink-targets.rar.b64 (397 bytes decoded)
+    Commands: rar6 a -ma4/-ma5 -m0 -s- -ol -idq archive.rar
+              ascii.lnk unicode.lnk long.lnk
+    Targets: a.txt, 日本語.txt, 'x' repeated 200 times.
+    Archive SHA-256 (same order):
+      19d001c8d84c8cc6bee128a5e5bf2535725dce70a1d51ee78d50e0e33d2aff78
+      7fbab68453f4d62cc71d0e4f0d24ec3e92ab5e29c1768ae365222a5ce33f40ef

@@ -136,7 +136,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 - CAB、ARJ、ACE、StuffIt/SIT、ISO disk image、zstd stream は未対応です。
 - ZIP は multi-disk/spanned と method 93 (zstd)、95 (xz)、96 (JPEG)、98 (PPMd) を扱いません。
 - 7z は IA-64 / SPARC filter を扱いません。
-- RAR4 は unpack version 15/20/26、custom VM、一部の solid 構成、SFX と multi-volume の組合せを
+- RAR4 は unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成、SFX と multi-volume の組合せを
   扱いません。RAR5 は compression version 1、file-copy redirection、SFX、サイズ不明の暗号化
   stored entry を扱いません。
 - LHA は `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` を一覧できますが、読み取り時に

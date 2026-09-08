@@ -1673,12 +1673,15 @@ final class RAR4Reader: FormatReader {
         entries.reserveCapacity(pendingEntries.count)
 
         // FHD_SOLID marks a file as continuing the dictionary of the previous
-        // data-bearing file. Consequently a group becomes observable only at
+        // compressed file. Consequently a group becomes observable only at
         // the first continuation: its independent predecessor is then the
-        // group leader. Directory records never join or break the data run.
+        // group leader. Directories and method 0x30 never join or break the run.
+        // The batch-13 RAR 6.24 black-box vectors establish that stored members
+        // leave all solid state untouched, regardless of flags or unpack version.
         var solidGroups = [Int](repeating: -1, count: pendingEntries.count)
         var previousFileIndex: Int?
-        for index in pendingEntries.indices where pendingEntries[index].kind != .directory {
+        for index in pendingEntries.indices
+        where pendingEntries[index].kind != .directory && records[index].method != 0x30 {
             let continuesSolidStream = records[index].firstFlags & FileFlag.solid != 0
             if continuesSolidStream {
                 guard mainHeader.isSolid else {

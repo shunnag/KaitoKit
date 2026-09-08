@@ -749,7 +749,7 @@ NFC 正規化し、内容は展開木の全ファイルの SHA-256 で比較す�
 変更は CRC16、既存 C bridge に追加する小さな helper、Tests、設計記録、CHANGELOG に限定する。
 公開 API、初期値 0、final XOR なし、逐次 update の意味論は変えない。
 禁止対象の実装 source、および zlib / isa-l / libdeflate の CRC 実装は参照・転記していない。
-`/Users/nagash/cooViewer` へのアクセス、bd、commit、既存スレッドの再開は行っていない。
+隣接リポジトリへのアクセス、課題管理コマンド、commit、既存スレッドの再開は行っていない。
 
 **実装入力と参照資料**（CRC algorithm / 定数は以下の独自導出による）:
 

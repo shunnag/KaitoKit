@@ -1286,10 +1286,19 @@ final class RAR5Reader: FormatReader {
         var state = ParseState()
         var offset = UInt64(signature.count)
         var archiveEncryption: ArchiveEncryptionContext?
+        // Allocation profiling found a 256 KiB allocation and zero fill in
+        // every readBlock. Keep one bounded cursor per volume and seek across
+        // payloads, retaining read-ahead when the next header is still cached.
+        // The capacity depends only on caller limits, never header sizes.
+        var headerReader = try ByteReader(
+            source: source,
+            bufferCapacity: Int(min(16 * 1_024, options.limits.maxMetadataSize))
+        )
 
         if offset < source.length {
             let firstBlock = try readBlock(
                 source: source,
+                reader: &headerReader,
                 offset: offset,
                 limits: options.limits
             )
@@ -1327,6 +1336,7 @@ final class RAR5Reader: FormatReader {
                 } else {
                     block = try readBlock(
                         source: source,
+                        reader: &headerReader,
                         offset: offset,
                         limits: options.limits
                     )
@@ -1579,10 +1589,11 @@ final class RAR5Reader: FormatReader {
 
     private static func readBlock(
         source: any ByteSource,
+        reader: inout ByteReader,
         offset: UInt64,
         limits: ReadLimits
     ) throws -> Block {
-        var reader = try ByteReader(source: source, offset: offset)
+        try reader.seek(to: offset)
         guard reader.remaining >= 5 else { throw KaitoError.truncated }
         let recordedCRC = try reader.readUInt32LE()
         let headerSize = try RAR5VInt.read(from: &reader)
@@ -2262,11 +2273,11 @@ final class RAR5Reader: FormatReader {
             let publishedPackedSize = zeroBodyRedirection ? 0 : item.packedSize
             var specific: [String: String] = [
                 "rarVersion": item.compression.version == 0 ? "5" : "7",
-                "compressionInfo": String(format: "0x%llx", item.compression.rawValue),
+                "compressionInfo": "0x" + String(item.compression.rawValue, radix: 16),
                 "method": String(item.compression.method),
                 "dictionarySize": String(item.compression.dictionarySize),
                 "hostOS": String(item.hostOS),
-                "attributes": String(format: "0x%llx", item.attributes),
+                "attributes": "0x" + String(item.attributes, radix: 16),
                 "solid": item.compression.isSolid ? "true" : "false",
                 "splitBefore": item.splitBefore ? "true" : "false",
                 "splitAfter": item.splitAfter ? "true" : "false",
@@ -2277,7 +2288,10 @@ final class RAR5Reader: FormatReader {
             ]
             if let hash = item.extras.hash {
                 specific["hashType"] = hash.type == 0 ? "BLAKE2sp" : String(hash.type)
-                specific["hash"] = hash.digest.map { String(format: "%02x", $0) }.joined()
+                specific["hash"] = hash.digest.map {
+                    let digits = String($0, radix: 16)
+                    return $0 < 16 ? "0" + digits : digits
+                }.joined()
             }
             if let version = item.extras.version { specific["fileVersion"] = String(version) }
             if let redirection = item.extras.redirection {

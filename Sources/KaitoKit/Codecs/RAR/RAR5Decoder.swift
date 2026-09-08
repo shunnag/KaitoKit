@@ -131,7 +131,89 @@ final class RAR5Decoder: Decompressor {
     private var currentBlockIsLast = false
     private var rawFinished = false
     private var finished = false
-    private var failure: KaitoError?
+    // Only this small tag is inspected by the symbol loop. Strings and caught
+    // boundary errors are materialized/stored exclusively on failure paths.
+    private enum DecodeFailure {
+        case truncated
+        case boundary
+        case invalidMatch
+        case unsupportedFilter
+        case filterBehindOutput
+        case positionsDiverged
+        case filterPrefillStalled
+        case filterBeyondOutput
+        case filterInputStalled
+        case standardFilterFailed
+        case missingFilterInput
+        case missingFilterOutput
+        case unflushedOutput
+        case decoderStalled
+        case filterBoundaryPassed
+        case missingBlock
+        case blockTransitionFailed
+        case mainCodeOverrun
+        case outputSizeExceeded
+        case filterDataOverrun
+        case invalidLastMatch
+        case repeatLengthOverrun
+        case invalidRepeatMatch
+        case matchOverrun
+        case invalidMainSymbol
+        case filterCountExceeded
+        case invalidFilterParameters
+        case filterRangeOverflow
+        case filterRangeExceeded
+        case filterRangeOverlap
+        case filterInputAllocation
+        case filterOutputAllocation
+    }
+
+    private var failure: DecodeFailure?
+    private var boundaryError: KaitoError?
+    private var failedMatch: (produced: UInt64, distance: Int, length: Int)?
+    private var failedFilterType = 0
+
+    private func error(for failure: DecodeFailure) -> KaitoError {
+        switch failure {
+        case .truncated: return .truncated
+        case .boundary: return boundaryError ?? .malformed("RAR5 block transition failed")
+        case .invalidMatch:
+            let match = failedMatch ?? (produced: produced, distance: 0, length: 0)
+            let describedExpectedSize = expectedSize.map(String.init) ?? "unknown"
+            return .malformed(
+                "RAR5 invalid LZ match at output \(match.produced): distance \(match.distance), length \(match.length), window \(solidState.windowSize), expected \(describedExpectedSize)"
+            )
+        case .unsupportedFilter: return .unsupportedMethod("RAR5 filter type \(failedFilterType)")
+        case .filterBehindOutput: return .malformed("RAR5 filter starts behind emitted output")
+        case .positionsDiverged: return .malformed("RAR5 raw and emitted positions diverged")
+        case .filterPrefillStalled: return .malformed("RAR5 filter prefill made no progress")
+        case .filterBeyondOutput: return .malformed("RAR5 filter begins beyond raw output")
+        case .filterInputStalled: return .malformed("RAR5 filter input made no progress")
+        case .standardFilterFailed: return .malformed("RAR5 standard filter failed")
+        case .missingFilterInput: return .malformed("RAR5 filter input buffer is unavailable")
+        case .missingFilterOutput: return .malformed("RAR5 filter output buffer is unavailable")
+        case .unflushedOutput: return .malformed("RAR5 output ended with unflushed raw bytes")
+        case .decoderStalled: return .malformed("RAR5 decoder made no progress")
+        case .filterBoundaryPassed: return .malformed("RAR5 filter boundary was passed")
+        case .missingBlock: return .malformed("RAR5 decoder has no active block")
+        case .blockTransitionFailed: return .malformed("RAR5 block transition failed")
+        case .mainCodeOverrun: return .malformed("RAR5 main Huffman code runs past its block")
+        case .outputSizeExceeded: return .malformed("RAR5 output exceeds its declared size")
+        case .filterDataOverrun: return .malformed("RAR5 filter data runs past its block")
+        case .invalidLastMatch: return .malformed("RAR5 invalid last-match repetition")
+        case .repeatLengthOverrun: return .malformed("RAR5 repeat length runs past its block")
+        case .invalidRepeatMatch: return .malformed("RAR5 invalid repeated-distance match")
+        case .matchOverrun: return .malformed("RAR5 match runs past its block")
+        case .invalidMainSymbol: return .malformed("RAR5 main Huffman symbol is out of range")
+        case .filterCountExceeded: return .limitExceeded("RAR5 filter count")
+        case .invalidFilterParameters: return .malformed("RAR5 filter parameters are invalid")
+        case .filterRangeOverflow: return .malformed("RAR5 filter range overflows")
+        case .filterRangeExceeded: return .malformed("RAR5 filter range exceeds output")
+        case .filterRangeOverlap: return .malformed("RAR5 filter ranges overlap or are out of order")
+        case .filterInputAllocation: return .limitExceeded("unable to allocate RAR5 filter input")
+        case .filterOutputAllocation: return .limitExceeded("unable to allocate RAR5 filter output")
+        }
+    }
 
     private var produced: UInt64 = 0
     private var emitted: UInt64 = 0
@@ -251,7 +333,7 @@ final class RAR5Decoder: Decompressor {
     }
 
     func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
-        if let failure { throw failure }
+        if let failure { throw error(for: failure) }
         guard !buffer.isEmpty, !finished else { return 0 }
         guard let output = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
             return 0
@@ -276,13 +358,13 @@ final class RAR5Decoder: Decompressor {
                 let isResumingFilter = filterEmitCount > 0
                     && emitted == filter.start + UInt64(filterEmitCount)
                 guard isBeforeFilter || isResumingFilter else {
-                    failure = .malformed("RAR5 filter starts behind emitted output")
+                    failure = .filterBehindOutput
                     break
                 }
 
                 if emitted < filter.start {
                     guard emitted == produced else {
-                        failure = .malformed("RAR5 raw and emitted positions diverged")
+                        failure = .positionsDiverged
                         break
                     }
                     let distanceToFilter = filter.start - emitted
@@ -309,7 +391,7 @@ final class RAR5Decoder: Decompressor {
                             break
                         }
                         guard count > 0 else {
-                            failure = .malformed("RAR5 filter prefill made no progress")
+                            failure = .filterPrefillStalled
                             break
                         }
                     }
@@ -320,7 +402,7 @@ final class RAR5Decoder: Decompressor {
                     guard ensureFilterBuffers(),
                           let filterInput else { break }
                     guard produced >= filter.start else {
-                        failure = .malformed("RAR5 filter begins beyond raw output")
+                        failure = .filterBeyondOutput
                         break
                     }
                     let needed = filter.length - filterFillCount
@@ -343,7 +425,7 @@ final class RAR5Decoder: Decompressor {
                                 break
                             }
                             guard count > 0 else {
-                                failure = .malformed("RAR5 filter input made no progress")
+                                failure = .filterInputStalled
                                 break
                             }
                             continue
@@ -352,10 +434,11 @@ final class RAR5Decoder: Decompressor {
                     do {
                         try prepare(filter: filter)
                     } catch let error as KaitoError {
-                        failure = error
+                        boundaryError = error
+                        failure = .boundary
                         break
                     } catch {
-                        failure = .malformed("RAR5 standard filter failed")
+                        failure = .standardFilterFailed
                         break
                     }
                 }
@@ -363,13 +446,13 @@ final class RAR5Decoder: Decompressor {
                 let available = filter.length - filterEmitCount
                 let count = min(available, buffer.count - written)
                 guard let filterInput else {
-                    failure = .malformed("RAR5 filter input buffer is unavailable")
+                    failure = .missingFilterInput
                     break
                 }
                 let source: UnsafeMutablePointer<UInt8>
                 if filterUsesSecondaryOutput {
                     guard let filterOutput else {
-                        failure = .malformed("RAR5 filter output buffer is unavailable")
+                        failure = .missingFilterOutput
                         break
                     }
                     source = filterOutput
@@ -395,7 +478,7 @@ final class RAR5Decoder: Decompressor {
 
             if rawFinished {
                 guard emitted == produced else {
-                    failure = .malformed("RAR5 output ended with unflushed raw bytes")
+                    failure = .unflushedOutput
                     break
                 }
                 finished = true
@@ -416,12 +499,12 @@ final class RAR5Decoder: Decompressor {
             written += count
             if failure != nil { break }
             if count == 0, !rawFinished, nextFilterIndex >= scheduledFilters.count {
-                failure = .malformed("RAR5 decoder made no progress")
+                failure = .decoderStalled
                 break
             }
         }
 
-        if let failure { throw failure }
+        if let failure { throw error(for: failure) }
         return written
     }
 
@@ -439,13 +522,35 @@ final class RAR5Decoder: Decompressor {
     ) -> Int {
         guard capacity > 0, !rawFinished, failure == nil else { return 0 }
         var written = 0
+        var failure = self.failure
+        var bits = self.bits
+        var pendingLength = self.pendingLength
+        var pendingDistance = self.pendingDistance
+        var rawFinished = self.rawFinished
+        var oldDistance0 = solidState.oldDistance0
+        var oldDistance1 = solidState.oldDistance1
+        var oldDistance2 = solidState.oldDistance2
+        var oldDistance3 = solidState.oldDistance3
+        var lastLength = solidState.lastLength
+        defer {
+            self.failure = failure
+            self.bits = bits
+            self.pendingLength = pendingLength
+            self.pendingDistance = pendingDistance
+            self.rawFinished = rawFinished
+            solidState.oldDistance0 = oldDistance0
+            solidState.oldDistance1 = oldDistance1
+            solidState.oldDistance2 = oldDistance2
+            solidState.oldDistance3 = oldDistance3
+            solidState.lastLength = lastLength
+        }
 
         while written < capacity, !rawFinished, failure == nil {
             var available = capacity - written
             if stopAtFilter, nextFilterIndex < scheduledFilters.count {
                 let start = scheduledFilters[nextFilterIndex].start
                 guard start >= produced else {
-                    failure = .malformed("RAR5 filter boundary was passed")
+                    failure = .filterBoundaryPassed
                     break
                 }
                 if start == produced { break }
@@ -470,7 +575,7 @@ final class RAR5Decoder: Decompressor {
             }
 
             guard var bitReader = bits else {
-                failure = .malformed("RAR5 decoder has no active block")
+                failure = .missingBlock
                 break
             }
             if bitReader.isAtEnd {
@@ -485,24 +590,26 @@ final class RAR5Decoder: Decompressor {
                 }
                 do {
                     try readNextBlock()
+                    bits = self.bits
                 } catch let error as KaitoError {
-                    failure = error
+                    boundaryError = error
+                    failure = .boundary
                 } catch {
-                    failure = .malformed("RAR5 block transition failed")
+                    failure = .blockTransitionFailed
                 }
                 continue
             }
 
             guard let symbol = solidState.mainTable.decode(from: &bitReader) else {
                 bits = bitReader
-                failure = .malformed("RAR5 main Huffman code runs past its block")
+                failure = .mainCodeOverrun
                 break
             }
             bits = bitReader
 
             if symbol < 256 {
                 guard outputIsAvailable(1, produced: produced) else {
-                    failure = .malformed("RAR5 output exceeds its declared size")
+                    failure = .outputSizeExceeded
                     break
                 }
                 let byte = UInt8(symbol)
@@ -518,9 +625,9 @@ final class RAR5Decoder: Decompressor {
             switch symbol {
             case 256:
                 guard var localBits = bits,
-                      let filter = readFilter(from: &localBits, produced: produced) else {
+                      let filter = readFilter(from: &localBits, produced: produced, failure: &failure) else {
                     if failure == nil {
-                        failure = .malformed("RAR5 filter data runs past its block")
+                        failure = .filterDataOverrun
                     }
                     break
                 }
@@ -528,29 +635,44 @@ final class RAR5Decoder: Decompressor {
                 scheduledFilters.append(filter)
 
             case 257:
-                guard solidState.lastLength > 0,
+                guard lastLength > 0,
                       validateMatch(
-                        distance: solidState.oldDistance0,
-                        length: solidState.lastLength,
+                        distance: oldDistance0,
+                        length: lastLength,
                         historySize: historySize,
                         produced: produced
                       ) else {
-                    failure = .malformed("RAR5 invalid last-match repetition")
+                    failure = .invalidLastMatch
                     break
                 }
-                pendingDistance = solidState.oldDistance0
-                pendingLength = solidState.lastLength
+                pendingDistance = oldDistance0
+                pendingLength = lastLength
 
             case 258...261:
-                let distanceIndex = symbol - 258
-                let distance = distance(at: distanceIndex)
-                rotateDistanceToFront(distanceIndex)
+                let distance: Int
+                switch symbol - 258 {
+                case 0:
+                    distance = oldDistance0
+                case 1:
+                    distance = oldDistance1
+                    oldDistance1 = oldDistance0
+                case 2:
+                    distance = oldDistance2
+                    oldDistance2 = oldDistance1
+                    oldDistance1 = oldDistance0
+                default:
+                    distance = oldDistance3
+                    oldDistance3 = oldDistance2
+                    oldDistance2 = oldDistance1
+                    oldDistance1 = oldDistance0
+                }
+                oldDistance0 = distance
                 guard var localBits = bits,
                       let length = decodeLength(
                         using: solidState.repeatLengthTable,
                         bits: &localBits
                       ) else {
-                    failure = .malformed("RAR5 repeat length runs past its block")
+                    failure = .repeatLengthOverrun
                     break
                 }
                 bits = localBits
@@ -558,10 +680,10 @@ final class RAR5Decoder: Decompressor {
                     distance: distance, length: length,
                     historySize: historySize, produced: produced
                 ) else {
-                    failure = .malformed("RAR5 invalid repeated-distance match")
+                    failure = .invalidRepeatMatch
                     break
                 }
-                solidState.lastLength = length
+                lastLength = length
                 pendingDistance = distance
                 pendingLength = length
 
@@ -570,7 +692,7 @@ final class RAR5Decoder: Decompressor {
                       var length = decodeLengthSlot(symbol - 262, bits: &localBits),
                       let distanceSlot = solidState.distanceTable.decode(from: &localBits),
                       let distance = decodeDistance(slot: distanceSlot, bits: &localBits) else {
-                    failure = .malformed("RAR5 match runs past its block")
+                    failure = .matchOverrun
                     break
                 }
                 if distance > 0x100 { length += 1 }
@@ -580,20 +702,21 @@ final class RAR5Decoder: Decompressor {
                     distance: distance, length: length,
                     historySize: historySize, produced: produced
                 ) else {
-                    let describedExpectedSize = expectedSize.map(String.init) ?? "unknown"
-                    failure = .malformed(
-                        "RAR5 invalid LZ match at output \(produced): distance \(distance), length \(length), window \(solidState.windowSize), expected \(describedExpectedSize)"
-                    )
+                    failedMatch = (produced, distance, length)
+                    failure = .invalidMatch
                     break
                 }
                 bits = localBits
-                pushDistance(distance)
-                solidState.lastLength = length
+                oldDistance3 = oldDistance2
+                oldDistance2 = oldDistance1
+                oldDistance1 = oldDistance0
+                oldDistance0 = distance
+                lastLength = length
                 pendingDistance = distance
                 pendingLength = length
 
             default:
-                failure = .malformed("RAR5 main Huffman symbol is out of range")
+                failure = .invalidMainSymbol
             }
             if failure != nil { break }
         }
@@ -603,10 +726,11 @@ final class RAR5Decoder: Decompressor {
 
     private func readFilter(
         from bits: inout RAR5RawBitReader,
-        produced: UInt64
+        produced: UInt64,
+        failure: inout DecodeFailure?
     ) -> ScheduledFilter? {
         guard scheduledFilters.count < maximumFilterCount else {
-            failure = .limitExceeded("RAR5 filter count")
+            failure = .filterCountExceeded
             return nil
         }
         guard let relativeStart = readFilterInteger(from: &bits),
@@ -615,11 +739,12 @@ final class RAR5Decoder: Decompressor {
               lengthValue <= RARStandardFilters.rar5MaximumBlockSize,
               let type = bits.read(3),
               let kind = RARStandardFilterKind(rawValue: UInt8(type)) else {
-            failure = .malformed("RAR5 filter parameters are invalid")
+            failure = .invalidFilterParameters
             return nil
         }
         guard kind == .delta || kind == .e8 || kind == .e8e9 || kind == .arm else {
-            failure = .unsupportedMethod("RAR5 filter type \(type)")
+            failedFilterType = type
+            failure = .unsupportedFilter
             return nil
         }
         let channels: Int
@@ -635,15 +760,15 @@ final class RAR5Decoder: Decompressor {
         )
         let (end, endOverflow) = start.addingReportingOverflow(UInt64(lengthValue))
         guard !startOverflow, !endOverflow else {
-            failure = .malformed("RAR5 filter range overflows")
+            failure = .filterRangeOverflow
             return nil
         }
         if let expectedSize, end > expectedSize {
-            failure = .malformed("RAR5 filter range exceeds output")
+            failure = .filterRangeExceeded
             return nil
         }
         if let previous = scheduledFilters.last, start < previous.end {
-            failure = .malformed("RAR5 filter ranges overlap or are out of order")
+            failure = .filterRangeOverlap
             return nil
         }
         return ScheduledFilter(
@@ -710,12 +835,12 @@ final class RAR5Decoder: Decompressor {
         if filterInput != nil, filterOutput != nil { return true }
         let capacity = RARStandardFilters.rar5MaximumBlockSize
         guard let inputRaw = malloc(capacity) else {
-            failure = .limitExceeded("unable to allocate RAR5 filter input")
+            failure = .filterInputAllocation
             return false
         }
         guard let outputRaw = malloc(capacity) else {
             free(inputRaw)
-            failure = .limitExceeded("unable to allocate RAR5 filter output")
+            failure = .filterOutputAllocation
             return false
         }
         // Every byte read from either work area is overwritten first, so no
@@ -894,6 +1019,7 @@ final class RAR5Decoder: Decompressor {
         return decodeLengthSlot(slot, bits: &bits)
     }
 
+    @inline(__always)
     private func decodeLengthSlot(
         _ slot: Int,
         bits: inout RAR5RawBitReader
@@ -904,6 +1030,7 @@ final class RAR5Decoder: Decompressor {
         return Self.lengthBase[slot] + extra + 2
     }
 
+    @inline(__always)
     private func decodeDistance(
         slot: Int,
         bits: inout RAR5RawBitReader
@@ -976,43 +1103,7 @@ final class RAR5Decoder: Decompressor {
         }
     }
 
-    private func distance(at index: Int) -> Int {
-        switch index {
-        case 0: solidState.oldDistance0
-        case 1: solidState.oldDistance1
-        case 2: solidState.oldDistance2
-        default: solidState.oldDistance3
-        }
-    }
 
-    private func rotateDistanceToFront(_ index: Int) {
-        switch index {
-        case 0:
-            break
-        case 1:
-            let selected = solidState.oldDistance1
-            solidState.oldDistance1 = solidState.oldDistance0
-            solidState.oldDistance0 = selected
-        case 2:
-            let selected = solidState.oldDistance2
-            solidState.oldDistance2 = solidState.oldDistance1
-            solidState.oldDistance1 = solidState.oldDistance0
-            solidState.oldDistance0 = selected
-        default:
-            let selected = solidState.oldDistance3
-            solidState.oldDistance3 = solidState.oldDistance2
-            solidState.oldDistance2 = solidState.oldDistance1
-            solidState.oldDistance1 = solidState.oldDistance0
-            solidState.oldDistance0 = selected
-        }
-    }
-
-    private func pushDistance(_ distance: Int) {
-        solidState.oldDistance3 = solidState.oldDistance2
-        solidState.oldDistance2 = solidState.oldDistance1
-        solidState.oldDistance1 = solidState.oldDistance0
-        solidState.oldDistance0 = distance
-    }
 }
 
 /// Raw MSB-first reader. The owner guarantees at least eight sentinel bytes

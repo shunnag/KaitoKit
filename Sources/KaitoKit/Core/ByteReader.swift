@@ -21,11 +21,18 @@ public struct ByteReader {
 
     /// Creates a buffered reader positioned at an absolute offset.
     public init(source: any ByteSource, offset: UInt64 = 0) throws {
+        try self.init(source: source, offset: offset, bufferCapacity: Self.bufferSize)
+    }
+
+    /// Internal cursors can use a smaller, caller-bounded read-ahead window.
+    /// A one-byte minimum permits scalar header validation even with a zero
+    /// metadata budget; no archive-declared size controls this allocation.
+    init(source: any ByteSource, offset: UInt64 = 0, bufferCapacity: Int) throws {
         guard offset <= source.length else {
             throw KaitoError.truncated
         }
         self.source = source
-        self.buffer = [UInt8](repeating: 0, count: Self.bufferSize)
+        self.buffer = [UInt8](repeating: 0, count: max(1, min(Self.bufferSize, bufferCapacity)))
         self.bufferStart = offset
         self.bufferCount = 0
         self.bufferOffset = 0

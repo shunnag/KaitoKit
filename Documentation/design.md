@@ -660,3 +660,85 @@ NFC 正規化し、内容は展開木の全ファイルの SHA-256 で比較す�
   dangling link を追って NAME_MAX の警告を出すため、lstat / readlink で独立に全件を比較した。
   指定 seed の ASan / UBSan 300 mutants と、full-password fixture の password 付き 300 mutants は
   crash / hang / sanitizer finding がすべて 0。`git diff --check` も成功。
+
+
+### RAR5 の復号状態とヘッダ先読みの最適化（2026-09-08）
+
+- 入力は指定の性能仕様書、malloc / bzero / pread の実測、KaitoKit 自身のコードのみ。
+  XADMaster / The Unarchiver / unrar / 7-Zip / lhasa の実装ソースは参照していない。
+  初期の AGENTS 探索で親ディレクトリを広く列挙し、作業対象外の
+  `/Users/nagash/cooViewer/AGENTS.md` のパス名を誤って取得した。これはディレクトリに
+  触れないという指示からの逸脱であり、同ファイルや実装ソースの本文は開かず、変更・実行も
+  していない。以降の探索は KaitoKit と指定された一時ディレクトリに限定した。
+- `RAR5Decoder.failure` はペイロードなしの `DecodeFailure?` に変更した。固定エラーは
+  変換表で元の case / 文字列を再現し、動的な match 診断は数値だけを保持して throw 時に
+  文字列化する。ブロック遷移・filter 処理で捕捉した `KaitoError` は cold storage に保存する。
+  記号ループでは失敗タグ・bit cursor・保留 match・距離履歴・終了状態をローカルに保持し、
+  正常・異常・filter / read 境界のすべてで defer により書き戻す。length / distance の
+  小さな復号関数も inline 化した。境界検査、番兵、出力内容、公開 API は変更していない。
+- 平文ヘッダ走査はボリュームごとに `ByteReader` を一度だけ作り、payload を seek して
+  同じ先読みを再利用する。先読み容量は `min(16 KiB, options.limits.maxMetadataSize)`。
+  メタデータ上限 0 でも元のヘッダ検証エラーを返すため、scalar 読取り用の最小 1 byte は
+  保持する。書庫の申告サイズに基づく新たな確保はない。public `ByteReader` の容量と
+  API は従来どおり。公開時に必要な formatSpecific の hex 文字列は、同じ値を Swift の
+  radix 変換で作り、Foundation の `String(format:)` を避けた。
+- ゼロ埋めの特定: `sample <pid> 5 1` は環境のプロセス検査制限で失敗したため、一時的な
+  dyld interpose 計測ライブラリで malloc / calloc / bzero のサイズ別回数と backtrace、
+  pread の回数・要求 byte 数を採取した（計測コードは配布物に含めない）。100 回の open で
+  256 KiB 級 malloc と bzero がそれぞれ **10,400 回**（最初に捕捉したサイズはそれぞれ
+  262,176 / 262,144 bytes）。両 stack は
+  `RAR5Reader.parseVolume → readBlock → ByteReader.init` を示した。bzero の発生源は
+  この initializer の `[UInt8](repeating: 0, count: 256 * 1024)` と実測で確定した。
+  修正後は両者とも **0 回**となり、16 KiB の初期化 **100 回**に置き換わった。
+  同じ 100 open の pread は **10,700 → 10,400 回**、要求量は
+  **2,666,211,000 → 164,534,300 bytes**。主な I/O 改善は payload の過剰な先読みを
+  減らしたことで、隣接ヘッダの再利用による呼出回数削減も確認した。
+- 計測は HEAD `e5c717d` を変更前に Swift 6.3.3 の release でビルド・保存し、同じ
+  toolchain / flags の変更後と比較した。指定 `bench3/src/benchkaito.swift` を SwiftPM の
+  KaitoKit object files に直接リンクし、framework や別プロジェクトは使用していない。
+  extract は 1 回 open した reader の全 entry を順番に読んで都度破棄、初回だけ SHA を計算。
+  各プロセスの初回を除外した中央値を取り、before → after を 3 巡交互に実行した。
+  extract は各 11 reps、open は各 1,001 reps。ビルド・テストとの同時実行はしなかった。
+  指定パスの `book-tiff-rar5.cbr` は、仕様書の 200 entries とは異なり実物は 100 entries
+  （1 周 384,498,400 bytes）。新旧の全エントリ SHA 集約値も一致した。
+
+| book-tiff-rar5.cbr | before 各巡 (ms) | after 各巡 (ms) | before 中央値 | after 中央値 | 改善 |
+|---|---|---|---:|---:|---:|
+| A: extract | 375.486 / 376.894 / 379.462 | 342.519 / 344.422 / 345.021 | 376.894 ms | 344.422 ms | 8.62% |
+| B: open | 1.218 / 1.230 / 1.245 | 0.278 / 0.274 / 0.273 | 1.230 ms | 0.274 ms | 77.72% |
+
+指定した他 6 ケースも before → after を各 3 巡交互に実行し、各プロセスの中央値の中央値で
+比較した（各 9 reps、solid 7z のみ各 5 reps。初回除外）。全ケースの SHA 集約値は新旧一致。
+
+| extract | before (ms) | after (ms) | 時間変化 |
+|---|---:|---:|---:|
+| book-rar5.cbr | 26.186 | 26.246 | +0.23% |
+| book-rar4.cbr | 26.347 | 26.288 | -0.22% |
+| book-tiff-rar4.cbr | 361.358 | 362.567 | +0.33% |
+| book-solid.7z | 9321.025 | 9359.135 | +0.41% |
+| book-deflate.cbz | 662.333 | 659.884 | -0.37% |
+| book-lh5.lzh | 2083.533 | 2090.763 | +0.35% |
+
+最大の遅延は 0.41% で、3% 以上の退行はなかった。A の 5%、B の 20% の改善条件を達成。
+
+- 最終 release の `kaito sha` は、指定 2 ディレクトリの全 86 files（51 書庫と 34 uuencode
+  files、1 一覧テキスト）で `kaito-b14` と stdout / stderr / 終了値が完全一致した。
+  正常展開は 31 書庫。残りには暗号化、意図的破損、継続 volume 単体、書庫でないファイルが
+  含まれ、これらは元と同じエラー結果の一致を確認した。正常展開できない入力について、
+  展開後の内容まで確認したという意味ではない。
+- 最終ソースの ASan / UBSan は指定の全 41 seeds から 300 mutants を生成し、各 8 秒上限で
+  crash 0 / hang 0 / sanitizer findings 0。追加の回帰テストは、短い read、先読み境界を
+  またぐ長いヘッダ、payload skip、上限内の I/O 再利用、不正な read count、各エラーの
+  完全な文字列と再読時の保持、solid / filter 境界の状態保存を検証する。
+
+- 最終ソースで Swift 6.3.3 (`DEVELOPER_DIR=/Applications/Xcode.app`) と Swift 6.4 の
+  `swift test` はいずれも 643 tests、既存 skip 33、失敗 0。6.4 は KaitoKit 628 と compat 15
+  の別 bundle として全件実行した。書込み可能な module cache と `--disable-sandbox` を
+  使用し、6.4 の scratch path は通常の SwiftPM build と分離した。
+  `git diff --check` も成功。HEAD は `e5c717d` のままで、commit / bd / --resume は実行していない。
+- 測定・検証ログと再実行用ハーネスは `/private/tmp/kk-rar5-perf/` に保持した。
+  `accepted-{a,b}.jsonl` が各巡の全測定値、`regression-*.jsonl` が他形式の測定値、
+  `alloc-{before,after}.txt` が malloc / bzero stack と I/O 統計、`alloc-profile.c` が
+  計測ライブラリのソース。`final-test-{633,64}.log` / `final-fuzz.log` /
+  `sha-comparison.json` が最終検証の詳細。指定された性能・出力比較・テスト・sanitizer の
+  受入条件に未達はない。作業範囲の制約逸脱は上記に別途明記した。

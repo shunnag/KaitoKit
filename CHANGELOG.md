@@ -11,6 +11,9 @@
 
 ### 修正・高速化（2026-09-08）
 
+- RAR5 の復号失敗を軽量な内部状態で保持し、ヘッダ走査では上限付き先読みバッファを
+  再利用して展開・open を高速化。公開 API・エラー・展開内容は維持。
+
 - RAR5 の長い password は実測済みの先頭 127 Unicode scalars を優先し、全 UTF-8 への
   fallback で既存 writer 互換を保持。symbolic-link target の末尾が NAME_MAX を超える場合も
   安全な dangling link として展開できるよう修正。

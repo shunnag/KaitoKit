@@ -7,6 +7,42 @@ final class RAR5DecoderTests: XCTestCase {
         case failed
     }
 
+    func testDeferredFailuresKeepExactErrorsAcrossRepeatedReads() throws {
+        let literal = makeLiteralBlock(
+            byte: 65, count: 2, includesTables: true, isLast: true
+        )
+        let unsupported = makeFilterBlock(
+            relativeStart: 0, length: 1, type: 4, channelsMinusOne: nil
+        )
+        let prefix = makeLiteralBlock(
+            byte: 65, count: 1, includesTables: true, isLast: false
+        )
+        var badNext = makeLiteralBlock(
+            byte: 65, count: 1, includesTables: false, isLast: true
+        )
+        badNext[1] ^= 0xff
+        let cases: [(Data, Int?, KaitoError)] = [
+            (literal, 1, .malformed("RAR5 output exceeds its declared size")),
+            (unsupported, nil, .unsupportedMethod("RAR5 filter type 4")),
+            (prefix + badNext, 2, .malformed("RAR5 compressed block checksum mismatch")),
+            (makeSyntheticSolidStateBlocks().first, 9, .malformed(
+                "RAR5 invalid LZ match at output 8: distance 1, length 2, window 131072, expected 9"
+            )),
+        ]
+        for (packed, size, expected) in cases {
+            let decoder = try makeDecoder(
+                source: DataByteSource(data: packed),
+                compressedSize: packed.count, expectedSize: size
+            )
+            for _ in 0..<2 {
+                XCTAssertThrowsError(try drain(decoder, bufferSize: 1)) {
+                    XCTAssertEqual($0 as? KaitoError, expected)
+                }
+                XCTAssertFalse(decoder.isFinished)
+            }
+        }
+    }
+
     func testLiteralBlocksStreamThroughOneByteReadsAndReuseTables() throws {
         let firstCount = 257
         let secondCount = 513

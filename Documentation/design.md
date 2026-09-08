@@ -474,7 +474,7 @@ black-box 入出力だけである。新たな第三者 decoder source は参照
   loop-local 64-bit reservoir に変更した。論理入力終端と物理番兵の境界を分離し、RAR29 の各
   iteration の枯渇検査、table / token 境界の検証を保持する。全 LHA method と regression 書庫の
   数値、段階別計測、実行出力と sandbox 制約は
-  [検証記録](performance-rar-lha-2026-09-08.md) に記録する。
+  [検証記録](verification/2026-09-08-performance-rar-lha.md) に記録する。
 - 性能(release、M4 Max、`kaito sha` のプロセス全体 / XADMaster 同条件): stored cbz 0.17 / 0.18 s、deflate cbz
   0.82 / 0.84 s、book-tiff.7z 0.94 / 0.57 s、book-solid.7z 10.1 / 7.65 s。§4 の目標 1.3 倍以内を LZMA2 solid は
   わずかに超過(1.32 倍)。
@@ -515,7 +515,7 @@ black-box 入出力だけである。新たな第三者 decoder source は参照
   state block の全範囲を検証し、再配置が起きる更新前までだけ arena span を借用する。
   range decoder を generic に特殊化し、binary probability を平坦配列にし、mask の集計と選択を改善する。
   リーダ間の state 共有・同時使用契約は変わらない。測定と検証の詳細は
-  `performance-stability-2026-09-08.md` に記録する。
+  [検証記録](verification/2026-09-08-performance-stability.md) に記録する。
 
 RAR3 password は writer と同じ最大 127 wide characters に制限してから KDF へ渡す。
 UTF-16 候補は 127 code units、Unix 候補は 127 Unicode scalars で区切る。
@@ -530,7 +530,7 @@ CLI の entry failure は `failed entry N`（供給できなかった entry）�
 （CRC が不一致だった member）を区別する。`sha` の ERROR TSV 行も同じ label を用いる。
 
 本レビュー修正の回帰テスト、実書庫の parity、RAR4 の N=5/10/20/40 測定と両 toolchain / ASan の
-実出力は [batch12-review-verification-2026-09-08.md](batch12-review-verification-2026-09-08.md) に記録する。
+実出力は [検証記録](verification/2026-09-08-review-fixes-verification.md) に記録する。
 
 ### RAR5 / PPMd 性能追補（2026-09-08、batch 11）
 
@@ -565,7 +565,7 @@ sandbox 制約を回避して検証する。製品に profiling code や sandbox
 binary-digest aggregate と一致する。Swift 6.3.3 / 6.4 は各 629 tests（33 skip）、0 failure。
 ASan / UBSan は指定 seed 群（41 seeds）から 400 mutants を実行し、crash / hang / finding は
 すべて 0。段階別の数値、profile、受入判定、検証コマンドの実出力は
-[性能・検証記録](performance-rar5-ppmd-2026-09-08.md) に記録する。
+[性能・検証記録](verification/2026-09-08-performance-rar5-ppmd.md) に記録する。
 
 ### 大規模差分検証とホットループ敵対レビュー（2026-09-08、`a70bd9d` 時点）
 

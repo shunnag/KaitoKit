@@ -1,0 +1,25 @@
+# 検証記録
+
+設計書（[`../design.md`](../design.md)）の各追補が主張する数値の裏付けとなる、実行コマンドと
+その出力をそのまま残した記録。ファイル名は `YYYY-MM-DD-<主題>.md` で、日付順に並ぶ。
+
+本文中の絶対パスは `<repo>` / `<corpus>` / `<home>` に置換してある。コーパスや大きな実書庫は
+リポジトリに含めないため、記録の再現には同じ書庫を用意する必要がある。
+
+| 記録 | 日付 | 主題 | 対応するコミット |
+| --- | --- | --- | --- |
+| [2026-09-08-performance-rar-lha.md](2026-09-08-performance-rar-lha.md) | 2026-09-08 | RAR29 と LHA の高速化（CRC16 の slice-by-eight 化、重複一致の周期コピー、静的 Huffman の一次 lookup） | `7a1d210` |
+| [2026-09-08-performance-stability.md](2026-09-08-performance-stability.md) | 2026-09-08 | PPMd の毎シンボル検査除去と安定性の再確認 | `7a1d210` |
+| [2026-09-08-review-fixes-verification.md](2026-09-08-review-fixes-verification.md) | 2026-09-08 | 敵対レビュー指摘（展開先を脱出する symbolic link を含む）の修正検証 | `7a1d210` |
+| [2026-09-08-performance-rar5-ppmd.md](2026-09-08-performance-rar5-ppmd.md) | 2026-09-08 | RAR5 の周期コピーと 10bit Huffman lookup、PPMd の固定確率表 | `a70bd9d` |
+
+これらは 2026-09-08 に `Documentation/` 直下から本ディレクトリへ移した。記録本文に埋め込まれた
+`git status` などの出力には移動前のパスが残っているが、当時の実行結果として意図的に手を入れて
+いない。旧名との対応は次のとおり。
+
+| 旧名 | 現在 |
+| --- | --- |
+| `performance-rar-lha-2026-09-08.md` | `verification/2026-09-08-performance-rar-lha.md` |
+| `performance-stability-2026-09-08.md` | `verification/2026-09-08-performance-stability.md` |
+| `batch12-review-verification-2026-09-08.md` | `verification/2026-09-08-review-fixes-verification.md` |
+| `performance-rar5-ppmd-2026-09-08.md` | `verification/2026-09-08-performance-rar5-ppmd.md` |

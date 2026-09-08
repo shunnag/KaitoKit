@@ -252,3 +252,5 @@ Scripts/fuzz/run-mutants.sh --count 200 --password KaitoFuzz \
 設計判断、堅牢性規則、参照可能な仕様は [Documentation/design.md](Documentation/design.md)、
 XADMaster からの移行状況は
 [Documentation/migration-from-xadmaster.md](Documentation/migration-from-xadmaster.md) を参照してください。
+設計書が引く性能・安定性の実測ログは
+[Documentation/verification/](Documentation/verification/README.md) にあります。

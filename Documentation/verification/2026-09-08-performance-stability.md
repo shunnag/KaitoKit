@@ -57,7 +57,7 @@ PPMd JPEG (`pp-jpg-mctp.rar`, 2,017,217 bytes) の段階別測定:
 N=3（段階測定の後半は N=5）。XADMaster は同じ入力の `xadbench extract ... 3`。
 39 MB mixed PPMd は既報の約219秒に対し約9.99秒だが、既報は今回の同条件 baseline ではない。
 JPEG ≤1.5秒、mixed ≤15秒という実ツールレビューの目標を満たす。
-以前の RAR29 / LHA 最適化の比較は `performance-rar-lha-2026-09-08.md` に残している。
+以前の RAR29 / LHA 最適化の比較は `2026-09-08-performance-rar-lha.md` に残している。
 
 同じ2,017,217-byte JPEGを7zzのPPMdで圧縮した7zでも、同条件のN=3 medianは
 **17,104.904 → 845.760 ms（20.2倍）**。元JPEGと展開後SHA-256が一致した。

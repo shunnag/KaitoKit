@@ -742,3 +742,146 @@ NFC 正規化し、内容は展開木の全ファイルの SHA-256 で比較す�
   計測ライブラリのソース。`final-test-{633,64}.log` / `final-fuzz.log` /
   `sha-comparison.json` が最終検証の詳細。指定された性能・出力比較・テスト・sanitizer の
   受入条件に未達はない。作業範囲の制約逸脱は上記に別途明記した。
+
+### CRC-16/ARC carry-less multiply folding（2026-09-09）
+
+新規タスクとして clean な `66bc07a` から開始し、指定 `kk-crc16-spec.md` の全文を読んだ。
+変更は CRC16、既存 C bridge に追加する小さな helper、Tests、設計記録、CHANGELOG に限定する。
+公開 API、初期値 0、final XOR なし、逐次 update の意味論は変えない。
+禁止対象の実装 source、および zlib / isa-l / libdeflate の CRC 実装は参照・転記していない。
+`/Users/nagash/cooViewer` へのアクセス、bd、commit、既存スレッドの再開は行っていない。
+
+**実装入力と参照資料**（CRC algorithm / 定数は以下の独自導出による）:
+
+- ユーザー指定 `kk-crc16-spec.md` と `66bc07a` の `Core/CRC16.swift` の reflected recurrence。
+- Arm, [Neon Intrinsics Reference — Polynomial multiply](https://arm-software.github.io/acle/neon_intrinsics/advsimd.html#polynomial-multiply-1):
+  `vmull_p64` / `vmull_high_p64` と PMULL / PMULL2 の対応・64 × 64 → 128 bit の命令仕様。
+- Intel, [Intel 64 and IA-32 Architectures Software Developer’s Manual, Vol. 2B](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2b-manual.pdf),
+  PCLMULQDQ、pp. 4-241〜4-243、および [Intel Intrinsics Guide](https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html):
+  carry-less 積、immediate 0x00 / 0x11 の lane 選択、legacy XMM 命令の仕様。
+- Apple, [Addressing architectural differences in your macOS code](https://developer.apple.com/documentation/apple-silicon/addressing-architectural-differences-in-your-macos-code):
+  CPU feature を `sysctlbyname` で実行時照会する方針。
+  `hw.optional.arm.FEAT_PMULL` の実機照会は成功、値 1。
+
+**独自導出**:
+
+GF(2)[x] の商環で `Q(x) = x^16 + x^14 + x + 1 = 0x14003` と置く。
+`x * 0xA001 = Q(x) + 1` なので、元の reflected bit step
+`T(c) = (c >> 1) XOR ((c & 1) ? 0xA001 : 0)` は `c * x^-1 mod Q` である。
+これは体であるという仮定を必要とせず、Q の定数項が 1 なので x の逆元がある。
+入力の最初の bit を x^0 とする little-endian 多項式 B、bit 数 n、初期状態 c について、
+CRC は `(B XOR c) * x^-n mod Q` となる。
+
+128-bit representative `A = L + x^64 H` を d bit 先へ進める fold は
+`CLMUL(L, x^-d mod Q) XOR CLMUL(H, x^(64-d) mod Q)`。
+代表元は都度 16 bit へ reduce せず、次の 16-byte block と XOR する。
+定数は `T^d(1)` から算出し、第三者の定数表を使用しない:
+
+| 距離 d | low の乗数 | high の乗数 |
+|---|---:|---:|
+| 128 bits | 0x90C1 | 0xCCC1 |
+| 512 bits | 0xF0C1 | 0xBFFA |
+
+4 本の独立 lane が各 64-byte group 内の同じ位置を処理し、512-bit fold で依存鎖を分散する。
+初期状態は最初の lane の low bits にだけ XOR する。最後に 128-bit fold 3 回で lane を順序どおり
+結合し、残る完全な 16-byte block を処理する。最後の代表元 16 bytes の CRC を既存 slicing
+表で計算すれば、必要な `x^-128` と 16-bit reduction が同時に得られる。
+元入力の 0〜15 byte の末尾は Swift の既存 slice-by-eight / byte loop が処理する。
+`Tests/Benchmarks/CRC16Constants.py` は逆べきの積を独立した多項式長除算で検査し、
+両 fold の全 128 basis vectors（合計 256）について恒等式を確認する。
+
+`Sources/CBzip2/CRC16Folding.h` は既存の private C module を介して命令 intrinsic を使うための
+header-only helper。`shim.h` に include を 1 行追加し、Package.swift / product / binary target
+を変えない。arm64 は PMULL feature、x86_64 は CPUID leaf 1 ECX bit 1 を実行時に判定し、
+Swift の immutable static で一度だけキャッシュする。arm64 の照会失敗・未対応値は false。
+対象命令を使う helper にだけ `target("aes")` / `target("pclmul")` と `noinline` を指定し、
+未対応 CPU で呼ばれない境界を保つ。x86 は AVX を要求しない legacy PCLMULQDQ を使用する。
+64 bytes 未満、および対象命令が無い場合は現行 slice-by-eight にフォールバックする。
+テスト用の内部入口は任意 seed と folding=false を許すが、true でも実行時 feature check を省略しない。
+
+hot loop に heap allocation はない。16-byte load は memcpy による unaligned / alias-safe な
+読取りで、開始時 64 bytes、以後残り count によって各 group / block 全体の存在を確認する。
+count は検証済み Swift buffer 長から 16 の倍数へ切り下げ、減算は残量チェック後だけに行う。
+末尾の read-ahead、padding 仮定、入力 buffer への書込みはない。借用する immutable slicing
+表は従来どおり一度だけ初期化し、最終 reduce の scratch は固定 16 bytes の stack storage。
+
+**実測**（Apple M4 Max、Swift 6.3.3 release / standalone `swiftc -O`、decimal GB/s）:
+
+変更前 HEAD を release build して保存した `kaito-before` と変更後を交互に 3 巡実行。
+CLI は仕様書どおり `kaito bench ARCHIVE 3`、各プロセスの extract-median の中央値を比較する。
+CLI の既存仕様どおり、各巡は 3 回の読取りから中央値を取り、全 entry の Data を保持する。
+テスト・build・corpus 比較との同時実行はしない。
+
+| 展開 | before 各巡 ms | after 各巡 ms | before 中央値 | after 中央値 | 短縮 |
+|---|---|---|---:|---:|---:|
+| store.lzh（367 MiB 相当） | 166.595 / 166.091 / 167.109 | 45.329 / 45.556 / 46.036 | 166.595 ms | 45.556 ms | 72.65% |
+| book-tiff-lh7.lzh | 347.216 / 351.121 / 349.948 | 227.758 / 226.082 / 233.489 | 349.948 ms | 227.758 ms | 34.92% |
+
+仕様書が指定する既存 `scratchpad/bin/kaito-r3` との交互 3 巡も別途実行した:
+
+| 展開 | r3 各巡 ms | after 各巡 ms | r3 中央値 | after 中央値 | 短縮 |
+|---|---|---|---:|---:|---:|
+| store.lzh | 166.917 / 166.743 / 166.537 | 46.227 / 50.864 / 45.924 | 166.743 ms | 46.227 ms | 72.28% |
+| book-tiff-lh7.lzh | 354.149 / 347.704 / 354.462 | 232.577 / 227.660 / 227.558 | 354.149 ms | 227.660 ms | 35.72% |
+
+マイクロベンチは `Tests/Benchmarks/CRC16Bench.swift`。旧 source を変更前に保存し、同じ harness / flags
+で旧・新 binary を生成する。1 warmup 後、累積 update を 7 samples 計測し、中央値を取る。
+入力生成 / mmap / copy は計測外。計測済み全 pass の CRC を出力し、最適化による計算除去を防ぐ。
+さらに旧→新を交互 3 巡実行して各中央値の中央値を採る。旧・新の全 checksum は一致した。
+
+| 入力長・内容 | slice-by-eight GB/s | folding GB/s |
+|---|---:|---:|
+| 64 bytes、固定 seed の擬似乱数 | 2.743 | 3.897 |
+| 128 bytes、同上 | 2.868 | 7.016 |
+| 256 bytes、同上 | 2.942 | 11.633 |
+| 4 KiB、同上 | 2.990 | 30.998 |
+| 64 KiB、同上 | 3.005 | 34.066 |
+| 1 MiB、同上 | 2.991 | 33.277 |
+| 16 MiB、同上 | 2.980 | 33.444（11.22 倍） |
+| 16 MiB、実 store.lzh の先頭 bytes | 2.979 | 30.718（10.31 倍） |
+
+16 MiB 擬似乱数の各巡は旧 2.980 / 2.989 / 2.974、新 33.444 / 28.780 / 33.584 GB/s。
+実 bytes は旧 3.013 / 2.967 / 2.979、新 30.362 / 30.718 / 30.860 GB/s。
+開始境界は 16 / 32 / 48 / 63 / 64 / 65 / 80 / 96 / 112 / 127 / 128 bytes を実測し、
+helper が扱える最小長 64 bytes ですでに高速なため 64 を採用した。64 未満は元の loop だが
+dispatch の固定費は残り、16 bytes は 2.179 → 1.983 GB/s（約 0.73 ns/update の増加）。
+小入力を 3 倍高速化したという主張はしない。
+
+**検証結果と再実行**:
+
+- 0〜4096 の全長、64 KiB / 1 MiB / 16 MiB、seed 0 / 0xFFFF / 擬似乱数で旧 slicing と一致。
+  1-byte、素数長 257 / 4093、16 / 64 / 128 / 64-KiB 境界前後での分割 update も一致する。
+  全長検査で offset を 0〜63 に巡回させ、別途 guard page 直前・直後の buffer で端点を検査する。
+  既存の bit-serial oracle / `123456789` → 0xBB3D も維持する。
+- Swift 6.3.3 / Swift 6.4 とも 646 tests、既存 skip 33、失敗 0。
+  6.4 は KaitoKit 631 と compat 15 の別 bundle を全件実行した。
+- Swift 6.4 の `swift build --arch x86_64 --product kaito` は成功（sandbox/cache 調整あり）。
+  Swift 6.3.3 でも x86_64 の全 test target を build し、CRC 5 tests を Rosetta 上で実行して失敗 0。
+  SwiftPM 自身の test discovery helper は host arm64 で動いて x86-only bundle を拒否したため、
+  同じ bundle を `arch -x86_64 .../usr/bin/xctest -XCTest CRC16FoldingTests,CRC16Tests` で実行した。
+  C helper の単独 ASan/UBSan は arm64 と x86_64（Rosetta）で各 16,192 cases、所見 0。
+  物理 Intel マシンの性能測定や、実際に命令が無い CPU 上での実行は行っていない。
+  software fallback は同じ一致行列で明示的に強制して検証した。
+- 指定 `kaito sha` 比較は stdout / stderr / exit status をすべて比較する。
+  仕様書の直下 glob では 20 files（18 正常）で差分 0。ただし lha-corpus の本体が subdirectory
+  にあるため、そこも再帰的に全 228 files（227 書庫 + paths.txt）を比較して差分 0。
+  合計は重複を除いて **246 書庫、正常展開 233、既存エラー一致 13**、一覧テキスト 1。
+  13 書庫は password 未指定、未対応 pm1 / pm2 / lh2 / lh3、4 GiB limit、意図的な truncation。
+  これらについて展開後の全 bytes を検証したという意味ではない。store.lzh の SHA も別途一致。
+- 指定 41 seeds から ASan/UBSan mutant 300 件、timeout 8 秒で crash 0 / hang 0 / finding 0。
+  Swift の `-sanitize=address,undefined` だけでは imported C helper が計装されないため、
+  `-Xcc -fsanitize=address,undefined` も必須とし、IR と fuzz binary の逆アセンブルで helper 内の
+  ASan / UBSan 呼出しを確認した。既存 `Scripts/fuzz/build-asan.sh` / `run-mutants.sh` は変更せず、
+  build に C flag を補う wrapper から実行した。再実行用は `Tests/Benchmarks/CRC16Fuzz.sh`。
+- 通常の無指定 SwiftPM build は既定 module cache の書込み制限で失敗した。
+  `CLANG_MODULE_CACHE_PATH` / `SWIFTPM_MODULECACHE_OVERRIDE` を `.build/crc16-work/cache` にし、
+  `--disable-sandbox`、toolchain ごとの scratch path、repository 内 TMPDIR で検証した。
+  製品に sandbox 設定や toolchain 固有 flags を追加していない。
+- 再実行手順は `Tests/Benchmarks/README.md`。実測全 samples、SHA 全行、全テスト、fuzz、build
+  のログと before binary / source は `.build/crc16-work/` に保存した（git 管理外）。
+  `summary.json`、`micro-{final,real}.jsonl`、`bench-{head,r3}.jsonl`、
+  `sha-{r3,lha-r3}.jsonl`、`test-{633,64,x86-direct}.log`、`fuzz.log` が主要記録。
+
+16 MiB の 3 倍 / 8 GB/s、stored の 30% / 120 ms、TIFF lh7 の 15% / 300 ms、
+指定 SHA 比較、両 toolchain のテスト、x86_64 build、300 mutants の受入条件を達成した。
+上記の既存エラー書庫とハードウェア実機の検証範囲は区別する。

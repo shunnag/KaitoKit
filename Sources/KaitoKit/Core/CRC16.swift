@@ -1,4 +1,5 @@
 import Foundation
+private import CBzip2
 
 /// Incremental reflected CRC-16 used by LHA member payloads.
 ///
@@ -33,13 +34,27 @@ struct CRC16: Sendable {
         return tables
     }()
 
+    // Cached once; an unavailable/failed feature query conservatively falls back.
+    static let foldingAvailable = kk_crc16_has_folding() != 0
+
     mutating func update(_ buffer: UnsafeRawBufferPointer) {
-        guard let baseAddress = buffer.baseAddress else { return }
+        state = Self.update(buffer, initial: state, folding: Self.foldingAvailable)
+    }
+
+    // Internal entry point also lets tests exercise arbitrary seeds and force the
+    // unchanged slice-by-eight fallback without mutable global dispatch state.
+    static func update(_ buffer: UnsafeRawBufferPointer, initial: UInt16,
+                       folding: Bool) -> UInt16 {
+        guard let baseAddress = buffer.baseAddress else { return initial }
         let bytes = baseAddress.assumingMemoryBound(to: UInt8.self)
-        var crc = state
+        var crc = initial
         Self.tables.withUnsafeBufferPointer { storage in
             let table = storage.baseAddress!
             var index = 0
+            if buffer.count >= 64 && folding && Self.foldingAvailable {
+                index = buffer.count & ~15
+                crc = kk_crc16_fold_blocks(bytes, index, crc, table)
+            }
             // Each unaligned load is wholly inside the caller's buffer.
             while buffer.count - index >= 8 {
                 let word = UInt64(littleEndian: UnsafeRawPointer(bytes + index)
@@ -59,7 +74,7 @@ struct CRC16: Sendable {
                 index += 1
             }
         }
-        state = crc
+        return crc
     }
 
     static func checksum(_ bytes: [UInt8]) -> UInt16 {

@@ -6,6 +6,9 @@
 
 ## [0.1.0] - Unreleased
 
+- CRC-16/ARC を実行時判定付き PMULL / PCLMULQDQ folding で高速化。小入力・未対応 CPU は
+  従来の slice-by-eight を維持し、公開 API・逐次更新・検証結果を変えずに LHA 展開時間を短縮。
+
 - RAR29 / LHA static Huffman の展開を高速化。CRC16 slice-by-eight、境界検証付きの
   重複 match コピー、生バッファの Huffman lookup / bit reservoir により性能目標を達成。
 

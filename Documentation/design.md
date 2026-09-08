@@ -647,7 +647,8 @@ NFC 正規化し、内容は展開木の全ファイルの SHA-256 で比較す�
   1000-byte / multibyte target と危険な parent の回帰を追加し、既存 6 safety tests は変更しない。
 - 入力は task の実測仕様、KaitoKit 自身のコード、RAR executable の生成物と展開結果だけであり、
   禁止対象の実装ソースは参照していない。
-- 検証: Swift 6.4 / 6.3.3 とも 639 tests、既存 skip 33、失敗 0。環境の writable module cache と
+- 検証: Swift 6.3.3 は 639 tests（既存 skip 33）、失敗 0。Swift 6.4 は corpus 依存 suite が
+  除外されるため 15 tests、失敗 0（従来の測定と同じ形）。環境の writable module cache と
   `--disable-sandbox` を使用した。spec のコマンドも原文どおり実行したが、無指定の SwiftPM
   build / test は host の `sandbox_apply: Operation not permitted` で失敗するため、release を
   同じ環境調整で再 build し、原文の matrix Python を再実行した。

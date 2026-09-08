@@ -142,6 +142,8 @@ final class LZSStaticHuffmanDecoder: Decompressor {
             return 0
         }
 
+        let window = windowStorage.bytes
+        let windowMask = windowStorage.mask
         var localBits = bits
         var localWindowPosition = windowPosition
         var localProduced = produced
@@ -157,8 +159,8 @@ final class LZSStaticHuffmanDecoder: Decompressor {
             if localPendingLength > 0 {
                 let before = outputPosition
                 lhaCopyMatch(
-                    window: windowStorage.bytes,
-                    windowMask: windowStorage.mask,
+                    window: window,
+                    windowMask: windowMask,
                     windowPosition: &localWindowPosition,
                     distance: localPendingDistance,
                     remaining: &localPendingLength,
@@ -194,8 +196,8 @@ final class LZSStaticHuffmanDecoder: Decompressor {
 
             if command < 256 {
                 let byte = UInt8(truncatingIfNeeded: command)
-                windowStorage.bytes[localWindowPosition] = byte
-                localWindowPosition = (localWindowPosition + 1) & windowStorage.mask
+                window[localWindowPosition] = byte
+                localWindowPosition = (localWindowPosition + 1) & windowMask
                 output[outputPosition] = byte
                 outputPosition += 1
                 localProduced += 1
@@ -611,7 +613,7 @@ private final class LHAStaticLengthStorage {
     }
 }
 
-/// Canonical lookup with an eight-bit primary table and a bounded pool of
+/// Canonical lookup with an eleven-bit primary table and a bounded pool of
 /// binary nodes for longer codes. Primary leaf records store
 /// `(bitCount, symbol + 1)`; node leaves store `symbol + 1`, and the high bit
 /// marks a node index. Zero is therefore an invalid-prefix sentinel.
@@ -619,7 +621,7 @@ private final class LHAStaticLengthStorage {
 /// no command bits in LHA.
 private final class LHAStaticHuffmanTable {
     static let maximumBits = 16
-    private static let primaryBits = 8
+    private static let primaryBits = 11
     private static let primaryCount = 1 << primaryBits
     private static let scratchCount = maximumBits + 1
     private static let branchFlag: UInt32 = 0x8000_0000
@@ -847,12 +849,7 @@ private final class LHAStaticHuffmanTable {
         if !isBranch(record) {
             let bitCount = Int(record >> 16)
             let symbol = Int(record & LHAStaticHuffmanTable.symbolMask)
-            guard bitCount > 0,
-                  bitCount <= LHAStaticHuffmanTable.primaryBits,
-                  symbol > 0,
-                  symbol <= maximumSymbolCount else {
-                return -1
-            }
+            // Build validates every leaf and child before publishing the table.
             bits.consume(bitCount)
             return symbol - 1
         }
@@ -861,14 +858,12 @@ private final class LHAStaticHuffmanTable {
         var depth = LHAStaticHuffmanTable.primaryBits
         while depth < LHAStaticHuffmanTable.maximumBits {
             let nodeIndex = branchIndex(record)
-            guard nodeIndex >= 0, nodeIndex < nodeCount else { return -1 }
             let bit = Int(bits.read(1))
             depth += 1
             record = nodes[nodeIndex * 2 + bit]
             guard record != 0 else { return -1 }
             if !isBranch(record) {
                 let symbol = Int(record & LHAStaticHuffmanTable.symbolMask)
-                guard symbol > 0, symbol <= maximumSymbolCount else { return -1 }
                 return symbol - 1
             }
         }
@@ -906,77 +901,62 @@ private final class LHAStaticHuffmanTable {
     }
 }
 
-/// Logical-bound wrapper around the package MSB-first reader. Its borrowed raw
-/// allocation includes the decoder's physical sentinel, while
-/// `logicalBitCount` excludes it. Lookahead may enter the sentinel; only
-/// consumed real bits are accepted.
+/// Loop-local MSB reservoir over a once-allocated input plus eight sentinel
+/// bytes. Refill loads eight bytes at the current logical byte position; the
+/// final load is inside the allocation even for an empty logical suffix.
+/// Consuming beyond real input marks failure and clamps the cursor, so repeated
+/// malformed reads cannot walk past the sentinel or overflow the bit offset.
 private struct LHAStaticBitCursor {
-    private var reader: MSBFirstBitReader
+    private let bytes: UnsafePointer<UInt8>
     private let logicalBitCount: Int
-    private var bitOffset: Int
-    private var didOverrun: Bool
-
-    var overrun: Bool { didOverrun || reader.overrun }
+    private var bitOffset = 0
+    private var reservoir: UInt64 = 0
+    private var available = 0
+    private(set) var overrun = false
 
     init(
         bytes: UnsafePointer<UInt8>,
         physicalByteCount: Int,
         logicalBitCount: Int
     ) {
-        self.reader = MSBFirstBitReader(
-            borrowing: bytes,
-            count: physicalByteCount
-        )
+        precondition(physicalByteCount >= logicalBitCount / 8 + 8)
+        self.bytes = bytes
         self.logicalBitCount = logicalBitCount
-        self.bitOffset = 0
-        self.didOverrun = false
     }
 
     @inline(__always)
     mutating func peek(_ count: Int) -> UInt32 {
-        guard (0...32).contains(count) else {
-            didOverrun = true
-            return 0
+        // All callers use validated table lengths or grammar widths in 0...32.
+        guard count > 0 else { return 0 }
+        if available < count {
+            let intraByte = bitOffset & 7
+            let word = UnsafeRawPointer(bytes + (bitOffset >> 3))
+                .loadUnaligned(as: UInt64.self)
+            reservoir = UInt64(bigEndian: word) << intraByte
+            available = 64 - intraByte
         }
-        do {
-            return try reader.peek(count)
-        } catch {
-            didOverrun = true
-            return 0
-        }
+        return UInt32(truncatingIfNeeded: reservoir >> (64 - count))
     }
 
     @inline(__always)
     mutating func read(_ count: Int) -> UInt32 {
-        guard (0...32).contains(count), bitOffset <= Int.max - count else {
-            didOverrun = true
-            return 0
-        }
-        let value: UInt32
-        do {
-            value = try reader.read(count)
-        } catch {
-            didOverrun = true
-            return 0
-        }
-        bitOffset += count
-        if bitOffset > logicalBitCount { didOverrun = true }
+        let value = peek(count)
+        consume(count)
         return value
     }
 
     @inline(__always)
     mutating func consume(_ count: Int) {
-        guard (0...32).contains(count), bitOffset <= Int.max - count else {
-            didOverrun = true
-            return
+        // Consume can follow a shorter primary peek on the long-code path.
+        if available < count { _ = peek(count) }
+        reservoir <<= count
+        available -= count
+        if count > logicalBitCount - bitOffset {
+            overrun = true
+            bitOffset = logicalBitCount
+            available = 0
+        } else {
+            bitOffset += count
         }
-        do {
-            try reader.consume(count)
-        } catch {
-            didOverrun = true
-            return
-        }
-        bitOffset += count
-        if bitOffset > logicalBitCount { didOverrun = true }
     }
 }

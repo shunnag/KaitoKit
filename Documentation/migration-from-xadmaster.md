@@ -311,6 +311,19 @@ multi-volume RAR は URL open を使い、nested ZIP/PDF/EPUB のように既に
 - **unknown size**: modern API は `nil`、compat は `entryHasSize == false` と `Int64.max` です。
 - **directory spelling**: compat の `name(ofEntry:)` は末尾 separator を除去し、modern name は保持します。
 - **extraction destination**: compat の `to:` も directory です。entry name を caller 側で再度追加しません。
+- **symbolic links**: link の親から解決して展開 root 内に留まる `..` target を許容します。
+  absolute target、途中で root 外へ出る target、既存 symlink を経由する target は拒否します。
+  最後の `..` までの全成分には既存の実 directory が必要です。その後の未作成成分は許容します。
+  hard-link target は従来どおり `..` を許容しません。
+- **directory modes**: 書庫に記録された sticky / setgid bit を復元します。macOS 上の rar 6/7 の
+  展開結果と異なることがありますが、XADMaster / bsdtar -xp と一致する属性保持の方針です。
+- **RAR3 passwords**: 長い password の旧 SHA-1 更新規則と、BMP 外の文字に対する UTF-16 優先 / Unix
+  scalar 下位 16 bit fallback に対応します。host OS metadata だけでは方式を決めません。
+  候補は最大二つで、header CRC または entry の展開後 CRC で検証します。file data の選択には
+  小さな scratch buffer と独立 decoder を使い、solid では最初の非空の暗号化 member で一度だけ方式を
+  決めます。header CRC の選択も再利用します。writer と同じ最大 127 wide characters に制限してから
+  KDF へ渡し、UTF-16 候補は 127 code units、Unix 候補は 127 Unicode scalars で区切ります。
+  RAR3 は独立した認証 tag を持たないため、破損暗号文と誤 password を完全には区別できません。
 - **delegate timing**: delegate は compat initialization 後に設定します。name encoding は設定直後の rebuild
   へ反映できますが、header password は modern initializer option が必要です。
 - **resource forks**: separate entry として公開しないため `entryIsResourceFork` は常に `false` です。

@@ -91,6 +91,33 @@ final class KaitoArchiveCompatTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: destination), payload)
     }
 
+    func testHardLinkRelocationKeepsCombiningScalarDirectoryBoundary() throws {
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("KaitoCompatCombining-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let source = temporary.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: source.appendingPathComponent("pivot"), withIntermediateDirectories: true)
+        let payload = Data("hard-link boundary".utf8)
+        try payload.write(to: source.appendingPathComponent("file.txt"))
+        let name = "pivot/\u{0301}link.txt"
+        try FileManager.default.linkItem(at: source.appendingPathComponent("file.txt"), to: source.appendingPathComponent(name))
+        let archiveURL = temporary.appendingPathComponent("fixture.tar")
+        try createTar(sourceDirectory: source, paths: ["file.txt", name], archiveURL: archiveURL)
+        let modern = try ArchiveReader.open(url: archiveURL)
+        XCTAssertEqual(modern.entries[1].kind, .hardlink)
+        let archive = try XCTUnwrap(KaitoArchive(fileURL: archiveURL))
+        let normal = temporary.appendingPathComponent("normal")
+        XCTAssertTrue(archive.extractEntry(1, to: normal.path))
+        XCTAssertEqual(try Data(contentsOf: normal.appendingPathComponent(name)), payload)
+
+        let output = temporary.appendingPathComponent("output")
+        let outside = temporary.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: output.appendingPathComponent("pivot"), withDestinationURL: outside)
+        XCTAssertFalse(archive.extractEntry(1, to: output.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outside.appendingPathComponent("\u{0301}link.txt").path))
+    }
+
     func testCompatibilitySurfaceOverTarDataAndFile() throws {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(
             "KaitoKitCompatTests-\(UUID().uuidString)",

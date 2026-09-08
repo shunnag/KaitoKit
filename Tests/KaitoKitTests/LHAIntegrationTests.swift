@@ -219,7 +219,7 @@ final class LHAIntegrationTests: XCTestCase {
         XCTAssertEqual(try reader.read(entry), Data("page".utf8))
     }
 
-    func testBackslashIsASeparatorOnlyForHeaderLevelsZeroAndOne() throws {
+    func testBackslashIsASeparatorAcrossHeaderLevels() throws {
         let archive = try LHATestSupport.makeArchive(entries: [
             HandLHAEntry(name: "zero\\page.txt", headerLevel: 0, permissions: nil),
             HandLHAEntry(name: "one\\page.txt", headerLevel: 1),
@@ -229,11 +229,11 @@ final class LHAIntegrationTests: XCTestCase {
         let reader = try ArchiveReader.open(data: archive)
         XCTAssertEqual(
             reader.entries.map(\.name),
-            ["zero/page.txt", "one/page.txt", "two\\page.txt"]
+            ["zero/page.txt", "one/page.txt", "two/page.txt"]
         )
         XCTAssertEqual(
             reader.entries.map(\.pathComponents),
-            [["zero", "page.txt"], ["one", "page.txt"], ["two\\page.txt"]]
+            [["zero", "page.txt"], ["one", "page.txt"], ["two", "page.txt"]]
         )
     }
 

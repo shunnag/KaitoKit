@@ -1414,8 +1414,8 @@ final class ZipReader: FormatReader {
                 throw KaitoError.malformed("ZIP entry name cannot be decoded safely")
             }
             let pathComponents = name
-                .split(separator: "/", omittingEmptySubsequences: true)
-                .map(String.init)
+                .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
+                .map { String(decoding: $0, as: UTF8.self) }
             guard pathComponents.count <= limits.maxPathComponentCount else {
                 throw KaitoError.limitExceeded("ZIP path component count")
             }

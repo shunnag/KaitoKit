@@ -183,10 +183,20 @@ final class PPMd7Suballocator {
         textOffset -= 1
     }
 
+    /// Borrowed arena span. The allocation remains stable for this allocator's
+    /// lifetime; callers must finish reading before model mutation reuses units.
+    @inline(__always)
+    func checkedBytes(at offset: Offset, count: Int) throws -> UnsafeRawBufferPointer {
+        let index = try checkedInt(offset, byteCount: count)
+        return UnsafeRawBufferPointer(start: storage.advanced(by: index), count: count)
+    }
+
+    @inline(__always)
     func byte(at offset: Offset) throws -> UInt8 {
         storage.load(fromByteOffset: try checkedInt(offset, byteCount: 1), as: UInt8.self)
     }
 
+    @inline(__always)
     func storeByte(_ value: UInt8, at offset: Offset) throws {
         storage.storeBytes(
             of: value,
@@ -195,6 +205,7 @@ final class PPMd7Suballocator {
         )
     }
 
+    @inline(__always)
     func uint16(at offset: Offset) throws -> UInt16 {
         let index = try checkedInt(offset, byteCount: 2)
         var value: UInt16 = 0
@@ -202,12 +213,14 @@ final class PPMd7Suballocator {
         return UInt16(littleEndian: value)
     }
 
+    @inline(__always)
     func storeUInt16(_ value: UInt16, at offset: Offset) throws {
         let index = try checkedInt(offset, byteCount: 2)
         var little = value.littleEndian
         memcpy(storage.advanced(by: index), &little, 2)
     }
 
+    @inline(__always)
     func uint32(at offset: Offset) throws -> UInt32 {
         let index = try checkedInt(offset, byteCount: 4)
         var value: UInt32 = 0
@@ -215,6 +228,7 @@ final class PPMd7Suballocator {
         return UInt32(littleEndian: value)
     }
 
+    @inline(__always)
     func storeUInt32(_ value: UInt32, at offset: Offset) throws {
         let index = try checkedInt(offset, byteCount: 4)
         var little = value.littleEndian
@@ -445,7 +459,7 @@ final class PPMd7Suballocator {
         _ = try checkedUnitOffset(Int(offset), byteCount: Self.unitSize)
     }
 
-    private func copyBytes(from source: Offset, to destination: Offset, count: Int) throws {
+    func copyBytes(from source: Offset, to destination: Offset, count: Int) throws {
         let sourceIndex = try checkedInt(source, byteCount: count)
         let destinationIndex = try checkedInt(destination, byteCount: count)
         memmove(

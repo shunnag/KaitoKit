@@ -102,6 +102,10 @@ package enum ExtractionDirectoryAccess {
 
         do {
             for component in components {
+                // openat の一回分は必ず単一成分。結合文字を含む / を書記素として扱わない。
+                guard !component.isEmpty, !component.utf8.contains(0), !component.utf8.contains(0x2F) else {
+                    throw KaitoError.malformed("extraction directory component contains a separator")
+                }
                 if create, Darwin.mkdirat(current, component, mode_t(0o777)) != 0,
                    errno != EEXIST {
                     throw KaitoError.io(errno)
@@ -345,7 +349,9 @@ enum Extractor {
             defer { parent.close() }
             let leaf = components[components.count - 1]
             let targetPath = try linkPath(for: entry, reader: reader)
-            try validateSymbolicLinkTarget(targetPath, below: parent.descriptor)
+            try validateSymbolicLinkTarget(
+                targetPath, parentComponents: Array(components.dropLast()), below: rootDescriptor
+            )
             try removeLeafIfRequested(leaf, below: parent.descriptor, options: options)
             guard Darwin.symlinkat(targetPath, parent.descriptor, leaf) == 0 else {
                 throw KaitoError.io(errno)
@@ -604,13 +610,13 @@ enum Extractor {
         allowArchiveRoot: Bool
     ) throws -> [String] {
         guard !name.isEmpty,
-              !name.hasPrefix("/"),
+              name.utf8.first != 0x2F,
               !name.utf8.contains(0) else {
             throw KaitoError.malformed("absolute or empty entry path")
         }
         let rawComponents = name
-            .split(separator: "/", omittingEmptySubsequences: true)
-            .map(String.init)
+            .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
+            .map { String(decoding: $0, as: UTF8.self) }
         guard !rawComponents.contains("..") else {
             throw KaitoError.malformed("entry path contains an unsafe component")
         }
@@ -687,18 +693,18 @@ enum Extractor {
         }
         guard
               !linkPath.isEmpty,
-              !linkPath.hasPrefix("/"),
+              linkPath.utf8.first != 0x2F,
               !linkPath.utf8.contains(0) else {
             throw KaitoError.malformed("link target is missing or absolute")
         }
-        _ = try safeRelativeLinkComponents(linkPath)
+        if entry.kind == .hardlink { _ = try safeRelativeLinkComponents(linkPath) }
         return linkPath
     }
 
     private static func safeRelativeLinkComponents(_ linkPath: String) throws -> [String] {
         let rawComponents = linkPath
-            .split(separator: "/", omittingEmptySubsequences: true)
-            .map(String.init)
+            .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
+            .map { String(decoding: $0, as: UTF8.self) }
         guard !rawComponents.isEmpty, !rawComponents.contains("..") else {
             throw KaitoError.malformed("link target contains an unsafe component")
         }
@@ -734,18 +740,49 @@ enum Extractor {
 
     private static func validateSymbolicLinkTarget(
         _ linkPath: String,
-        below parent: Int32
+        parentComponents: [String],
+        below root: Int32
     ) throws {
-        let components = try safeRelativeLinkComponents(linkPath)
+        // まず全体の深さを検査し、途中でも root より上へ出ないことを保証する。
+        // 実際の walk では a/.. を消さず、a が既存 symlink なら必ず拒否する。
+        let relative = linkPath.utf8.split(separator: 0x2F).map { String(decoding: $0, as: UTF8.self) }.filter { $0 != "." }
+        var depth = parentComponents.count
+        for component in relative {
+            if component == ".." {
+                guard depth > 0 else {
+                    throw KaitoError.malformed("symbolic-link target escapes the extraction directory")
+                }
+                depth -= 1
+            } else {
+                depth += 1
+            }
+        }
+        let components = parentComponents + relative
+        guard !components.isEmpty else { return }
+        if let lastDotDot = components.lastIndex(of: "..") {
+            // 最後の .. までの実 directory を固定する。未作成部分を許すと、後続
+            // entry がそこを symlink にして a/.. の意味を変えられる。
+            let prefix: ExtractionDirectoryHandle
+            do {
+                prefix = try ExtractionDirectoryAccess.open(
+                    Array(components[...lastDotDot]), below: root, create: false
+                )
+            } catch KaitoError.io(let code) where code == ENOENT {
+                throw KaitoError.malformed("symbolic-link target escapes the extraction directory")
+            }
+            defer { prefix.close() }
+            try prefix.restoreMode()
+        }
         let targetParent: ExtractionDirectoryHandle
         do {
             targetParent = try ExtractionDirectoryAccess.open(
                 Array(components.dropLast()),
-                below: parent,
+                below: root,
                 create: false
             )
         } catch KaitoError.io(let code) where code == ENOENT {
-            // まだ存在しない相対部分も、`..` が無いため字句上はルート内に留まる。
+            // 最後の .. より後だけは未作成でもよい。前方参照を許し、親走査の
+            // 意味を後続 entry が変更できないことは上の実 directory walk で確認する。
             return
         }
         defer { targetParent.close() }
@@ -864,7 +901,8 @@ enum Extractor {
         let rootPath = root.path
         let candidatePath = candidate.path
         let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
-        return candidatePath.hasPrefix(prefix)
+        // パス境界は書記素境界ではない。先頭の結合文字が直前の / と結合しても同じ子である。
+        return candidatePath.utf8.starts(with: prefix.utf8)
     }
 
 }

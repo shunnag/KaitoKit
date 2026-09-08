@@ -96,7 +96,7 @@ final class PPMd7Model {
     private let nsToBinaryIndex: [Int]
     private let nsToSEEIndex: [Int]
 
-    private var binarySummaries = [[Int]]()
+    private var binarySummaries = [Int]()
     private var seeContexts = [[PPMd7ArenaSEEContext]]()
     private var characterMask = [UInt8](repeating: 0, count: 256)
     private var escapeCount: UInt8 = 1
@@ -120,7 +120,7 @@ final class PPMd7Model {
         try restartModel()
     }
 
-    func decodeByte(using decoder: any PPMd7RangeDecoding) throws -> UInt8 {
+    func decodeByte<Decoder: PPMd7RangeDecoding>(using decoder: Decoder) throws -> UInt8 {
         var minimumContext = maximumContext
         try requireContext(minimumContext)
 
@@ -193,19 +193,23 @@ final class PPMd7Model {
         return symbol
     }
 
-    private func decodeSymbol1(
+    private func decodeSymbol1<Decoder: PPMd7RangeDecoding>(
         in context: Offset,
-        using decoder: any PPMd7RangeDecoding
+        using decoder: Decoder
     ) throws {
-        try validate(context)
+        // state は初期化/更新時に生成・検査済み。記号ごとの全 state 再走査を避ける。
+        // 個別参照の arena 境界と range/頻度の検査は下のアクセス経路に残す。
+        try requireContext(context)
         let scale = try summaryFrequency(of: context)
         let count = try decoder.threshold(total: scale)
         let stateCount = try numberOfStats(in: context) + 1
+        let stateBase = try statsRef(of: context)
+        let states = try allocator.checkedBytes(at: stateBase, count: stateCount * Self.stateSize)
         var low = 0
 
         for index in 0..<stateCount {
-            let state = try stateRef(in: context, index: index)
-            let frequency = Int(try stateFrequency(at: state))
+            let state = stateBase + Offset(index * Self.stateSize)
+            let frequency = Int(states[index * Self.stateSize + 1])
             let high = low + frequency
             if count < high {
                 try decoder.remove(start: low, size: frequency)
@@ -235,17 +239,18 @@ final class PPMd7Model {
         highBitsFlag = Self.highBits3(previousFoundSymbol)
         numberMasked = stateCount - 1
         for index in 0..<stateCount {
-            let state = try stateRef(in: context, index: index)
-            characterMask[Int(try stateSymbol(at: state))] = escapeCount
+            characterMask[Int(states[index * Self.stateSize])] = escapeCount
         }
         foundState = Self.null
     }
 
-    private func decodeBinarySymbol(
+    private func decodeBinarySymbol<Decoder: PPMd7RangeDecoding>(
         in context: Offset,
-        using decoder: any PPMd7RangeDecoding
+        using decoder: Decoder
     ) throws {
-        try validate(context)
+        // state は初期化/更新時に生成・検査済み。記号ごとの全 state 再走査を避ける。
+        // 個別参照の arena 境界と range/頻度の検査は下のアクセス経路に残す。
+        try requireContext(context)
         let state = try stateRef(in: context, index: 0)
         let suffix = try self.suffix(of: context)
         guard suffix != Self.null else {
@@ -267,18 +272,18 @@ final class PPMd7Model {
             + Self.highBits4(try stateSymbol(at: state))
             + highBitsFlag
             + runFlag
-        guard binarySummaries.indices.contains(row),
-              binarySummaries[row].indices.contains(column) else {
+        guard (0..<128).contains(row),
+              (0..<64).contains(column) else {
             throw KaitoError.malformed("PPMd7 binary probability index is out of range")
         }
 
-        let probability = binarySummaries[row][column]
+        let probability = binarySummaries[row * 64 + column]
         let escaped = try decoder.decodeBinary(probability: probability)
         var updated = probability - ((probability + 32) >> 7)
 
         if !escaped {
             updated += SDK.binaryInterval
-            binarySummaries[row][column] = updated
+            binarySummaries[row * 64 + column] = updated
             foundState = state
             if frequency < 128 {
                 try setStateFrequency(frequency + 1, at: state)
@@ -286,7 +291,7 @@ final class PPMd7Model {
             runLength += 1
             previousSuccess = 1
         } else {
-            binarySummaries[row][column] = updated
+            binarySummaries[row * 64 + column] = updated
             characterMask[Int(try stateSymbol(at: state))] = escapeCount
             numberMasked = 0
             previousSuccess = 0
@@ -295,11 +300,13 @@ final class PPMd7Model {
         }
     }
 
-    private func decodeSymbol2(
+    private func decodeSymbol2<Decoder: PPMd7RangeDecoding>(
         in context: Offset,
-        using decoder: any PPMd7RangeDecoding
+        using decoder: Decoder
     ) throws {
-        try validate(context)
+        // state は初期化/更新時に生成・検査済み。記号ごとの全 state 再走査を避ける。
+        // 個別参照の arena 境界と range/頻度の検査は下のアクセス経路に残す。
+        try requireContext(context)
         let stats = try numberOfStats(in: context)
         let availableCount = stats - numberMasked
         guard availableCount > 0 else {
@@ -309,13 +316,17 @@ final class PPMd7Model {
         let see = try escapeEstimator(for: context)
         let escapeFrequency = see?.mean() ?? 1
         let stateCount = stats + 1
+        let stateBase = try statsRef(of: context)
+        let states = try allocator.checkedBytes(at: stateBase, count: stateCount * Self.stateSize)
         var actualAvailable = 0
         var symbolFrequency = 0
-        for index in 0..<stateCount {
-            let state = try stateRef(in: context, index: index)
-            if characterMask[Int(try stateSymbol(at: state))] != escapeCount {
-                actualAvailable += 1
-                symbolFrequency += Int(try stateFrequency(at: state))
+        characterMask.withUnsafeBufferPointer { mask in
+            // Every state symbol is UInt8, and the fixed mask has 256 bytes.
+            let maskBytes = mask.baseAddress!
+            for index in 0..<stateCount {
+                let available = maskBytes[Int(states[index * Self.stateSize])] != escapeCount ? 1 : 0
+                actualAvailable += available
+                symbolFrequency += Int(states[index * Self.stateSize + 1]) * available
             }
         }
         guard actualAvailable == availableCount else {
@@ -325,31 +336,31 @@ final class PPMd7Model {
         let scale = symbolFrequency + escapeFrequency
         let count = try decoder.threshold(total: scale)
         if count < symbolFrequency {
-            var low = 0
-            for index in 0..<stateCount {
-                let state = try stateRef(in: context, index: index)
-                let symbol = try stateSymbol(at: state)
-                guard characterMask[Int(symbol)] != escapeCount else { continue }
-                let frequency = Int(try stateFrequency(at: state))
-                let high = low + frequency
-                if count < high {
-                    try decoder.remove(start: low, size: frequency)
-                    see?.update()
-                    try update2(context: context, state: state)
-                    return
+            let selection: (index: Int, low: Int, frequency: Int)? = characterMask.withUnsafeBufferPointer { mask in
+                let maskBytes = mask.baseAddress!
+                var low = 0
+                for index in 0..<stateCount {
+                    let available = maskBytes[Int(states[index * Self.stateSize])] != escapeCount ? 1 : 0
+                    let frequency = Int(states[index * Self.stateSize + 1]) * available
+                    let high = low + frequency
+                    if count < high { return (index, low, frequency) }
+                    low = high
                 }
-                low = high
+                return nil
             }
-            throw KaitoError.malformed("PPMd7 failed to select an unmasked state")
+            guard let selection else {
+                throw KaitoError.malformed("PPMd7 failed to select an unmasked state")
+            }
+            try decoder.remove(start: selection.low, size: selection.frequency)
+            see?.update()
+            try update2(context: context, state: stateBase + Offset(selection.index * Self.stateSize))
+            return
         }
 
         try decoder.remove(start: symbolFrequency, size: escapeFrequency)
         for index in 0..<stateCount {
-            let state = try stateRef(in: context, index: index)
-            let symbol = try stateSymbol(at: state)
-            if characterMask[Int(symbol)] != escapeCount {
-                characterMask[Int(symbol)] = escapeCount
-            }
+            let symbol = states[index * Self.stateSize]
+            characterMask[Int(symbol)] = escapeCount
         }
         numberMasked = stats
         if let see {
@@ -420,51 +431,54 @@ final class PPMd7Model {
         guard oldCount > 1, foundState != Self.null else {
             throw KaitoError.malformed("PPMd7 rescale state is missing")
         }
-        var selectedIndex: Int?
-        for index in 0..<oldCount where try stateRef(in: context, index: index) == foundState {
-            selectedIndex = index
-            break
-        }
-        guard let selectedIndex else {
+        let stateBase = try statsRef(of: context)
+        guard foundState >= stateBase else {
             throw KaitoError.malformed("PPMd7 rescale state is missing")
         }
+        let selectedByte = Int(foundState - stateBase)
+        guard selectedByte.isMultiple(of: Self.stateSize), selectedByte / Self.stateSize < oldCount else {
+            throw KaitoError.malformed("PPMd7 rescale state is missing")
+        }
+        let selectedIndex = selectedByte / Self.stateSize
 
         if selectedIndex > 0 {
-            for index in stride(from: selectedIndex, through: 1, by: -1) {
-                try swapStates(
-                    stateRef(in: context, index: index),
-                    stateRef(in: context, index: index - 1)
-                )
-            }
+            let selected = try loadState(at: foundState)
+            // Shift already-validated packed states within the same block.
+            // memmove preserves overlap and the original stable ordering.
+            try allocator.copyBytes(
+                from: stateBase, to: stateBase + Offset(Self.stateSize),
+                count: selectedIndex * Self.stateSize
+            )
+            try storeState(selected, at: stateBase)
         }
 
-        var first = try loadState(at: stateRef(in: context, index: 0))
+        var first = try loadState(at: (stateBase + Offset((0) * Self.stateSize)))
         let firstOldFrequency = Int(first.frequency)
         let oldSummary = try summaryFrequency(of: context)
         var escapeFrequency = oldSummary - firstOldFrequency
         let adder = orderFall == 0 ? 0 : 1
         first.frequency = try byteFrequency((firstOldFrequency + 4 + adder) >> 1)
-        try storeState(first, at: stateRef(in: context, index: 0))
+        try storeState(first, at: (stateBase + Offset((0) * Self.stateSize)))
         var newSummary = Int(first.frequency)
 
         for index in 1..<oldCount {
-            var value = try loadState(at: stateRef(in: context, index: index))
+            var value = try loadState(at: (stateBase + Offset((index) * Self.stateSize)))
             escapeFrequency -= Int(value.frequency)
             value.frequency = try byteFrequency((Int(value.frequency) + adder) >> 1)
             newSummary += Int(value.frequency)
             var insertion = index
             while insertion > 0 {
-                let previous = try loadState(at: stateRef(in: context, index: insertion - 1))
+                let previous = try loadState(at: (stateBase + Offset((insertion - 1) * Self.stateSize)))
                 guard value.frequency > previous.frequency else { break }
-                try storeState(previous, at: stateRef(in: context, index: insertion))
+                try storeState(previous, at: (stateBase + Offset((insertion) * Self.stateSize)))
                 insertion -= 1
             }
-            try storeState(value, at: stateRef(in: context, index: insertion))
+            try storeState(value, at: (stateBase + Offset((insertion) * Self.stateSize)))
         }
 
         var newCount = oldCount
         while newCount > 0 {
-            let tail = try stateRef(in: context, index: newCount - 1)
+            let tail = (stateBase + Offset((newCount - 1) * Self.stateSize))
             guard try stateFrequency(at: tail) == 0 else { break }
             newCount -= 1
         }
@@ -941,13 +955,10 @@ final class PPMd7Model {
         )
         maximumContext = root
 
-        binarySummaries = Array(
-            repeating: Array(repeating: 0, count: 64),
-            count: 128
-        )
+        binarySummaries = Array(repeating: 0, count: 128 * 64)
         for column in 0..<64 {
             for row in 0..<128 {
-                binarySummaries[row][column] = SDK.binaryScale
+                binarySummaries[row * 64 + column] = SDK.binaryScale
                     - SDK.initialBinaryEscapes[column & 7] / (row + 2)
             }
         }
@@ -960,6 +971,7 @@ final class PPMd7Model {
 
     // MARK: - パック済みアリーナへのアクセス
 
+    @inline(__always)
     private func requireContext(_ context: Offset) throws {
         guard context != Self.null else {
             throw KaitoError.malformed("PPMd7 context reference is null")
@@ -972,6 +984,7 @@ final class PPMd7Model {
         }
     }
 
+    @inline(__always)
     private func numberOfStats(in context: Offset) throws -> Int {
         try requireContext(context)
         let count = Int(try allocator.uint16(at: context))
@@ -989,6 +1002,7 @@ final class PPMd7Model {
         try allocator.storeUInt16(UInt16(value + 1), at: context)
     }
 
+    @inline(__always)
     private func suffix(of context: Offset) throws -> Offset {
         try requireContext(context)
         return try allocator.uint32(at: try Self.add(context, 8))
@@ -1000,6 +1014,7 @@ final class PPMd7Model {
         try allocator.storeUInt32(suffix, at: try Self.add(context, 8))
     }
 
+    @inline(__always)
     private func summaryFrequency(of context: Offset) throws -> Int {
         guard try numberOfStats(in: context) != 0 else {
             throw KaitoError.malformed("PPMd7 binary context has no summary frequency")
@@ -1015,6 +1030,7 @@ final class PPMd7Model {
         try allocator.storeUInt16(UInt16(value), at: try Self.add(context, 2))
     }
 
+    @inline(__always)
     private func statsRef(of context: Offset) throws -> Offset {
         let stats = try numberOfStats(in: context)
         guard stats != 0 else {
@@ -1031,6 +1047,7 @@ final class PPMd7Model {
         try allocator.storeUInt32(states, at: try Self.add(context, 4))
     }
 
+    @inline(__always)
     private func requireStateBlock(_ states: Offset, stateCount: Int) throws {
         guard states != Self.null, stateCount > 1, stateCount <= 256 else {
             throw KaitoError.malformed("PPMd7 state block description is invalid")
@@ -1046,6 +1063,7 @@ final class PPMd7Model {
         }
     }
 
+    @inline(__always)
     private func stateRef(in context: Offset, index: Int) throws -> Offset {
         let stats = try numberOfStats(in: context)
         let count = stats + 1
@@ -1076,11 +1094,13 @@ final class PPMd7Model {
         try allocator.storeUInt32(value.successor, at: try Self.add(state, 2))
     }
 
+    @inline(__always)
     private func stateSymbol(at state: Offset) throws -> UInt8 {
         try requirePackedState(state)
         return try allocator.byte(at: state)
     }
 
+    @inline(__always)
     private func stateFrequency(at state: Offset) throws -> UInt8 {
         try requirePackedState(state)
         return try allocator.byte(at: try Self.add(state, 1))
@@ -1091,6 +1111,7 @@ final class PPMd7Model {
         try allocator.storeByte(try byteFrequency(frequency), at: try Self.add(state, 1))
     }
 
+    @inline(__always)
     private func stateSuccessor(at state: Offset) throws -> Offset {
         try requirePackedState(state)
         return try allocator.uint32(at: try Self.add(state, 2))
@@ -1102,6 +1123,7 @@ final class PPMd7Model {
         try allocator.storeUInt32(successor, at: try Self.add(state, 2))
     }
 
+    @inline(__always)
     private func requirePackedState(_ state: Offset) throws {
         guard state != Self.null else {
             throw KaitoError.malformed("PPMd7 state reference is null")
@@ -1113,10 +1135,12 @@ final class PPMd7Model {
         }
     }
 
+    @inline(__always)
     private func successorKind(ofState state: Offset) throws -> SuccessorKind {
         try successorKind(stateSuccessor(at: state))
     }
 
+    @inline(__always)
     private func successorKind(_ successor: Offset) throws -> SuccessorKind {
         if successor == Self.null { return .none }
         if Int(successor) < allocator.unitsStartOffset {
@@ -1138,8 +1162,12 @@ final class PPMd7Model {
 
     private func indexOfSymbol(_ symbol: UInt8, in context: Offset) throws -> Int? {
         let count = try numberOfStats(in: context) + 1
-        for index in 0..<count
-        where try stateSymbol(at: stateRef(in: context, index: index)) == symbol {
+        if count == 1 {
+            return try stateSymbol(at: Self.add(context, 2)) == symbol ? 0 : nil
+        }
+        let base = try statsRef(of: context)
+        let states = try allocator.checkedBytes(at: base, count: count * Self.stateSize)
+        for index in 0..<count where states[index * Self.stateSize] == symbol {
             return index
         }
         return nil

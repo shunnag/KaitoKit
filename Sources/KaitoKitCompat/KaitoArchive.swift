@@ -742,11 +742,11 @@ public final class KaitoArchive {
     }
 
     private func safePathComponents(for name: String) throws -> [String] {
-        let rawComponents = name
-            .split(separator: "/", omittingEmptySubsequences: true)
-            .map(String.init)
+        let rawComponents = name.utf8
+            .split(separator: 0x2F, omittingEmptySubsequences: true)
+            .map { String(decoding: $0, as: UTF8.self) }
         guard !name.isEmpty,
-              !name.hasPrefix("/"),
+              name.utf8.first != 0x2F,
               !name.utf8.contains(0),
               !rawComponents.contains("..") else {
             throw KaitoError.malformed("entry path is malformed")

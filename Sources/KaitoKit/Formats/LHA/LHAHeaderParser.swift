@@ -317,7 +317,17 @@ enum LHAHeaderParser {
             filename: rawName,
             directory: nil
         )
-        let modificationDate = try dosDate(littleUInt32(header, at: 15))
+        var modificationDate = try dosDate(littleUInt32(header, at: 15))
+        var extended = ExtendedFields()
+        // LHa for UNIX の level 0 は CRC の後に固定長 U 拡張を置く。
+        // 全 12 byte がある version 0 だけを解釈し、他の creator の末尾は保持しない。
+        if osID == 0x55, header.count - osOffset >= 12, header[osOffset + 1] == 0 {
+            let timestamp = littleUInt32(header, at: osOffset + 2)
+            modificationDate = Date(timeIntervalSince1970: Double(timestamp))
+            extended.unixMode = littleUInt16(header, at: osOffset + 6)
+            extended.uid = littleUInt16(header, at: osOffset + 8)
+            extended.gid = littleUInt16(header, at: osOffset + 10)
+        }
         let dataOffset = try Checked.add(offset, totalHeaderSize)
         let nextOffset = try checkedPayloadEnd(
             dataOffset: dataOffset,
@@ -330,7 +340,6 @@ enum LHAHeaderParser {
             uncompressedSize: originalSize
         )
 
-        let extended = ExtendedFields()
         let pending = PendingEntry(
             rawName: canonicalName,
             declaredEncoding: nil,
@@ -338,7 +347,7 @@ enum LHAHeaderParser {
             compressedSize: packedSize,
             uncompressedSize: originalSize,
             modificationDate: modificationDate,
-            permissions: nil,
+            permissions: osID.flatMap { posixPermissions(extended.unixMode, osID: $0) },
             crc16: crc16,
             headerLevel: 0,
             osID: osID,
@@ -1030,11 +1039,8 @@ enum LHAHeaderParser {
             }
             // Decode first: in CP932/CP936, 0x5c can be the trail byte of a
             // multibyte character and must not be rewritten as a raw byte.
-            // Only level 0/1 define backslash as a path separator. Level 2
-            // carries directory boundaries as 0xFF in extension 0x02.
-            let separatorNormalizedName = pending.headerLevel <= 1
-                ? decodedName.replacingOccurrences(of: "\\", with: "/")
-                : decodedName
+            // 古い DOS writer は level 2 の filename 拡張にも区切りを含める。
+            let separatorNormalizedName = decodedName.replacingOccurrences(of: "\\", with: "/")
             let unixFileType = pending.extended.unixMode.map { $0 & 0o170000 }
             let isUnixSymbolicLink = pending.method == "-lhd-"
                 && unixFileType == 0o120000
@@ -1078,8 +1084,8 @@ enum LHAHeaderParser {
                 }
             }
             let pathComponents = name
-                .split(separator: "/", omittingEmptySubsequences: true)
-                .map(String.init)
+                .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
+                .map { String(decoding: $0, as: UTF8.self) }
             guard !pathComponents.isEmpty else {
                 throw KaitoError.malformed("LHA entry has no path component")
             }
@@ -1301,7 +1307,8 @@ enum LHAHeaderParser {
     }
 
     private static func normalizeFilenameSeparators(_ bytes: [UInt8]) -> [UInt8] {
-        bytes
+        // 0xFF は CP932/EUC-JP/UTF-8 の文字バイトではなく、basic name 内でも区切りになる。
+        normalizeDirectorySeparators(bytes)
     }
 
     private static func normalizeDirectorySeparators(_ bytes: [UInt8]) -> [UInt8] {

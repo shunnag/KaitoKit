@@ -115,6 +115,59 @@ final class RAR4ReaderTests: XCTestCase {
         )
     }
 
+    func testRAR29MatchOverlapAndWrappingAcrossTinyReads() throws {
+        // Synthetic canonical streams: primary/fallback main symbols, six-bit
+        // distance symbols, and an incomplete but valid level alphabet.
+        for mainWidth in [9, 15] {
+            for distance in [1, 2, 3, 4, 8, 16, 32] {
+                var bits = RAR29TestBitWriter()
+                bits.append(0, count: 2)
+                for symbol in 0..<20 {
+                    bits.append([0, 6, mainWidth].contains(symbol) ? 2 : 0, count: 4)
+                }
+                for _ in 0..<299 { bits.append(2, count: 2) }
+                for _ in 0..<60 { bits.append(1, count: 2) }
+                for _ in 0..<45 { bits.append(0, count: 2) }
+                var expected = Array((0..<37).map { UInt8($0 * 5) })
+                for byte in expected { bits.append(Int(byte), count: mainWidth) }
+                for _ in 0..<10 {
+                    bits.append(298, count: mainWidth) // 224 + 3 + 31 = 258 bytes
+                    bits.append(31, count: 5)
+                    let slot: Int
+                    switch distance {
+                    case 1...4: slot = distance - 1
+                    case 8: slot = 5
+                    case 16: slot = 7
+                    default: slot = 9
+                    }
+                    bits.append(slot, count: 6)
+                    if distance == 8 { bits.append(1, count: 1) }
+                    if distance == 16 { bits.append(3, count: 2) }
+                    if distance == 32 { bits.append(7, count: 3) }
+                    for _ in 0..<258 { expected.append(expected[expected.count - distance]) }
+                }
+                bits.append(256, count: mainWidth)
+                bits.append(0, count: 2) // end file, tables reusable
+                for chunk in [1, 3, 8, 9, 31, 257, 4096] {
+                    let decoder = try RAR29Decoder(
+                        source: DataByteSource(data: Data(bits.bytes)), offset: 0,
+                        compressedSize: UInt64(bits.bytes.count),
+                        uncompressedSize: UInt64(expected.count), unpackVersion: 29,
+                        method: 0x31, dictionarySize: 32, isSolid: false,
+                        limits: ReadLimits()
+                    )
+                    var output = Data()
+                    var buffer = [UInt8](repeating: 0, count: chunk)
+                    while !decoder.isFinished {
+                        let count = try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }
+                        output.append(contentsOf: buffer.prefix(count))
+                    }
+                    XCTAssertEqual(output, Data(expected), "distance \(distance), chunk \(chunk)")
+                }
+            }
+        }
+    }
+
     func testRAR29RepeatWithoutPreviousMatchStopsAtInputEnd() throws {
         var bits = RAR29TestBitWriter()
         bits.append(0, count: 1) // LZ block

@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import KaitoKit
 import XCTest
 
 final class CLISmokeTests: XCTestCase {
@@ -326,6 +327,85 @@ final class CLISmokeTests: XCTestCase {
                     (0x80...0x9f).contains(scalar.value) ||
                     scalar.value == 0x2028 || scalar.value == 0x2029
             })
+        }
+    }
+
+    func testPerEntryFailureContinuesSHAAndExtractionButReturnsFailure() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let archive = temporary.appendingPathComponent("partial.lzh")
+        let payload = Data("after unsupported entry".utf8)
+        try LHATestSupport.makeArchive(entries: [
+            HandLHAEntry(name: "unreadable", method: "-pm2-", headerLevel: 2),
+            HandLHAEntry(name: "dir/good.txt", contents: payload, headerLevel: 2),
+            HandLHAEntry(name: "dir", method: "-lhd-", headerLevel: 2, permissions: 0o500),
+        ]).write(to: archive)
+        let output = temporary.appendingPathComponent("output")
+        for arguments in [["sha", archive.path], ["extract", archive.path, "-o", output.path]] {
+            let process = Process()
+            let stdout = Pipe()
+            let stderr = Pipe()
+            process.executableURL = try findKaitoExecutable()
+            process.arguments = arguments
+            process.standardOutput = stdout
+            process.standardError = stderr
+            try process.run()
+            process.waitUntilExit()
+            let text = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            let errors = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            XCTAssertEqual(process.terminationReason, .exit)
+            XCTAssertEqual(process.terminationStatus, 1)
+            XCTAssertTrue(errors.contains("entry 0 (unreadable)"))
+            XCTAssertTrue(errors.contains("1 archive entries failed"))
+            if arguments[0] == "sha" {
+                XCTAssertTrue(text.contains("\tdir/good.txt\n"))
+                XCTAssertTrue(text.contains("partial\t2\t"))
+                XCTAssertTrue(text.contains("0\tERROR\t"))
+                XCTAssertFalse(text.contains("total\t"))
+            }
+        }
+        XCTAssertEqual(try Data(contentsOf: output.appendingPathComponent("dir/good.txt")), payload)
+        let attributes = try FileManager.default.attributesOfItem(atPath: output.appendingPathComponent("dir").path)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o500)
+        XCTAssertEqual((attributes[.modificationDate] as? Date)?.timeIntervalSince1970, Double(LHATestSupport.unixTimestamp))
+    }
+
+    func testSolidCRCFailureLabelsFailedEntryAndSourceMember() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let fixture = ZipTestSupport.repositoryRoot.appendingPathComponent("Tests/Fixtures/rar4/solid_lz_rar300.rar.b64")
+        let encoded = try String(contentsOf: fixture, encoding: .utf8)
+        var bytes = Array(try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters)))
+        var offset = 7
+        while bytes[offset + 2] != 0x74 {
+            offset += Int(bytes[offset + 5]) | Int(bytes[offset + 6]) << 8
+        }
+        let size = Int(bytes[offset + 5]) | Int(bytes[offset + 6]) << 8
+        bytes[offset + 16] ^= 1 // Wrong member CRC; leave the solid compressed stream intact.
+        let headerCRC = CRC32.checksum(Array(bytes[(offset + 2)..<(offset + size)]))
+        bytes[offset] = UInt8(truncatingIfNeeded: headerCRC)
+        bytes[offset + 1] = UInt8(truncatingIfNeeded: headerCRC >> 8)
+        let archive = temporary.appendingPathComponent("bad-solid.rar")
+        try Data(bytes).write(to: archive)
+        for arguments in [["sha", archive.path], ["extract", archive.path, "-o", temporary.appendingPathComponent("out").path]] {
+            let process = Process()
+            let stdout = Pipe()
+            let stderr = Pipe()
+            process.executableURL = try findKaitoExecutable()
+            process.arguments = arguments
+            process.standardOutput = stdout
+            process.standardError = stderr
+            try process.run()
+            process.waitUntilExit()
+            let output = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            let errors = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            XCTAssertEqual(process.terminationStatus, 1)
+            XCTAssertTrue(errors.contains("error: failed entry 1 ("), errors)
+            XCTAssertTrue(errors.contains("Checksum mismatch (source member 0)"), errors)
+            XCTAssertFalse(errors.contains("Checksum mismatch for entry"), errors)
+            if arguments[0] == "sha" {
+                XCTAssertTrue(output.contains("1\tERROR\tfailed entry 1: Checksum mismatch (source member 0)\t"), output)
+            }
         }
     }
 

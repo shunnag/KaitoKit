@@ -266,7 +266,7 @@ black-box 入出力だけである。新たな第三者 decoder source は参照
 `Tests/Fixtures/rar4/libarchive_*.rar.b64` は libarchive test suite の BSD-2-Clause フィクスチャ、
 `Tests/Fixtures/lha/lh{4,6,7}-small.lzh.b64` は ISC フィクスチャであり、`Tests/Fixtures/NOTICE` に記録する。
 
-## 11. 実装記録(2026-09-06〜07)
+## 11. 実装記録(2026-09-06〜08)
 
 - M0(コミット da98a9f, 16d27f8): 骨格・コア・tar・互換層・CLI・fuzz 基盤。CI は macos-26 / macos-26-intel。
 - M1(592b230, d05da82): ZIP 一式。名前の文字コード判定は **書庫単位**(XADMaster と同じ契約)に変更し、
@@ -289,8 +289,8 @@ black-box 入出力だけである。新たな第三者 decoder source は参照
     復号後 header 全体は `maxMetadataSize` (既定 16 MiB、典型的に約 150K file) で制限される。
     7z の 4 GiB 超 declared entry は既定 `maxEntrySize` により list/open 時点で拒否され、`read()` /
     `readAll()` は既定 `maxInMemorySize` 1 GiB まで宣言サイズの最終 buffer を確保する。
-  - PPMd7 の検証付き load は実測約 136 KiB/s のため、4 GiB の単一 entry 上限と組み合わせると長時間を
-    要し得る。anti directory は現在 `.file`、CLI `oneLine` は U+202A〜U+202E などの Cf を未 escape、
+  - 初期 PPMd7 の検証付き load は実測約 136 KiB/s だった（下記 2026-09-08 追補で改善）。
+    展開量の上限は CPU 時間の上限を保証しない。anti directory は現在 `.file`、CLI `oneLine` は U+202A〜U+202E などの Cf を未 escape、
     `SevenZipAESKeyCache` は reader 単位なので `reopen()` では鍵を再導出する。未対応 coder の folder も
     PackInfo CRC を先に走査するため、その範囲の I/O は発生する。
 - M3(本変更):
@@ -411,7 +411,7 @@ black-box 入出力だけである。新たな第三者 decoder source は参照
     failure 7 件 (LH2 / LH3 2、malformed PM2 1、truncated 1、unusual link / EA 3) だった。symlink の 8 件は
     decoded byte の差ではなく、`-lhd-` + `S_IFLNK` を directory として公開し、展開で directory を
     作っていた semantics の差だった。現在は `name|target` を name / `linkPath` に分離して
-    `.symlink` とし、許容される相対 target は symlink として展開、absolute / parent target はその entry だけ拒否する。
+    `.symlink` とし、許容される相対 target は symlink として展開、absolute / root 外へ出る parent target はその entry だけ拒否する。
     hand-built level 0 / 1 / 2 と extension / codepage / decoder vector、cooViewer `book.lzh` の
     level-2 `-lh0-` 4 member (合計 33,104 bytes)、hand-built `-lh5-`、`-lh1-`、`-lz5-`、`-lzs-`
     vector は installed lhasa の出力と SHA-256 が一致した。Swift 6.4 AddressSanitizer では
@@ -443,7 +443,7 @@ black-box 入出力だけである。新たな第三者 decoder source は参照
   - RAR4 / RAR5 の Unix symlink は redirection record を持たない場合に
     `linkTargetStoredAsData=true` を公開し、stored target bytes から展開する。LHA は
     `-lhd-` + `S_IFLNK` の `name|target` を `.symlink` / `linkPath` として扱う。absolute または
-    parent traversal を含む unusual target の展開失敗はその entry だけに限定する。
+    root 外へ出る parent traversal を含む unusual target の展開失敗はその entry だけに限定する。
   - `maxMetadataRecordCount` は LHA の extension chain と RAR5 の extra area ごとにリセットする。
     5 record を持つ LHA level-2 member の 13,107 / 13,108 件と、htime extra を持つ RAR5 header
     65,600 件を列挙する境界テストを持つ。
@@ -464,6 +464,70 @@ black-box 入出力だけである。新たな第三者 decoder source は参照
   持つ loop は、各 iteration で入力枯渇を検査し、失敗状態を記録して抜ける。安全性は
   境界での検証と前進不変条件のコメントで担保する。バイト単位の安全な
   配列アクセスは排他検査と COW 検査で 8 倍遅くなることを実測した(book-tiff.7z 4.9 s → 0.64〜0.94 s)。
+- RAR29 / LHA 性能追補(2026-09-08、Swift 6.3.3 release、各 3 回、XADMaster と交互実行):
+  `book-tiff-rar4.cbr` extract median は 987.587 → 386.113 ms (XADMaster 317.41 ms、1.22 倍)、
+  `book-lh5.lzh` は 5987.840 → 2105.210 ms (2716.64 ms、0.77 倍)、
+  `book-tiff-lh7.lzh` は 2500.154 → 339.283 ms (843.58 ms、0.40 倍)。
+  CRC16 は slice-by-eight、RAR29 は既存 LHA の bounded period / doubling copy と distance-one
+  memset、loop-local window / history / emitted state、生の slot 定数、64-bit sentinel peek、
+  10-bit primary / 15-bit fallback lookup を使用する。LHA static Huffman は 11-bit primary と
+  loop-local 64-bit reservoir に変更した。論理入力終端と物理番兵の境界を分離し、RAR29 の各
+  iteration の枯渇検査、table / token 境界の検証を保持する。全 LHA method と regression 書庫の
+  数値、段階別計測、実行出力と sandbox 制約は
+  [検証記録](performance-rar-lha-2026-09-08.md) に記録する。
 - 性能(release、M4 Max、`kaito sha` のプロセス全体 / XADMaster 同条件): stored cbz 0.17 / 0.18 s、deflate cbz
   0.82 / 0.84 s、book-tiff.7z 0.94 / 0.57 s、book-solid.7z 10.1 / 7.65 s。§4 の目標 1.3 倍以内を LZMA2 solid は
   わずかに超過(1.32 倍)。
+
+### 実ツール互換性・PPMd 性能追補（2026-09-08）
+
+- パスの構成要素と包含判定は UTF-8 の `/` byte で扱う。Swift の grapheme 境界による
+  `String.split` / prefix 判定では slash に続く結合文字を分離できないため、すべての reader と
+  展開層で byte 境界を使用する。dirfd の一回の `openat` に separator / NUL を含む成分を渡さない。
+  互換 API の hard-link staging / relocation も同じ byte 境界を使う。
+- symlink target は link の親を基準に各段階の深さを検査し、root を一度でも越える場合は拒否する。
+  `a/..` は字句的に消さず、既存の `a` が symlink なら `O_NOFOLLOW` で拒否する。
+  link の親と target を結合した成分列の最後の `..` まで、全成分が既存の実 directory であることを
+  検証する。そこに ENOENT があれば拒否するため、後続 entry / 別 archive が未作成成分を symlink に
+  変える pivot は成立しない。最後の `..` より後だけは未作成でもよく、前方参照は引き続き許容する。
+  directory sticky / setgid bit は書庫から復元する（macOS rar 6/7 と異なり XADMaster / bsdtar -xp と同方針）。
+- RAR3 Audio program は 216-byte fingerprint を使用し、実 RAR 6.24 の PCM 生成物で検証する。
+  長い RAR3 password は、直接 SHA-1 block として処理された password buffer に schedule word が残る
+  旧規則を再現する。汎用 SHA-1 圧縮は CommonCrypto、schedule 更新だけは供給された挙動所見と
+  black-box archive から自前実装した。外部 decoder 実装の source は参照しない。
+- BMP 外の password は UTF-16 を優先し、Unix writer の scalar 下位 16 bit 方式を次候補とする。
+  header は CRC、file data は独立 reader の CRC で選び、未検証候補の bytes を caller へ返さない。
+  候補数は二つ、scratch は 64 KiB、既存の size / dictionary limits を適用する。選択は reader と
+  password ごとに archive 単位で保持する。solid は最初の非空の暗号化 member で一度だけ選択し、
+  後続 entry ごとの prefix replay を行わない。probe と header / file data は既存 KDF cache を共有し、
+  header CRC の勝者も file data に再利用する。候補の全 error を捕捉し、両方失敗した場合は最初の
+  error を返す。空 member の CRC は候補を区別できないため方式の選択には使わない。group ごとの
+  probe index は事前計算し、非暗号化 / 空 prefix でも member ごとの全走査を避ける。
+  reopen は選択値を複製し、password 変更では選択と cache を破棄する。
+  CRC は暗号学的な認証 tag ではない。
+- LHA はすべての header level で 0xFF を区切りにし、文字コード復号後に backslash を変換する。
+  level-0 `U` minor 0 の完全な拡張は Unix mtime / mode / uid / gid を公開する。短い拡張や未知 minor は
+  境界外を読まず、従来の基本 header metadata を保持する。0x8E / 0x8F だけで EUC-JP に決めず、
+  CP932 と EUC-JP の候補全体を採点する。EUC-JP の半角カナが 4 文字以上かつ非 ASCII 成分の
+  過半数なら、既知語の有無によらず加点する。単独の 0x8E lead-byte 漢字を EUC-JP と断定しない。
+- PPMd の context / state は model が生成して検証する内部値である。symbol ごとの全 state 構造検査を
+  除き、初期化 / 更新の整合検査と arena 範囲・range・frequency・進捗検査を保つ。走査開始時に
+  state block の全範囲を検証し、再配置が起きる更新前までだけ arena span を借用する。
+  range decoder を generic に特殊化し、binary probability を平坦配列にし、mask の集計と選択を改善する。
+  リーダ間の state 共有・同時使用契約は変わらない。測定と検証の詳細は
+  `performance-stability-2026-09-08.md` に記録する。
+
+RAR3 password は writer と同じ最大 127 wide characters に制限してから KDF へ渡す。
+UTF-16 候補は 127 code units、Unix 候補は 127 Unicode scalars で区切る。
+
+RAR5 の 128 文字以上の password は、本追補では意図的に RAR3 と異なる既存挙動を維持する。
+RAR5 KDF は入力全体の UTF-8 を使い、Unix rar の 127 Unicode scalar cap を適用しない。そのため
+rar 6.24 / 7.23 が切り詰めて作成した archive に元の長い password を渡すと一致せず、writer が使った
+切り詰め後の password を指定する必要がある。既に読める長い password の archive を変えず、Windows の
+UTF-16 unit 境界と Unix scalar 境界の二候補を検証する fixture を別途揃えるまで互換範囲を拡張しない。
+
+CLI の entry failure は `failed entry N`（供給できなかった entry）と `source member M`
+（CRC が不一致だった member）を区別する。`sha` の ERROR TSV 行も同じ label を用いる。
+
+本レビュー修正の回帰テスト、実書庫の parity、RAR4 の N=5/10/20/40 測定と両 toolchain / ASan の
+実出力は [batch12-review-verification-2026-09-08.md](batch12-review-verification-2026-09-08.md) に記録する。

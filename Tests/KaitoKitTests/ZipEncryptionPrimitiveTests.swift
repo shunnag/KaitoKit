@@ -461,15 +461,13 @@ final class ZipEncryptionPrimitiveTests: XCTestCase {
             ),
             plaintext
         )
-        XCTAssertThrowsError(
-            try ZipCrypto.decrypt(
-                payloadIncludingHeader: record.payload,
-                password: "wrong",
-                crc32: record.crc32,
-                dosTime: record.dosTime,
-                usesDataDescriptor: (record.flags & 0x0008) != 0
-            )
-        ) { error in
+        // ZipCrypto has only a one-byte password hint. With a randomized
+        // Info-ZIP header, a wrong password can pass that hint (1 in 256).
+        // The archive reader must still reject it at the final CRC check.
+        let wrongReader = try ArchiveReader.open(
+            url: fixture.archive, options: ReaderOptions(password: "wrong")
+        )
+        XCTAssertThrowsError(try wrongReader.read(wrongReader.entries[0])) { error in
             XCTAssertEqual(error as? KaitoError, .wrongPassword)
         }
     }

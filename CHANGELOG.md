@@ -6,6 +6,32 @@
 
 ## [0.1.0] - Unreleased
 
+- RAR29 / LHA static Huffman の展開を高速化。CRC16 slice-by-eight、境界検証付きの
+  重複 match コピー、生バッファの Huffman lookup / bit reservoir により性能目標を達成。
+
+### 修正・高速化（2026-09-08）
+
+- symlink target の最後の `..` まで既存の実 directory を要求し、後続 entry / 別 archive による
+  未作成成分の symlink pivot を拒否。root 内の親相対 target と安全な前方参照は維持。
+- EUC-JP 半角カナが主体の名前は既知語がなくても評価し、`ｶﾀｶﾅ半角.txt` の CP932 誤判定を修正。
+- RAR4 非 BMP password の方式を archive 単位で記憶し、solid prefix の entry ごとの再展開を解消。
+  header CRC の選択と KDF cache を再利用し、非最終候補では error 種別によらず次の候補を検証。
+- CLI の失敗 entry と CRC 不一致の source member を stderr / ERROR TSV の両方で区別。
+- RAR3 writer の 127 文字 cap を移行ガイドの password 項目へ統合。RAR5 は既存の全 UTF-8 入力を
+  維持する方針と、rar の長い password の切り詰めとの差を design.md に明記。
+
+- RAR3 Audio standard filter の fingerprint 長を実 program の 216 bytes に修正。
+- RAR3 の長い password と BMP 外の Unicode password の互換性を修正。UTF-16 を優先し、
+  CRC 検証で Unix scalar 表現へ fallback。候補の出力は検証前に呼出側へ公開しない。
+- 結合文字の前後でも `/` を byte 境界で扱い、安全な名前の誤拒否と symlink 経由の展開先逸脱を修正。
+- 展開 root 内に留まる親相対 symlink target を許容。途中の既存 symlink は追わない。
+- LHA level 0〜3 の 0xFF / backslash separator、level-0 Unix metadata、CP932 の 0x8E lead byte
+  と EUC-JP halfwidth kana の誤判定を修正。
+- CLI `sha` / `extract` は失敗を entry ごとに報告して後続へ進み、部分成功では非ゼロ終了。
+- PPMd の重複した state 全走査を廃し、検証済み arena span、range decoder の特殊化、
+  状態検索と頻度集計の改善で RAR4 / 7z の展開を高速化。
+- ZipCrypto のランダムな一バイト password hint に依存していたテストを最終 CRC 検証へ修正。
+
 ### 追加
 
 - Swift 6 strict-concurrency 対応の SwiftPM パッケージと、静的・動的ライブラリ製品。

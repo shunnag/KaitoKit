@@ -79,6 +79,9 @@ LHA の directory 属性は method だけでなく末尾 separator と MS-DOS di
 このため OS/2 の extended-attribute payload を持つ subdirectory も子 entry の親として扱えます。
 先頭 slash と drive prefix は除いて相対名にしますが、`..` は解決せず、展開層で従来どおり
 拒否します。古い writer が filename field の NUL より後ろへ付けた metadata は pathname に含めません。
+level 0〜3 の 0xFF と、文字コード復号後の backslash は directory separator として扱い、
+CP932 の二バイト文字の一部である 0x5C は保持します。level-0 Unix `U` 拡張の
+mtime / permissions / uid / gid も公開します。
 
 MacLHA の Macintosh OS marker を持つ member は、MacBinary / MacBinary II standard proposals に基づいて
 復号後の header が有効と確認できた場合だけ、data fork を `stream(_:)` / `read(_:)` に公開します。
@@ -186,7 +189,9 @@ $ swift run kaito bench --random samples/book-encrypted.7z 5 -p secret
 ```
 
 `sha` はエントリ順の SHA-256 と総合ダイジェストを出力し、別の展開実装との
-差分テストに利用できます。`list` は index、size、kind、method、暗号方式 (`plain`、
+差分テストに利用できます。`sha` / `extract` は entry ごとの失敗を stderr へ報告して後続を処理し、
+失敗が一件でもあれば終了コード 1 を返します。`sha` の失敗行は `index<TAB>ERROR<TAB>message<TAB>name`、
+末尾は成功 entry だけを集計した `partial` となり、完全な `total` は出力しません。`list` は index、size、kind、method、暗号方式 (`plain`、
 `ZipCrypto`、`AES-128/192/256`、`7zAES-256`)、name の順でタブ区切り表示し、LHA では
 末尾に `level=N` を追加します。`--raw` は
 名前の format 上の論理バイト列を末尾へ 16 進数で併記します。LHA の 0x02 directory + 0x01
@@ -208,6 +213,10 @@ CLI 全体の性能は release build 済みの `.build/release/kaito` を直接�
 
 `list`、`extract`、`sha`、`bench` は `-p <password>` を受け付けます。ヘッダも暗号化された
 7z / RAR は、一覧やベンチマークの開始時にも password が必要です。
+RAR3 は長いパスワードの旧 SHA-1 入力更新規則に対応します。
+writer と同じ最大127文字（UTF-16 候補は127 code units、Unix 候補は127 scalars）で区切ります。BMP 外の文字を含む RAR3 password は
+UTF-16 を先に試し、検証失敗時に Unix RAR の Unicode scalar 下位 16 bit 表現へ再試行します。
+file data は独立した stream で CRC を最後まで検証してから公開するため、この場合だけ追加の展開が生じます。
 
 ## 開発
 

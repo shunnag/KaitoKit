@@ -79,12 +79,9 @@ final class PPMd7Decoder: Decompressor {
             UInt64(Self.outputChunkSize),
             remaining
         ))
-        var output = [UInt8]()
-        output.reserveCapacity(count)
-        for _ in 0..<count {
-            output.append(try model.decodeByte(using: rangeDecoder))
+        for index in 0..<count {
+            buffer[index] = try model.decodeByte(using: rangeDecoder)
         }
-        buffer.copyBytes(from: output)
         producedSize = try Checked.add(producedSize, UInt64(count))
         return count
     }

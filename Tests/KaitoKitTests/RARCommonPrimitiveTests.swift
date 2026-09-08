@@ -367,14 +367,14 @@ final class RARCommonPrimitiveTests: XCTestCase {
         )
         XCTAssertEqual(
             RARStandardFilters.recognizeRAR3Program(
-                byteCount: 158,
+                byteCount: 216,
                 crc32: 0xBC85_E701
             ),
             .audio
         )
         XCTAssertNil(
             RARStandardFilters.recognizeRAR3Program(
-                byteCount: 216,
+                byteCount: 158,
                 crc32: 0xBC85_E701
             )
         )

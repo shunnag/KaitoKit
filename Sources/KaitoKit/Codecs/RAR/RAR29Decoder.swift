@@ -28,8 +28,8 @@ import Foundation
 /// - logical input exhaustion is checked on every symbol-loop iteration, while
 ///   match bounds are checked at token boundaries; failures are thrown after
 ///   leaving the hot loop;
-/// - non-wrapping, non-dependent match chunks use `copyMemory` through the
-///   caller buffer, with byte copying retained for overlapping repetitions.
+/// - matches stage one period in caller output before doubling repetitions
+///   and mirroring into the ring; only very short matches use byte copying.
 final class RAR29Decoder: Decompressor {
     private static let mainSymbolCount = 299
     private static let distanceSymbolCount = 60
@@ -38,15 +38,15 @@ final class RAR29Decoder: Decompressor {
     private static let combinedLengthCount = 404
     private static let sentinelByteCount = 8
 
-    private static let lengthBases: [Int] = [
+    private static let lengthBases = RAR29IntegerTable([
         0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20,
         24, 28, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224,
-    ]
-    private static let lengthBits: [Int] = [
+    ])
+    private static let lengthBits = RAR29IntegerTable([
         0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2,
         2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5,
-    ]
-    private static let distanceBases: [Int] = [
+    ])
+    private static let distanceBases = RAR29IntegerTable([
         0, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48,
         64, 96, 128, 192, 256, 384, 512, 768, 1_024, 1_536,
         2_048, 3_072, 4_096, 6_144, 8_192, 12_288, 16_384, 24_576,
@@ -55,16 +55,16 @@ final class RAR29Decoder: Decompressor {
         655_360, 720_896, 786_432, 851_968, 917_504, 983_040,
         1_048_576, 1_310_720, 1_572_864, 1_835_008, 2_097_152, 2_359_296,
         2_621_440, 2_883_584, 3_145_728, 3_407_872, 3_670_016, 3_932_160,
-    ]
-    private static let distanceBits: [Int] = [
+    ])
+    private static let distanceBits = RAR29IntegerTable([
         0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4,
         5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10,
         11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16,
         16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
         18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18,
-    ]
-    private static let shortBases = [0, 4, 8, 16, 32, 64, 128, 192]
-    private static let shortBits = [2, 2, 3, 4, 5, 6, 6, 6]
+    ])
+    private static let shortBases = RAR29IntegerTable([0, 4, 8, 16, 32, 64, 128, 192])
+    private static let shortBits = RAR29IntegerTable([2, 2, 3, 4, 5, 6, 6, 6])
 
     private enum DecodeFailure {
         case truncated
@@ -154,17 +154,6 @@ final class RAR29Decoder: Decompressor {
         deinit {
             window.deinitialize(count: windowSize)
             free(UnsafeMutableRawPointer(window))
-        }
-
-        fileprivate func advanceWindow() {
-            windowPosition = (windowPosition + 1) & windowMask
-            if historySize < windowSize { historySize += 1 }
-        }
-
-        fileprivate func appendHistory(_ count: Int) {
-            historySize = count >= windowSize - historySize
-                ? windowSize
-                : historySize + count
         }
     }
 
@@ -352,6 +341,27 @@ final class RAR29Decoder: Decompressor {
         }
 
         // All frequently touched decoder state is local for the symbol loop.
+        let window = solidState.window
+        let windowMask = solidState.windowMask
+        let windowSize = solidState.windowSize
+        var windowPosition = solidState.windowPosition
+        var historySize = solidState.historySize
+        defer {
+            solidState.windowPosition = windowPosition
+            solidState.historySize = historySize
+        }
+        var localEmitted = emitted
+        defer { emitted = localEmitted }
+        let mainTable = solidState.mainTable
+        let distanceTable = solidState.distanceTable
+        let lowDistanceTable = solidState.lowDistanceTable
+        let lengthTable = solidState.lengthTable
+        let lengthBases = Self.lengthBases.values
+        let lengthBits = Self.lengthBits.values
+        let distanceBases = Self.distanceBases.values
+        let distanceBits = Self.distanceBits.values
+        let shortBases = Self.shortBases.values
+        let shortBits = Self.shortBits.values
         var outputCount = 0
         var outputPosition = produced
         var repeat0 = solidState.oldOffset0
@@ -389,7 +399,7 @@ final class RAR29Decoder: Decompressor {
                 }
                 filteredOutputIndex += count
                 outputCount += count
-                emitted += UInt64(count)
+                localEmitted += UInt64(count)
                 if filteredOutputIndex == filteredOutput.count {
                     filteredOutput.removeAll(keepingCapacity: true)
                     filteredOutputIndex = 0
@@ -425,7 +435,7 @@ final class RAR29Decoder: Decompressor {
                     break
                 }
                 if outputPosition == filter.start {
-                    guard emitted == filter.start else {
+                    guard localEmitted == filter.start else {
                         failure = .malformed("RAR3 raw and emitted positions diverged")
                         break
                     }
@@ -443,12 +453,17 @@ final class RAR29Decoder: Decompressor {
                         failure = .malformed("RAR3 filter capture lost its descriptor")
                         break
                     }
+                    let previousPosition = outputPosition
                     copyMatchToFilter(
+                        window: window,
+                        windowMask: windowMask,
+                        windowPosition: &windowPosition,
                         distance: matchDistance,
                         remaining: &matchRemaining,
                         maximumCount: filter.length - filterCapture.count,
                         outputPosition: &outputPosition
                     )
+                    historySize += min(windowSize - historySize, Int(outputPosition - previousPosition))
                 } else {
                     var outputCapacity = buffer.count
                     if nextFilterIndex < scheduledFilters.count {
@@ -461,6 +476,9 @@ final class RAR29Decoder: Decompressor {
                     }
                     let previousCount = outputCount
                     copyMatchChunk(
+                        window: window,
+                        windowMask: windowMask,
+                        windowPosition: &windowPosition,
                         distance: matchDistance,
                         remaining: &matchRemaining,
                         output: destination,
@@ -468,7 +486,8 @@ final class RAR29Decoder: Decompressor {
                         outputCapacity: outputCapacity,
                         outputPosition: &outputPosition
                     )
-                    emitted += UInt64(outputCount - previousCount)
+                    historySize += min(windowSize - historySize, outputCount - previousCount)
+                    localEmitted += UInt64(outputCount - previousCount)
                 }
                 continue
             }
@@ -481,21 +500,22 @@ final class RAR29Decoder: Decompressor {
                             failure = .malformed("RAR4 PPMd output exceeds its declared size")
                             continue
                         }
-                        solidState.window[solidState.windowPosition] = byte
-                        solidState.advanceWindow()
+                        window[windowPosition] = byte
+                        windowPosition = (windowPosition + 1) & windowMask
+                        historySize = min(windowSize, historySize + 1)
                         if filterCaptureStart != nil {
                             filterCapture.append(byte)
                         } else {
                             destination[outputCount] = byte
                             outputCount += 1
-                            emitted += 1
+                            localEmitted += 1
                         }
                         outputPosition += 1
 
                     case let .match(distance, length):
                         guard distance > 0,
-                              distance <= solidState.windowSize,
-                              distance <= solidState.historySize else {
+                              distance <= windowSize,
+                              distance <= historySize else {
                             failure = .malformed("RAR4 PPMd match distance is outside the window")
                             continue
                         }
@@ -534,7 +554,7 @@ final class RAR29Decoder: Decompressor {
                 continue
             }
 
-            let symbol = solidState.mainTable.decode(bits: &bits)
+            let symbol = mainTable.decode(bits: &bits)
             if symbol < 0 {
                 failure = .malformed("invalid RAR4 main Huffman code")
                 break
@@ -545,14 +565,15 @@ final class RAR29Decoder: Decompressor {
                     break
                 }
                 let byte = UInt8(truncatingIfNeeded: symbol)
-                solidState.window[solidState.windowPosition] = byte
-                solidState.advanceWindow()
+                window[windowPosition] = byte
+                windowPosition = (windowPosition + 1) & windowMask
+                historySize = min(windowSize, historySize + 1)
                 if filterCaptureStart != nil {
                     filterCapture.append(byte)
                 } else {
                     destination[outputCount] = byte
                     outputCount += 1
-                    emitted += 1
+                    localEmitted += 1
                 }
                 outputPosition += 1
                 continue
@@ -618,18 +639,18 @@ final class RAR29Decoder: Decompressor {
                         repeat3, repeat0, repeat1, repeat2
                     )
                 }
-                let lengthSlot = solidState.lengthTable.decode(bits: &bits)
-                guard Self.lengthBases.indices.contains(lengthSlot) else {
+                let lengthSlot = lengthTable.decode(bits: &bits)
+                guard (0..<Self.lengthSymbolCount).contains(lengthSlot) else {
                     failure = .malformed("invalid RAR4 repeat length slot")
                     continue
                 }
-                length = Self.lengthBases[lengthSlot] + 2
-                length += Int(bits.read(Self.lengthBits[lengthSlot]))
+                length = lengthBases[lengthSlot] + 2
+                length += Int(bits.read(lengthBits[lengthSlot]))
 
             case 263...270:
                 let shortSlot = symbol - 263
-                distance = Self.shortBases[shortSlot] + 1
-                distance += Int(bits.read(Self.shortBits[shortSlot]))
+                distance = shortBases[shortSlot] + 1
+                distance += Int(bits.read(shortBits[shortSlot]))
                 length = 2
                 repeat3 = repeat2
                 repeat2 = repeat1
@@ -638,20 +659,20 @@ final class RAR29Decoder: Decompressor {
 
             default:
                 let lengthSlot = symbol - 271
-                guard Self.lengthBases.indices.contains(lengthSlot) else {
+                guard (0..<Self.lengthSymbolCount).contains(lengthSlot) else {
                     failure = .malformed("invalid RAR4 match length slot")
                     continue
                 }
-                length = Self.lengthBases[lengthSlot] + 3
-                length += Int(bits.read(Self.lengthBits[lengthSlot]))
+                length = lengthBases[lengthSlot] + 3
+                length += Int(bits.read(lengthBits[lengthSlot]))
 
-                let distanceSlot = solidState.distanceTable.decode(bits: &bits)
-                guard Self.distanceBases.indices.contains(distanceSlot) else {
+                let distanceSlot = distanceTable.decode(bits: &bits)
+                guard (0..<Self.distanceSymbolCount).contains(distanceSlot) else {
                     failure = .malformed("invalid RAR4 distance slot")
                     continue
                 }
-                distance = Self.distanceBases[distanceSlot] + 1
-                let extraBits = Self.distanceBits[distanceSlot]
+                distance = distanceBases[distanceSlot] + 1
+                let extraBits = distanceBits[distanceSlot]
                 if extraBits > 0 {
                     if distanceSlot > 9 {
                         distance += Int(bits.read(extraBits - 4)) << 4
@@ -659,7 +680,7 @@ final class RAR29Decoder: Decompressor {
                             lowRepeats -= 1
                             distance += lowOffset
                         } else {
-                            let lowSymbol = solidState.lowDistanceTable.decode(bits: &bits)
+                            let lowSymbol = lowDistanceTable.decode(bits: &bits)
                             guard (0...16).contains(lowSymbol) else {
                                 failure = .malformed("invalid RAR4 low-distance slot")
                                 continue
@@ -686,8 +707,8 @@ final class RAR29Decoder: Decompressor {
 
             guard failure == nil else { continue }
             guard distance > 0,
-                  distance <= solidState.windowSize,
-                  distance <= solidState.historySize else {
+                  distance <= windowSize,
+                  distance <= historySize else {
                 failure = .malformed("RAR4 match distance is outside the window")
                 continue
             }
@@ -730,7 +751,7 @@ final class RAR29Decoder: Decompressor {
         }
         if reachedEnd {
             guard outputPosition == expectedSize,
-                  emitted == expectedSize,
+                  localEmitted == expectedSize,
                   matchRemaining == 0,
                   filterCaptureStart == nil,
                   filteredOutput.isEmpty,
@@ -1142,6 +1163,9 @@ final class RAR29Decoder: Decompressor {
     }
 
     private func copyMatchToFilter(
+        window: UnsafeMutablePointer<UInt8>,
+        windowMask: Int,
+        windowPosition: inout Int,
         distance: Int,
         remaining: inout Int,
         maximumCount: Int,
@@ -1150,11 +1174,11 @@ final class RAR29Decoder: Decompressor {
         let count = min(remaining, maximumCount)
         guard count > 0 else { return }
         for _ in 0..<count {
-            let sourceOffset = (solidState.windowPosition - distance)
-                & solidState.windowMask
-            let byte = solidState.window[sourceOffset]
-            solidState.window[solidState.windowPosition] = byte
-            solidState.advanceWindow()
+            let sourceOffset = (windowPosition - distance)
+                & windowMask
+            let byte = window[sourceOffset]
+            window[windowPosition] = byte
+            windowPosition = (windowPosition + 1) & windowMask
             filterCapture.append(byte)
             outputPosition += 1
             remaining -= 1
@@ -1278,7 +1302,11 @@ final class RAR29Decoder: Decompressor {
         solidState.tablesWereRead = true
     }
 
+    @inline(__always)
     private func copyMatchChunk(
+        window: UnsafeMutablePointer<UInt8>,
+        windowMask: Int,
+        windowPosition: inout Int,
         distance: Int,
         remaining: inout Int,
         output: UnsafeMutablePointer<UInt8>,
@@ -1286,55 +1314,36 @@ final class RAR29Decoder: Decompressor {
         outputCapacity: Int,
         outputPosition: inout UInt64
     ) {
-        var count = min(remaining, outputCapacity - outputCount)
+        let count = min(remaining, min(outputCapacity - outputCount, windowMask + 1))
         guard count > 0 else { return }
-
-        // A chunk no longer than its distance has no intra-chunk dependency.
-        // If its source is contiguous in the ring, stage it directly through
-        // the caller buffer and then mirror that plaintext into the window.
-        let destinationRing = solidState.windowPosition
-        let sourceRing = (destinationRing - distance) & solidState.windowMask
-        count = min(count, distance)
-        if sourceRing + count <= solidState.windowSize {
-            output.advanced(by: outputCount).update(
-                from: solidState.window.advanced(by: sourceRing),
-                count: count
-            )
-            let firstWindowPart = min(
-                count,
-                solidState.windowSize - destinationRing
-            )
-            solidState.window.advanced(by: destinationRing).update(
-                from: output.advanced(by: outputCount),
-                count: firstWindowPart
-            )
-            if firstWindowPart < count {
-                solidState.window.update(
-                    from: output.advanced(by: outputCount + firstWindowPart),
-                    count: count - firstWindowPart
-                )
+        if count <= 8 {
+            // Tiny matches avoid two library calls. Forward order preserves
+            // overlap, including a source or destination crossing the ring end.
+            for index in 0..<count {
+                let byte = window[(windowPosition - distance) & windowMask]
+                window[windowPosition] = byte
+                windowPosition = (windowPosition + 1) & windowMask
+                output[outputCount + index] = byte
             }
-            solidState.windowPosition = (destinationRing + count)
-                & solidState.windowMask
-            solidState.appendHistory(count)
             outputCount += count
-            outputPosition += UInt64(count)
             remaining -= count
-            return
+        } else {
+            // The shared bounded LZ primitive stages one period, doubles it in
+            // caller output, then mirrors at most one ring turn in two copies.
+            // Distance one uses memset. Distance/output bounds are validated
+            // by the token loop, including filter boundaries and pending reads.
+            lhaCopyMatch(
+                window: window,
+                windowMask: windowMask,
+                windowPosition: &windowPosition,
+                distance: distance,
+                remaining: &remaining,
+                output: output,
+                outputPosition: &outputCount,
+                outputLimit: outputCapacity
+            )
         }
-
-        // Wrapped sources and true LZ overlap are copied in production order.
-        for _ in 0..<count {
-            let sourceOffset = (solidState.windowPosition - distance)
-                & solidState.windowMask
-            let byte = solidState.window[sourceOffset]
-            solidState.window[solidState.windowPosition] = byte
-            solidState.advanceWindow()
-            output[outputCount] = byte
-            outputCount += 1
-            outputPosition += 1
-            remaining -= 1
-        }
+        outputPosition += UInt64(count)
     }
 
     private func decodeFailure(from error: KaitoError) -> DecodeFailure {
@@ -1425,54 +1434,62 @@ private struct RAR29RawBitCursor {
         }
     }
 
+    @inline(__always)
     func peek(_ count: Int) -> UInt32 {
         guard count > 0 else { return 0 }
-        let boundedOffset = min(max(bitOffset, 0), byteCount * 8)
+        let boundedOffset = min(bitOffset, byteCount * 8)
         let byteOffset = boundedOffset >> 3
         let intraByte = boundedOffset & 7
-        let word = UInt64(bytes[byteOffset]) << 32
-            | UInt64(bytes[byteOffset + 1]) << 24
-            | UInt64(bytes[byteOffset + 2]) << 16
-            | UInt64(bytes[byteOffset + 3]) << 8
-            | UInt64(bytes[byteOffset + 4])
-        let shift = 40 - intraByte - count
-        let mask = count == 32 ? UInt64(UInt32.max) : (UInt64(1) << count) - 1
-        return UInt32(truncatingIfNeeded: word >> shift & mask)
+        // The allocation includes eight zero sentinel bytes. Even a peek at
+        // logical EOF has a full, physically readable unaligned word.
+        let word = UInt64(bigEndian: UnsafeRawPointer(bytes + byteOffset)
+            .loadUnaligned(as: UInt64.self))
+        return UInt32(truncatingIfNeeded: (word << intraByte) >> (64 - count))
     }
 
+    @inline(__always)
     mutating func read(_ count: Int) -> UInt32 {
         let value = peek(count)
         consume(count)
         return value
     }
 
+    @inline(__always)
     mutating func consume(_ count: Int) {
-        guard count >= 0,
-              bitOffset <= Int.max - count else {
+        // Widths come only from validated Huffman lengths and fixed grammar
+        // tables (0...32). Offsets are nonnegative. Check remaining real bits
+        // before adding, so malformed input cannot overflow or advance through
+        // the sentinel; the symbol loop observes the sticky failure flag.
+        if bitOffset > byteCount * 8 - count {
             overrun = true
-            bitOffset = Int.max
-            return
-        }
-        bitOffset += count
-        if bitOffset > byteCount * 8 {
-            overrun = true
+            bitOffset = byteCount * 8
+        } else {
+            bitOffset += count
         }
     }
 }
 
-/// Full 15-bit canonical lookup. A record stores `(bitCount, symbol + 1)`;
+/// Ten-bit primary lookup with a full 15-bit fallback. A record stores
+/// `(bitCount, symbol + 1)`;
 /// zero therefore remains an invalid-prefix sentinel for incomplete trees.
 final class RAR29HuffmanTable {
+    private static let primaryBits = 10
+    private static let primaryCount = 1 << primaryBits
     private static let maximumBits = 15
     private static let lookupCount = 1 << maximumBits
     private let lookup: UnsafeMutablePointer<UInt32>
+    private let primary: UnsafeMutablePointer<UInt32>
 
     init() {
+        primary = .allocate(capacity: Self.primaryCount)
+        primary.initialize(repeating: 0, count: Self.primaryCount)
         lookup = .allocate(capacity: Self.lookupCount)
         lookup.initialize(repeating: 0, count: Self.lookupCount)
     }
 
     deinit {
+        primary.deinitialize(count: Self.primaryCount)
+        primary.deallocate()
         lookup.deinitialize(count: Self.lookupCount)
         lookup.deallocate()
     }
@@ -1481,6 +1498,7 @@ final class RAR29HuffmanTable {
         _ lengths: ArraySlice<UInt8>,
         requireSymbol: Bool = true
     ) throws {
+        primary.update(repeating: 0, count: Self.primaryCount)
         lookup.update(repeating: 0, count: Self.lookupCount)
         var counts = [Int](repeating: 0, count: Self.maximumBits + 1)
         var symbolCount = 0
@@ -1524,14 +1542,49 @@ final class RAR29HuffmanTable {
             let repetitions = 1 << (Self.maximumBits - bitCount)
             let record = UInt32(bitCount) << 16 | UInt32(relativeSymbol + 1)
             lookup.advanced(by: first).update(repeating: record, count: repetitions)
+            if bitCount <= Self.primaryBits {
+                let primaryFirst = canonicalCode << (Self.primaryBits - bitCount)
+                let primaryRepetitions = 1 << (Self.primaryBits - bitCount)
+                primary.advanced(by: primaryFirst).update(
+                    repeating: record, count: primaryRepetitions
+                )
+            }
         }
     }
 
+    @inline(__always)
     fileprivate func decode(bits: inout RAR29RawBitCursor) -> Int {
-        let record = lookup[Int(bits.peek(Self.maximumBits))]
+        // Common short codes touch a 4 KiB table rather than the 128 KiB
+        // fallback. Zero covers both longer codes and invalid prefixes.
+        var record = primary[Int(bits.peek(Self.primaryBits))]
+        if record == 0 { record = lookup[Int(bits.peek(Self.maximumBits))] }
         guard record != 0 else { return -1 }
         let bitCount = Int(record >> 16)
         bits.consume(bitCount)
         return Int(record & 0xffff) - 1
+    }
+}
+
+/// Immutable format constants copied once into raw storage. The token loop
+/// validates slot indices against the fixed alphabet sizes before indexing.
+private final class RAR29IntegerTable: @unchecked Sendable {
+    let values: UnsafePointer<Int>
+    private let storage: UnsafeMutablePointer<Int>
+    private let count: Int
+
+    init(_ values: [Int]) {
+        let count = values.count
+        let storage = UnsafeMutablePointer<Int>.allocate(capacity: count)
+        values.withUnsafeBufferPointer {
+            storage.initialize(from: $0.baseAddress!, count: count)
+        }
+        self.count = count
+        self.storage = storage
+        self.values = UnsafePointer(storage)
+    }
+
+    deinit {
+        storage.deinitialize(count: count)
+        storage.deallocate()
     }
 }

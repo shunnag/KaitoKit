@@ -44,7 +44,7 @@ enum RARStandardFilters {
         ProgramID(byteCount: 120, crc32: 0x3769_893F): .itanium,
         ProgramID(byteCount: 29, crc32: 0x0E06_077D): .delta,
         ProgramID(byteCount: 149, crc32: 0x1C2C_5DC8): .rgb,
-        ProgramID(byteCount: 158, crc32: 0xBC85_E701): .audio,
+        ProgramID(byteCount: 216, crc32: 0xBC85_E701): .audio,
     ]
 
     static func recognizeRAR3Program(_ bytes: [UInt8]) -> RARStandardFilterKind? {

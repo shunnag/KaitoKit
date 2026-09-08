@@ -9,6 +9,87 @@ Project-generated fixtures
     decoded SHA-256: 2d62ff54a54859a54870565f9573fa7a8a8d0ee66892c2350a8c25e3961ee52e
 
 
+  rar4/kaito-password-*.rar.b64
+    Project-owned deterministic plaintext, archived with RAR 6.24 (-ma4 -m0,
+    -p or -hp). The UTF-16 variants were independently re-encrypted using
+    Python hashlib SHA-1 and the system OpenSSL AES-CBC implementation; their
+    host metadata is synthetic and does not assert a Windows tool provenance.
+    Additional host-swapped variants prove the KDF does not depend on host ID.
+
+  rar4/kaito-password-nonbmp-retry-limit.rar.b64
+    Batch 12 project-generated regression fixture (MIT), created with RAR 6.24
+    `a -ma4 -m5 -pkey🔑` from the UTF-8 line "KaitoKit RAR3 candidate retry\n"
+    repeated 128 times (3,840 bytes).
+    Payload SHA-256: 8c95fa7da2949f1acfc1d611336a6d3c49df821947b757263dd0435bc573d495
+    The wrong UTF-16 candidate requests a 109 MiB PPMd dictionary; the valid
+    Unix candidate reads with an 8 MiB limit. Generated archive bytes only;
+    no external decoder source was consulted.
+
+  rar4/kaito-audio.rar.b64
+    Project-owned PCM bytes UInt8(truncatingIfNeeded: i * 3 + i / 79),
+    i in 0..<65536; created with RAR 6.24 -ma4 -m5 -mc1a+ -ep.
+    The installed RAR executable is used only as a black-box archive writer.
+
+  kaito-audio.rar.b64
+    decoded SHA-256: 3ac1b7903b64cfed0bfa398aace48266ea7b07bd3ea54963f42562052dfc2d4d
+  kaito-password-ascii100-hp.rar.b64
+    decoded SHA-256: 0874f61682654f866636fe65359ce1891c49955f117ea9bbd6055be783893bf7
+  kaito-password-ascii100-p.rar.b64
+    decoded SHA-256: 19b5442b37d6cac97874ed12058c09ab16ff2ca7a038fff68e4fc030ece162ec
+  kaito-password-ascii28-hp.rar.b64
+    decoded SHA-256: dfc633bb8ec565b5b00286fc2a972fd519a706740ecd23fca4900afdf6a46862
+  kaito-password-ascii28-p.rar.b64
+    decoded SHA-256: d0b3eb73181e430b0687f21e89a0999abbc7de8a316aa35d0dbc297e4f48786f
+  kaito-password-ascii29-hp.rar.b64
+    decoded SHA-256: 71ca7a505bdd7a8f4dd218b8e20e40dd68671815ea48a9ead5363bc0d32b09f5
+  kaito-password-ascii29-p.rar.b64
+    decoded SHA-256: de0ecb2ea163b2c820e4e596160fddb03cc80cb576b43a3a519f3ff49b6ae33c
+  kaito-password-ascii64-hp.rar.b64
+    decoded SHA-256: 2626c1c622685d80244d8b35e68744761de8844e24d353e989d49ebb89aa244a
+  kaito-password-ascii64-p.rar.b64
+    decoded SHA-256: 570f759368264e7ab7eb24dc35fe9118f66c09de8b4b4dacf32d2ecb4324eef3
+  kaito-password-japanese29-hp.rar.b64
+    decoded SHA-256: 1b29607ac4d29e1d1792b3c2a90a393ceaf67e12d6567a83e07eb8428323e60b
+  kaito-password-japanese29-p.rar.b64
+    decoded SHA-256: 67fe02305554dd43a7cac7d882815f243d5a34810654b7884b26c13545daae6a
+  kaito-password-nonbmp-hp.rar.b64
+    decoded SHA-256: f76b64e7e0a5daca28dc745dc86eed0b013f44504cc7113e53476f952afeaed3
+  kaito-password-nonbmp-long-hp.rar.b64
+    decoded SHA-256: 311a98c295b436a8217f45780e6a3d0a36bde8166ed397826dda64741524017f
+  kaito-password-nonbmp-long-p.rar.b64
+    decoded SHA-256: ca6c9839993b8423ad9c23538538994d318f28b3220cc1ccd4350139425a510a
+  kaito-password-nonbmp-p.rar.b64
+    decoded SHA-256: fd33e59ecf5d6909a9cf9b303b0512bc271327595e627eea917bd3eaecdcded9
+  kaito-password-nonbmp-unix-windows-p.rar.b64
+    decoded SHA-256: d11101e8b73dc833426fcfeef65fe361682dc13bd2ff4c7cef370f435ae985ca
+  kaito-password-nonbmp-utf16-hp.rar.b64
+    decoded SHA-256: 8f76f353865e8dde8ade339368fc3697ebfafd1bbe4bf1d733b67a03b2f4faae
+  kaito-password-nonbmp-utf16-p.rar.b64
+    decoded SHA-256: 535a3816836e42445806c103e0da3a65ea2b5a2ae948e30fc88340201126fd9a
+  kaito-password-nonbmp-utf16-unix-p.rar.b64
+    decoded SHA-256: eaac3dd1ff3a5e0a81e1c857f6d601a72fa2f63c273848c363e322c0cfafac32
+
+  rar4/kaito-password-nonbmp-solid.rar.b64
+    RAR 6.24 -ma4 -m5 -s -ep -pkey🔑, three project-owned text files.
+    Payload i: 128 repetitions of "KaitoKit solid password {i}\n", i=0,1,2.
+    decoded SHA-256: f86c759c8abdc5992eb989317953e2527992f77a6aca3a3011f6d388393a72aa
+
+  rar4/kaito-password-ascii128-p.rar.b64
+    RAR 6.24 -ma4 -m0 -p, 128-character supplied password truncated by writer.
+    decoded SHA-256: e2e2d63b5463474f8b4cc3a66b77531a5e3c4f5286d6c122748316439ce0a19d
+
+  rar4/kaito-password-ascii128-hp.rar.b64
+    RAR 6.24 -ma4 -m0 -hp, 128-character supplied password truncated by writer.
+    decoded SHA-256: 5f328e1d155fc4a6182c8ac154ee8ca309d1c872f5908eca2dc12302f47ca926
+
+  rar4/kaito-password-ascii200-p.rar.b64
+    RAR 6.24 -ma4 -m0 -p, 200-character supplied password truncated by writer.
+    decoded SHA-256: 0195ebd0d4edef1bf893d9a2720dd4384f4cfb90a337bb95f26d06bc757cd8a4
+
+  rar4/kaito-password-ascii200-hp.rar.b64
+    RAR 6.24 -ma4 -m0 -hp, 200-character supplied password truncated by writer.
+    decoded SHA-256: 4177f2fe99ae9820e2b0c67cff5b243fa7cb7d053d5b586725a507923ce91a34
+
 Third-party test fixtures
 =========================
 

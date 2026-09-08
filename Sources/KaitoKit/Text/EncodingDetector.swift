@@ -850,11 +850,7 @@ public enum EncodingDetector {
         foundation: EncodingDetection?,
         metrics: ArchiveEncodingDetectionMetrics? = nil
     ) -> EncodingDetection {
-        // EUC-JP の補助面・半角カナ接頭辞は CP932 の偶然一致より強い証拠になる。
-        if containsEUCShiftPrefix(bytes) {
-            return (.japaneseEUC, eucJP, 0.82)
-        }
-
+        // 0x8E は「車」「社」等の CP932 の先頭にもなるため、単独では EUC と断定しない。
         let eucHasOneCharacter = !eucJP.isEmpty
             && eucJP.index(after: eucJP.startIndex) == eucJP.endIndex
         let likelyHalfWidthName = isLikelyHalfWidthName(cp932, metrics: metrics)
@@ -871,6 +867,11 @@ public enum EncodingDetector {
         }
         if likelyHalfWidthName {
             cpScore += 0.9
+        }
+        if containsEUCShiftPrefix(bytes),
+           isLikelyHalfWidthName(eucJP, metrics: metrics)
+            || isPredominantlyEUCHalfWidthName(eucJP, metrics: metrics) {
+            eucScore += 0.9
         }
 
         if eucScore > cpScore {
@@ -889,6 +890,26 @@ public enum EncodingDetector {
             index += 1
         }
         return false
+    }
+
+    private static func isPredominantlyEUCHalfWidthName(
+        _ string: String,
+        metrics: ArchiveEncodingDetectionMetrics?
+    ) -> Bool {
+        // This candidate has already passed strict EUC-JP validation: each
+        // half-width scalar represents an 8E A1...DF pair. Several such pairs
+        // dominating the non-ASCII name are evidence even without a known word.
+        // A single 8E-led CP932 kanji (車 / 社 / 者) is not enough.
+        var kana = 0
+        var nonASCII = 0
+        var inspected = 0
+        for scalar in string.unicodeScalars.prefix(maximumJapaneseScoringScalarCount) {
+            inspected += 1
+            if scalar.value > 0x7F { nonASCII += 1 }
+            if (0xFF61...0xFF9F).contains(scalar.value) { kana += 1 }
+        }
+        metrics?.halfWidthScalarCount += inspected
+        return kana >= 4 && kana * 2 > nonASCII
     }
 
     private static func japanesePlausibility(

@@ -303,6 +303,34 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
         )
     }
 
+    func testMixedCodeLengthsCrossBulkRefillsAndReadBoundaries() throws {
+        let lengths = Array(1...15) + [16, 16]
+        let commands = (0..<2048).map { ($0 * 13) % lengths.count }
+        var writer = StaticLHABitWriter()
+        appendCanonicalCommandBlock(
+            commandSymbols: commands, commandLengths: lengths, to: &writer
+        )
+        let packed = writer.finish()
+        for chunk in [1, 7, 63, 256, 4096] {
+            let decoder = try makeDecoder(
+                method: "-lh5-", packed: packed, outputSize: UInt64(commands.count)
+            )
+            XCTAssertEqual(
+                try drain(decoder, bufferSize: chunk),
+                Data(commands.map { UInt8($0) })
+            )
+        }
+        for removed in 1...8 {
+            let decoder = try makeDecoder(
+                method: "-lh5-", packed: Data(packed.dropLast(removed)),
+                outputSize: UInt64(commands.count)
+            )
+            XCTAssertThrowsError(try drain(decoder, bufferSize: 7)) {
+                XCTAssertEqual($0 as? KaitoError, .truncated)
+            }
+        }
+    }
+
     func testTruncatedMaximumLengthCodeCannotUseLookaheadPadding() throws {
         let commandLengths = Array(1...15) + [16, 16]
         var writer = StaticLHABitWriter()

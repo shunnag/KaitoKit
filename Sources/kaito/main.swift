@@ -180,14 +180,37 @@ private func parseExtract(_ arguments: [String]) throws -> ExtractArguments {
     return ExtractArguments(archive: archive, output: output, password: password)
 }
 
+private struct EntryFailures: Error, CustomStringConvertible {
+    let count: Int
+    var description: String { "\(count) archive entries failed" }
+}
+
+private func reportEntryFailure(_ error: Error, entry: ArchiveEntry) {
+    writeStandardError("error: failed entry \(entry.index) (\(oneLine(entry.name))): \(entryFailureReason(error))\n")
+}
+
+private func entryFailureReason(_ error: Error) -> String {
+    if case KaitoError.checksumMismatch(let sourceMember) = error {
+        return "Checksum mismatch (source member \(sourceMember))"
+    }
+    return oneLine(String(describing: error))
+}
+
 private func runExtract(_ arguments: [String]) throws {
     let parsed = try parseExtract(arguments)
     let reader = try openArchive(parsed.archive, password: parsed.password)
     let directory = URL(fileURLWithPath: parsed.output, isDirectory: true)
-    for entry in reader.entries where entry.kind != .directory {
-        _ = try reader.extract(entry, to: directory)
+    var failures = 0
+    func extract(_ entry: ArchiveEntry) {
+        do {
+            _ = try reader.extract(entry, to: directory)
+        } catch {
+            failures += 1
+            reportEntryFailure(error, entry: entry)
+        }
     }
-    // 子を作り終えてから深い順に処理し、ディレクトリの最終 mode/mtime を保つ。
+    for entry in reader.entries where entry.kind != .directory { extract(entry) }
+    // 部分的な失敗後も子の作成を終え、ディレクトリの最終 mode/mtime を復元する。
     let directories = reader.entries
         .filter { $0.kind == .directory }
         .sorted {
@@ -196,9 +219,8 @@ private func runExtract(_ arguments: [String]) throws {
             }
             return $0.index < $1.index
         }
-    for entry in directories {
-        _ = try reader.extract(entry, to: directory)
-    }
+    for entry in directories { extract(entry) }
+    if failures > 0 { throw EntryFailures(count: failures) }
 }
 
 private func entryData(_ entry: ArchiveEntry, reader: ArchiveReader) throws -> Data {
@@ -267,15 +289,26 @@ private func runSHA(_ arguments: [String]) throws {
     // traverse it again after decompression. Reuse one buffer for the archive.
     var buffer = [UInt8](repeating: 0, count: 4 * 1_024 * 1_024)
 
+    var failures = 0
     for entry in reader.entries {
-        let result = try entrySHA256(entry, reader: reader, buffer: &buffer)
-        let digestText = hexadecimal(result.digest)
-        // 既存の差分 oracle と同様、各 digest の 16 進表現を連結して総合 hash にする。
-        total.update(data: Data(digestText.utf8))
-        print("\(entry.index)\t\(result.byteCount)\t\(digestText)\t\(oneLine(entry.name))")
+        do {
+            let result = try entrySHA256(entry, reader: reader, buffer: &buffer)
+            let digestText = hexadecimal(result.digest)
+            total.update(data: Data(digestText.utf8))
+            print("\(entry.index)\t\(result.byteCount)\t\(digestText)\t\(oneLine(entry.name))")
+        } catch {
+            failures += 1
+            print("\(entry.index)\tERROR\tfailed entry \(entry.index): \(entryFailureReason(error))\t\(oneLine(entry.name))")
+            reportEntryFailure(error, entry: entry)
+        }
     }
 
+    // 欠落した member がある場合、完全な archive digest と誤認させない。
     let totalText = hexadecimal(total.finalize())
+    if failures > 0 {
+        print("partial\t\(reader.entries.count - failures)\t\(totalText)\t")
+        throw EntryFailures(count: failures)
+    }
     print("total\t\(reader.entries.count)\t\(totalText)\t")
 }
 

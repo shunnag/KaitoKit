@@ -515,8 +515,8 @@ final class SevenZipReader: FormatReader {
                 kind = .file
             }
             let components = file.name
-                .split(separator: "/", omittingEmptySubsequences: true)
-                .map(String.init)
+                .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
+                .map { String(decoding: $0, as: UTF8.self) }
             guard !components.isEmpty else {
                 throw KaitoError.malformed("7z entry has an empty path")
             }

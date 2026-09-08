@@ -1678,15 +1678,15 @@ final class RAR5Reader: FormatReader {
             throw KaitoError.malformed("RAR5 file name is not valid UTF-8")
         }
         let name = String(decoding: rawName, as: UTF8.self)
-        guard !name.isEmpty, !name.hasPrefix("/"), !name.utf8.contains(0) else {
+        guard !name.isEmpty, name.utf8.first != 0x2F, !name.utf8.contains(0) else {
             throw KaitoError.malformed("RAR5 file name is unsafe")
         }
         if hostOS == 0, name.contains("\\") {
             throw KaitoError.malformed("RAR5 Windows file name contains a backslash")
         }
         let components = name
-            .split(separator: "/", omittingEmptySubsequences: true)
-            .map(String.init)
+            .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
+            .map { String(decoding: $0, as: UTF8.self) }
         guard !components.isEmpty else {
             throw KaitoError.malformed("RAR5 file name has no path components")
         }
@@ -2328,12 +2328,12 @@ final class RAR5Reader: FormatReader {
     }
 
     private static func normalizedExtractionPath(_ path: String) -> String? {
-        guard !path.isEmpty, !path.hasPrefix("/"), !path.utf8.contains(0) else {
+        guard !path.isEmpty, path.utf8.first != 0x2F, !path.utf8.contains(0) else {
             return nil
         }
         let rawComponents = path
-            .split(separator: "/", omittingEmptySubsequences: true)
-            .map(String.init)
+            .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
+            .map { String(decoding: $0, as: UTF8.self) }
         guard !rawComponents.contains("..") else { return nil }
         let components = rawComponents.filter { $0 != "." }
         guard !components.isEmpty else { return nil }

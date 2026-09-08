@@ -407,10 +407,16 @@ final class RAR4Reader: FormatReader {
     private let options: ReaderOptions
     private let records: [Record]
     private let solidGroupMembers: [Int: [Int]]
-    private let keyCache = RAR3KeyCache()
+    private let firstEncryptedSolidMembers: [Int: Int]
+    private let keyCache: RAR3KeyCache
     private var password: String?
     private var solidCoordinators: [Int: SolidCoordinator] = [:]
     private var activeSolidGroup: Int?
+    private final class PasswordEncodingSelection {
+        var unixScalars: Bool?
+    }
+    private let passwordEncodings: PasswordEncodingSelection
+    private var isPasswordProbe = false
 
     var resolvedPassword: String? { password }
 
@@ -434,16 +440,24 @@ final class RAR4Reader: FormatReader {
             }
             resolvedSignatureOffset = match.offset
         }
+        let keyCache = RAR3KeyCache()
+        let passwordEncodings = PasswordEncodingSelection()
+        self.keyCache = keyCache
+        self.passwordEncodings = passwordEncodings
         let parsed = try Self.parse(
             source: source,
             sourceURL: sourceURL,
             sourceDirectoryAnchor: sourceDirectoryAnchor,
             options: options,
-            signatureOffset: resolvedSignatureOffset
+            signatureOffset: resolvedSignatureOffset,
+            headerKeyCache: keyCache,
+            passwordEncodings: passwordEncodings
         )
         self.entries = parsed.entries
         self.records = parsed.records
-        self.solidGroupMembers = Self.indexSolidGroups(parsed.entries)
+        let groups = Self.indexSolidGroups(parsed.entries)
+        self.solidGroupMembers = groups
+        self.firstEncryptedSolidMembers = Self.indexPasswordProbes(groups, records: parsed.records)
         self.nameEncoding = parsed.nameEncoding
         self.password = parsed.resolvedPassword
     }
@@ -454,14 +468,21 @@ final class RAR4Reader: FormatReader {
         options: ReaderOptions,
         entries: [ArchiveEntry],
         records: [Record],
-        nameEncoding: String.Encoding?
+        nameEncoding: String.Encoding?,
+        keyCache: RAR3KeyCache = RAR3KeyCache(),
+        unixScalars: Bool? = nil
     ) {
+        self.keyCache = keyCache
+        self.passwordEncodings = PasswordEncodingSelection()
+        self.passwordEncodings.unixScalars = unixScalars
         self.source = source
         self.sourceURL = sourceURL
         self.options = options
         self.entries = entries
         self.records = records
-        self.solidGroupMembers = Self.indexSolidGroups(entries)
+        let groups = Self.indexSolidGroups(entries)
+        self.solidGroupMembers = groups
+        self.firstEncryptedSolidMembers = Self.indexPasswordProbes(groups, records: records)
         self.nameEncoding = nameEncoding
         self.password = options.password
     }
@@ -473,7 +494,8 @@ final class RAR4Reader: FormatReader {
             options: options,
             entries: entries,
             records: records,
-            nameEncoding: nameEncoding
+            nameEncoding: nameEncoding,
+            unixScalars: options.password == password ? passwordEncodings.unixScalars : nil
         )
     }
 
@@ -481,6 +503,7 @@ final class RAR4Reader: FormatReader {
         guard self.password != password else { return }
         self.password = password
         keyCache.removeAll()
+        passwordEncodings.unixScalars = nil
         for coordinator in solidCoordinators.values {
             coordinator.invalidateAndRelease()
         }
@@ -506,6 +529,18 @@ final class RAR4Reader: FormatReader {
             throw KaitoError.unsupportedMethod(
                 "RAR4 unpack version \(record.unpackVersion)"
             )
+        }
+        if !isPasswordProbe, passwordEncodings.unixScalars == nil, let password,
+           password.unicodeScalars.contains(where: { $0.value > 0xffff }) {
+            // The encoding is a writer property. Resolve it once, at the first
+            // nonempty encrypted member of the solid prefix, even for random
+            // access. An empty member's CRC cannot distinguish the candidates.
+            let probeIndex = entry.solidGroup >= 0
+                ? firstEncryptedSolidMembers[entry.solidGroup]
+                : (record.isEncrypted && record.unpackedSize > 0 ? entry.index : nil)
+            if let probeIndex, probeIndex <= entry.index {
+                try resolvePasswordEncoding(for: probeIndex, limits: limits)
+            }
         }
         if entry.solidGroup >= 0 {
             return try streamSolidEntry(
@@ -543,7 +578,10 @@ final class RAR4Reader: FormatReader {
                     "RAR4 encrypted file data without a RAR3 salt"
                 )
             }
-            let derived = try keyCache.key(password: password, salt: salt)
+            let derived = try keyCache.key(
+                password: password, salt: salt,
+                unixScalars: passwordEncodings.unixScalars ?? false
+            )
             compressedSource = try RARAESCBCByteSource(
                 source: packedSource,
                 ciphertextOffset: packedOffset,
@@ -663,6 +701,9 @@ final class RAR4Reader: FormatReader {
             let capturedRecords = records
             let capturedPassword = password
             let capturedKeyCache = keyCache
+            // Later sequential reads may verify additional members after this
+            // coordinator is created. Share the selection box, not a snapshot.
+            let capturedEncodings = passwordEncodings
             coordinator = SolidCoordinator(
                 entryIndices: groupIndices,
                 dictionarySize: dictionarySize,
@@ -680,7 +721,8 @@ final class RAR4Reader: FormatReader {
                     limits: limits,
                     state: state,
                     password: capturedPassword,
-                    keyCache: capturedKeyCache
+                    keyCache: capturedKeyCache,
+                    unixScalars: capturedEncodings.unixScalars ?? false
                 )
             }
             solidCoordinators[group] = coordinator
@@ -702,6 +744,34 @@ final class RAR4Reader: FormatReader {
         )
     }
 
+    /// CRC verification is streamed through a small scratch buffer. Failed
+    /// candidates never change the caller's solid coordinator or emit bytes.
+    private func resolvePasswordEncoding(for index: Int, limits: ReadLimits) throws {
+        guard passwordEncodings.unixScalars == nil else { return }
+        var firstError: (any Error)?
+        for unixScalars in [false, true] {
+            let probe = RAR4Reader(
+                source: source, sourceURL: sourceURL, options: options,
+                entries: entries, records: records, nameEncoding: nameEncoding,
+                keyCache: keyCache, unixScalars: unixScalars
+            )
+            probe.password = password
+            probe.isPasswordProbe = true
+            do {
+                let stream = try probe.stream(for: entries[index], limits: limits)
+                var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
+                while try buffer.withUnsafeMutableBytes({ try stream.read(into: $0) }) > 0 {}
+                passwordEncodings.unixScalars = unixScalars
+                return
+            } catch {
+                // Garbage plaintext can also look like an unsupported VM filter
+                // or an excessive PPMd allocation. Try the other bounded candidate.
+                if firstError == nil { firstError = error }
+            }
+        }
+        throw firstError ?? KaitoError.wrongPassword
+    }
+
     private static func indexSolidGroups(
         _ entries: [ArchiveEntry]
     ) -> [Int: [Int]] {
@@ -712,13 +782,24 @@ final class RAR4Reader: FormatReader {
         return result
     }
 
+    private static func indexPasswordProbes(
+        _ groups: [Int: [Int]], records: [Record]
+    ) -> [Int: Int] {
+        // Precompute once so an unencrypted or empty solid prefix does not
+        // trigger an O(N) member search for every entry.
+        groups.compactMapValues { members in
+            members.first { records[$0].isEncrypted && records[$0].unpackedSize > 0 }
+        }
+    }
+
     private static func makeSolidVerifiedStream(
         entry: ArchiveEntry,
         record: Record,
         limits: ReadLimits,
         state: RAR29Decoder.SolidState,
         password: String?,
-        keyCache: RAR3KeyCache
+        keyCache: RAR3KeyCache,
+        unixScalars: Bool
     ) throws -> EntryStream {
         guard (0x31...0x35).contains(record.method),
               record.unpackVersion == 29 else {
@@ -752,7 +833,10 @@ final class RAR4Reader: FormatReader {
                     "RAR4 encrypted file data without a RAR3 salt"
                 )
             }
-            let derived = try keyCache.key(password: password, salt: salt)
+            let derived = try keyCache.key(
+                password: password, salt: salt,
+                unixScalars: unixScalars
+            )
             compressed = (
                 try RARAESCBCByteSource(
                     source: packed.source,
@@ -875,16 +959,18 @@ final class RAR4Reader: FormatReader {
         sourceURL: URL?,
         sourceDirectoryAnchor: FileByteSource.DirectoryAnchor?,
         options: ReaderOptions,
-        signatureOffset: UInt64
+        signatureOffset: UInt64,
+        headerKeyCache: RAR3KeyCache,
+        passwordEncodings: PasswordEncodingSelection
     ) throws -> ParsedArchive {
         var resolvedPassword = options.password
-        let headerKeyCache = RAR3KeyCache()
         let first = try parseVolume(
             source: source,
             limits: options.limits,
             password: &resolvedPassword,
             passwordProvider: options.passwordProvider,
             headerKeyCache: headerKeyCache,
+            passwordEncodings: passwordEncodings,
             signatureOffset: signatureOffset
         )
         guard first.mainHeader.isVolume, let sourceURL else {
@@ -939,6 +1025,7 @@ final class RAR4Reader: FormatReader {
                 password: &resolvedPassword,
                 passwordProvider: options.passwordProvider,
                 headerKeyCache: headerKeyCache,
+                passwordEncodings: passwordEncodings,
                 signatureOffset: 0
             )
             guard next.mainHeader.isVolume else {
@@ -1122,6 +1209,7 @@ final class RAR4Reader: FormatReader {
         password: inout String?,
         passwordProvider: (any PasswordProvider)?,
         headerKeyCache: RAR3KeyCache,
+        passwordEncodings: PasswordEncodingSelection,
         signatureOffset: UInt64
     ) throws -> ParsedVolume {
         let markerEnd = try Checked.add(signatureOffset, UInt64(signature.count))
@@ -1154,6 +1242,7 @@ final class RAR4Reader: FormatReader {
                     encrypted: encryptedHeader,
                     password: password,
                     keyCache: headerKeyCache,
+                    passwordEncodings: passwordEncodings,
                     limits: limits
                 )
                 if encryptedHeader { encryptedHeaderWasValidated = true }
@@ -1625,8 +1714,8 @@ final class RAR4Reader: FormatReader {
                 throw KaitoError.malformed("RAR4 entry name cannot be decoded safely")
             }
             let components = name
-                .split(separator: "/", omittingEmptySubsequences: true)
-                .map(String.init)
+                .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
+                .map { String(decoding: $0, as: UTF8.self) }
             guard components.count <= limits.maxPathComponentCount else {
                 throw KaitoError.limitExceeded("RAR4 path component count")
             }
@@ -1672,6 +1761,7 @@ final class RAR4Reader: FormatReader {
         encrypted: Bool,
         password: String?,
         keyCache: RAR3KeyCache,
+        passwordEncodings: PasswordEncodingSelection,
         limits: ReadLimits
     ) throws -> ParsedHeader {
         if !encrypted {
@@ -1707,7 +1797,31 @@ final class RAR4Reader: FormatReader {
             count: 8
         )
         let ciphertextOffset = try Checked.add(offset, 8)
-        let derived = try keyCache.key(password: password, salt: salt)
+        // 暗号化 header は writer の OS 自体が暗号文にある。BMP 外の文字がある場合だけ
+        // 二通りを試し、header CRC で確定する。候補数は常に最大 2。
+        let encodings = passwordEncodings.unixScalars.map { [$0] }
+            ?? (password.unicodeScalars.contains { $0.value > 0xFFFF } ? [false, true] : [false])
+        var firstError: (any Error)?
+        for unixScalars in encodings {
+            do {
+                let derived = try keyCache.key(password: password, salt: salt, unixScalars: unixScalars)
+                let header = try readEncryptedHeader(
+                    source: source, offset: offset, ciphertextOffset: ciphertextOffset,
+                    derived: derived, limits: limits
+                )
+                passwordEncodings.unixScalars = unixScalars
+                return header
+            } catch {
+                if firstError == nil { firstError = error }
+            }
+        }
+        throw firstError ?? KaitoError.wrongPassword
+    }
+
+    private static func readEncryptedHeader(
+        source: any ByteSource, offset: UInt64, ciphertextOffset: UInt64,
+        derived: RAR3DerivedKey, limits: ReadLimits
+    ) throws -> ParsedHeader {
         let commonSource = try RARAESCBCByteSource(
             source: source,
             ciphertextOffset: ciphertextOffset,

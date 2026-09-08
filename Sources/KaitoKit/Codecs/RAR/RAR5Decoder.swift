@@ -25,7 +25,8 @@ import Foundation
 ///   physically safe even at a logical block boundary;
 /// - logical bit limits, Huffman runs, distances and output limits are checked
 ///   at block/symbol boundaries, while literal and match-copy loops do not throw;
-/// - non-wrapping, non-overlapping window copies use memcpy through copyMemory.
+/// - matches stage a period in caller output, double it, then mirror the ring;
+///   window cursors and output accounting stay local for the entire read.
 final class RAR5Decoder: Decompressor {
     private static let sentinelByteCount = 16
     private static let mainSymbolCount = 306
@@ -106,12 +107,6 @@ final class RAR5Decoder: Decompressor {
         deinit {
             window.deinitialize(count: windowSize)
             free(UnsafeMutableRawPointer(window))
-        }
-
-        func appendHistory(_ count: Int) {
-            historySize = count >= windowSize - historySize
-                ? windowSize
-                : historySize + count
         }
     }
 
@@ -262,6 +257,17 @@ final class RAR5Decoder: Decompressor {
             return 0
         }
 
+        let window = solidState.window
+        let windowMask = solidState.windowMask
+        var windowPosition = solidState.windowPosition
+        var historySize = solidState.historySize
+        var produced = self.produced
+        defer {
+            solidState.windowPosition = windowPosition
+            solidState.historySize = historySize
+            self.produced = produced
+        }
+
         var written = 0
         while written < buffer.count, !finished {
             if nextFilterIndex < scheduledFilters.count {
@@ -287,7 +293,12 @@ final class RAR5Decoder: Decompressor {
                     let count = decodeRaw(
                         into: output.advanced(by: written),
                         capacity: capacity,
-                        stopAtFilter: true
+                        stopAtFilter: true,
+                        window: window,
+                        windowMask: windowMask,
+                        windowPosition: &windowPosition,
+                        historySize: &historySize,
+                        produced: &produced
                     )
                     emitted += UInt64(count)
                     written += count
@@ -317,7 +328,12 @@ final class RAR5Decoder: Decompressor {
                         let count = decodeRaw(
                             into: filterInput.advanced(by: filterFillCount),
                             capacity: needed,
-                            stopAtFilter: false
+                            stopAtFilter: false,
+                            window: window,
+                            windowMask: windowMask,
+                            windowPosition: &windowPosition,
+                            historySize: &historySize,
+                            produced: &produced
                         )
                         filterFillCount += count
                         if failure != nil { break }
@@ -389,7 +405,12 @@ final class RAR5Decoder: Decompressor {
             let count = decodeRaw(
                 into: output.advanced(by: written),
                 capacity: buffer.count - written,
-                stopAtFilter: true
+                stopAtFilter: true,
+                window: window,
+                windowMask: windowMask,
+                windowPosition: &windowPosition,
+                historySize: &historySize,
+                produced: &produced
             )
             emitted += UInt64(count)
             written += count
@@ -409,7 +430,12 @@ final class RAR5Decoder: Decompressor {
     private func decodeRaw(
         into output: UnsafeMutablePointer<UInt8>,
         capacity: Int,
-        stopAtFilter: Bool
+        stopAtFilter: Bool,
+        window: UnsafeMutablePointer<UInt8>,
+        windowMask: Int,
+        windowPosition: inout Int,
+        historySize: inout Int,
+        produced: inout UInt64
     ) -> Int {
         guard capacity > 0, !rawFinished, failure == nil else { return 0 }
         var written = 0
@@ -429,10 +455,15 @@ final class RAR5Decoder: Decompressor {
             if pendingLength > 0 {
                 let amount = min(pendingLength, available)
                 copyMatch(
+                    window: window,
+                    windowMask: windowMask,
+                    windowPosition: &windowPosition,
                     distance: pendingDistance,
                     count: amount,
                     output: output.advanced(by: written)
                 )
+                historySize += min((windowMask + 1) - historySize, amount)
+                produced += UInt64(amount)
                 pendingLength -= amount
                 written += amount
                 continue
@@ -470,16 +501,15 @@ final class RAR5Decoder: Decompressor {
             bits = bitReader
 
             if symbol < 256 {
-                guard outputIsAvailable(1) else {
+                guard outputIsAvailable(1, produced: produced) else {
                     failure = .malformed("RAR5 output exceeds its declared size")
                     break
                 }
                 let byte = UInt8(symbol)
                 output[written] = byte
-                solidState.window[solidState.windowPosition] = byte
-                solidState.windowPosition = (solidState.windowPosition + 1)
-                    & solidState.windowMask
-                solidState.appendHistory(1)
+                window[windowPosition] = byte
+                windowPosition = (windowPosition + 1) & windowMask
+                historySize += min((windowMask + 1) - historySize, 1)
                 produced += 1
                 written += 1
                 continue
@@ -488,7 +518,7 @@ final class RAR5Decoder: Decompressor {
             switch symbol {
             case 256:
                 guard var localBits = bits,
-                      let filter = readFilter(from: &localBits) else {
+                      let filter = readFilter(from: &localBits, produced: produced) else {
                     if failure == nil {
                         failure = .malformed("RAR5 filter data runs past its block")
                     }
@@ -501,7 +531,9 @@ final class RAR5Decoder: Decompressor {
                 guard solidState.lastLength > 0,
                       validateMatch(
                         distance: solidState.oldDistance0,
-                        length: solidState.lastLength
+                        length: solidState.lastLength,
+                        historySize: historySize,
+                        produced: produced
                       ) else {
                     failure = .malformed("RAR5 invalid last-match repetition")
                     break
@@ -522,7 +554,10 @@ final class RAR5Decoder: Decompressor {
                     break
                 }
                 bits = localBits
-                guard validateMatch(distance: distance, length: length) else {
+                guard validateMatch(
+                    distance: distance, length: length,
+                    historySize: historySize, produced: produced
+                ) else {
                     failure = .malformed("RAR5 invalid repeated-distance match")
                     break
                 }
@@ -541,7 +576,10 @@ final class RAR5Decoder: Decompressor {
                 if distance > 0x100 { length += 1 }
                 if distance > 0x2_000 { length += 1 }
                 if distance > 0x4_0000 { length += 1 }
-                guard validateMatch(distance: distance, length: length) else {
+                guard validateMatch(
+                    distance: distance, length: length,
+                    historySize: historySize, produced: produced
+                ) else {
                     let describedExpectedSize = expectedSize.map(String.init) ?? "unknown"
                     failure = .malformed(
                         "RAR5 invalid LZ match at output \(produced): distance \(distance), length \(length), window \(solidState.windowSize), expected \(describedExpectedSize)"
@@ -563,7 +601,10 @@ final class RAR5Decoder: Decompressor {
         return written
     }
 
-    private func readFilter(from bits: inout RAR5RawBitReader) -> ScheduledFilter? {
+    private func readFilter(
+        from bits: inout RAR5RawBitReader,
+        produced: UInt64
+    ) -> ScheduledFilter? {
         guard scheduledFilters.count < maximumFilterCount else {
             failure = .limitExceeded("RAR5 filter count")
             return nil
@@ -887,75 +928,51 @@ final class RAR5Decoder: Decompressor {
         return overflow ? nil : result
     }
 
-    private func outputIsAvailable(_ count: Int) -> Bool {
+    private func outputIsAvailable(_ count: Int, produced: UInt64) -> Bool {
         guard count >= 0 else { return false }
         guard let expectedSize else { return UInt64(count) <= UInt64.max - produced }
         return UInt64(count) <= expectedSize - min(produced, expectedSize)
     }
 
-    private func validateMatch(distance: Int, length: Int) -> Bool {
+    private func validateMatch(
+        distance: Int, length: Int, historySize: Int, produced: UInt64
+    ) -> Bool {
         guard distance > 0,
               distance <= solidState.windowSize,
-              distance <= solidState.historySize,
+              distance <= historySize,
               length > 0,
-              outputIsAvailable(length) else {
+              outputIsAvailable(length, produced: produced) else {
             return false
         }
         return true
     }
 
+    @inline(__always)
     private func copyMatch(
+        window: UnsafeMutablePointer<UInt8>,
+        windowMask: Int,
+        windowPosition: inout Int,
         distance: Int,
         count: Int,
         output: UnsafeMutablePointer<UInt8>
     ) {
+        // Distance/history and total output length were checked at the token
+        // boundary. The caller clips pending matches at read/filter boundaries.
+        // Stage history before mirroring it: even distance == windowSize and
+        // wrapped physical overlap must observe the original first period.
         var remaining = count
         var outputPosition = 0
         while remaining > 0 {
-            let sourceIndex = (solidState.windowPosition - distance)
-                & solidState.windowMask
-            let sourceContiguous = solidState.windowSize - sourceIndex
-            let destinationContiguous = solidState.windowSize
-                - solidState.windowPosition
-            let amount = min(remaining, sourceContiguous, destinationContiguous)
-
-            let physicalRangesDoNotOverlap = sourceIndex + amount
-                    <= solidState.windowPosition
-                || solidState.windowPosition + amount <= sourceIndex
-            if distance >= amount, physicalRangesDoNotOverlap {
-                // The source and ring destination cannot overlap when the
-                // backward distance is at least the contiguous copy size.
-                output.advanced(by: outputPosition).update(
-                    from: UnsafePointer(solidState.window.advanced(by: sourceIndex)),
-                    count: amount
-                )
-                solidState.window.advanced(by: solidState.windowPosition).update(
-                    from: UnsafePointer(solidState.window.advanced(by: sourceIndex)),
-                    count: amount
-                )
-                solidState.windowPosition = (solidState.windowPosition + amount)
-                    & solidState.windowMask
-                solidState.appendHistory(amount)
-                produced += UInt64(amount)
-                outputPosition += amount
-                remaining -= amount
-            } else {
-                // Overlapping LZ copies intentionally observe bytes written by
-                // earlier iterations, so memcpy would be incorrect here.
-                for _ in 0..<amount {
-                    let byte = solidState.window[
-                        (solidState.windowPosition - distance) & solidState.windowMask
-                    ]
-                    output[outputPosition] = byte
-                    solidState.window[solidState.windowPosition] = byte
-                    solidState.windowPosition = (solidState.windowPosition + 1)
-                        & solidState.windowMask
-                    solidState.appendHistory(1)
-                    produced += 1
-                    outputPosition += 1
-                    remaining -= 1
-                }
-            }
+            lhaCopyMatch(
+                window: window,
+                windowMask: windowMask,
+                windowPosition: &windowPosition,
+                distance: distance,
+                remaining: &remaining,
+                output: output,
+                outputPosition: &outputPosition,
+                outputLimit: count
+            )
         }
     }
 
@@ -1007,6 +1024,7 @@ private struct RAR5RawBitReader {
 
     var isAtEnd: Bool { bitPosition == bitLimit }
 
+    @inline(__always)
     mutating func read(_ count: Int) -> Int? {
         guard (0...32).contains(count), count <= bitLimit - bitPosition else {
             return nil
@@ -1017,6 +1035,7 @@ private struct RAR5RawBitReader {
         return value
     }
 
+    @inline(__always)
     func peekPadded(_ count: Int) -> Int {
         let byteOffset = bitPosition >> 3
         let intraByte = bitPosition & 7
@@ -1028,25 +1047,37 @@ private struct RAR5RawBitReader {
     }
 }
 
-/// Fifteen-bit direct Huffman lookup. Entry high bits hold code length and low
-/// sixteen bits hold the symbol. Tables are allocated once and rebuilt in place.
+/// Ten-bit primary Huffman lookup with a full fifteen-bit fallback, following
+/// KaitoKit's RAR29 table. Entry high bits hold code length and low sixteen bits
+/// hold the symbol. Both tables are allocated once and rebuilt in place.
 private final class RAR5HuffmanTable {
+    private static let primaryBits = 10
+    private static let primaryCount = 1 << primaryBits
     private static let lookupBits = 15
     private static let lookupCount = 1 << lookupBits
     private let lookup: UnsafeMutablePointer<UInt32>
+    private let primary: UnsafeMutablePointer<UInt32>
 
     init() {
+        primary = .allocate(capacity: Self.primaryCount)
+        primary.initialize(repeating: 0, count: Self.primaryCount)
         lookup = .allocate(capacity: Self.lookupCount)
         lookup.initialize(repeating: 0, count: Self.lookupCount)
     }
 
-    deinit { lookup.deallocate() }
+    deinit {
+        primary.deinitialize(count: Self.primaryCount)
+        primary.deallocate()
+        lookup.deinitialize(count: Self.lookupCount)
+        lookup.deallocate()
+    }
 
     func build(
         lengths: UnsafePointer<UInt8>,
         count: Int,
         requireSymbol: Bool
     ) throws {
+        primary.update(repeating: 0, count: Self.primaryCount)
         lookup.update(repeating: 0, count: Self.lookupCount)
         var counts = [Int](repeating: 0, count: Self.lookupBits + 1)
         var symbolCount = 0
@@ -1093,12 +1124,24 @@ private final class RAR5HuffmanTable {
             }
             let entry = UInt32(length << 16 | symbol)
             lookup.advanced(by: start).update(repeating: entry, count: repetitions)
+            if length <= Self.primaryBits {
+                let primaryStart = prefix << (Self.primaryBits - length)
+                let primaryRepetitions = 1 << (Self.primaryBits - length)
+                // The canonical prefix was validated above; truncating its
+                // padding from fifteen to ten bits preserves the table bound.
+                primary.advanced(by: primaryStart).update(
+                    repeating: entry, count: primaryRepetitions
+                )
+            }
         }
     }
 
+    @inline(__always)
     func decode(from bits: inout RAR5RawBitReader) -> Int? {
         guard bits.bitPosition < bits.bitLimit else { return nil }
-        let entry = lookup[bits.peekPadded(Self.lookupBits)]
+        let prefix = bits.peekPadded(Self.lookupBits)
+        var entry = primary[prefix >> (Self.lookupBits - Self.primaryBits)]
+        if entry == 0 { entry = lookup[prefix] }
         let length = Int(entry >> 16)
         guard length > 0, length <= bits.bitLimit - bits.bitPosition else { return nil }
         bits.bitPosition += length

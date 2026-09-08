@@ -96,9 +96,12 @@ final class PPMd7Model {
     private let nsToBinaryIndex: [Int]
     private let nsToSEEIndex: [Int]
 
-    private var binarySummaries = [Int]()
+    // Fixed-size probability/mask storage is private to this model. Indices
+    // are validated at context boundaries (mask symbols are UInt8). Keeping
+    // these allocations stable avoids COW/exclusivity work in symbol loops.
+    private let binarySummaries: UnsafeMutablePointer<Int>
     private var seeContexts = [[PPMd7ArenaSEEContext]]()
-    private var characterMask = [UInt8](repeating: 0, count: 256)
+    private let characterMask: UnsafeMutablePointer<UInt8>
     private var escapeCount: UInt8 = 1
     private var numberMasked = 0
     private var previousSuccess = 0
@@ -117,7 +120,18 @@ final class PPMd7Model {
         self.allocator = try PPMd7Suballocator(memorySize: memorySize)
         self.nsToBinaryIndex = Self.makeNS2BSIndex()
         self.nsToSEEIndex = Self.makeNS2SEEIndex()
+        self.binarySummaries = .allocate(capacity: 128 * 64)
+        self.binarySummaries.initialize(repeating: 0, count: 128 * 64)
+        self.characterMask = .allocate(capacity: 256)
+        self.characterMask.initialize(repeating: 0, count: 256)
         try restartModel()
+    }
+
+    deinit {
+        binarySummaries.deinitialize(count: 128 * 64)
+        binarySummaries.deallocate()
+        characterMask.deinitialize(count: 256)
+        characterMask.deallocate()
     }
 
     func decodeByte<Decoder: PPMd7RangeDecoding>(using decoder: Decoder) throws -> UInt8 {
@@ -185,7 +199,7 @@ final class PPMd7Model {
         }
 
         if escapeCount == 0 {
-            characterMask = [UInt8](repeating: 0, count: 256)
+            characterMask.update(repeating: 0, count: 256)
             escapeCount = 1
         }
         previousFoundSymbol = symbol
@@ -204,7 +218,9 @@ final class PPMd7Model {
         let count = try decoder.threshold(total: scale)
         let stateCount = try numberOfStats(in: context) + 1
         let stateBase = try statsRef(of: context)
-        let states = try allocator.checkedBytes(at: stateBase, count: stateCount * Self.stateSize)
+        let states = try allocator.checkedBytes(
+            at: stateBase, count: stateCount * Self.stateSize
+        ).baseAddress!.assumingMemoryBound(to: UInt8.self)
         var low = 0
 
         for index in 0..<stateCount {
@@ -317,17 +333,18 @@ final class PPMd7Model {
         let escapeFrequency = see?.mean() ?? 1
         let stateCount = stats + 1
         let stateBase = try statsRef(of: context)
-        let states = try allocator.checkedBytes(at: stateBase, count: stateCount * Self.stateSize)
+        let states = try allocator.checkedBytes(
+            at: stateBase, count: stateCount * Self.stateSize
+        ).baseAddress!.assumingMemoryBound(to: UInt8.self)
         var actualAvailable = 0
         var symbolFrequency = 0
-        characterMask.withUnsafeBufferPointer { mask in
-            // Every state symbol is UInt8, and the fixed mask has 256 bytes.
-            let maskBytes = mask.baseAddress!
-            for index in 0..<stateCount {
-                let available = maskBytes[Int(states[index * Self.stateSize])] != escapeCount ? 1 : 0
-                actualAvailable += available
-                symbolFrequency += Int(states[index * Self.stateSize + 1]) * available
-            }
+        let maskBytes = characterMask
+        // Every state symbol is UInt8; the state span and 256-byte mask
+        // remain valid until the model update after selection.
+        for index in 0..<stateCount {
+            let available = maskBytes[Int(states[index * Self.stateSize])] != escapeCount ? 1 : 0
+            actualAvailable += available
+            symbolFrequency += Int(states[index * Self.stateSize + 1]) * available
         }
         guard actualAvailable == availableCount else {
             throw KaitoError.malformed("PPMd7 masked-symbol count is inconsistent")
@@ -336,8 +353,7 @@ final class PPMd7Model {
         let scale = symbolFrequency + escapeFrequency
         let count = try decoder.threshold(total: scale)
         if count < symbolFrequency {
-            let selection: (index: Int, low: Int, frequency: Int)? = characterMask.withUnsafeBufferPointer { mask in
-                let maskBytes = mask.baseAddress!
+            let selection: (index: Int, low: Int, frequency: Int)? = {
                 var low = 0
                 for index in 0..<stateCount {
                     let available = maskBytes[Int(states[index * Self.stateSize])] != escapeCount ? 1 : 0
@@ -347,7 +363,7 @@ final class PPMd7Model {
                     low = high
                 }
                 return nil
-            }
+            }()
             guard let selection else {
                 throw KaitoError.malformed("PPMd7 failed to select an unmasked state")
             }
@@ -919,7 +935,7 @@ final class PPMd7Model {
 
     private func restartModel() throws {
         allocator.restart()
-        characterMask = [UInt8](repeating: 0, count: 256)
+        characterMask.update(repeating: 0, count: 256)
         escapeCount = 1
         numberMasked = 0
         previousSuccess = 0
@@ -955,7 +971,6 @@ final class PPMd7Model {
         )
         maximumContext = root
 
-        binarySummaries = Array(repeating: 0, count: 128 * 64)
         for column in 0..<64 {
             for row in 0..<128 {
                 binarySummaries[row * 64 + column] = SDK.binaryScale

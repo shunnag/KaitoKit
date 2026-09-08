@@ -11,6 +11,9 @@
 
 ### 修正・高速化（2026-09-08）
 
+- RAR5 の重複 match コピー・局所状態・Huffman lookup と PPMd の固定確率表 / mask を高速化し、
+  TIFF RAR5 と solid PPMd の展開を XADMaster の 1.5 倍以内に改善。
+
 - symlink target の最後の `..` まで既存の実 directory を要求し、後続 entry / 別 archive による
   未作成成分の symlink pivot を拒否。root 内の親相対 target と安全な前方参照は維持。
 - EUC-JP 半角カナが主体の名前は既知語がなくても評価し、`ｶﾀｶﾅ半角.txt` の CP932 誤判定を修正。

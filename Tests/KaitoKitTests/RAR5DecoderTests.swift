@@ -147,6 +147,89 @@ final class RAR5DecoderTests: XCTestCase {
         }
     }
 
+    func testPendingMatchesWrapAndPreserveSolidHistory() throws {
+        // Seed the real decoder with a full ring, then repeat its carried
+        // match. An independent bytewise oracle covers period doubling,
+        // distance one, physical wrap and distance == dictionary size.
+        let size = 128 * 1_024
+        let length = 4_097
+        let matches = 35
+        var bits = RAR5DecoderBitWriter()
+        appendSingleMainSymbolTables(symbol: 257, to: &bits)
+        for _ in 0..<matches { bits.append(0, count: 1) }
+        let packed = makeRawBlock(
+            payload: bits.bytes, validBitCount: bits.validBitsInFinalByte,
+            includesTables: true, isLast: true
+        )
+        for distance in [1, 3, 257, size - 1, size] {
+            for bufferSize in [1, 7, 4_096, 65_537, size + 19] {
+                let state = try RAR5Decoder.SolidState(dictionarySize: UInt64(size))
+                var reference = (0..<size).map { UInt8(truncatingIfNeeded: $0 * 31 + $0 / 251) }
+                state.window.update(from: reference, count: size)
+                state.windowPosition = size - 2
+                state.historySize = size
+                state.oldDistance0 = distance
+                state.lastLength = length
+                var position = state.windowPosition
+                var expected = Data()
+                for _ in 0..<(matches * length) {
+                    let byte = reference[(position - distance) & (size - 1)]
+                    reference[position] = byte
+                    position = (position + 1) & (size - 1)
+                    expected.append(byte)
+                }
+                let decoder = try RAR5Decoder(
+                    source: DataByteSource(data: packed), offset: 0,
+                    compressedSize: UInt64(packed.count), unpackedSize: UInt64(expected.count),
+                    dictionarySize: UInt64(size), limits: ReadLimits(), solidState: state
+                )
+                XCTAssertEqual(try drain(decoder, bufferSize: bufferSize), expected)
+                XCTAssertEqual(state.windowPosition, position)
+                XCTAssertEqual(state.historySize, size)
+                XCTAssertEqual(Array(UnsafeBufferPointer(start: state.window, count: size)), reference)
+            }
+        }
+    }
+
+    func testHuffmanPrimaryRebuildAndLongCodeLogicalEnd() throws {
+        for codeLength in [10, 11, 15] {
+            func longBlock(truncated: Bool) -> Data {
+                var bits = RAR5DecoderBitWriter()
+                // Length symbols zero and codeLength have one-bit codes.
+                for index in 0..<20 {
+                    bits.append(index == 0 || index == codeLength ? 1 : 0, count: 4)
+                }
+                for index in 0..<430 { bits.append(index == 66 ? 1 : 0, count: 1) }
+                bits.append(0, count: codeLength - (truncated ? 1 : 0))
+                return makeRawBlock(
+                    payload: bits.bytes, validBitCount: bits.validBitsInFinalByte,
+                    includesTables: true, isLast: true
+                )
+            }
+            // Rebuilding must erase the earlier short code from the primary
+            // table. Codes longer than ten bits use the full fallback.
+            let prefix = makeLiteralBlock(
+                byte: 65, count: 1, includesTables: true, isLast: false
+            )
+            let packed = prefix + longBlock(truncated: false)
+            let decoder = try makeDecoder(
+                source: DataByteSource(data: packed),
+                compressedSize: packed.count, expectedSize: 2
+            )
+            XCTAssertEqual(try drain(decoder, bufferSize: 1), Data([65, 66]))
+
+            // Physical zero sentinels must not complete a logically short code.
+            let short = prefix + longBlock(truncated: true)
+            let malformed = try makeDecoder(
+                source: DataByteSource(data: short),
+                compressedSize: short.count, expectedSize: 2
+            )
+            XCTAssertThrowsError(try drain(malformed, bufferSize: 1)) { error in
+                XCTAssertTrue(error is KaitoError)
+            }
+        }
+    }
+
     func testSourceFailuresAndInvalidCountsAreThrownWithoutAborting() throws {
         let compressed = makeLiteralBlock(
             byte: 0x58,

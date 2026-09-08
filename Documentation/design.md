@@ -531,3 +531,38 @@ CLI の entry failure は `failed entry N`（供給できなかった entry）�
 
 本レビュー修正の回帰テスト、実書庫の parity、RAR4 の N=5/10/20/40 測定と両 toolchain / ASan の
 実出力は [batch12-review-verification-2026-09-08.md](batch12-review-verification-2026-09-08.md) に記録する。
+
+### RAR5 / PPMd 性能追補（2026-09-08、batch 11）
+
+Swift 6.3.3 release、各 3 回の XADMaster / KaitoKit 交互実行。開始 commit は
+`7a1d210`。`book-tiff-rar5.cbr` は 518.768 → 390.867 ms（最終 paired XADMaster
+309.14 ms、1.264 倍）、`ppmd-s-m5-mctp.rar` は 2010.998 → 1702.270 ms
+（1260.47 ms、1.351 倍）。指定 regression 9 書庫の最大増加は stored CBZ の
+4.36% で、5% を超えない。
+
+RAR5 は既存 `lhaCopyMatch` の period staging / doubling / distance-one memset を
+再利用し、window / mask / position / history / produced を `read(into:)` の局所状態とする。
+履歴と出力位置は chunk ごとに集計し、正常終了・error のどちらでも一度だけ書き戻す。
+後続 profile の Huffman / bit-reader work に対しては、既存 RAR29 と同じ 10-bit primary /
+15-bit fallback と小さな bit-reader helper の inline 化を採用した。8 byte 以下の
+特別な copy loop は実測で改善しなかったため採用していない。
+
+PPMd は escaped-symbol scan と配列更新の profile に基づき、128 × 64 の binary probability
+と 256-byte character mask を model ごとに一度確保する raw buffer にし、検証済み state span
+を走査中だけ借用する。mask 世代の wrap と model restart は同じ buffer を再初期化する。
+frequency / context / arena / range / suffix-chain の検査、logical input end と sentinel の
+区別を保持する。新たな第三者 decoder source は参照せず、public API は変更しない。
+
+LZMA literal-run / match-batch は既存最適化済みの経路であり、今回の profile から安全な
+局所改善を確定できなかったため変更していない。最終 paired ratio は solid 7z が 1.391、
+TIFF 7z が 1.303 で、1.3 倍の stretch goal は未達。性能改善とは主張しない。
+
+この実行環境は `sample` の他プロセス取得を拒否した。before / after の実エラーを保存し、
+代わりに対象プロセス内の一時 SIGPROF program-counter sampler で各段階を計測した。
+SwiftPM は repository 内の module cache と `--disable-sandbox` を使い、環境の nested
+sandbox 制約を回避して検証する。製品に profiling code や sandbox 設定は追加しない。
+指定 15 書庫の SHA 比較はすべて一致し、PPMd 2 書庫も rar の member SHA / XADMaster の
+binary-digest aggregate と一致する。Swift 6.3.3 / 6.4 は各 629 tests（33 skip）、0 failure。
+ASan / UBSan は指定 seed 群（41 seeds）から 400 mutants を実行し、crash / hang / finding は
+すべて 0。段階別の数値、profile、受入判定、検証コマンドの実出力は
+[性能・検証記録](performance-rar5-ppmd-2026-09-08.md) に記録する。

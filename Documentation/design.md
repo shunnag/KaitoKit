@@ -566,3 +566,36 @@ binary-digest aggregate と一致する。Swift 6.3.3 / 6.4 は各 629 tests（3
 ASan / UBSan は指定 seed 群（41 seeds）から 400 mutants を実行し、crash / hang / finding は
 すべて 0。段階別の数値、profile、受入判定、検証コマンドの実出力は
 [性能・検証記録](performance-rar5-ppmd-2026-09-08.md) に記録する。
+
+### 大規模差分検証とホットループ敵対レビュー（2026-09-08、`a70bd9d` 時点）
+
+これまでの corpus 検証はサンドボックス実行の申告値だったため、`a70bd9d` の release バイナリで
+ホスト上から取り直した。名前はバイト列を UTF-8 → CP932 → EUC-JP → Latin-1 の順に復号して
+NFC 正規化し、内容は展開木の全ファイルの SHA-256 で比較する。
+
+- lhasa 試験書庫 227 件: 209 一致・**内容差 0**。残りは kaito 失敗 11（pm1/pm2 未対応、4 GB
+  上限超過、意図的な切り詰め検体）、両者失敗 6、lhasa のみ失敗 1。M4 当時の 211 との差は、
+  その後に入れた symbolic-link target の脱出拒否（親鎖の実在要求）を反映したもの。
+- 実ツール書庫 671 件（rar 6.24 / LHa for UNIX が作成、分割は先頭巻のみ）: 454 一致・
+  **内容差 0**。名前のみ差 26 は LHa for UNIX 側がヘッダのバイト列をそのまま書くことによる
+  検証ハーネス上の差で、XADMaster オラクルと突き合わせると KaitoKit の復号は一致する。
+  kaito 失敗 47 のうち 33 は絶対パス・脱出 link target の拒否（仕様どおり）、6 は下記 U1、
+  2 は切り詰め検体、1 は NAME_MAX 超過。実ツールのみ失敗 35 は LHa for UNIX の iconv 失敗で
+  KaitoKit は展開できた。両者失敗 107 は password なしで開いた暗号化書庫。
+- **同じ 671 件を `7a1d210` のバイナリでも通し、判定は 671 件すべて一致（差 0）**。`a70bd9d`
+  の最適化は観測可能な挙動を変えていない。
+- ホットループ（CRC16 slice-by-8、RAR29 / RAR5 の周期倍加コピーと局所状態、LHA static Huffman
+  の一次 lookup、PPMd7 の固定 raw バッファ）に対する 2 レンズの敵対レビューは確定所見 0。
+  計装済み ASan/UBSan ビルドで書庫 256 種・ミュータント 2,196 体・実行 9,471 回を行い、
+  sanitizer report / トラップ / KaitoError 以外の失敗 / ハングはすべて 0。呼び出し側バッファを
+  1 / 7 / 4096 / 65537 バイトに変えた分割読みも全ミュータントで実施した。bit-exactness は
+  書庫 1,092 件と暗号化 44 ケースで `a70bd9d` = `7a1d210`。
+- 検証ツールの注意: `swift build` に `-Xswiftc -sanitize=address -Xswiftc -sanitize=undefined` と
+  フラグを分けて渡すと sanitizer runtime だけがリンクされ **instrumentation が入らない**。
+  `Scripts/fuzz/build-asan.sh` は `-sanitize=address,undefined` と 1 つにまとめており正しい。
+- U1（既知の非対応、上記 M3 記載）: rar が `-s -ol` で書く symbolic link は
+  "RAR 1.5(v20) -m0" + solid flag になるため、圧縮メンバより後ろに並ぶと
+  `RAR4Reader.streamSolidEntry` の method 検査が群全体を拒否する。XADMaster は展開できるため
+  移行時の差になる。unrar 同様に stored メンバを LZ window に触れず読み飛ばす対応を検討する。
+- 逆に XADMaster 側の欠陥も確定した。`m5-solid.rar`（RAR4 solid、24 メンバ）で XADMaster は
+  10 メンバを 0 バイトで返すが、KaitoKit は rar 6.24 の展開結果と 24/24 一致する。同型は 8 書庫。

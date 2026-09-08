@@ -11,6 +11,10 @@
 
 ### 修正・高速化（2026-09-08）
 
+- RAR5 の長い password は実測済みの先頭 127 Unicode scalars を優先し、全 UTF-8 への
+  fallback で既存 writer 互換を保持。symbolic-link target の末尾が NAME_MAX を超える場合も
+  安全な dangling link として展開できるよう修正。
+
 - RAR4 solid 群内の stored member を共有状態に影響させず読み取り、RAR5 symbolic link の
   read / stream が header target の UTF-8 bytes を返すよう修正。
 
@@ -23,8 +27,7 @@
 - RAR4 非 BMP password の方式を archive 単位で記憶し、solid prefix の entry ごとの再展開を解消。
   header CRC の選択と KDF cache を再利用し、非最終候補では error 種別によらず次の候補を検証。
 - CLI の失敗 entry と CRC 不一致の source member を stderr / ERROR TSV の両方で区別。
-- RAR3 writer の 127 文字 cap を移行ガイドの password 項目へ統合。RAR5 は既存の全 UTF-8 入力を
-  維持する方針と、rar の長い password の切り詰めとの差を design.md に明記。
+- RAR3 writer の 127 文字 cap を移行ガイドの password 項目へ統合。
 
 - RAR3 Audio standard filter の fingerprint 長を実 program の 216 bytes に修正。
 - RAR3 の長い password と BMP 外の Unicode password の互換性を修正。UTF-16 を優先し、

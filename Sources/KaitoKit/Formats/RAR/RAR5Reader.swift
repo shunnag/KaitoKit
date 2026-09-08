@@ -110,12 +110,12 @@ final class RAR5Reader: FormatReader {
         }
 
         mutating func charge(
-            password: String,
+            passwordUTF8: Data,
             salt: [UInt8],
             count: UInt8
         ) throws {
             let context = RAR5KeyCacheKey(
-                passwordUTF8: Data(password.utf8),
+                passwordUTF8: passwordUTF8,
                 salt: Data(salt),
                 count: count
             )
@@ -463,7 +463,8 @@ final class RAR5Reader: FormatReader {
             source: source,
             sourceURL: sourceURL,
             sourceDirectoryAnchor: sourceDirectoryAnchor,
-            options: options
+            options: options,
+            passwordSelection: keyCache.passwordSelection
         )
         self.entries = parsed.entries
         self.records = parsed.records
@@ -475,13 +476,15 @@ final class RAR5Reader: FormatReader {
     /// handles authenticated during the original parse. In particular, a
     /// reopened multi-volume reader never resolves sibling paths a second time.
     func reopened(options: ReaderOptions) -> RAR5Reader {
-        RAR5Reader(
+        let reader = RAR5Reader(
             source: source,
             sourceURL: sourceURL,
             options: options,
             entries: entries,
             records: records
         )
+        reader.keyCache.passwordSelection.selectedUTF8 = keyCache.passwordSelection.selectedUTF8
+        return reader
     }
 
     private init(
@@ -947,16 +950,13 @@ final class RAR5Reader: FormatReader {
         } ?? false
         if let encryption = record.encryption {
             guard let password else { throw KaitoError.passwordRequired }
-            let keys = try keyCache.key(
+            let (keys, verified) = try keyCache.checkedKey(
                 password: password,
                 salt: encryption.salt,
-                count: encryption.kdfCount
+                count: encryption.kdfCount,
+                checkValue: encryption.checkValue
             )
-            if let checkValue = encryption.checkValue {
-                mismatchIsWrongPassword = try !keys.verify(
-                    passwordCheckValue: checkValue
-                )
-            }
+            mismatchIsWrongPassword = !verified
             encryptionKey = keys.encryptionKey
             encryptionHashKey = keys.hashKey
             if encryption.usesTweakedChecksums {
@@ -1119,14 +1119,16 @@ final class RAR5Reader: FormatReader {
         source: any ByteSource,
         sourceURL: URL?,
         sourceDirectoryAnchor: FileByteSource.DirectoryAnchor?,
-        options: ReaderOptions
+        options: ReaderOptions,
+        passwordSelection: RAR5PasswordSelection
     ) throws -> (entries: [ArchiveEntry], records: [Record], password: String?) {
         var resolvedPassword = options.password
         // One archive-encryption envelope can occur per volume. Retaining every
         // reachable context makes the cumulative work accounting match actual
         // derivations rather than charging harmless repeated envelopes.
         let headerKeyCache = RAR5KeyCache(
-            capacity: max(1, options.limits.maxVolumeCount)
+            capacity: max(1, options.limits.maxVolumeCount),
+            passwordSelection: passwordSelection
         )
         var headerKDFBudget = HeaderKDFWorkBudget(
             limit: options.limits.maxRAR5HeaderKDFWork
@@ -1470,19 +1472,14 @@ final class RAR5Reader: FormatReader {
             password = try provider.password(for: .rar)
         }
         guard let password else { throw KaitoError.passwordRequired }
-        try headerKDFBudget.charge(
+        let (keys, passwordWasVerified) = try keyCache.checkedKey(
             password: password,
             salt: salt,
-            count: kdfCount
-        )
-        let keys = try keyCache.key(
-            password: password,
-            salt: salt,
-            count: kdfCount
-        )
-        let passwordWasVerified = try checkValue.map {
-            try keys.verify(passwordCheckValue: $0)
-        } ?? false
+            count: kdfCount,
+            checkValue: checkValue
+        ) { candidate in
+            try headerKDFBudget.charge(passwordUTF8: candidate, salt: salt, count: kdfCount)
+        }
         return ArchiveEncryptionContext(
             key: keys.encryptionKey,
             passwordWasVerified: passwordWasVerified

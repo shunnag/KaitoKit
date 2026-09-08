@@ -419,13 +419,54 @@ struct RAR5KeyCacheKey: Hashable, Sendable {
     let count: UInt8
 }
 
+/// RAR 6.24 / 7.23 black-box vectors establish a 127 Unicode-scalar cap.
+/// Retain the full UTF-8 candidate for writers that do not impose that cap.
+final class RAR5PasswordSelection {
+    var selectedUTF8: Data?
+
+    static func candidates(_ password: String) -> [Data] {
+        let full = Data(password.utf8)
+        guard password.unicodeScalars.prefix(128).count == 128 else { return [full] }
+        let prefix = String(String.UnicodeScalarView(password.unicodeScalars.prefix(127)))
+        return [Data(prefix.utf8), full]
+    }
+}
+
 final class RAR5KeyCache {
+    let passwordSelection: RAR5PasswordSelection
     private let capacity: Int
     private var values: [RAR5KeyCacheKey: RAR5DerivedKeys] = [:]
     private var insertionOrder: [RAR5KeyCacheKey] = []
 
-    init(capacity: Int = 16) {
+    init(capacity: Int = 16, passwordSelection: RAR5PasswordSelection = RAR5PasswordSelection()) {
         self.capacity = max(1, capacity)
+        self.passwordSelection = passwordSelection
+    }
+
+    func checkedKey(
+        password: String,
+        salt: [UInt8],
+        count: UInt8,
+        checkValue: [UInt8]?,
+        charge: (Data) throws -> Void = { _ in }
+    ) throws -> (keys: RAR5DerivedKeys, verified: Bool) {
+        let candidates = passwordSelection.selectedUTF8.map { [$0] }
+            ?? RAR5PasswordSelection.candidates(password)
+        for candidate in candidates {
+            try charge(candidate)
+            let keys = try key(passwordUTF8: candidate, salt: salt, count: count)
+            do {
+                let verified = try checkValue.map { try keys.verify(passwordCheckValue: $0) } ?? false
+                // Missing or internally damaged advisory checks cannot select a
+                // candidate. Use the first candidate and retain existing CRC /
+                // decoder error handling; a later valid check can still resolve it.
+                if verified { passwordSelection.selectedUTF8 = candidate }
+                return (keys, verified)
+            } catch KaitoError.wrongPassword {
+                continue
+            }
+        }
+        throw KaitoError.wrongPassword
     }
 
     func key(
@@ -433,8 +474,16 @@ final class RAR5KeyCache {
         salt: [UInt8],
         count: UInt8
     ) throws -> RAR5DerivedKeys {
+        try key(passwordUTF8: Data(password.utf8), salt: salt, count: count)
+    }
+
+    private func key(
+        passwordUTF8: Data,
+        salt: [UInt8],
+        count: UInt8
+    ) throws -> RAR5DerivedKeys {
         let cacheKey = RAR5KeyCacheKey(
-            passwordUTF8: Data(password.utf8),
+            passwordUTF8: passwordUTF8,
             salt: Data(salt),
             count: count
         )
@@ -449,6 +498,7 @@ final class RAR5KeyCache {
     }
 
     func removeAll() {
+        passwordSelection.selectedUTF8 = nil
         values.removeAll(keepingCapacity: false)
         insertionOrder.removeAll(keepingCapacity: false)
     }

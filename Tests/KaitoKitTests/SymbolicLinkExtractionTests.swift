@@ -15,6 +15,24 @@ final class SymbolicLinkExtractionTests: XCTestCase {
         })
     }
 
+    func testOverlongTargetLeafIsAllowedButUnsafeParentsRemainRejected() throws {
+        for target in [String(repeating: "t", count: 1000), String(repeating: "か", count: 100)] {
+            let temporary = try TarTestSupport.temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: temporary) }
+            let reader = try ArchiveReader.open(data: archive([("src/link", target)], zip: true))
+            let extracted = try reader.extract(reader.entries[0], to: temporary)
+            XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: extracted.path), target)
+
+            try FileManager.default.createSymbolicLink(atPath: temporary.appendingPathComponent("pivot").path,
+                                                      withDestinationPath: "..")
+            try Data([42]).write(to: temporary.appendingPathComponent("file"))
+            for unsafe in ["pivot/" + target, "file/" + target, "missing/../" + target] {
+                let bad = try ArchiveReader.open(data: archive([("unsafe", unsafe)], zip: true))
+                XCTAssertThrowsError(try bad.extract(bad.entries[0], to: temporary))
+            }
+        }
+    }
+
     func testTwoEntryPivotRejectedInBothOrdersAndFormats() throws {
         try verifyPivot(parent: "x", target: "a/../canary.txt", pivot: "..")
     }

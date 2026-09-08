@@ -799,7 +799,10 @@ enum Extractor {
             guard (information.st_mode & S_IFMT) != S_IFLNK else {
                 throw KaitoError.malformed("symbolic-link target resolves through another link")
             }
-        } else if errno != ENOENT {
+        } else if errno != ENOENT && errno != ENAMETOOLONG {
+            // An overlong leaf cannot exist, including as a symlink. ENOTDIR
+            // remains fatal: the parent is an open directory and the leaf has
+            // no separators, so it would violate the validated walk's assumptions.
             throw KaitoError.io(errno)
         }
         try targetParent.restoreMode()

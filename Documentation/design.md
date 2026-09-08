@@ -521,11 +521,16 @@ black-box 入出力だけである。新たな第三者 decoder source は参照
 RAR3 password は writer と同じ最大 127 wide characters に制限してから KDF へ渡す。
 UTF-16 候補は 127 code units、Unix 候補は 127 Unicode scalars で区切る。
 
-RAR5 の 128 文字以上の password は、本追補では意図的に RAR3 と異なる既存挙動を維持する。
-RAR5 KDF は入力全体の UTF-8 を使い、Unix rar の 127 Unicode scalar cap を適用しない。そのため
-rar 6.24 / 7.23 が切り詰めて作成した archive に元の長い password を渡すと一致せず、writer が使った
-切り詰め後の password を指定する必要がある。既に読める長い password の archive を変えず、Windows の
-UTF-16 unit 境界と Unix scalar 境界の二候補を検証する fixture を別途揃えるまで互換範囲を拡張しない。
+RAR5 password は先頭 127 Unicode scalars の UTF-8、入力全体の UTF-8 の順に候補を検証する。
+rar 6.24 / 7.23、`-p` / `-hp` の実測では、128 scalars 以上の 40 書庫すべてが前者で開き、
+全体と 255 scalars の候補ではいずれも 0/40 だった。絵文字でも境界は UTF-16 units ではない。
+127 scalars 以下では入力を一切変えない 1 候補だけとする。全体の候補は切り詰めない writer との
+後方互換のために残す。未検証の Windows UTF-16 unit 候補は追加しない。
+有効な password check で候補を archive 単位に選択し、header / file と KDF cache で再利用する。
+reopen は選択を複製し、password 変更で選択と cache を破棄する。header KDF work は候補ごとに課金する。
+検査値が無い / 内部 checksum が破損した場合は、既に選択済みならその候補、未選択なら先頭候補だけを
+使う（spec が許容する方式）。stream / solid state を候補ごとに巻き戻す CRC probe は追加せず、
+従来の header CRC / payload integrity 検証と error 分類を維持する。この場合は候補を確定しない。
 
 CLI の entry failure は `failed entry N`（供給できなかった entry）と `source member M`
 （CRC が不一致だった member）を区別する。`sha` の ERROR TSV 行も同じ label を用いる。
@@ -627,3 +632,30 @@ NFC 正規化し、内容は展開木の全ファイルの SHA-256 で比較す�
 - Swift 6.3.3 / 6.4 の全テストは 632 件、既存 skip 33 件、失敗 0。既存 corpus 51 書庫の
   SHA / 終了値と、password 付き 93 ケースは a70bd9d と差分 0。指定 59 seed の ASan/UBSan
   400 mutants と、新規 fixture 4 seed の password 付き 400 mutants は crash / hang / 所見 0。
+
+
+### RAR5 長い password と長い symbolic-link target の訂正（2026-09-08、batch 14）
+
+- 以前の「RAR5 は意図的に全 UTF-8 のみを維持する」という判断を、RAR 6.24 / 7.23 の
+  56 書庫行列の実測に基づき撤回した。127 Unicode scalar 前置を優先し、全 UTF-8 を
+  fallback として保持する。公開 API と 127 scalars 以下の入力 bytes は変更しない。
+- base64 fixture で 127 / 128 の境界、かな、絵文字、`-p` / `-hp`、切り詰めない synthetic writer、
+  結合文字、reopen / password reset、KDF work 上限、検査値なし / 破損を検証する。
+- Extractor の final-leaf `fstatat(..., AT_SYMLINK_NOFOLLOW)` に限り ENAMETOOLONG を
+  ENOENT と同じ扱いにする。NAME_MAX 超過の leaf は既存 symlink になれない。
+  ENOTDIR は開いた directory と separator のない leaf という前提の破綻なので引き続き拒否する。
+  1000-byte / multibyte target と危険な parent の回帰を追加し、既存 6 safety tests は変更しない。
+- 入力は task の実測仕様、KaitoKit 自身のコード、RAR executable の生成物と展開結果だけであり、
+  禁止対象の実装ソースは参照していない。
+- 検証: Swift 6.4 / 6.3.3 とも 639 tests、既存 skip 33、失敗 0。環境の writable module cache と
+  `--disable-sandbox` を使用した。spec のコマンドも原文どおり実行したが、無指定の SwiftPM
+  build / test は host の `sandbox_apply: Operation not permitted` で失敗するため、release を
+  同じ環境調整で再 build し、原文の matrix Python を再実行した。
+  元の password で RAR5 48/48、RAR4 4/4 が成功。既存 RAR4 暗号化 50 書庫・67 ケースと
+  wrong-password 8 ケースの終了値 / stdout / stderr は `kaito-a70bd9d` と完全一致。
+  full-password synthetic writer の 2 書庫も同バイナリと一致する。
+- 1000-byte target の再現は展開成功し、`len1000.rar` / `probe-link-then-same.rar` の各 4 entry は
+  rar6 の展開木と type / file bytes / readlink target が一致。macOS `diff -r` は 0 終了だが
+  dangling link を追って NAME_MAX の警告を出すため、lstat / readlink で独立に全件を比較した。
+  指定 seed の ASan / UBSan 300 mutants と、full-password fixture の password 付き 300 mutants は
+  crash / hang / sanitizer finding がすべて 0。`git diff --check` も成功。

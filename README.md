@@ -218,6 +218,9 @@ writer と同じ最大127文字（UTF-16 候補は127 code units、Unix 候補�
 UTF-16 を先に試し、検証失敗時に Unix RAR の Unicode scalar 下位 16 bit 表現へ再試行します。
 file data は独立した stream で CRC を最後まで検証してから公開するため、この場合だけ追加の展開が生じます。
 
+RAR5 は先頭127 Unicode scalars の UTF-8 を優先し、有効な password 検査値が一致しなければ
+入力全体の UTF-8 を試します。127 scalars 以下の password は変更しません。
+
 ## 開発
 
 ```console

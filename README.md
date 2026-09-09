@@ -1,12 +1,23 @@
 # KaitoKit (解凍Kit)
 
 KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。tar、ZIP / ZIP64、7z、
-RAR4 / RAR5、LHA / LZH、ISO 9660、cpio、ar（.deb を含む）に加え、gzip、bzip2、xz、UNIX compress (`.Z`) と圧縮 tar を扱います。
+RAR4 / RAR5、LHA / LZH、ISO 9660、cpio、ar（.deb を含む）、xar（.pkg を含む）、CAB、RPM に加え、gzip、bzip2、xz、UNIX compress (`.Z`) と圧縮 tar を扱います。
 書庫の検出から列挙、ストリーミング読み取り、展開までを一つのパイプラインとして提供します。
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon / Intel
 - 外部依存: なし。zlib、libbz2 など OS 同梱ライブラリだけを使用
 - ライセンス: MIT。XADMaster / The Unarchiver のコードは実装へ取り込んでいません
+
+> **KaitoKit (解凍Kit)**
+>
+> KaitoKit is a pure-Swift archive reading framework for macOS. It handles tar, ZIP / ZIP64, 7z,
+> RAR4 / RAR5, LHA / LZH, ISO 9660, cpio, ar (including `.deb`), xar (including `.pkg`), CAB and RPM,
+> plus gzip, bzip2, xz, UNIX compress (`.Z`) and compressed tar.
+> Detection, listing, streaming reads and extraction are provided as one pipeline.
+>
+> - Requires macOS 26 or later, Swift 6, Apple Silicon or Intel.
+> - No external dependencies. Only OS-bundled libraries such as zlib and libbz2 are used.
+> - MIT licensed. No XADMaster or The Unarchiver code is incorporated into the implementation.
 
 ## SwiftPM
 
@@ -52,6 +63,23 @@ for entry in directories {
 文字コードを取得できます。自動判定時にすべての名前が形式で宣言済みまたは
 厳密に有効な UTF-8 なら `nil` です。
 
+> **Swift Package Manager**
+>
+> Process directories after their children, deepest first, to preserve the final permissions and
+> modification dates recorded in the archive. `kaito extract` uses the same order.
+> A hard link with no body of its own is created only when the same `ArchiveReader` has already
+> extracted its target into the same output root. That provenance is reset when you switch output
+> roots or call `reopen()`, so extract in archive order as shown above.
+> The caller owns the output root exclusively during extraction; do not modify it from another
+> thread or process.
+>
+> `ArchiveReader` is not thread-safe. For parallel extraction, use `reopen()` to create independent
+> readers that share the same `ByteSource`. For existing XADMaster call sites, `KaitoKitCompat`
+> provides `KaitoArchive` and an `XADArchive` typealias.
+> For archives whose names are undeclared and need automatic detection, `nameEncoding` reports the
+> character encoding chosen for the whole archive. It is `nil` when every name is either declared by
+> the format or strictly valid UTF-8.
+
 ## 対応状況
 
 | 形式 | コンテナ・圧縮方式 | 暗号化 | multi-volume / multi-stream |
@@ -59,6 +87,9 @@ for entry in directories {
 | ISO 9660 | PVD、Joliet、Rock Ridge（NM/CE/PX/SL/TF、深い階層）、multi-extent、stored | なし | 最初の session のみ |
 | ar / .deb | BSD 長名、SysV/GNU 文字列表、stored | なし | symbol table を公開、長名表 `//` のみ非公開、thin archive は明示的に拒否 |
 | cpio | bin（両 byte order）、odc、newc、crc、hpbin、hpodc、stored | なし | 連結書庫、symlink、宣言サイズどおりの hard link |
+| xar / .pkg | TOC XML（部分集合 pull parser）、zlib / bzip2 / lzma / xz / stored の heap、入れ子ディレクトリ、symlink、hard link、`<name enctype="base64">`、macOS flat package | なし | なし。TOC checksum と `<extracted-checksum>` を検証、`<subdoc>` 内の `<file>` は entry にしない |
+| CAB | CFHEADER / CFFOLDER / CFFILE / CFDATA、None と MSZIP（CFDATA をまたぐ LZ77 履歴）、予約領域、UTF-8 名 (attribs 0x80) | なし | 多分割フラグがあっても手元の cabinet の file は読み、実際にまたぐ file だけ拒否。Quantum / LZX は一覧のみ |
+| RPM | lead / signature header / main header、payload の cpio entry を直接公開、gzip / bzip2 / xz / lzma / stored payload | なし | codec は宣言 tag ではなく payload 先頭の magic で決定 |
 | tar | POSIX/ustar、pax、GNU long name/link、stored member | なし | volume 分割なし |
 | gzip | RFC 1952、FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT、DEFLATE、CRC32/ISIZE | なし | concatenated member 対応 |
 | bzip2 | BZip2 block size 1〜9 | なし | concatenated stream 対応 |
@@ -72,12 +103,69 @@ for entry in directories {
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
 | LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
 
+> **Supported formats**
+>
+> The table above lists every supported format. Its columns are, in order:
+> Format / Container and compression methods / Encryption / Multi-volume and multi-stream.
+> Most cells are method names, version numbers and identifiers that read the same in English;
+> `なし` means none. The cells that carry Japanese prose read as follows.
+>
+> - **ISO 9660**: PVD, Joliet, Rock Ridge (NM/CE/PX/SL/TF, deep hierarchies), multi-extent, stored.
+>   First session only.
+> - **ar / .deb**: BSD long names, the SysV/GNU string table, stored. The symbol table is exposed;
+>   only the `//` long-name table is hidden; a thin archive is explicitly rejected.
+> - **cpio**: bin (both byte orders), odc, newc, crc, hpbin, hpodc, stored. Concatenated archives,
+>   symbolic links, and hard links keeping their declared size.
+> - **xar / .pkg**: TOC XML through a subset pull parser; a zlib, bzip2, lzma, xz or stored heap;
+>   nested directories; symbolic links; hard links; `<name enctype="base64">`; the macOS flat
+>   package. No multi-volume. The TOC checksum and `<extracted-checksum>` are verified, and a
+>   `<file>` inside a `<subdoc>` never becomes an entry.
+> - **CAB**: CFHEADER / CFFOLDER / CFFILE / CFDATA, None and MSZIP (whose LZ77 history crosses
+>   CFDATA blocks), the reserved areas, and UTF-8 names (attribs 0x80). Even when the multi-cabinet
+>   flags are set, the files held in this cabinet are read normally and only a file that actually
+>   spans cabinets is rejected. Quantum and LZX can be listed only.
+> - **RPM**: the lead, the signature header and the main header; the cpio entries of the payload are
+>   exposed directly; gzip, bzip2, xz, lzma and stored payloads. The codec is decided by the magic
+>   at the start of the payload rather than by the declared tag.
+> - **tar**: POSIX/ustar, pax, GNU long name and link, stored members. No volume splitting.
+> - **gzip**: RFC 1952 with FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT, DEFLATE, CRC32 and ISIZE.
+>   Concatenated members are supported.
+> - **bzip2, xz, UNIX compress (`.Z`)**: BZip2 block sizes 1 to 9; the XZ container with Apple
+>   Compression's LZMA, footer and padding; LZW 9 to 16 bit with block mode. No encryption. bzip2
+>   and xz support concatenated streams; `.Z` has none.
+> - **LZMA_Alone (`.lzma`)**: a 13-byte header plus raw LZMA. Because the format has no magic, it is
+>   accepted only when the extension, the properties, the dictionary size and the first byte of the
+>   range coder all agree, and detection is left until last.
+> - **Compressed tar**: `.tgz` / `.tar.gz`, `.tbz2` / `.tar.bz2`, `.txz` / `.tar.xz` and
+>   `.tz` / `.tar.Z` are expanded and then listed with TarReader.
+> - **ZIP / ZIP64**: the central directory and SFX are supported; multi-disk and spanned archives
+>   are not.
+> - **7z**: the coder chain covers a folder in which a byte-consuming coder takes the output of
+>   another coder as its input; solid folders and a bounded Mach-O/PE SFX prefix are supported. No
+>   external volume splitting; solid and block splits are supported.
+> - **RAR4 / RAR5**: LZ and PPMd of the listed unpack versions, the listed filters, solid mode, and
+>   a bounded SFX prefix. Multi-volume works from URL-backed input, including encrypted volumes for
+>   RAR5.
+> - **LHA / LZH**: header levels 0 to 3, the listed methods, the LHArk `-lh7-`, and a bounded SFX
+>   prefix. No multi-volume; every member is independent (`solidGroup == -1`).
+
 名前は ZIP/RAR4/LHA/tar/gzip FNAME の undecorated bytes に対して archive-wide の UTF-8、CP932、
 EUC-JP 判定を行い、format が宣言する Unicode 名を優先します。単一 file 形式の FNAME がない場合は
 source file の拡張子を除いた名前を entry 名にします。
 
 圧縮 tar の展開結果は `ReadLimits.inMemorySingleFileLimit` 以下なら memory、それより大きければ
 直ちに unlink した一時 file descriptor に保持します。どちらも同じ `TarReader` API を公開します。
+
+> **Names and compressed tar staging**
+>
+> Names are resolved by an archive-wide UTF-8, CP932 and EUC-JP detection over the undecorated bytes
+> of ZIP, RAR4, LHA, tar and gzip FNAME, preferring any Unicode name the format declares. When a
+> single-file format carries no FNAME, the entry name is the source file name with its extension
+> removed.
+>
+> The expansion of a compressed tar is held in memory when it is at or below
+> `ReadLimits.inMemorySingleFileLimit`, and otherwise in an immediately unlinked temporary file
+> descriptor. Both paths expose the same `TarReader` API.
 
 LHA の directory 属性は method だけでなく末尾 separator と MS-DOS directory bit からも判定します。
 このため OS/2 の extended-attribute payload を持つ subdirectory も子 entry の親として扱えます。
@@ -93,6 +181,25 @@ LHA CRC16 は padding と resource fork を含む MacBinary 全体と compatible
 MacBinary ではない member はそのまま返します。公開 `uncompressedSize` は互換性のため LHA header が
 宣言した envelope size を保持します。
 
+> **LHA directories and MacLHA**
+>
+> LHA directory status is decided not only by the method but also by a trailing separator and the
+> MS-DOS directory bit. A subdirectory carrying an OS/2 extended-attribute payload can therefore act
+> as the parent of its child entries.
+> A leading slash and a drive prefix are removed to make the name relative, but `..` is not resolved
+> and is rejected by the extraction layer as before. Metadata that old writers appended after the NUL
+> in the filename field is not included in the pathname.
+> The 0xFF byte in levels 0 to 3, and a backslash after character-encoding decoding, are treated as
+> directory separators, while 0x5C as the trail byte of a two-byte CP932 character is preserved.
+> The mtime, permissions, uid and gid of the level-0 Unix `U` extension are also exposed.
+>
+> For a member carrying the MacLHA Macintosh OS marker, the data fork is exposed through
+> `stream(_:)` and `read(_:)` only when the decoded header is confirmed valid against the MacBinary
+> and MacBinary II standard proposals. The LHA CRC16 is verified over the whole MacBinary envelope,
+> including padding and the resource fork, and over any compatible trailing extension; a member that
+> is not MacBinary is returned as is. The published `uncompressedSize` keeps the envelope size
+> declared by the LHA header, for compatibility.
+
 cooViewer の `book.lzh` は level 2 の `-lh0-` 4 member をすべて lhasa の black-box
 出力と SHA-256 比較しています。`-lh5-` の literal / match / preset-window vector も、
 hand-built archive を lhasa と KaitoKit の双方で展開して一致を確認しています。release の
@@ -104,6 +211,19 @@ PPMd↔LZ 変換の 241,647,978-byte entry も一致しました。さらに RAR
 既知 password 集合では oracle を得られない暗号化 entry が 1 件あり、破損した
 `seek_data_cursor0` 書庫は RAR 7.23 と KaitoKit の双方が拒否します。
 
+> **Differential testing against reference tools**
+>
+> All four level-2 `-lh0-` members of cooViewer's `book.lzh` are compared by SHA-256 against the
+> black-box output of lhasa. The `-lh5-` literal, match and preset-window vectors are also confirmed
+> by extracting a hand-built archive with both lhasa and KaitoKit. A release build of
+> `kaito bench book.lzh 9` measured an open of 0.049 ms and an extract of 33,104 bytes in 0.189 ms.
+>
+> For RAR4, all 19 files of `st1200-pts.rar` match the black-box output of RAR 7.23, including the
+> 241,647,978-byte entry that exercises the PPMd/LZ transition. Across a 20-archive RAR4 corpus, the
+> byte counts and SHA-256 of 47 regular files and the names and target bytes of 5 symlinks all match.
+> One encrypted entry has no oracle under the known password set, and the damaged
+> `seek_data_cursor0` archive is rejected by both RAR 7.23 and KaitoKit.
+
 RAR4 / RAR5 の URL-backed multi-volume は、最初の volume と同じ directory の deterministic
 sibling 名だけを、保持した directory descriptor から symlink を追わず regular file として開き、
 既定 128 volume の `ReadLimits.maxVolumeCount` で制限します。RAR4 は old / new numbering、
@@ -111,6 +231,16 @@ RAR5 は `.partN.rar` と暗号化 data / header の継続に対応します。`
 volume handle を共有し、path を再解決しません。Data / 任意 `ByteSource` は sibling volume を
 一意に特定できないため、未解決の分割 entry を読むと
 `unsupportedMethod("multi-volume from Data")` を返します。
+
+> **Multi-volume RAR**
+>
+> URL-backed multi-volume RAR4 and RAR5 open only deterministic sibling names in the same directory
+> as the first volume. They are opened as regular files from a retained directory descriptor without
+> following symbolic links, and are bounded by `ReadLimits.maxVolumeCount`, which defaults to 128
+> volumes. RAR4 supports old and new numbering; RAR5 supports `.partN.rar` and the continuation of
+> encrypted data and headers. `reopen()` shares all verified volume handles and does not re-resolve
+> paths. `Data` and custom `ByteSource` inputs cannot identify sibling volumes uniquely, so reading
+> an unresolved split entry returns `unsupportedMethod("multi-volume from Data")`.
 
 RAR5 archive header の KDF は、個々の `count` を
 `ReaderOptions.maxRAR5KDFCountPower` (既定かつ上限 24) で制限します。さらに、header encryption
@@ -126,6 +256,21 @@ streaming します。`read(_:)` も宣言サイズを仮定せず、設定さ�
 増やします。codec の辞書サイズ上限は `ReadLimits.maxDictionarySize` で設定し、既定値は
 1 GiB です。
 
+> **RAR5 key derivation and unknown sizes**
+>
+> The KDF for RAR5 archive headers bounds each individual `count` with
+> `ReaderOptions.maxRAR5KDFCountPower`, whose default and maximum are both 24. On top of that,
+> `ReadLimits.maxRAR5HeaderKDFWork` accumulates the derivations actually performed across every
+> volume that uses header encryption. Work is measured in HMAC-SHA256 iterations, counting each
+> context as `2^count + 32`. The default is `4 * (2^24 + 32)`, that is four contexts at the most
+> expensive `count = 24`. When several volumes reuse the same `(password, salt, count)` context the
+> key cache is used and the work is charged once. Different contexts accumulate across volumes.
+>
+> A RAR5 entry of unknown size keeps `uncompressedSize == nil` and is streamed incrementally to the
+> decoder's end marker. `read(_:)` likewise assumes no declared size and grows its buffer in stages
+> within the configured limits. The codec dictionary size limit is set by
+> `ReadLimits.maxDictionarySize` and defaults to 1 GiB.
+
 ZIP の DOS 日時にはタイムゾーン情報がないため、現在のローカルタイムゾーンとして解釈します。
 Extended timestamp と NTFS timestamp は UTC の時刻として扱います。ZIP のローカルヘッダを
 open 時にすべて検証したい場合は `ReaderOptions(lazyLocalHeaders: false)` を指定してください。
@@ -135,13 +280,28 @@ open 時にすべて検証したい場合は `ReaderOptions(lazyLocalHeaders: fa
 stream 自体の破損も `wrongPassword` として報告される場合があります。KDF の計算量上限は
 `ReaderOptions.maxSevenZipAESCyclesPower` で設定できます。
 
+> **ZIP timestamps and 7zAES**
+>
+> A ZIP DOS timestamp carries no timezone, so it is interpreted in the current local timezone.
+> Extended timestamps and NTFS timestamps are treated as UTC. To validate every ZIP local header at
+> open time, pass `ReaderOptions(lazyLocalHeaders: false)`.
+>
+> 7zAES has no independent authentication tag, so KaitoKit reports `wrongPassword` when the CRC of
+> the first decrypted stream does not match, or when the decrypted coder structure is invalid. As a
+> consequence, corruption of the encrypted stream itself may also be reported as `wrongPassword`.
+> The KDF work limit is set by `ReaderOptions.maxSevenZipAESCyclesPower`.
+
 ## 既知の制限
 
 - ISO は Rock Ridge（NM あり）> Joliet > PVD の順で名前の木を選びます。UDF、raw sector image、
   後続 session、interleaved / sparse / zisofs の内容展開は未対応です。
 - cpio は PWB / newcx、HP-UX device number の解釈、device node の再作成に対応しません。
   hard link の 0-byte placeholder は内容を補完しません。圧縮 cpio の自動連鎖は対象外です。
-- CAB、ARJ、ACE、StuffIt/SIT、ar、xar、zstd stream は未対応です。
+- CAB は None と MSZIP を展開します。Quantum と LZX は一覧できますが、読み取り時に
+  `unsupportedMethod` になります。複数 cabinet にまたがる file も同様です。
+- RPM は zstd payload、rpm 6 の簡略 cpio (`07070X`)、drpm、cpio でない payload を展開せず、
+  圧縮済み payload を 1 entry として公開します。
+- ARJ、ACE、StuffIt/SIT、zstd stream は未対応です。
 - ZIP は multi-disk/spanned と method 93 (zstd)、95 (xz)、96 (JPEG)、98 (PPMd) を扱いません。
 - 7z は RISC-V filter (method 0x0B) と external volume 分割 (`.7z.001`) を扱いません。
 - RAR4 は unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成、SFX と multi-volume の組合せを
@@ -173,6 +333,53 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
   後続 member と連続するため）。なお暗号化された不完全 RAR5 entry は、認証されない byte を
   返さず何も返しません。
 
+> **Known limitations**
+>
+> - ISO selects its name tree in the order Rock Ridge (with NM) > Joliet > PVD. UDF, raw sector
+>   images, later sessions, and interleaved, sparse or zisofs content expansion are unsupported.
+> - cpio does not support PWB or newcx, HP-UX device number interpretation, or recreating device
+>   nodes. A 0-byte hard-link placeholder is not filled in with its target's content. Automatic
+>   chaining of compressed cpio is out of scope.
+> - CAB extracts None and MSZIP. Quantum and LZX can be listed but fail with `unsupportedMethod`
+>   when read, as does a file that spans several cabinets.
+> - RPM does not expand a zstd payload, the simplified rpm 6 cpio (`07070X`), drpm, or a payload
+>   that is not cpio; it exposes the compressed payload as a single entry instead.
+> - ARJ, ACE, StuffIt/SIT and zstd streams are unsupported.
+> - ZIP does not handle multi-disk or spanned archives, nor methods 93 (zstd), 95 (xz), 96 (JPEG)
+>   and 98 (PPMd).
+> - 7z does not handle the RISC-V filter (method 0x0B) or external volume splitting (`.7z.001`).
+> - RAR4 does not handle unpack versions 15, 20 and 26, the custom VM, solid configurations whose
+>   dictionary size changes, or SFX combined with multi-volume. RAR5 does not handle compression
+>   version 1, file-copy redirection, SFX, or an encrypted stored entry of unknown size.
+> - LHA can list `-pm1-`, `-pm2-`, `-lh2-` and `-lh3-` but fails with `unsupportedMethod` when
+>   reading them. Resource forks are not exposed as separate entries.
+> - XZ covers the XZ container that Apple Compression handles; a stream carrying a RISC-V filter that
+>   its liblzma does not know cannot be read. Raw `.lzma` (LZMA_Alone) is covered only with a
+>   `.lzma` extension. A concatenated gzip, bzip2 or xz stream is returned as one entry whose output
+>   is the concatenation.
+> - The output size of gzip, bzip2, xz and `.Z` is unknown until the read completes. The modern API
+>   reports `nil`; the compat API reports `entryHasSize == false` and `Int64.max`.
+> - Compressed tar detection uses the extension hint of the URL. A `Data` or custom `ByteSource`
+>   with no filename is opened as a single-file stream.
+> - No built-in cancellation token is provided. Incremental work is controlled by the caller ending
+>   the `EntryStream` read loop.
+> - Recovery of damaged archives is disabled by default. Setting
+>   `ReaderOptions.recoverDamagedArchives = true` recovers the readable entries of ZIP (with a lost
+>   central directory), tar, LHA and RAR5. Recovery applies to a ZIP whose EOCD cannot be found; a
+>   ZIP that has an EOCD but a corrupt central directory is still `malformed`. 7z keeps its header at
+>   the end, so a truncated 7z archive cannot be recovered. A truncated entry sets
+>   `ArchiveEntry.isIncomplete` to `true` and **verifies none of CRC-32, the WinZip AES HMAC, or the
+>   MacBinary CRC-16**. Bytes recovered from an encrypted entry are unauthenticated, so treat them as
+>   untrusted input. The password verifier still runs during recovery, so a wrong password is still
+>   reported as `wrongPassword`. Results for complete entries and undamaged archives are unchanged by
+>   this setting.
+> - RAR5 recovery has two deliberate limits. A multi-volume archive missing a later volume is not
+>   recovered and fails as before, so that an entry continuing into the next volume is never
+>   presented as complete. A truncated member of a solid group is listed as `isIncomplete` but
+>   returns `truncated` when read, because its decoder state is continuous with the following
+>   members. An incomplete encrypted RAR5 entry returns nothing at all rather than unauthenticated
+>   bytes.
+
 ## 組み込みの注意
 
 `ArchiveReader` と `EntryStream` は thread-safe ではありません。一つの instance の操作は actor や
@@ -192,6 +399,29 @@ RAR multi-volume は sibling file を解決できる `ArchiveReader.open(url:)` 
 展開先 root は処理中に caller が排他的に所有し、別 thread/process から名前や directory を変更しないで
 ください。directory entry は子を展開した後、深い順に処理すると archive の最終日時と permissions を
 保持できます。
+
+> **Integration notes**
+>
+> `ArchiveReader` and `EntryStream` are not thread-safe. Serialize the operations of one instance
+> with an actor or a serial queue, and use independent readers created by `reopen()` for parallel
+> extraction. Assign entries sharing the same `solidGroup >= 0` to the same worker; entries with
+> `solidGroup == -1` can be parallelized one entry at a time.
+>
+> `ReadLimits` collects `maxEntrySize`, `maxTotalUncompressedSize`, `maxInMemorySize`,
+> `inMemorySingleFileLimit`, and the entry, metadata, path, dictionary and volume limits. Configure
+> it before opening, to match your corpus and the device's memory budget. Handle entries larger than
+> `read(_:)` allows with `EntryStream`, reading through to the final 0 or error so that the CRC and
+> the stream footer are finalized.
+>
+> Use `Data(contentsOf:options:.mappedIfSafe)` only for a local single file whose contents do not
+> change during the call. Use `ArchiveReader.open(url:)` for multi-volume RAR so that sibling files
+> can be resolved, and `open(data:)` for bytes already in memory, such as a nested archive. The SFX
+> prefix scan is enabled for URL opens; for `Data` and custom `ByteSource` inputs,
+> `ReaderOptions.scanForSFXInData` defaults to `false`.
+>
+> The caller owns the destination root exclusively while extraction is in progress; do not rename or
+> restructure it from another thread or process. Processing directory entries after their children,
+> deepest first, preserves the final dates and permissions recorded in the archive.
 
 ## コマンドライン
 
@@ -244,6 +474,44 @@ file data は独立した stream で CRC を最後まで検証してから公開
 RAR5 は先頭127 Unicode scalars の UTF-8 を優先し、有効な password 検査値が一致しなければ
 入力全体の UTF-8 を試します。127 scalars 以下の password は変更しません。
 
+> **Command line**
+>
+> `sha` prints the SHA-256 of each entry in order plus an overall digest, which can be used for
+> differential testing against another extraction implementation. `sha` and `extract` report a
+> per-entry failure on stderr, continue with the remaining entries, and exit with status 1 if any
+> entry failed. A failing `sha` line is `index<TAB>ERROR<TAB>message<TAB>name`, and the final line is
+> a `partial` covering only the successful entries; no complete `total` is printed. `list` prints
+> index, size, kind, method, encryption (`plain`, `ZipCrypto`, `AES-128/192/256`, `7zAES-256`) and
+> name, separated by tabs, appending `level=N` for LHA. `--raw` also prints the format-level logical
+> bytes of the name in hexadecimal at the end of the line. An LHA 0x02 directory plus 0x01 filename
+> is assembled into one path, and the 0xFF directory separator is normalized to `/`.
+> `bench --data` opens the archive from a `Data` created with `mappedIfSafe` and reports an
+> `open-median-ms` that includes creating the map. `bench --random` reads up to 20 non-directory
+> entries chosen with a fixed seed, in random order, so that access patterns including backward seeks
+> in a solid archive are measured reproducibly. The reported `bytes` is the total of the selected
+> entries.
+>
+> `bench` times only the in-process open and extract, repeated and reported as a median; process
+> startup, SHA-256 and standard output are excluded. `swift run` also includes SwiftPM planning and
+> building, so compare whole-CLI performance by running a release-built `.build/release/kaito`
+> directly. `sha` hashes incrementally through a reused 4 MiB buffer. Measuring the release binary
+> directly under warm conditions, the before-to-after medians were 155.346 to 155.431 ms for the book
+> RAR5 and 637.541 to 610.447 ms for the TIFF RAR5, with final wall times of 0.15 and 0.61 s. The
+> roughly 0.62 second difference observed earlier came not from the decoder but from mixing the
+> `swift run` cold start and build planning into the measurement.
+>
+> `list`, `extract`, `sha` and `bench` accept `-p <password>`. A 7z or RAR archive whose headers are
+> also encrypted needs the password even to start listing or benchmarking.
+> RAR3 supports the old SHA-1 input update rule for long passwords.
+> The password is cut at the same maximum of 127 characters as the writer uses (127 code units for
+> the UTF-16 candidate, 127 scalars for the Unix candidate). A RAR3 password containing characters
+> outside the BMP tries UTF-16 first and, if verification fails, retries with the low 16 bits of the
+> Unicode scalars as Unix RAR represents them. File data is published only after its CRC has been
+> verified to the end on an independent stream, so this case alone performs an extra expansion.
+>
+> RAR5 prefers the UTF-8 of the first 127 Unicode scalars and, if no valid password check value
+> matches, tries the UTF-8 of the whole input. Passwords of 127 scalars or fewer are unchanged.
+
 ## 開発
 
 ```console
@@ -280,3 +548,25 @@ XADMaster からの移行状況は
 [Documentation/migration-from-xadmaster.md](Documentation/migration-from-xadmaster.md) を参照してください。
 設計書が引く性能・安定性の実測ログは
 [Documentation/verification/](Documentation/verification/README.md) にあります。
+
+> **Development**
+>
+> Differential tests that use 7zz and xz look for the executables in the order `KAITO_7ZZ` and
+> `KAITO_XZ`, then `PATH`, then the known Homebrew paths. By default the affected tests are skipped
+> when a tool is absent. To make a missing tool a failure, as CI does, run the commands shown above
+> after installing them.
+>
+> The commands above also show how to build ZIP and 7z seeds containing compressed payloads with a
+> real 7zz, then run malformed and unusual archive robustness mutants against an ASan/UBSan build.
+> The password for AES seeds is `KaitoFuzz`, and `--password` may also be given for a directory of
+> seeds that are not encrypted.
+>
+> `Scripts/build-framework.sh` produces a universal `KaitoKit.framework` for both Apple Silicon and
+> Intel. When using it without SwiftPM, also pass `-I Frameworks/KaitoKit.framework/Modules` so that
+> the nested `KaitoKitCompat` module can be found.
+>
+> For design decisions, robustness rules and the specifications that may be consulted, see
+> [Documentation/design.md](Documentation/design.md); for the state of migration from XADMaster, see
+> [Documentation/migration-from-xadmaster.md](Documentation/migration-from-xadmaster.md).
+> The measured performance and stability logs cited by the design document are in
+> [Documentation/verification/](Documentation/verification/README.md).

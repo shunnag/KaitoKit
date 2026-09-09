@@ -24,6 +24,7 @@
 | [2026-09-09-cab.md](2026-09-09-cab.md) | 2026-09-09 | CAB reader(CFHEADER / CFFOLDER / CFFILE / CFDATA、MSZIP の folder 内辞書引き継ぎ)の実装と XADMaster 比較 | `efb978b` |
 | [2026-09-09-format-gap-queue.md](2026-09-09-format-gap-queue.md) | 2026-09-09 | XADMaster が対応し KaitoKit が未対応の形式の洗い出しと実装キュー | `0b38a37` |
 | [2026-09-09-recovery-mode.md](2026-09-09-recovery-mode.md) | 2026-09-09 | 破損書庫の救済モードの実測(XADMaster 比較・健全書庫と暗号化書庫の不変性・tar 検出の修正)、追補で RAR5 の切り詰め救済 | `4969b34` / `7aba9ae` / `5e83353` / `c00dd09` |
+| [2026-09-09-new-format-performance.md](2026-09-09-new-format-performance.md) | 2026-09-09 | 新規 6 形式(ISO / cpio / ar / xar / RPM / CAB)の安全性と展開性能。CAB の 1 ブロック破損による folder 全滅の修正と二乗性の解消(211 倍)、xar の日時解析(3.55 倍)、ISO の名前検査(1.20 倍) | `dc87edc` |
 
 これらは 2026-09-08 に `Documentation/` 直下から本ディレクトリへ移した。記録本文に埋め込まれた
 `git status` などの出力には移動前のパスが残っているが、当時の実行結果として意図的に手を入れて

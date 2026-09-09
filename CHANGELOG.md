@@ -6,6 +6,75 @@
 
 ## [0.1.0] - Unreleased
 
+### 修正（2026-09-09、CAB の救済性と展開性能）
+
+- **1 ブロックの破損で folder 内の全ファイルが読めなくなる不具合を修正した。**
+  entry の成否は、その entry が消費するブロックだけで決まるようになった。
+  200 ファイルを 1 folder に持つ cab の最終ブロックを壊した場合、従来は 200 件すべてが
+  失敗したが、199 件を正しく取り出し最後の 1 件だけが失敗する。これは cabextract
+  （libmspack）および XADMaster の挙動と一致する（検証記録
+  `2026-09-09-new-format-performance.md` §3.3）。
+- 同じ原因で、1 folder に N entry があると展開が N × folderSize になっていた。
+  folder 単位の前進復号器を `CabReader` が保持し（RAR5 の solid coordinator と同じ形。
+  世代番号で古い stream を無効化し、folder を切り替えるときに直前の復号器を解放する）、
+  順に読む限り folder を一度だけ復号する。200 ファイル 50 MiB の cab で
+  MSZIP が 6,844 ms → 32 ms（211 倍）、stored が 1,358 ms → 8 ms（169 倍）。
+  総量を固定したまま file 数を 10 → 200 に増やしても時間が変わらなくなった。
+- MSZIP のブロックごとの `inflateInit2_` / `inflateEnd` を 1 つの `z_stream` の
+  `inflateReset` にし、履歴の連結による二重確保と、ブロックごとのバッファ確保を外した。
+  単一ファイルの cab でも 1.2 倍速い。
+- 健全な書庫の出力は byte 単位で不変。
+
+> **Fixed (2026-09-09, CAB recovery and extraction performance)**
+>
+> - **Fixed a defect where damage to one block made every file in the folder unreadable.**
+>   An entry now succeeds or fails on the blocks it consumes and nothing else.
+>   With the last block of a 200-file, single-folder cab damaged, all 200 entries used to fail;
+>   now 199 are extracted correctly and only the last one fails. This matches the behavior of
+>   cabextract (libmspack) and XADMaster (verification record
+>   `2026-09-09-new-format-performance.md` §3.3).
+> - The same cause made extraction cost N × folderSize for a folder holding N entries.
+>   `CabReader` now retains a forward decoder per folder, shaped like the RAR5 solid coordinator:
+>   a generation number invalidates older streams, and the previous decoder is released when the
+>   folder changes. Read in order, a folder is decoded exactly once. For a 50 MiB cab of 200 files,
+>   MSZIP went from 6,844 ms to 32 ms (211x) and stored from 1,358 ms to 8 ms (169x).
+>   Time no longer grows as the file count rises from 10 to 200 at a fixed total size.
+> - The per-block `inflateInit2_` and `inflateEnd` of MSZIP became one `z_stream` with
+>   `inflateReset`, and the duplicate allocation from concatenating the history and the per-block
+>   buffer allocations were removed. Even a single-file cab is 1.2x faster.
+> - Output for undamaged archives is byte-for-byte unchanged.
+
+### 修正（2026-09-09、xar と ISO 9660 の開封性能）
+
+- xar の `mtime` 解析から `NSDateFormatter` を外した。5,110 項目の書庫では open の
+  68% が ICU の日付シンボル再読み込みだった。`yyyy-MM-ddTHH:mm:ss`（+ 任意の `Z`）
+  かつ年が 1583 以上の定型だけを算術で解き、それ以外は従来の formatter へ落とす
+  二段構えなので、受理範囲も秒値も完全に同一。formatter は遅延生成で、通常の書庫では
+  一つも作らない。23,724 通りの候補で従来経路との一致を固定する差分テストを追加した。
+  open が xar-tree.xar（5,110 項目）で 299 ms → 84 ms（3.55 倍）、
+  xar-many.xar で 12.2 ms → 3.4 ms。
+- ISO 9660 の名前検査で、Foundation の `String.contains("/")`（Unicode 照合）を
+  UTF-8 バイト走査にし、NUL 検査と 1 回の走査にまとめた。NFC 正規化は非 ASCII を
+  含む名前だけに限った（全 ASCII では恒等変換）。open が 13.5 ms → 11.3 ms（1.20 倍）。
+- 一覧・展開の出力は byte 単位で不変（更新日時を含む `list` の digest で確認）。
+
+> **Fixed (2026-09-09, xar and ISO 9660 open performance)**
+>
+> - Removed `NSDateFormatter` from xar `mtime` parsing. For an archive of 5,110 items, 68% of the
+>   open was ICU reloading its date symbols. Only the fixed shape `yyyy-MM-ddTHH:mm:ss` (with an
+>   optional `Z`) and a year of 1583 or later is now solved arithmetically; everything else falls
+>   back to the previous formatter, so the accepted range and the resulting seconds are identical.
+>   The formatter is created lazily and a normal archive never builds one. A differential test
+>   pins agreement with the previous path over 23,724 candidates.
+>   Open went from 299 ms to 84 ms (3.55x) for xar-tree.xar (5,110 items), and from 12.2 ms to
+>   3.4 ms for xar-many.xar.
+> - In ISO 9660 name validation, Foundation's `String.contains("/")` (Unicode matching) became a
+>   UTF-8 byte scan, merged into a single pass with the NUL check. NFC normalization is now applied
+>   only to names containing non-ASCII bytes, since it is the identity for pure ASCII.
+>   Open went from 13.5 ms to 11.3 ms (1.20x).
+> - Listing and extraction output is byte-for-byte unchanged, confirmed by the digest of `list`,
+>   which includes modification dates.
+
 ### 追加・修正（2026-09-09、CAB）
 
 - 依存を追加せず純 Swift の Microsoft Cabinet reader を追加。None と MSZIP の
@@ -15,6 +84,19 @@
 - CFDATA の checksum を展開完了時に検証する（0 は未計算として飛ばす）。
 - Quantum と LZX は一覧のみ対応し、展開時に具体的なエラーを返す。
 - ZIP の DOS 日時変換を `Core/DOSTimestamp.swift` へ移して共有した（ZIP の挙動は不変）。
+
+> **Added and fixed (2026-09-09, CAB)**
+>
+> - Added a pure-Swift Microsoft Cabinet reader with no new dependencies. It supports None and
+>   MSZIP compression, the reserved areas, the multi-cabinet flags, and UTF-8 filenames
+>   (attribs 0x80).
+> - MSZIP carries its LZ77 history across CFDATA blocks. Within each folder, the trailing 32 KiB of
+>   the output so far is passed as the dictionary. The history never crosses a folder boundary.
+> - CFDATA checksums are verified as extraction completes (a stored 0 means "not computed" and is
+>   skipped).
+> - Quantum and LZX can be listed, and return a specific error when read.
+> - The ZIP DOS timestamp conversion moved to `Core/DOSTimestamp.swift` and is now shared
+>   (ZIP behavior is unchanged).
 
 ### 追加・修正（2026-09-09、RPM）
 
@@ -27,6 +109,20 @@
   圧縮済み payload を 1 entry として公開する。
 - nindex / hsize / index entry の offset と count を確保前に検査し、
   巨大値は `limitExceeded` で即座に停止する。
+
+> **Added and fixed (2026-09-09, RPM)**
+>
+> - Added a pure-Swift RPM reader with no new dependencies. It parses the lead, the signature
+>   header and the main header, and exposes the cpio entries of the payload directly, the same
+>   approach used for `.tar.gz`. It handles gzip, bzip2, xz, lzma and uncompressed payloads, and
+>   reads source packages.
+> - The codec is decided by the magic at the start of the payload rather than by the declared tag,
+>   so old packages without `RPMTAG_PAYLOADCOMPRESSOR` (whose default is gzip), and packages whose
+>   declaration disagrees with the payload, can still be read.
+> - A zstd payload, the simplified rpm 6 cpio (`07070X`), drpm, and any payload that is not cpio
+>   are exposed as a single entry holding the compressed payload.
+> - nindex, hsize, and the offset and count of each index entry are checked before allocation, so
+>   huge values stop immediately with `limitExceeded`.
 
 ### 追加・修正（2026-09-09、xar）
 
@@ -47,12 +143,44 @@
 - DTD・未知の実体参照・入れ子 256 段超を拒否し、TOC サイズ・entry 数・サイズ・
   metadata・パス構成要素数に ReadLimits を適用する。
 
+> **Added and fixed (2026-09-09, xar)**
+>
+> - Added a pure-Swift xar reader with no new dependencies. It supports the TOC XML (through an
+>   in-house pull parser for a subset of XML), a zlib, bzip2, lzma, xz or uncompressed heap, nested
+>   directories, symbolic links, hard links, `<name enctype="base64">`, and the macOS flat package
+>   (`.pkg`).
+> - The subtree of a `<subdoc>` never becomes an entry. A crafted subdoc containing a `<file>` could
+>   otherwise inject a fake member that reads an arbitrary range of the heap, so it is skipped
+>   wholesale.
+> - The TOC checksum (sha1, md5, sha256 or sha512 over the compressed TOC) is verified at open, and
+>   `<extracted-checksum>` as extraction completes. The style is matched case-insensitively.
+> - A payload declared `application/x-lzma` is read as xz when it carries the xz magic, and the
+>   `application/zlib` of `--rfc6713` is also accepted.
+> - `DeflateDecompressor` gained an RFC 1950 zlib mode; the default raw DEFLATE is unchanged.
+>   `BoundedByteSource`, which exposes exactly one range, was added.
+> - Archives whose hard-link target is stored after the reference can now be extracted. The
+>   assumption in `Extractor` and the compatibility layer that a target has a lower index was
+>   removed; safety instead rests on `trustedTargets` holding an inode already extracted into the
+>   same root. Deferring a forward reference is the responsibility of the extraction loop.
+> - DTDs, unknown entity references and nesting beyond 256 levels are rejected, and ReadLimits is
+>   applied to the TOC size, entry count, sizes, metadata and path component count.
+
 ### 追加・修正（2026-09-09、ar）
 
 - 依存を追加せず純 Swift の ar reader を追加。BSD `#1/LEN`（NUL padding）、
   SysV/GNU `//` 長名表、16 byte 短名、混在形式、`.deb` の stored member に対応。
 - symbol table を通常 entry として公開し、名前解決に使う string table `//` だけを除外。thin archive は検出後に具体的なエラーで拒否。
 - header / サイズ / 長名参照 / ReadLimits の検査、末尾欠損の recovery、fixture と異常系テストを追加。
+
+> **Added and fixed (2026-09-09, ar)**
+>
+> - Added a pure-Swift ar reader with no new dependencies. It supports BSD `#1/LEN` (with NUL
+>   padding), the SysV/GNU `//` long-name table, 16-byte short names, mixed forms, and the stored
+>   members of a `.deb`.
+> - The symbol table is exposed as an ordinary entry; only the `//` string table used for name
+>   resolution is hidden. A thin archive is detected and rejected with a specific error.
+> - Added checks on the header, sizes, long-name references and ReadLimits, recovery from a missing
+>   tail, and fixtures and malformed-input tests.
 
 ### 追加・修正（2026-09-09、cpio）
 
@@ -61,6 +189,14 @@
 - binary 検出を既存検出の後に置き、最大4レコードの連鎖を検証する。名前・サイズ・
   metadata・entry 数の上限と切り詰めを検査し、crc の単純加算不一致は malformed とする。
 
+> **Added and fixed (2026-09-09, cpio)**
+>
+> - Added a pure-Swift cpio reader. It supports bin (both byte orders), odc, newc, crc, hpbin and
+>   hpodc, concatenated archives and symbolic links, and preserves the declared size of a hard link.
+> - Binary detection runs after the existing detections and validates a chain of up to four records.
+>   Name, size, metadata and entry-count limits and truncation are checked, and a mismatch in the
+>   simple additive crc is reported as malformed.
+
 ### 追加・修正（2026-09-09、ISO 9660）
 
 - 依存を追加せず純 Swift の ISO 9660 reader を追加。PVD / Joliet / Rock Ridge、CE 継続、
@@ -68,6 +204,16 @@
   優先し、両方ある画像でも symlink を保持する。NM は既存の書庫全体の文字コード判定を使う。
 - extent / sector 境界、metadata 予算、directory / CE 循環を検査する。UDF は対象外。
   CLI と互換層に統合し、小さい実 writer fixture と合成画像の境界・上限テストを追加。
+
+> **Added and fixed (2026-09-09, ISO 9660)**
+>
+> - Added a pure-Swift ISO 9660 reader with no new dependencies. It supports PVD, Joliet and Rock
+>   Ridge, CE continuation, symbolic links, relocation of deep hierarchies, and multi-extent files.
+>   Rock Ridge with NM is preferred over Joliet, so symbolic links survive on an image that has
+>   both. NM uses the existing archive-wide character encoding detection.
+> - Extent and sector boundaries, the metadata budget, and directory and CE cycles are checked. UDF
+>   is out of scope. The reader is integrated into the CLI and the compatibility layer, and small
+>   fixtures from a real writer plus synthetic images exercise the boundary and limit tests.
 
 ### 追加・修正（2026-09-09、XADMaster との black-box 差分調査から）
 
@@ -135,6 +281,69 @@
 - RAR29 / LHA static Huffman の展開を高速化。CRC16 slice-by-eight、境界検証付きの
   重複 match コピー、生バッファの Huffman lookup / bit reservoir により性能目標を達成。
 
+> **Added and fixed (2026-09-09, from the black-box comparison against XADMaster)**
+>
+> - Added support for 7z coder chains. A folder in which the input of a byte-consuming coder
+>   (LZMA, LZMA2, PPMd7, Deflate, BZip2 or AES) is the output of another coder is now materialized
+>   at exactly its declared size, within the limits, before decoding. The
+>   `LZMA -> LZMA -> LZMA2 -> BCJ2.main` folder produced by
+>   `-m0=BCJ2 -m1=LZMA2 -m2=LZMA -m3=LZMA` can now be extracted. Paths whose input was already a
+>   byte range remain allocation-free.
+> - Added LZMA_Alone (`.lzma`) as a single-entry format. Its 13-byte header is validated and handed
+>   to the existing LZMA decoder. Because the format has no magic, detection runs last and requires
+>   the extension, the properties, the dictionary size and the first byte of the range coder all to
+>   agree. The compatibility layer's `formatName()` returns `LZMA_Alone`, as XADMaster does.
+> - Put `.tar.Z` and `.tZ` on the same compressed-tar path as `.tar.gz`, `.tar.bz2` and `.tar.xz`.
+>   All four forms return the same entry list and the same contents.
+> - Added the 7z SPARC and IA-64 branch filters. The transformation rules were derived only from the
+>   inputs and outputs of executables, using 7-Zip with `-m0=<FILTER> -m1=Copy -mhc=off` as a filter
+>   output oracle (the record is
+>   `Documentation/verification/2026-09-09-branch-filter-derivation.md`).
+>   Six runs of 8,192-byte adversarial vectors match the oracle exactly.
+>   The RISC-V filter is out of scope, because XADMaster also returns every entry empty for it, and
+>   remains explicitly unsupported.
+> - Added a recovery mode for damaged archives, `ReaderOptions.recoverDamagedArchives`, default
+>   false. A ZIP that lost its central directory is recovered by scanning local file headers, and
+>   tar and LHA keep the entries up to the point of truncation. A truncated entry is marked with
+>   `ArchiveEntry.isIncomplete` and returns only the bytes that could be read; each was measured to
+>   be a correct prefix of the original. A ZIP with a destroyed EOCD reaches the same overall
+>   SHA-256 as XADMaster, and for truncated ZIP and LHA entries KaitoKit recovers data where
+>   XADMaster returns 0 bytes. Incomplete entries skip CRC-32, the WinZip AES HMAC and the MacBinary
+>   CRC-16 verification, so the public documentation states plainly that recovered bytes are
+>   unauthenticated. The password verifier still runs during recovery, so a wrong password is still
+>   `wrongPassword`. For 95 undamaged archives and 6 encrypted archives the results are identical
+>   with and without the setting.
+> - Extended the recovery mode to RAR5. A truncated RAR5 returns the entries before the cut, and a
+>   truncated entry is marked `isIncomplete` and returns only the readable bytes. An archive that
+>   lost only its trailing end marker reaches the same result as an intact one, and for stored
+>   entries the partial recovery goes beyond XADMaster, which always returns 0 bytes. For solid
+>   groups, refusing to read from the truncated member onward makes the overall result match
+>   XADMaster. A multi-volume archive missing a later volume is excluded from recovery, so that an
+>   entry continuing into the next volume is never presented as complete. An incomplete encrypted
+>   entry returns nothing rather than unauthenticated bytes. The declared packed size is preserved
+>   and `availablePackedSize` is held separately, so the `maxEntrySize` resource limit is not
+>   loosened.
+> - Made partial recovery of damaged archives much faster. Because `RecoveryDecompressor` read one
+>   byte at a time, the bulk-read path of `CopyDecompressor` (a 1 MB threshold with 4 MB chunks) was
+>   disabled, and partial recovery of a stored entry hit the `ByteSource` once per byte. During
+>   recovery the packed size is already rounded down to the bytes that exist, so a read cannot throw
+>   truncated; the wrapper was therefore removed for ZIP (method 0, unencrypted), LHA (`-lh0-`) and
+>   RAR5 (method 0, unencrypted). ZIP went from 248 ms to 8.4 ms (about 30x), LHA from 236 ms to
+>   5.1 ms (about 46x) and RAR5 from 295 ms to 15.3 ms (about 19x), all matching the speed of an
+>   untruncated read. Output is unchanged, and the ZipCrypto, WinZip AES and LHA MacBinary paths
+>   behave as before.
+> - Fixed tar format detection, which parsed the numeric fields of a member header and so turned a
+>   tar with a corrupt size into "unsupported format" instead of `malformed`. Detection now looks
+>   only at the 512-byte record, a non-empty path name and a matching checksum. Accepting a file
+>   that begins with zeros as an "empty tar" was also stopped; that was the direct cause of ISO 9660
+>   being misdetected as tar and succeeding with zero entries.
+> - Made CRC-16/ARC faster with PMULL and PCLMULQDQ folding selected at runtime. Small inputs and
+>   CPUs without support keep the previous slice-by-eight, shortening LHA extraction without
+>   changing the public API, incremental updates or verification results.
+> - Made RAR29 and LHA static Huffman extraction faster. The performance targets were met through
+>   CRC16 slice-by-eight, bounds-validated copying of overlapping matches, and Huffman lookup and a
+>   bit reservoir over raw buffers.
+
 ### 修正・高速化（2026-09-08）
 
 - RAR5 の復号失敗を軽量な内部状態で保持し、ヘッダ走査では上限付き先読みバッファを
@@ -169,6 +378,50 @@
 - PPMd の重複した state 全走査を廃し、検証済み arena span、range decoder の特殊化、
   状態検索と頻度集計の改善で RAR4 / 7z の展開を高速化。
 - ZipCrypto のランダムな一バイト password hint に依存していたテストを最終 CRC 検証へ修正。
+
+> **Fixed and made faster (2026-09-08)**
+>
+> - RAR5 decryption failures are now held in lightweight internal state, and header scanning reuses
+>   a bounded read-ahead buffer, making extraction and open faster. The public API, the errors and
+>   the extracted content are unchanged.
+> - Long RAR5 passwords now prefer the measured first 127 Unicode scalars, falling back to the UTF-8
+>   of the whole input to stay compatible with existing writers. Fixed extraction so that a
+>   symbolic-link target whose tail exceeds NAME_MAX is still extracted as a safe dangling link.
+> - Stored members inside a RAR4 solid group are read without affecting the shared state, and
+>   reading or streaming a RAR5 symbolic link now returns the UTF-8 bytes of the header target.
+> - Made RAR5 overlapping-match copying, local state and Huffman lookup faster, along with the fixed
+>   probability tables and masks of PPMd, bringing TIFF RAR5 and solid PPMd extraction within 1.5x
+>   of XADMaster.
+> - Symbolic-link targets now require an existing real directory for every component up to the last
+>   `..`, rejecting a symlink pivot through components created by a later entry or a different
+>   archive. Parent-relative targets that stay inside the root and safe forward references are kept.
+> - Names consisting mainly of EUC-JP halfwidth katakana are now evaluated even without a known
+>   word, fixing the CP932 misdetection of `ｶﾀｶﾅ半角.txt`.
+> - The scheme for a non-BMP RAR4 password is remembered per archive, removing the per-entry
+>   re-expansion of a solid prefix. The header CRC decision and the KDF cache are reused, and for a
+>   non-final candidate the next one is tried regardless of the error kind.
+> - The CLI distinguishes a failing entry from the source member of a CRC mismatch, both on stderr
+>   and in the ERROR TSV.
+> - The 127-character cap of the RAR3 writer was folded into the password section of the migration
+>   guide.
+> - Corrected the fingerprint length of the RAR3 Audio standard filter to the 216 bytes of the real
+>   program.
+> - Fixed compatibility for long RAR3 passwords and Unicode passwords outside the BMP. UTF-16 is
+>   tried first, falling back to the Unix scalar representation on CRC verification. Output from a
+>   candidate is never published to the caller before it is verified.
+> - `/` is treated as a byte boundary even next to combining characters, fixing both the wrongful
+>   rejection of safe names and an escape from the extraction destination through a symbolic link.
+> - Parent-relative symbolic-link targets that stay inside the extraction root are allowed. Existing
+>   symbolic links along the way are not followed.
+> - Fixed the 0xFF and backslash separators of LHA levels 0 to 3, the level-0 Unix metadata, and the
+>   misdetection of the CP932 0x8E lead byte and EUC-JP halfwidth kana.
+> - The CLI `sha` and `extract` report failures per entry and continue, exiting non-zero on partial
+>   success.
+> - Removed the duplicated full scan of PPMd states and made RAR4 and 7z extraction faster through a
+>   validated arena span, a specialized range decoder, and improved state lookup and frequency
+>   accounting.
+> - A test that depended on the random one-byte password hint of ZipCrypto was changed to verify the
+>   final CRC.
 
 ### 追加
 
@@ -287,3 +540,151 @@
   `KAITOKIT_RAR4_CORPUS` / `KAITOKIT_LHA_CORPUS` などの環境変数で指定し、libarchive
   (BSD-2-Clause)/ ISC 由来の小さな fixture を `Tests/Fixtures` に base64 で固定する
   (`Tests/Fixtures/NOTICE`)。
+
+> **Added**
+>
+> - A SwiftPM package with Swift 6 strict concurrency, and both static and dynamic library products.
+> - Bounds-checked `ByteSource`, `ByteReader` and `BitReader`, checked arithmetic, CRC32, and read
+>   limits.
+> - Character encoding detection that preserves the raw name, and the public model of archives and
+>   entries.
+> - Streaming decode infrastructure for copy, raw deflate and bzip2.
+> - A tar reader handling ustar, pax (`x` and Solaris `X`) and GNU long name and link.
+> - The M4 LHA / LZH reader. It handles header levels 0, 1, 2 and 3, the byte sum of levels 0 and 1,
+>   the optional 0x00 header CRC16 of levels 2 and 3, extended headers 0x00, 0x01, 0x02, 0x3f,
+>   0x40 to 0x42, 0x46 and 0x50 to 0x54, 32- and 64-bit sizes, DOS, Unix and Windows timestamps, and
+>   directories. It also supports a bounded SFX prefix, searching up to 1 MiB for an authenticated
+>   member header.
+> - Implemented the LHA `-lh0-`, `-lz4-` and `-pm0-` stored methods, `-lh1-` adaptive Huffman,
+>   `-lh4-` through `-lh7-` static Huffman, `-lhx-` with a 1 MiB dictionary, the LHArk dialect of
+>   `-lh7-` with an OS marker, and `-lz5-` and `-lzs-` LArc, verifying the per-member CRC16.
+>   `-pm1-`, `-pm2-`, `-lh2-` and `-lh3-` are explicitly unsupported.
+> - LHA legacy names are decided per archive, and codepages 932, 65001 and 936 of extension 0x46 are
+>   treated as a declared encoding. Directory detection from a trailing separator, relativization of
+>   a leading slash and drive prefix, NUL termination of the filename field, members with an empty
+>   name, and OS/2 extended-attribute subdirectories all coexist with the normal safe entry
+>   traversal. Each member is independent, with `solidGroup == -1`.
+> - Accepts the level-2 header that OS-9 LHA 2.01 writes, which records 0x4B in the raw creator ID
+>   (an OS/68K marker under the existing mapping) and declares two bytes too few, together with an
+>   invalid DOS timestamp (`nil`), when the boundary can be validated unambiguously. An archive with
+>   no zero terminator that reaches exact EOF immediately after the last boundary-validated payload
+>   is accepted only when the last member is LArc, or when the archive contains at least one
+>   structurally validated anonymous ordinary member.
+> - For a member carrying the MacLHA Macintosh OS marker, only the data fork of an envelope that is
+>   valid under the MacBinary and MacBinary II standard proposals is exposed, while the LHA CRC16 is
+>   verified over the entire output including padding, the resource fork and any compatible trailing
+>   extension. A Macintosh member that is not MacBinary is returned unchanged.
+> - Added hand-built level 0, 1 and 2 archives, codepage and metadata cases, static and legacy
+>   decoder vectors, and a SHA-256 comparison of cooViewer's `book.lzh` against lhasa. Under Swift
+>   6.4 AddressSanitizer, 384 parser and container mutants plus 320 method mutants from real archive
+>   seeds, 704 deterministic mutants in total, ran with zero test or sanitizer failures.
+> - Of the 227 archives in the supplied corpus, the tally at the time was 203 byte-identical to
+>   lhasa, 8 differing in Unix symlink semantics (extracted as `.symlink` after the review fixes
+>   described above), 9 expected failures on the KaitoKit side (4 PM1 cases: 3 unsupported and 1
+>   truncated; 3 unsupported PM2; 1 hitting the default 4 GiB limit on a 4.5 GiB member; 1 rejected
+>   parent traversal), and 7 failures on the lhasa or oracle side (2 LH2/LH3, 1 malformed PM2, 1
+>   truncated, 3 unusual link or EA cases).
+> - A ZIP reader driven by the central directory, supporting ZIP64, an SFX prefix and lazy local
+>   header validation.
+> - The ZIP stored, deflate, Deflate64, bzip2 and raw LZMA1 methods, and UNIX symbolic links.
+> - Decryption and authentication for Traditional PKWARE (ZipCrypto) and WinZip AES-128/192/256
+>   (AE-1/AE-2).
+> - Name recovery from UTF-8, the Info-ZIP Unicode Path and Japanese character encodings, ZIP
+>   timestamps, and CRC32 verification.
+> - Archive-wide character encoding detection for ZIP and tar, and `ArchiveReader.nameEncoding`.
+> - A fast path that reads a large stored entry of known length directly into the final `Data`.
+> - `LZMA2Decoder`, which decodes raw LZMA2 chunks and reset states incrementally while validating
+>   the dictionary and chunk sizes, plus a dictionary-reset index for backward seeks.
+> - A 7z reader handling plain and encoded headers, UTF-16LE names, timestamps and attributes,
+>   empty and anti items, and packed, folder and substream CRCs.
+> - The 7z Copy, LZMA1, LZMA2, PPMd7, Deflate and BZip2 methods, and the Delta, x86, ARM, ARMT,
+>   ARM64 and PPC BCJ filters and the four-stream BCJ2 filter. PPMd7 keeps its contexts and
+>   suballocator in a single bounded arena with validated offsets. The IA64 and SPARC filters are
+>   explicitly unsupported.
+> - Continued reading across solid and block-split folders, `solidGroup`, and backward resumption
+>   from a dictionary reset in a pure LZMA2 folder.
+> - The 7zAES AES-256-CBC and SHA-256 KDF, header encryption, a derived-key cache and a KDF work
+>   limit. Because there is no independent authentication tag, the first CRC mismatch or an invalid
+>   coder structure is reported as a wrong password.
+> - The M3 RAR4 reader. It implements the main, file and end headers, the header CRC, 64-bit sizes,
+>   RAR Unicode and legacy names, `EXT_TIME`, stored data, the LZ and PPMd-H of unpack version 29
+>   with their block transitions, and the CRC32 of the expanded output. The RAR3 standard VM filters
+>   E8, E8E9, Itanium, Delta, RGB and Audio are implemented natively, and the custom VM is
+>   explicitly rejected. Compression versions other than 29, including 15, 20 and 26, are explicitly
+>   unsupported.
+> - RAR4 solid mode continues the window, Huffman tables, distances, filter programs and PPMd model
+>   across entries, and handles forward skipping, backward resumption and encrypted solid groups.
+>   RAR3 per-file AES-128-CBC and `-hp` header encryption, old (`.rar` / `.r00`) and new
+>   (`.partN.rar`) multi-volume sets, a bounded SFX prefix, and the packed CRC32 of a non-final split
+>   part are implemented. SFX combined with multi-volume is explicitly unsupported.
+> - The M3 RAR5 reader. It implements CRC-carrying main, file, service, encryption and end headers,
+>   vints and extra records, entries of unknown size, stored data and the LZ of compression
+>   algorithm version 0 (methods 1 to 5), and the Delta, E8, E8E9 and ARM filters. Solid mode
+>   handles mixed stored members, a per-member change of the dictionary minimum, and forward
+>   skipping and backward resumption.
+> - RAR5 per-file AES-256-CBC and archive `-hp` header encryption, PBKDF2-HMAC-SHA256, the password
+>   check, the encrypted CRC and BLAKE2sp HashMAC, and encrypted multi-volume sets are implemented
+>   end to end. This includes the packed CRC32 and BLAKE2sp of a non-final part, sibling opens from
+>   a retained directory descriptor, a default limit of 128 volumes, and a `reopen()` that does not
+>   re-resolve paths. The archive-header KDF bounds each individual `count` at 24 and accumulates
+>   each distinct `(password, salt, count)` context across all header-encrypted volumes into the
+>   public `ReadLimits.maxRAR5HeaderKDFWork`, charging `2^count + 32` HMAC-SHA256 iterations per
+>   context. A key-cache hit on the same context is not charged again, and the default is four
+>   contexts at the most expensive `count = 24` (`4 * (2^24 + 32)`).
+> - Expanding RAR5 file-copy redirection, RAR5 SFX, volume continuation from `Data` or a custom
+>   `ByteSource`, and encrypted stored entries of unknown size are explicitly unsupported.
+>   Compression algorithm version 1 and versions 2 and above, methods 6 and above,
+>   file-encryption record version 1 and above, and exceeding the KDF count limit are rejected when
+>   the stream for that entry is created, without preventing other entries from being listed or
+>   read. The default codec dictionary limit is 1 GiB.
+> - Five real RAR5 archives, 431 file streams and 915,433,332 bytes were compared by SHA-256 against
+>   RAR 7.23. For RAR4, 19 of 19 files of `st1200-pts.rar` and its 241,647,978-byte PPMd/LZ entry
+>   matched. Across an additional 20-archive corpus, 47 regular files and 5 symlink targets matched;
+>   one encrypted entry had no oracle under the known passwords, and the damaged
+>   `seek_data_cursor0` was rejected by both. In total 544 unit-level deterministic mutants were run
+>   for RAR4 and RAR5. A further 400 mutants from 8 RAR seeds were run against the ASan build of
+>   `Scripts/fuzz/run-mutants.sh`, with zero crashes, hangs or sanitizer findings.
+> - SHA-256 differential tests over 7z method, AES and solid fixtures generated with 7zz at test
+>   time, a 10 MiB streaming case, and the cooViewer fixture; these are explicitly skipped where
+>   `/opt/homebrew/bin/7zz` is absent.
+> - The `kaito` CLI, providing detection, listing, extraction, a SHA-256 differential oracle and
+>   benchmarks. `sha` hashes incrementally through a reused bounded buffer rather than holding the
+>   whole entry as `Data`. The controlled before-and-after medians were 155.346 to 155.431 ms for
+>   the book RAR5 and 637.541 to 610.447 ms for the TIFF RAR5, with final warm wall times of 0.15
+>   and 0.61 s. The roughly 0.62 second difference seen earlier came from mixing the `swift run`
+>   cold start and planning into the measurement.
+> - `kaito bench --data`, which measures the memory-mapped `Data` path.
+> - `kaito bench --random`, which measures reproducible random access over up to 20 entries.
+> - `kaito list`, which shows the compression method and the encryption state.
+> - A thin `KaitoKitCompat` layer covering the XADArchive surface that cooViewer uses and the API
+>   for the ZIP lazy local header default.
+> - Hard links bound to their archive member, safe dirfd-based path resolution, and unit and CLI
+>   tests.
+> - Limits on entries, PAX records, paths and total metadata, and the ASan/UBSan mutant runner
+>   scripts.
+> - A script that assembles the universal `KaitoKit.framework`, and the migration guide.
+> - The design document: requirements, safety rules, implementation approach, API layers,
+>   verification policy and milestones.
+> - Fixes for the 9 confirmed findings of the adversarial review of RAR and LHA (39 agents). RAR29 LZ
+>   checks for input exhaustion on every iteration of the symbol loop (the no-op path of symbol 258
+>   with no history), and RAR5 filters resume mid-way independently of the caller's buffer length.
+>   RAR5 hard links (redirection type 4) and file references (type 5) can be listed and read as
+>   0-byte entries with no body, and take part in neither the solid chain nor the total expanded
+>   size; type 4 becomes a hard link at extraction, and copying the referenced data for type 5 is
+>   unsupported. The hard-link provenance key of `ArchiveReader.extract` resolves the nearest
+>   existing ancestor, covering the uncreated `/private/tmp` and `/tmp` spellings. RAR4 and RAR5
+>   Unix symbolic links expose `linkTargetStoredAsData` and are extracted from the stored target,
+>   and the LHA `-lhd-` with `S_IFLNK` splits `name|target` into `.symlink` and `linkPath`.
+>   `ReadLimits.maxMetadataRecordCount` became a limit per record set (the extension chain of an LHA
+>   member, the extra area of a RAR5 header) rather than a per-archive total. A compressed RAR4
+>   entry under `-p` normalizes the decoder's malformed and truncated errors to `.wrongPassword`,
+>   while `-hp` distinguishes a physically short envelope and a later cut as `.truncated`.
+>   `ReaderOptions.maxRAR5KDFCountPower` and `maxSevenZipAESCyclesPower` are clamped to 24 and 62 on
+>   assignment as well.
+> - Scripts/fuzz: packed-range locators and compressed seed generation for RAR4 LZ and PPMd-H, RAR5
+>   LZ, and LHA lh4, lh6 and lh7, plus `--require-payload-ranges`. The RAR5 LZ seed is restored from
+>   the bundled project-generated fixture (`Tests/Fixtures/rar5/lz-small.rar.b64`), and `rar` is used
+>   only when explicitly specified. Corpus-dependent tests are pointed at their data through
+>   environment variables such as `KAITOKIT_RAR4_CORPUS` and `KAITOKIT_LHA_CORPUS`, and small
+>   fixtures derived from libarchive (BSD-2-Clause) and ISC sources are pinned in `Tests/Fixtures` as
+>   base64 (`Tests/Fixtures/NOTICE`).

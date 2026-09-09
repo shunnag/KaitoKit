@@ -50,6 +50,15 @@
   宣言 packed サイズはそのまま保持し `availablePackedSize` を別に持つため、
   `maxEntrySize` の資源上限は緩まない。
 
+- 破損書庫の部分救済を大幅に高速化した。`RecoveryDecompressor` が 1 byte ずつ読むため
+  `CopyDecompressor` の一括読み取り経路(1MB 閾値 / 4MB チャンク)が無効化され、
+  stored entry の部分救済が byte ごとに `ByteSource` を叩いていた。救済時の packed
+  サイズは実在 byte 数へ丸め済みで read 中に truncated を投げ得ないため、
+  ZIP(method 0 かつ非暗号化)・LHA(`-lh0-`)・RAR5(method 0 かつ非暗号化)に
+  限って wrapper を外した。ZIP 248ms→8.4ms(約 30 倍)、LHA 236ms→5.1ms(約 46 倍)、
+  RAR5 295ms→15.3ms(約 19 倍)で、いずれも切断のない読み取りと同じ速度になった。
+  出力は不変で、ZipCrypto / WinZip AES と LHA の MacBinary 経路は従来どおり。
+
 - tar の形式判定が member header の数値フィールドまで解析していたため、size が壊れた
   tar が `malformed` ではなく「未対応形式」に化けていたのを修正。判定は 512 byte・
   非空のパス名・checksum 一致だけを見る。あわせて、先頭が 0 で埋まったファイルを

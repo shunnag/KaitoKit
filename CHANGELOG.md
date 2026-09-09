@@ -4,7 +4,7 @@
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
 バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従う。
 
-## [0.1.0] - Unreleased
+## [0.2.0] - 2026-09-09
 
 ### 修正（2026-09-09、CAB の救済性と展開性能）
 
@@ -278,8 +278,8 @@
 - CRC-16/ARC を実行時判定付き PMULL / PCLMULQDQ folding で高速化。小入力・未対応 CPU は
   従来の slice-by-eight を維持し、公開 API・逐次更新・検証結果を変えずに LHA 展開時間を短縮。
 
-- RAR29 / LHA static Huffman の展開を高速化。CRC16 slice-by-eight、境界検証付きの
-  重複 match コピー、生バッファの Huffman lookup / bit reservoir により性能目標を達成。
+- RAR5 の復号失敗を軽量な内部状態で保持し、ヘッダ走査では上限付き先読みバッファを
+  再利用して展開・open を高速化。公開 API・エラー・展開内容は維持。
 
 > **Added and fixed (2026-09-09, from the black-box comparison against XADMaster)**
 >
@@ -340,14 +340,16 @@
 > - Made CRC-16/ARC faster with PMULL and PCLMULQDQ folding selected at runtime. Small inputs and
 >   CPUs without support keep the previous slice-by-eight, shortening LHA extraction without
 >   changing the public API, incremental updates or verification results.
-> - Made RAR29 and LHA static Huffman extraction faster. The performance targets were met through
->   CRC16 slice-by-eight, bounds-validated copying of overlapping matches, and Huffman lookup and a
->   bit reservoir over raw buffers.
+> - RAR5 decryption failures are now held in lightweight internal state, and header scanning reuses
+>   a bounded read-ahead buffer, making extraction and open faster. The public API, the errors and
+>   the extracted content are unchanged.
+
+## [0.1.0] - 2026-09-08
 
 ### 修正・高速化（2026-09-08）
 
-- RAR5 の復号失敗を軽量な内部状態で保持し、ヘッダ走査では上限付き先読みバッファを
-  再利用して展開・open を高速化。公開 API・エラー・展開内容は維持。
+- RAR29 / LHA static Huffman の展開を高速化。CRC16 slice-by-eight、境界検証付きの
+  重複 match コピー、生バッファの Huffman lookup / bit reservoir により性能目標を達成。
 
 - RAR5 の長い password は実測済みの先頭 127 Unicode scalars を優先し、全 UTF-8 への
   fallback で既存 writer 互換を保持。symbolic-link target の末尾が NAME_MAX を超える場合も
@@ -381,9 +383,9 @@
 
 > **Fixed and made faster (2026-09-08)**
 >
-> - RAR5 decryption failures are now held in lightweight internal state, and header scanning reuses
->   a bounded read-ahead buffer, making extraction and open faster. The public API, the errors and
->   the extracted content are unchanged.
+> - Made RAR29 and LHA static Huffman extraction faster. The performance targets were met through
+>   CRC16 slice-by-eight, bounds-validated copying of overlapping matches, and Huffman lookup and a
+>   bit reservoir over raw buffers.
 > - Long RAR5 passwords now prefer the measured first 127 Unicode scalars, falling back to the UTF-8
 >   of the whole input to stay compatible with existing writers. Fixed extraction so that a
 >   symbolic-link target whose tail exceeds NAME_MAX is still extracted as a safe dangling link.

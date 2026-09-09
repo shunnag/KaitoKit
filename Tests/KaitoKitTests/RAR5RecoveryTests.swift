@@ -70,6 +70,22 @@ final class RAR5RecoveryTests: XCTestCase {
         }
     }
 
+    func testIncompleteUnencryptedStoredEntryMatchesOriginalPrefix() throws {
+        let archive = try fixture()
+        let intact = try ArchiveReader.open(data: archive)
+        let originalEntry = try XCTUnwrap(intact.entries.first { $0.name == "tail.bin" })
+        let original = try intact.read(originalEntry)
+        let recovered = try ArchiveReader.open(
+            data: Data(archive.prefix(400)), options: recovery
+        )
+        let entry = try XCTUnwrap(recovered.entries.first { $0.name == "tail.bin" })
+        XCTAssertTrue(entry.isIncomplete)
+        XCTAssertFalse(entry.isEncrypted)
+        let payload = try recovered.read(entry)
+        XCTAssertEqual(payload.count, 219)
+        XCTAssertEqual(payload, Data(original.prefix(219)))
+    }
+
     func testStrictModePreservesTruncationErrorAtAllFourPoints() throws {
         let archive = try fixture()
         for cut in [693, 400, 160, 130] {

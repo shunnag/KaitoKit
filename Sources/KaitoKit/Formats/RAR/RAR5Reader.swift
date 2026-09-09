@@ -648,8 +648,11 @@ final class RAR5Reader: FormatReader {
         let crc32Transform: ((UInt32) -> UInt32)? = prepared.hashKey.map { key in
             { checksum in RAR5ChecksumMAC.crc32(checksum, hashKey: key) }
         }
+        // Incomplete unencrypted stored payloads are already bounded to available
+        // bytes by CopyDecompressor, so preserve bulk reads without recovery wrapping.
         return try EntryStream(
             decompressor: entry.isIncomplete
+                && !(record.compression.method == 0 && record.encryption == nil)
                 ? RecoveryDecompressor(decompressor, maximumOutputSize: outputLength)
                 : decompressor,
             length: entry.isIncomplete ? nil : outputLength,

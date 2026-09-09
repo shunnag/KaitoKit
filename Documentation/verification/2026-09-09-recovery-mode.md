@@ -227,15 +227,35 @@ XADMaster は多巻の欠落を切り詰めと同じに扱うが、KaitoKit は�
 |---|---|---:|
 | 無傷 | 20 entry `b65637540a…` | 15〜24ms |
 | 末尾 8 byte 欠落 | 20 entry、**無傷と同一の digest** | 15ms |
-| 末尾 1MB 欠落 | 19 entry 完全 + `page19.bin` を **1,098,419 byte** 救済(原本の先頭と一致)| 295〜300ms |
+| 末尾 1MB 欠落 | 19 entry 完全 + `page19.bin` を **1,098,419 byte** 救済(原本の先頭と一致)| **15.3ms**(最適化前 295〜300ms)|
 
 XADMaster は同じ書庫で `page19.bin` を 0 byte で返す。
 
-**部分救済の速度は現状 3.9 MB/s で、ZIP の約 50 MB/s に対しておよそ 13 倍遅い。**
-原因は `RecoveryDecompressor` が 1 byte ずつ読む点にある。ZIP では inflate の
-内部バッファから 1 byte を取り出すだけだが、RAR5 の stored entry では
-`CopyDecompressor` 経由で毎回 `ByteSource` に触れるため割高になる。
-不完全 entry にしか使わない経路なので機能上の問題は無いが、実測値として記録する。
+### 部分救済の 19 倍高速化
+
+最初の実装では部分救済が 3.9 MB/s しか出ず、ZIP の同等ケース(約 50 MB/s)より
+13 倍遅かった。原因を切り分けたところ `RecoveryDecompressor` の 1 byte 読みだった。
+これは切断時に produce 済み出力を失わないための設計だが、`CopyDecompressor` には
+一括読み取り経路(`directReadMinimumSize` 1MB / `directReadChunkSize` 4MB)があり、
+1 byte の buffer で呼ぶとそれが完全に無効化されて byte ごとに `ByteSource` を
+叩くことになる。ZIP では inflate の内部バッファから 1 byte を取り出すだけなので
+この差が出なかった。
+
+stored 分岐の `CopyDecompressor` は既に実在 byte 数へ丸めて構築されており、
+`guard endOffset <= source.length` は必ず成立するので read 中に `.truncated` を
+投げ得ない。つまりこの経路に限って包む意味が無い。**暗号化されていない stored の
+不完全 entry に限り** `RecoveryDecompressor` を外した(暗号化 entry の
+「何も返さない」挙動は安全側なので維持する)。
+
+| | 最適化前 | 最適化後 |
+|---|---:|---:|
+| 40MB 書庫・末尾 1MB 欠落 | 295〜300ms | **15.2〜15.4ms** |
+| 同・無傷 | 15〜24ms | 15〜24ms |
+
+部分救済のコストが計測できないところまで下がり、切断のない読み取りと同じ速度に
+なった。出力は最適化の前後で完全に同一で、`page19.bin` の 1,098,419 byte は
+引き続き原本の先頭と SHA-256 が一致する。大 corpus 6 変種・solid 2 変種・
+暗号化 3 変種の総合 digest も、健全 95 件・暗号化 6 件の不変性もすべて変化なし。
 
 ## 既定動作が変わっていないことの確認
 

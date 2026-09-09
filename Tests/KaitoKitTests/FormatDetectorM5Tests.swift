@@ -5,6 +5,31 @@ import ImageIO
 import XCTest
 
 final class FormatDetectorM5Tests: XCTestCase {
+    func testTarDetectionRequiresMemberEvidenceAndPreservesEmptyExtensionHint() throws {
+        for size in [1_024, 64 * 1_024] {
+            assertUnsupported(Data(repeating: 0, count: size))
+        }
+        var iso = Data(repeating: 0, count: 64 * 1_024)
+        iso[32_768] = 1
+        iso.replaceSubrange(32_769..<32_774, with: Data("CD001".utf8))
+        iso[32_774] = 1
+        assertUnsupported(iso)
+        let real = try TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "member", contents: Data("tar".utf8)),
+        ])
+        XCTAssertEqual(try FormatDetector.detect(data: real), .tar)
+        var invalid = real
+        invalid[0] ^= 1
+        assertUnsupported(invalid)
+        let directory = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("foo.tar")
+        try Data(repeating: 0, count: 1_024).write(to: url)
+        XCTAssertEqual(try FormatDetector.detect(url: url), .tar)
+        XCTAssertTrue(try ArchiveReader.open(url: url).entries.isEmpty)
+    }
+
+
     func testLZMAAloneDetectionRequiresHintAndRejectsNonArchives() throws {
         let directory = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

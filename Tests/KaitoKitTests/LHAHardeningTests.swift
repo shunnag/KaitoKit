@@ -3,6 +3,118 @@ import Foundation
 import XCTest
 
 final class LHAHardeningTests: XCTestCase {
+    func testRecoveryRetainsLHAHeadersAndCutStoredPayloadAcrossAllLevels() throws {
+        let first = Data("complete".utf8)
+        let last = Data(repeating: 0xA5, count: 4_096)
+        for level: UInt8 in 0...3 {
+            let firstArchive = try LHATestSupport.makeArchive(entries: [
+                HandLHAEntry(name: "first", contents: first, headerLevel: level),
+            ])
+            let archive = try LHATestSupport.makeArchive(entries: [
+                HandLHAEntry(name: "first", contents: first, headerLevel: level),
+                HandLHAEntry(name: "last", contents: last, headerLevel: level),
+            ])
+            let dataOffset = archive.count - 1 - last.count
+            for end in [firstArchive.count - 1 + 10, dataOffset, dataOffset + 777, archive.count - 1] {
+                let cut = Data(archive.prefix(end))
+                XCTAssertThrowsError(try ArchiveReader.open(data: cut)) { error in
+                    guard case KaitoError.truncated = error else {
+                        return XCTFail("Unexpected error: \(error)")
+                    }
+                }
+                let reader = try ArchiveReader.open(
+                    data: cut, options: ReaderOptions(recoverDamagedArchives: true)
+                )
+                XCTAssertEqual(reader.entries.count, end < dataOffset ? 1 : 2)
+                XCTAssertFalse(reader.entries[0].isIncomplete)
+                XCTAssertEqual(try reader.read(reader.entries[0]), first)
+                if reader.entries.count == 2 {
+                    XCTAssertEqual(reader.entries[1].isIncomplete, end < archive.count - 1)
+                    XCTAssertEqual(try reader.read(reader.entries[1]), last.prefix(end - dataOffset))
+                }
+            }
+            var corrupt = Data(archive.prefix(dataOffset + 777))
+            corrupt[firstArchive.count - 2] ^= 1
+            let reader = try ArchiveReader.open(
+                data: corrupt, options: ReaderOptions(recoverDamagedArchives: true)
+            )
+            XCTAssertThrowsError(try reader.read(reader.entries[0])) { error in
+                guard case KaitoError.checksumMismatch(entry: 0) = error else {
+                    return XCTFail("Unexpected error: \(error)")
+                }
+            }
+            for limits in [ReadLimits(maxEntryCount: 1), ReadLimits(maxEntrySize: 4_095),
+                           ReadLimits(maxTotalUncompressedSize: 4_096),
+                           ReadLimits(maxMetadataSize: 20), ReadLimits(maxTotalMetadataSize: 100)] {
+                XCTAssertThrowsError(try ArchiveReader.open(data: corrupt, options: ReaderOptions(
+                    limits: limits, recoverDamagedArchives: true
+                ))) { error in
+                    guard case KaitoError.limitExceeded = error else {
+                        return XCTFail("Unexpected error: \(error)")
+                    }
+                }
+            }
+        }
+    }
+
+
+    func testRecoveryReturnsCompressedLHAPrefixesAndPreservesMacBinaryDataForks() throws {
+        // 既存の static Huffman テストと同じ単一記号 block を二つ連結する。
+        var bits: [UInt8] = []
+        for symbol in [75, 76] {
+            for (value, width) in [(257, 16), (0, 5), (0, 5), (0, 9), (symbol, 9), (0, 4), (0, 4)] {
+                for bit in stride(from: width - 1, through: 0, by: -1) {
+                    bits.append(UInt8((value >> bit) & 1))
+                }
+            }
+        }
+        let packed = Data(stride(from: 0, to: bits.count, by: 8).map { start in
+            bits[start..<(start + 8)].reduce(UInt8(0)) { ($0 << 1) | $1 }
+        })
+        let payload = Data(repeating: 75, count: 257) + Data(repeating: 76, count: 257)
+        let archive = try LHATestSupport.makeArchive(entries: [
+            HandLHAEntry(name: "first", contents: payload, method: "-lh5-", headerLevel: 2,
+                         packedContents: packed),
+            HandLHAEntry(name: "last", contents: payload, method: "-lh5-", headerLevel: 2,
+                         packedContents: packed),
+        ])
+        let dataOffset = archive.count - 1 - packed.count
+        for survived in [0, 7] {
+            let cut = Data(archive.prefix(dataOffset + survived))
+            XCTAssertThrowsError(try ArchiveReader.open(data: cut)) { error in
+                XCTAssertEqual(error as? KaitoError, .truncated)
+            }
+            let reader = try ArchiveReader.open(
+                data: cut, options: ReaderOptions(recoverDamagedArchives: true)
+            )
+            XCTAssertTrue(reader.entries[1].isIncomplete)
+            XCTAssertEqual(try reader.read(reader.entries[0]), payload)
+            XCTAssertEqual(try reader.read(reader.entries[1]), payload.prefix(survived == 0 ? 0 : 257))
+        }
+
+        let fork = Data(repeating: 0xA5, count: 1_024)
+        var envelope = Data(repeating: 0, count: 128)
+        envelope[1] = 1
+        envelope[2] = 65
+        envelope[85] = 4
+        envelope[89] = 4
+        envelope.append(fork)
+        envelope.append(Data(repeating: 0x5A, count: 1_024))
+        let macArchive = try LHATestSupport.makeArchive(entries: [
+            HandLHAEntry(name: "mac", contents: envelope, headerLevel: 2, creatorOS: 0x6D),
+        ])
+        let macDataOffset = macArchive.count - 1 - envelope.count
+        for survived in [777, 1_024] {
+            let cut = Data(macArchive.prefix(macDataOffset + 128 + survived))
+            XCTAssertThrowsError(try ArchiveReader.open(data: cut))
+            let reader = try ArchiveReader.open(
+                data: cut, options: ReaderOptions(recoverDamagedArchives: true)
+            )
+            XCTAssertTrue(reader.entries[0].isIncomplete)
+            XCTAssertEqual(try reader.read(reader.entries[0]), fork.prefix(survived))
+        }
+    }
+
     func testLevel0HeaderChecksumMismatchIsRejected() throws {
         var bytes = Array(try LHATestSupport.makeArchive(entries: [
             HandLHAEntry(

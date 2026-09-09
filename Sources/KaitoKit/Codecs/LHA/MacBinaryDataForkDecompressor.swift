@@ -21,8 +21,9 @@ final class MacBinaryDataForkDecompressor: Decompressor {
 
     private let input: any Decompressor
     private let inputSize: UInt64
-    private let expectedCRC16: UInt16
+    private let expectedCRC16: UInt16?
     private let entryIndex: Int
+    private let allowIncomplete: Bool
     private let unwrapsMacBinary: Bool
     private let dataOffset: UInt64
 
@@ -39,9 +40,11 @@ final class MacBinaryDataForkDecompressor: Decompressor {
     init(
         input: any Decompressor,
         inputSize: UInt64,
-        expectedCRC16: UInt16,
-        entryIndex: Int
+        expectedCRC16: UInt16?,
+        entryIndex: Int,
+        allowIncomplete: Bool = false
     ) throws {
+        self.allowIncomplete = allowIncomplete
         self.input = input
         self.inputSize = inputSize
         self.expectedCRC16 = expectedCRC16
@@ -66,7 +69,10 @@ final class MacBinaryDataForkDecompressor: Decompressor {
                     "MacBinary input returned an invalid byte count"
                 )
             }
-            guard count > 0 else { throw KaitoError.truncated }
+            guard count > 0 else {
+                if allowIncomplete { break }
+                throw KaitoError.truncated
+            }
             bytes.withUnsafeBytes { storage in
                 sourceChecksum.update(UnsafeRawBufferPointer(
                     rebasing: storage[bytesRead..<(bytesRead + count)]
@@ -75,6 +81,7 @@ final class MacBinaryDataForkDecompressor: Decompressor {
             bytesRead += count
         }
 
+        if bytesRead < bytes.count { bytes.removeLast(bytes.count - bytesRead) }
         if let layout = Self.macBinaryLayout(
             header: bytes,
             inputSize: inputSize
@@ -194,7 +201,12 @@ final class MacBinaryDataForkDecompressor: Decompressor {
 
     private func verifyInputCompletion() throws {
         guard !completionVerified else { return }
-        try discardInput(until: inputSize)
+        do {
+            try discardInput(until: inputSize)
+        } catch KaitoError.truncated where allowIncomplete {
+            completionVerified = true
+            return
+        }
 
         if !input.isFinished {
             var extra: UInt8 = 0
@@ -207,7 +219,7 @@ final class MacBinaryDataForkDecompressor: Decompressor {
                 )
             }
         }
-        guard checksum.value == expectedCRC16 else {
+        if let expectedCRC16, checksum.value != expectedCRC16 {
             throw KaitoError.checksumMismatch(entry: entryIndex)
         }
         completionVerified = true

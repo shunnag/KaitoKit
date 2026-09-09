@@ -18,7 +18,8 @@ final class LHAReader: FormatReader {
             source: source,
             policy: options.encodingPolicy,
             limits: options.limits,
-            startOffset: headerOffset
+            startOffset: headerOffset,
+            recoverDamagedArchives: options.recoverDamagedArchives
         )
         self.source = source
         self.entries = parsed.entries
@@ -33,11 +34,14 @@ final class LHAReader: FormatReader {
             throw KaitoError.notFound("LHA entry index \(entry.index)")
         }
         let record = records[entry.index]
-        let decoded = try makeDecompressor(
+        let rawDecoded = try makeDecompressor(
             record: record,
             entry: entry,
             limits: limits
         )
+        let decoded: any Decompressor = entry.isIncomplete ? RecoveryDecompressor(
+            rawDecoded, maximumOutputSize: record.uncompressedSize
+        ) : rawDecoded
         let decompressor: any Decompressor
         let outputSize: UInt64
         let expectedCRC16: UInt16?
@@ -51,10 +55,13 @@ final class LHAReader: FormatReader {
             let macBinary = try MacBinaryDataForkDecompressor(
                 input: decoded,
                 inputSize: record.uncompressedSize,
-                expectedCRC16: record.crc16,
-                entryIndex: entry.index
+                expectedCRC16: entry.isIncomplete ? nil : record.crc16,
+                entryIndex: entry.index,
+                allowIncomplete: entry.isIncomplete
             )
-            decompressor = macBinary
+            decompressor = entry.isIncomplete ? RecoveryDecompressor(
+                macBinary, maximumOutputSize: macBinary.outputSize
+            ) : macBinary
             outputSize = macBinary.outputSize
             // The LHA CRC covers the complete MacBinary envelope, not only the
             // exposed data fork, so the filter verifies it while draining.
@@ -68,9 +75,9 @@ final class LHAReader: FormatReader {
         }
         return try EntryStream(
             decompressor: decompressor,
-            length: outputSize,
+            length: entry.isIncomplete ? nil : outputSize,
             expectedCRC32: nil,
-            expectedCRC16: expectedCRC16,
+            expectedCRC16: entry.isIncomplete ? nil : expectedCRC16,
             entryIndex: entry.index,
             limits: limits
         )

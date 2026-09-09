@@ -4,10 +4,10 @@ import Foundation
 ///
 /// Detection uses a stable order so ambiguous inputs behave consistently:
 ///
-/// 1. A checksum-valid tar header (or the two-block empty-tar terminator) wins
+/// 1. A checksum-valid tar member header wins
 ///    over bytes in its pathname that resemble a shorter stream signature.
 /// 2. Native markers are checked in this order: ZIP, RAR, 7-Zip, XZ,
-///    structurally plausible LHA, gzip, bzip2, UNIX compress, then bare ustar.
+///    structurally plausible LHA, gzip, bzip2, UNIX compress.
 ///    LHA precedes the two-byte stream markers because its header supplies a
 ///    method and a bounded size envelope.
 /// 3. When enabled, markers inside a recognized Mach-O or PE prefix are
@@ -130,10 +130,7 @@ public enum FormatDetector {
         let prefix = try read(source: source, at: 0, count: prefixLength)
 
         // 512-byte 全体で検証できる tar checksum は短い magic より強い証拠になる。
-        if try hasValidTarChecksum(prefix) {
-            return .tar
-        }
-        if try isEmptyTar(source: source, firstBlock: prefix) {
+        if TarReader.isPlausibleMemberHeader(prefix) {
             return .tar
         }
 
@@ -163,9 +160,6 @@ public enum FormatDetector {
         }
         if hasPrefix(prefix, [0x1F, 0x9D]) {
             return .compress
-        }
-        if try isTarHeader(prefix) {
-            return .tar
         }
         // A damaged first local marker can still belong to a native ZIP when
         // its end record places the central directory at an absolute base of
@@ -503,94 +497,6 @@ public enum FormatDetector {
         default:
             return false
         }
-    }
-
-    private static func isTarHeader(_ bytes: [UInt8]) throws -> Bool {
-        guard bytes.count >= tarBlockSize else {
-            return false
-        }
-
-        if bytes[257] == 0x75,
-           bytes[258] == 0x73,
-           bytes[259] == 0x74,
-           bytes[260] == 0x61,
-           bytes[261] == 0x72 {
-            return true
-        }
-
-        return try hasValidTarChecksum(bytes)
-    }
-
-    private static func hasValidTarChecksum(_ bytes: [UInt8]) throws -> Bool {
-        guard bytes.count >= tarBlockSize else {
-            return false
-        }
-
-        // 終端のゼロブロックを空の tar ヘッダと誤認しない。
-        guard bytes[..<tarBlockSize].contains(where: { $0 != 0 }) else {
-            return false
-        }
-        guard let recordedChecksum = try parseTarChecksum(bytes[148..<156]) else {
-            return false
-        }
-
-        var unsignedSum: UInt64 = 0
-        var signedSum: Int64 = 0
-        for index in 0..<tarBlockSize {
-            let byte: UInt8 = (148..<156).contains(index) ? 0x20 : bytes[index]
-            unsignedSum = try Checked.add(unsignedSum, UInt64(byte))
-            signedSum += Int64(Int8(bitPattern: byte))
-        }
-
-        // 古い実装が作った signed-char checksum も安全に認識する。
-        return recordedChecksum == unsignedSum
-            || (signedSum >= 0 && recordedChecksum == UInt64(signedSum))
-    }
-
-    private static func isEmptyTar(
-        source: any ByteSource,
-        firstBlock: [UInt8]
-    ) throws -> Bool {
-        guard firstBlock.count == tarBlockSize,
-              firstBlock.allSatisfy({ $0 == 0 }),
-              source.length >= UInt64(tarBlockSize * 2) else {
-            return false
-        }
-        let secondBlock = try read(
-            source: source,
-            at: UInt64(tarBlockSize),
-            count: tarBlockSize
-        )
-        return secondBlock.allSatisfy { $0 == 0 }
-    }
-
-    private static func parseTarChecksum(_ field: ArraySlice<UInt8>) throws -> UInt64? {
-        var value: UInt64 = 0
-        var sawDigit = false
-        var reachedPadding = false
-        var reachedNULTerminator = false
-
-        for byte in field {
-            if byte == 0 {
-                reachedNULTerminator = true
-                continue
-            }
-            if byte == 0x20 {
-                if sawDigit {
-                    reachedPadding = true
-                }
-                continue
-            }
-            guard !reachedNULTerminator,
-                  !reachedPadding,
-                  (0x30...0x37).contains(byte) else {
-                return nil
-            }
-            sawDigit = true
-            value = try Checked.mul(value, 8)
-            value = try Checked.add(value, UInt64(byte - 0x30))
-        }
-        return sawDigit ? value : nil
     }
 
     private static func containsNativeZipEOCD(

@@ -197,7 +197,9 @@ enum WinZipAES {
         compressedSize: UInt64,
         password: String,
         metadata: WinZipAESMetadata,
-        cachedKeysFor: (WinZipAESKeyCacheKey) -> WinZipAESDerivedKeys?
+        cachedKeysFor: (WinZipAESKeyCacheKey) -> WinZipAESDerivedKeys?,
+        availableCompressedSize: UInt64? = nil,
+        hasKnownCompressedSize: Bool = true
     ) throws -> WinZipAESStreamDecryptionResult {
         let overhead = try Checked.add(
             UInt64(metadata.strength.saltLength),
@@ -206,12 +208,17 @@ enum WinZipAES {
                     + WinZipAESPayload.authenticationCodeSize
             )
         )
-        guard compressedSize >= overhead else { throw KaitoError.truncated }
-        let payloadEnd = try Checked.add(offset, compressedSize)
-        guard payloadEnd <= source.length else { throw KaitoError.truncated }
-
         let saltAndVerifierSize = metadata.strength.saltLength
             + WinZipAESPayload.passwordVerifierSize
+        let available = availableCompressedSize ?? compressedSize
+        let isIncomplete = availableCompressedSize != nil
+        if !isIncomplete || hasKnownCompressedSize {
+            guard compressedSize >= overhead else { throw KaitoError.truncated }
+        }
+        guard available >= UInt64(saltAndVerifierSize) else { throw KaitoError.truncated }
+        let payloadEnd = try Checked.add(offset, available)
+        guard payloadEnd <= source.length else { throw KaitoError.truncated }
+
         let prefix = try readByteRange(
             source: source,
             offset: offset,
@@ -234,9 +241,13 @@ enum WinZipAES {
         )
 
         let ciphertextOffset = try Checked.add(offset, UInt64(saltAndVerifierSize))
-        let ciphertextSize = try Checked.sub(compressedSize, overhead)
+        let availableCiphertext = try Checked.sub(available, UInt64(saltAndVerifierSize))
+        let ciphertextSize = try hasKnownCompressedSize
+            ? min(Checked.sub(compressedSize, overhead), availableCiphertext)
+            : availableCiphertext
         let authenticationOffset = try Checked.add(ciphertextOffset, ciphertextSize)
-        let storedCode = Data(try readByteRange(
+        // 欠損した暗号文には末尾 HMAC がない。完全な範囲の認証は従来どおり必須。
+        let storedCode: Data? = try isIncomplete ? nil : Data(readByteRange(
             source: source,
             offset: authenticationOffset,
             count: WinZipAESPayload.authenticationCodeSize
@@ -253,7 +264,7 @@ enum WinZipAES {
             source: decryptedSource,
             derivedKeys: keys,
             cacheKey: cacheKey,
-            shouldCacheDerivedKeys: cachedKeys == nil
+            shouldCacheDerivedKeys: !isIncomplete && cachedKeys == nil
         )
     }
 
@@ -399,7 +410,7 @@ final class WinZipAESByteSource: ByteSource {
     private let ciphertextOffset: UInt64
     private let encryptionKey: Data
     private let authenticationKey: Data
-    private let storedAuthenticationCode: Data
+    private let storedAuthenticationCode: Data?
     private let state: Mutex<StreamState>
 
     let length: UInt64
@@ -410,15 +421,15 @@ final class WinZipAESByteSource: ByteSource {
         ciphertextSize: UInt64,
         encryptionKey: Data,
         authenticationKey: Data,
-        storedAuthenticationCode: Data
+        storedAuthenticationCode: Data?
     ) throws {
         let end = try Checked.add(ciphertextOffset, ciphertextSize)
         guard end <= source.length else { throw KaitoError.truncated }
         guard [16, 24, 32].contains(encryptionKey.count) else {
             throw KaitoError.malformed("invalid AES key length \(encryptionKey.count)")
         }
-        guard storedAuthenticationCode.count
-                == WinZipAESPayload.authenticationCodeSize else {
+        if let storedAuthenticationCode,
+           storedAuthenticationCode.count != WinZipAESPayload.authenticationCodeSize {
             throw KaitoError.malformed("invalid WinZip AES authentication-code length")
         }
         self.source = source
@@ -538,7 +549,8 @@ final class WinZipAESByteSource: ByteSource {
         let computed = Data(
             hmac.finalize().prefix(WinZipAESPayload.authenticationCodeSize)
         )
-        guard ZipConstantTime.equals(computed, storedAuthenticationCode) else {
+        if let storedAuthenticationCode,
+           !ZipConstantTime.equals(computed, storedAuthenticationCode) {
             throw KaitoError.wrongPassword
         }
         guard copied == destination.count else { throw KaitoError.truncated }
@@ -554,7 +566,8 @@ final class WinZipAESByteSource: ByteSource {
     func finishAndVerify() throws {
         try state.withLock { state in
             if let computed = state.computedAuthenticationCode {
-                guard ZipConstantTime.equals(computed, storedAuthenticationCode) else {
+                if let storedAuthenticationCode,
+                   !ZipConstantTime.equals(computed, storedAuthenticationCode) {
                     throw KaitoError.wrongPassword
                 }
                 return
@@ -593,7 +606,8 @@ final class WinZipAESByteSource: ByteSource {
                 digest.prefix(WinZipAESPayload.authenticationCodeSize)
             )
             state.computedAuthenticationCode = computed
-            guard ZipConstantTime.equals(computed, storedAuthenticationCode) else {
+            if let storedAuthenticationCode,
+               !ZipConstantTime.equals(computed, storedAuthenticationCode) {
                 throw KaitoError.wrongPassword
             }
         }

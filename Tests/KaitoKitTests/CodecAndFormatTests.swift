@@ -31,7 +31,10 @@ final class CodecAndFormatTests: XCTestCase {
 
         var ustar = Data(repeating: 0, count: 512)
         ustar.replaceSubrange(257..<263, with: Data("ustar\0".utf8))
-        try assertFormat(.tar, data: ustar)
+        assertUnsupported(ustar)
+        try assertFormat(.tar, data: TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "member"),
+        ]))
     }
 
     func testFormatDetectorDoesNotTreatAnArbitraryPrefixAsZipSFX() throws {
@@ -58,8 +61,8 @@ final class CodecAndFormatTests: XCTestCase {
         assertUnsupported(Data(repeating: 0, count: 512))
 
         let emptyTar = Data(repeating: 0, count: 1_024)
-        XCTAssertEqual(try FormatDetector.detect(data: emptyTar), .tar)
-        XCTAssertTrue(try ArchiveReader.open(data: emptyTar).entries.isEmpty)
+        assertUnsupported(emptyTar)
+        XCTAssertThrowsError(try ArchiveReader.open(data: emptyTar))
     }
 
     func testFormatDetectorRejectsInvalidNearSignatures() {

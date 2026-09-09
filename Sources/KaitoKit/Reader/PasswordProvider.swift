@@ -36,6 +36,15 @@ public struct ReaderOptions: Sendable {
     /// Whether ZIP local headers are validated only when their entry is first read.
     public var lazyLocalHeaders: Bool
 
+    /// Whether damaged ZIP, tar, and LHA archives retain recoverable entries.
+    /// Incomplete entries expose only the payload bytes that can be decoded, and
+    /// their integrity is **not** verified: CRC-32, WinZip AES HMAC, and MacBinary
+    /// CRC-16 checks are all skipped for them. Bytes recovered from an encrypted
+    /// incomplete entry are unauthenticated and may have been tampered with, so
+    /// treat them as untrusted. Entries that are not incomplete stay fully
+    /// verified, and healthy archives read identically with this enabled.
+    public var recoverDamagedArchives: Bool
+
     /// Maximum iterated-SHA-256 cycle power accepted from 7zAES metadata.
     ///
     /// The special direct-key value `0x3f` remains accepted. The default of 24
@@ -67,12 +76,14 @@ public struct ReaderOptions: Sendable {
         maxRAR5KDFCountPower: UInt8 = 24,
         verifyRAR5Blake2sp: Bool = true,
         maximumSFXScanSize: UInt64 = 1 * 1_024 * 1_024,
-        scanForSFXInData: Bool = false
+        scanForSFXInData: Bool = false,
+        recoverDamagedArchives: Bool = false
     ) {
         self.maximumSFXScanSize = min(
             maximumSFXScanSize,
             1 * 1_024 * 1_024
         )
+        self.recoverDamagedArchives = recoverDamagedArchives
         self.scanForSFXInData = scanForSFXInData
         self.encodingPolicy = encodingPolicy
         self.limits = limits

@@ -1,6 +1,6 @@
 import Foundation
 
-// 参照仕様: PKWARE APPNOTE.TXT 6.3.x。中央ディレクトリを唯一の索引として扱う。
+// 参照仕様: PKWARE APPNOTE.TXT 6.3.x。通常は中央ディレクトリを索引として扱う。
 final class ZipReader: FormatReader {
     private static let localHeaderSignature: UInt32 = 0x0403_4b50
     private static let centralHeaderSignature: UInt32 = 0x0201_4b50
@@ -28,6 +28,8 @@ final class ZipReader: FormatReader {
         let method: UInt16
         let headerMethod: UInt16
         let encryption: Encryption
+        var availableCompressedSize: UInt64? = nil
+        var hasKnownCompressedSize = true
     }
 
     private struct LocalRecord {
@@ -115,11 +117,22 @@ final class ZipReader: FormatReader {
         self.source = source
         self.password = options.password
 
-        let parsedDirectory = try Self.locateAndParseCentralDirectory(
-            source: source,
-            policy: options.encodingPolicy,
-            limits: options.limits
-        )
+        let parsedDirectory: ParsedDirectory
+        if options.recoverDamagedArchives,
+           try source.length < UInt64(Self.endMinimumSize)
+                || (Self.findEndRecords(
+                    source: source,
+                    maximumSearchSize: Self.endMinimumSize + Self.maximumCommentSize
+                        + Self.maximumTrailingDataSize
+                )).isEmpty {
+            parsedDirectory = try Self.recoverLocalHeaders(
+                source: source, policy: options.encodingPolicy, limits: options.limits
+            )
+        } else {
+            parsedDirectory = try Self.locateAndParseCentralDirectory(
+                source: source, policy: options.encodingPolicy, limits: options.limits
+            )
+        }
         self.centralDirectoryOffset = parsedDirectory.location.offset
         self.entries = parsedDirectory.entries
         self.nameEncoding = parsedDirectory.nameEncoding
@@ -140,7 +153,7 @@ final class ZipReader: FormatReader {
         self.localHeaderOrderPositions = localHeaderOrderPositions
         self.localRecords = Array(repeating: nil, count: parsedDirectory.records.count)
 
-        if !options.lazyLocalHeaders {
+        if !options.lazyLocalHeaders || options.recoverDamagedArchives {
             for index in records.indices {
                 _ = try localRecord(at: index, limits: options.limits)
             }
@@ -163,21 +176,31 @@ final class ZipReader: FormatReader {
         let payload = try payloadSource(
             record: record,
             local: local,
-            limits: limits
+            limits: limits,
+            isIncomplete: entry.isIncomplete
         )
-        let decompressor = try makeDecompressor(
-            method: record.method,
-            flags: record.flags,
-            source: payload.source,
-            offset: payload.offset,
-            compressedSize: payload.size,
-            uncompressedSize: record.uncompressedSize,
-            limits: limits
-        )
+        let decompressor: any Decompressor
+        do {
+            decompressor = try makeDecompressor(
+                method: record.method,
+                flags: record.flags,
+                source: payload.source,
+                offset: payload.offset,
+                compressedSize: payload.size,
+                uncompressedSize: entry.uncompressedSize,
+                limits: limits
+            )
+        } catch KaitoError.truncated where entry.isIncomplete {
+            decompressor = try CopyDecompressor(
+                source: source, offset: local.dataOffset, compressedSize: 0
+            )
+        }
         return try EntryStream(
-            decompressor: decompressor,
-            length: record.uncompressedSize,
-            expectedCRC32: record.crc32,
+            decompressor: entry.isIncomplete ? RecoveryDecompressor(
+                decompressor, maximumOutputSize: entry.uncompressedSize
+            ) : decompressor,
+            length: entry.isIncomplete ? nil : entry.uncompressedSize,
+            expectedCRC32: entry.isIncomplete ? nil : record.crc32,
             entryIndex: entry.index,
             limits: limits,
             completionCheck: payload.completionCheck
@@ -266,7 +289,7 @@ final class ZipReader: FormatReader {
             throw KaitoError.malformed("ZIP64 local sizes are missing")
         }
 
-        let dataEnd = try Checked.add(dataOffset, central.compressedSize)
+        let dataEnd = try Checked.add(dataOffset, central.availableCompressedSize ?? central.compressedSize)
         guard dataEnd <= centralDirectoryOffset else {
             throw KaitoError.malformed("ZIP entry data overlaps the central directory")
         }
@@ -295,7 +318,10 @@ final class ZipReader: FormatReader {
             }
 
             let local = try resolveLocalRecord(at: index, limits: limits)
-            let end = try Checked.add(local.dataOffset, records[index].compressedSize)
+            let end = try Checked.add(
+                local.dataOffset,
+                records[index].availableCompressedSize ?? records[index].compressedSize
+            )
             if position + 1 < localHeaderOrder.count {
                 let nextIndex = localHeaderOrder[position + 1]
                 if records[nextIndex].localHeaderOffset < end {
@@ -309,24 +335,29 @@ final class ZipReader: FormatReader {
     private func payloadSource(
         record: Record,
         local: LocalRecord,
-        limits: ReadLimits
+        limits: ReadLimits,
+        isIncomplete: Bool
     ) throws -> (
         source: any ByteSource,
         offset: UInt64,
         size: UInt64,
         completionCheck: (() throws -> Void)?
     ) {
+        let availableSize = record.availableCompressedSize ?? record.compressedSize
         switch record.encryption {
         case .none:
-            return (source, local.dataOffset, record.compressedSize, nil)
+            return (source, local.dataOffset, availableSize, nil)
         case .traditional:
             guard let password else {
                 throw KaitoError.passwordRequired
             }
+            if isIncomplete, availableSize < UInt64(ZipCrypto.headerSize) {
+                return (source, local.dataOffset, 0, nil)
+            }
             let decrypted = try ZipCryptoByteSource(
                 source: source,
                 offset: local.dataOffset,
-                compressedSize: record.compressedSize,
+                compressedSize: availableSize,
                 password: password,
                 crc32: record.storedCRC32,
                 dosTime: local.dosTime,
@@ -339,6 +370,9 @@ final class ZipReader: FormatReader {
                 throw KaitoError.passwordRequired
             }
             let metadata = try WinZipAESMetadata(extraFieldPayload: Data(extra))
+            if isIncomplete, availableSize < UInt64(metadata.strength.saltLength + 2) {
+                return (source, local.dataOffset, 0, nil)
+            }
             let result = try WinZipAES.prepareStreamingDecryption(
                 source: source,
                 offset: local.dataOffset,
@@ -347,7 +381,9 @@ final class ZipReader: FormatReader {
                 metadata: metadata,
                 cachedKeysFor: { [weak self] key in
                     self?.aesDerivedKeyCache[key]
-                }
+                },
+                availableCompressedSize: isIncomplete ? availableSize : nil,
+                hasKnownCompressedSize: record.hasKnownCompressedSize
             )
             let derivedKeys = result.derivedKeys
             let cacheKey = result.cacheKey
@@ -375,7 +411,7 @@ final class ZipReader: FormatReader {
         source: any ByteSource,
         offset: UInt64,
         compressedSize: UInt64,
-        uncompressedSize: UInt64,
+        uncompressedSize: UInt64?,
         limits: ReadLimits
     ) throws -> any Decompressor {
         switch method {
@@ -439,6 +475,194 @@ final class ZipReader: FormatReader {
         default:
             throw KaitoError.unsupportedMethod(String(method))
         }
+    }
+
+    private struct RecoveryExtent {
+        let headerOffset: UInt64
+        let availableSize: UInt64
+        let unknownSize: Bool
+        let isIncomplete: Bool
+    }
+
+    private static func recoverLocalHeaders(
+        source: any ByteSource,
+        policy: EncodingPolicy,
+        limits: ReadLimits
+    ) throws -> ParsedDirectory {
+        var offset: UInt64 = 0
+        var scanned: UInt64 = 0
+        var metadata: [UInt8] = []
+        var recovery: [RecoveryExtent] = []
+        while offset < source.length {
+            offset = try nextRecoveryMarker(
+                source: source, from: offset, scanned: &scanned, limits: limits
+            )
+            guard source.length - offset >= 4 else { break }
+            let signature = try readExactly(source: source, offset: offset, count: 4)
+            guard littleUInt32(signature, at: 0) == localHeaderSignature else { break }
+            guard source.length - offset >= 30 else { break }
+            guard recovery.count < limits.maxEntryCount else {
+                throw KaitoError.limitExceeded("archive entry count")
+            }
+            try Checked.size(
+                Checked.mul(UInt64(recovery.count + 1), 256),
+                limit: limits.maxTotalMetadataSize
+            )
+            let header = try readExactly(source: source, offset: offset, count: 30)
+            let flags = littleUInt16(header, at: 6)
+            let nameSize = Int(littleUInt16(header, at: 26))
+            let extraSize = Int(littleUInt16(header, at: 28))
+            let variableSize = nameSize + extraSize
+            try Checked.size(UInt64(30 + variableSize), limit: limits.maxMetadataSize)
+            let dataOffset = try Checked.add(offset, UInt64(30 + variableSize))
+            guard dataOffset <= source.length else { break }
+            let variable = try readExactly(
+                source: source, offset: offset + 30, count: variableSize
+            )
+            let fields = try parseExtraFields(
+                Array(variable.dropFirst(nameSize)),
+                recordLimit: limits.maxMetadataRecordCount,
+                tailPolicy: .zeroPadding
+            )
+            let sizes = try resolveZIP64Values(
+                compressed32: littleUInt32(header, at: 18),
+                uncompressed32: littleUInt32(header, at: 22),
+                localOffset32: 0, diskStart16: 0, fields: fields
+            )
+            var compressed = sizes.compressedSize
+            var uncompressed = sizes.uncompressedSize
+            var crc = littleUInt32(header, at: 14)
+            try Checked.size(compressed, limit: limits.maxEntrySize)
+            try Checked.size(uncompressed, limit: limits.maxEntrySize)
+            var unknownSize = false
+            var nextOffset: UInt64
+            if flags & 8 != 0, compressed == 0 {
+                nextOffset = try nextRecoveryMarker(
+                    source: source, from: dataOffset, scanned: &scanned, limits: limits
+                )
+                compressed = nextOffset - dataOffset
+                unknownSize = true
+                // descriptor の署名あり・なし、ZIP32・ZIP64 の終端候補を範囲内で検査する。
+                for descriptorSize in [16, 24, 12, 20] {
+                    guard UInt64(descriptorSize) <= compressed else { continue }
+                    let descriptor = try readExactly(
+                        source: source, offset: nextOffset - UInt64(descriptorSize),
+                        count: descriptorSize
+                    )
+                    let signed = descriptorSize == 16 || descriptorSize == 24
+                    if signed, littleUInt32(descriptor, at: 0) != 0x0807_4b50 { continue }
+                    let base = signed ? 4 : 0
+                    let wide = descriptorSize == 24 || descriptorSize == 20
+                    let packed = wide ? littleUInt64(descriptor, at: base + 4)
+                        : UInt64(littleUInt32(descriptor, at: base + 4))
+                    guard packed == compressed - UInt64(descriptorSize) else { continue }
+                    compressed = packed
+                    uncompressed = wide ? littleUInt64(descriptor, at: base + 12)
+                        : UInt64(littleUInt32(descriptor, at: base + 8))
+                    crc = littleUInt32(descriptor, at: base)
+                    unknownSize = false
+                    break
+                }
+            } else {
+                nextOffset = try Checked.add(dataOffset, compressed)
+            }
+            try Checked.size(compressed, limit: limits.maxEntrySize)
+            try Checked.size(uncompressed, limit: limits.maxEntrySize)
+            let available = min(compressed, source.length - dataOffset)
+            // ローカル情報を既存の中央 entry 検証へ渡し、名前・暗号・上限の検証を共用する。
+            var extra: [UInt8] = []
+            for field in fields where field.identifier != 1 {
+                appendRecoveryInteger(UInt64(field.identifier), width: 2, to: &extra)
+                appendRecoveryInteger(UInt64(field.data.count), width: 2, to: &extra)
+                extra += field.data
+            }
+            if compressed >= UInt64(UInt32.max) || uncompressed >= UInt64(UInt32.max) {
+                var wide: [UInt8] = []
+                if uncompressed >= UInt64(UInt32.max) {
+                    appendRecoveryInteger(uncompressed, width: 8, to: &wide)
+                }
+                if compressed >= UInt64(UInt32.max) {
+                    appendRecoveryInteger(compressed, width: 8, to: &wide)
+                }
+                appendRecoveryInteger(1, width: 2, to: &extra)
+                appendRecoveryInteger(UInt64(wide.count), width: 2, to: &extra)
+                extra += wide
+            }
+            guard extra.count <= Int(UInt16.max) else {
+                throw KaitoError.limitExceeded("ZIP recovery extra size")
+            }
+            let nextMetadataSize = try Checked.add(
+                UInt64(metadata.count), UInt64(46 + nameSize + extra.count)
+            )
+            try Checked.size(nextMetadataSize, limit: limits.maxMetadataSize)
+            try Checked.size(nextMetadataSize, limit: limits.maxTotalMetadataSize)
+            appendRecoveryInteger(UInt64(centralHeaderSignature), width: 4, to: &metadata)
+            appendRecoveryInteger(20, width: 2, to: &metadata)
+            metadata += header[4..<14]
+            appendRecoveryInteger(UInt64(crc), width: 4, to: &metadata)
+            appendRecoveryInteger(min(compressed, UInt64(UInt32.max)), width: 4, to: &metadata)
+            appendRecoveryInteger(min(uncompressed, UInt64(UInt32.max)), width: 4, to: &metadata)
+            appendRecoveryInteger(UInt64(nameSize), width: 2, to: &metadata)
+            appendRecoveryInteger(UInt64(extra.count), width: 2, to: &metadata)
+            metadata += [UInt8](repeating: 0, count: 14)
+            metadata += variable.prefix(nameSize)
+            metadata += extra
+            recovery.append(RecoveryExtent(
+                headerOffset: offset, availableSize: available, unknownSize: unknownSize,
+                isIncomplete: unknownSize || available < compressed
+            ))
+            offset = nextOffset
+        }
+        let location = DirectoryLocation(
+            archiveBase: 0, offset: source.length, size: UInt64(metadata.count),
+            entryCount: recovery.count
+        )
+        let parsed = try parseCentralDirectory(
+            source: source, location: location, policy: policy, limits: limits,
+            recoveredBytes: metadata, recovery: recovery
+        )
+        return ParsedDirectory(
+            location: location, entries: parsed.entries, records: parsed.records,
+            nameEncoding: parsed.nameEncoding
+        )
+    }
+
+    private static func appendRecoveryInteger(
+        _ value: UInt64, width: Int, to bytes: inout [UInt8]
+    ) {
+        for index in 0..<width {
+            bytes.append(UInt8(truncatingIfNeeded: value >> (8 * index)))
+        }
+    }
+
+    private static func nextRecoveryMarker(
+        source: any ByteSource,
+        from start: UInt64,
+        scanned: inout UInt64,
+        limits: ReadLimits
+    ) throws -> UInt64 {
+        var offset = start
+        while source.length - offset >= 4 {
+            guard scanned < limits.maxTotalMetadataSize, limits.maxMetadataSize >= 4 else {
+                throw KaitoError.limitExceeded("ZIP recovery scan bytes")
+            }
+            let budget = limits.maxTotalMetadataSize - scanned
+            let count = min(source.length - offset, 65_536, limits.maxMetadataSize, budget)
+            guard count >= 4 else { throw KaitoError.limitExceeded("ZIP recovery scan bytes") }
+            let bytes = try readExactly(source: source, offset: offset, count: Int(count))
+            for index in 0...(bytes.count - 4) {
+                let signature = littleUInt32(bytes, at: index)
+                if signature == localHeaderSignature || signature == centralHeaderSignature
+                    || signature == endSignature || signature == zip64EndSignature {
+                    scanned = try Checked.add(scanned, UInt64(index + 4))
+                    return offset + UInt64(index)
+                }
+            }
+            let advance = count - 3
+            scanned = try Checked.add(scanned, advance)
+            offset += advance
+        }
+        return source.length
     }
 
     private static func locateAndParseCentralDirectory(
@@ -1244,13 +1468,15 @@ final class ZipReader: FormatReader {
         source: any ByteSource,
         location: DirectoryLocation,
         policy: EncodingPolicy,
-        limits: ReadLimits
+        limits: ReadLimits,
+        recoveredBytes: [UInt8]? = nil,
+        recovery: [RecoveryExtent] = []
     ) throws -> (
         entries: [ArchiveEntry],
         records: [Record],
         nameEncoding: String.Encoding?
     ) {
-        let bytes = try readExactly(
+        let bytes = try recoveredBytes ?? readExactly(
             source: source,
             offset: location.offset,
             count: try Checked.toInt(location.size)
@@ -1341,7 +1567,8 @@ final class ZipReader: FormatReader {
             try Checked.size(zip64.compressedSize, limit: limits.maxEntrySize)
             try Checked.size(zip64.uncompressedSize, limit: limits.maxEntrySize)
 
-            let absoluteLocalOffset = try Checked.add(
+            let extent = recovery.isEmpty ? nil : recovery[index]
+            let absoluteLocalOffset = try extent?.headerOffset ?? Checked.add(
                 location.archiveBase,
                 zip64.localHeaderOffset
             )
@@ -1475,15 +1702,16 @@ final class ZipReader: FormatReader {
                 name: name,
                 pathComponents: pathComponents,
                 kind: kind,
-                uncompressedSize: zip64.uncompressedSize,
-                compressedSize: zip64.compressedSize,
+                uncompressedSize: extent?.unknownSize == true ? nil : zip64.uncompressedSize,
+                compressedSize: extent?.unknownSize == true ? nil : zip64.compressedSize,
                 modificationDate: modificationDate,
                 posixPermissions: permissions,
                 isEncrypted: flags & 0x0001 != 0,
                 solidGroup: -1,
                 crc32: expectedCRC,
                 methodDescription: methodName,
-                formatSpecific: specific
+                formatSpecific: specific,
+                isIncomplete: extent?.isIncomplete ?? false
             )
             entries.append(entry)
             records.append(Record(
@@ -1495,7 +1723,9 @@ final class ZipReader: FormatReader {
                 flags: flags,
                 method: method,
                 headerMethod: headerMethod,
-                encryption: encryption
+                encryption: encryption,
+                availableCompressedSize: extent?.availableSize,
+                hasKnownCompressedSize: extent?.unknownSize != true
             ))
         }
 

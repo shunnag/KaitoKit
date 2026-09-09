@@ -151,6 +151,15 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
   単一 file stream として開きます。
 - 組込み cancellation token は未提供です。incremental 処理は caller が `EntryStream` の read loop を
   終了して制御します。
+- 破損書庫の救済は既定で無効です。`ReaderOptions.recoverDamagedArchives = true` にすると、
+  ZIP（中央ディレクトリを失ったもの）・tar・LHA から読める entry を取り出せます。救済対象は
+  「EOCD が見つからない ZIP」であり、EOCD はあるが中央ディレクトリが壊れている ZIP は
+  従来どおり `malformed` です。7z はヘッダが末尾にあるため切り詰められた書庫を救済できません。
+  切れた entry は `ArchiveEntry.isIncomplete` が `true` になり、**CRC-32 / WinZip AES の HMAC /
+  MacBinary の CRC-16 をいずれも検証しません**。暗号化 entry から救済した byte は認証されて
+  いないため、信頼できない入力として扱ってください（password verifier は救済時も働くので、
+  誤ったパスワードは従来どおり `wrongPassword` になります）。完全な entry と健全な書庫の
+  読み取り結果は、この設定を有効にしても変わりません。
 
 ## 組み込みの注意
 

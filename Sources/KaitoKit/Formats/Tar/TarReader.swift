@@ -21,6 +21,7 @@ final class TarReader: FormatReader {
         let link: PendingText?
         let kind: EntryKind
         let size: UInt64
+        let isIncomplete: Bool
         let modificationDate: Date?
         let permissions: UInt16
         let formatSpecific: [String: String]
@@ -37,7 +38,8 @@ final class TarReader: FormatReader {
         let parsed = try Self.parse(
             source: source,
             policy: options.encodingPolicy,
-            limits: options.limits
+            limits: options.limits,
+            recoverDamagedArchives: options.recoverDamagedArchives
         )
         entries = parsed.entries
         nameEncoding = parsed.nameEncoding
@@ -61,7 +63,8 @@ final class TarReader: FormatReader {
     private static func parse(
         source: any ByteSource,
         policy: EncodingPolicy,
-        limits: ReadLimits
+        limits: ReadLimits,
+        recoverDamagedArchives: Bool
     ) throws -> (
         entries: [ArchiveEntry],
         records: [Record],
@@ -81,7 +84,10 @@ final class TarReader: FormatReader {
 
         while offset < source.length {
             let remaining = try Checked.sub(source.length, offset)
-            guard remaining >= 512 else { throw KaitoError.truncated }
+            guard remaining >= 512 else {
+                if recoverDamagedArchives { break }
+                throw KaitoError.truncated
+            }
 
             try byteReader.seek(to: offset)
             let header = Array(try byteReader.readBytes(512))
@@ -103,6 +109,7 @@ final class TarReader: FormatReader {
                 typeByte == ascii("g") ||
                 typeByte == ascii("L") || typeByte == ascii("K") {
                 try Checked.size(headerSize, limit: limits.maxMetadataSize)
+                if recoverDamagedArchives, headerSize > source.length - dataOffset { break }
                 let payload = try readPayload(
                     reader: &byteReader,
                     offset: dataOffset,
@@ -142,7 +149,10 @@ final class TarReader: FormatReader {
                 default:
                     break
                 }
-                offset = try nextHeaderOffset(dataOffset: dataOffset, size: headerSize, source: source)
+                offset = try nextHeaderOffset(
+                    dataOffset: dataOffset, size: headerSize, source: source,
+                    recoverDamagedArchives: recoverDamagedArchives
+                )
                 continue
             }
 
@@ -167,13 +177,15 @@ final class TarReader: FormatReader {
                 hasAuthoritativePAXSize: pax["size"] != nil,
                 dataOffset: dataOffset,
                 source: source,
-                reader: &byteReader
+                reader: &byteReader,
+                recoverDamagedArchives: recoverDamagedArchives
             )
             try Checked.size(storedSize, limit: limits.maxEntrySize)
             let nextOffset = try nextHeaderOffset(
                 dataOffset: dataOffset,
                 size: storedSize,
-                source: source
+                source: source,
+                recoverDamagedArchives: recoverDamagedArchives
             )
 
             guard pendingEntries.count < limits.maxEntryCount else {
@@ -303,11 +315,18 @@ final class TarReader: FormatReader {
                 link: pendingLink,
                 kind: kind,
                 size: storedSize,
+                isIncomplete: recoverDamagedArchives
+                    && storedSize > source.length - dataOffset,
                 modificationDate: modificationDate,
                 permissions: UInt16(mode & 0o7777),
                 formatSpecific: specific
             ))
-            records.append(Record(dataOffset: dataOffset, size: storedSize))
+            records.append(Record(
+                dataOffset: dataOffset,
+                size: recoverDamagedArchives
+                    ? min(storedSize, source.length - dataOffset)
+                    : storedSize
+            ))
 
             localPAX.removeAll(keepingCapacity: true)
             hasLocalPAX = false
@@ -316,8 +335,9 @@ final class TarReader: FormatReader {
             offset = nextOffset
         }
 
-        guard foundTerminator else { throw KaitoError.truncated }
-        guard !hasLocalPAX, longName == nil, longLink == nil else {
+        guard foundTerminator || recoverDamagedArchives else { throw KaitoError.truncated }
+        guard (!hasLocalPAX && longName == nil && longLink == nil)
+            || (recoverDamagedArchives && !foundTerminator) else {
             throw KaitoError.malformed("tar ends after an extension header")
         }
         var undecoratedNames: [[UInt8]] = []
@@ -449,7 +469,8 @@ final class TarReader: FormatReader {
                 solidGroup: -1,
                 crc32: nil,
                 methodDescription: "tar (stored)",
-                formatSpecific: specific
+                formatSpecific: specific,
+                isIncomplete: pending.isIncomplete
             )
             entries.append(entry)
             if let normalizedName = normalizedExtractionPath(resolvedName) {
@@ -500,14 +521,28 @@ final class TarReader: FormatReader {
     private static func nextHeaderOffset(
         dataOffset: UInt64,
         size: UInt64,
-        source: any ByteSource
+        source: any ByteSource,
+        recoverDamagedArchives: Bool = false
     ) throws -> UInt64 {
         let rounded = try Checked.add(size, 511)
         let blocks = rounded / 512
         let padded = try Checked.mul(blocks, 512)
         let next = try Checked.add(dataOffset, padded)
-        guard next <= source.length else { throw KaitoError.truncated }
+        guard next <= source.length || recoverDamagedArchives else { throw KaitoError.truncated }
         return next
+    }
+
+    // 本文や拡張の解釈前に、検出に必要な member header の構造だけを検証する。
+    // 数値フィールドの妥当性は parser の責務で、そこで malformed として報告する。
+    // 検出側で弾くと、壊れた tar が「未対応形式」に化けて診断を失う。
+    static func isPlausibleMemberHeader(_ header: [UInt8]) -> Bool {
+        guard header.count == 512, !headerPath(header).isEmpty else { return false }
+        do {
+            try validateChecksum(header)
+            return true
+        } catch {
+            return false
+        }
     }
 
     private static func validateChecksum(_ header: [UInt8]) throws {
@@ -576,7 +611,8 @@ final class TarReader: FormatReader {
         hasAuthoritativePAXSize: Bool,
         dataOffset: UInt64,
         source: any ByteSource,
-        reader: inout ByteReader
+        reader: inout ByteReader,
+        recoverDamagedArchives: Bool
     ) throws -> UInt64 {
         // ustar の hard link は歴史的に size がヒントでも本文を持たない。
         // pax size または後続 header の構造で裏付けた場合だけ linkdata として扱う。
@@ -596,8 +632,10 @@ final class TarReader: FormatReader {
             let bodyEnd = try nextHeaderOffset(
                 dataOffset: dataOffset,
                 size: declaredSize,
-                source: source
+                source: source,
+                recoverDamagedArchives: recoverDamagedArchives
             )
+            if recoverDamagedArchives, bodyEnd >= source.length { return declaredSize }
             guard try isHeaderOrTerminator(
                 at: bodyEnd,
                 source: source,

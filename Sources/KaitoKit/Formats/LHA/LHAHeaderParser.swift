@@ -157,7 +157,8 @@ enum LHAHeaderParser {
         source: any ByteSource,
         policy: EncodingPolicy,
         limits: ReadLimits,
-        startOffset: UInt64 = 0
+        startOffset: UInt64 = 0,
+        recoverDamagedArchives: Bool = false
     ) throws -> LHAParsedArchive {
         var pendingEntries: [PendingEntry?] = []
         var records: [LHAEntryRecord] = []
@@ -178,6 +179,7 @@ enum LHAHeaderParser {
 
             let remaining = try Checked.sub(source.length, offset)
             guard remaining >= UInt64(minimumCommonPrefixSize) else {
+                if recoverDamagedArchives { break }
                 throw KaitoError.truncated
             }
             let prefixCount = try Checked.toInt(min(remaining, 26))
@@ -188,35 +190,43 @@ enum LHAHeaderParser {
             )
             let level = prefix[20]
             let parsed: ParsedHeader
-            switch level {
-            case 0:
-                parsed = try parseLevel0(
-                    source: source,
-                    offset: offset,
-                    firstByte: firstByte,
-                    limits: limits
-                )
-            case 1:
-                parsed = try parseLevel1(
-                    source: source,
-                    offset: offset,
-                    firstByte: firstByte,
-                    limits: limits
-                )
-            case 2:
-                parsed = try parseLevel2(
-                    source: source,
-                    offset: offset,
-                    limits: limits
-                )
-            case 3:
-                parsed = try parseLevel3(
-                    source: source,
-                    offset: offset,
-                    limits: limits
-                )
-            default:
-                throw KaitoError.malformed("unsupported LHA header level \(level)")
+            do {
+                switch level {
+                case 0:
+                    parsed = try parseLevel0(
+                        source: source,
+                        offset: offset,
+                        firstByte: firstByte,
+                        limits: limits,
+                        recoverDamagedArchives: recoverDamagedArchives
+                    )
+                case 1:
+                    parsed = try parseLevel1(
+                        source: source,
+                        offset: offset,
+                        firstByte: firstByte,
+                        limits: limits,
+                        recoverDamagedArchives: recoverDamagedArchives
+                    )
+                case 2:
+                    parsed = try parseLevel2(
+                        source: source,
+                        offset: offset,
+                        limits: limits,
+                        recoverDamagedArchives: recoverDamagedArchives
+                    )
+                case 3:
+                    parsed = try parseLevel3(
+                        source: source,
+                        offset: offset,
+                        limits: limits,
+                        recoverDamagedArchives: recoverDamagedArchives
+                    )
+                default:
+                    throw KaitoError.malformed("unsupported LHA header level \(level)")
+                }
+            } catch KaitoError.truncated where recoverDamagedArchives {
+                break
             }
 
             // Legacy readers treat an empty-name -lhd- member as a benign
@@ -247,7 +257,17 @@ enum LHAHeaderParser {
                 limit: limits.maxTotalMetadataSize
             )
             pendingEntries.append(parsed.pending)
-            records.append(parsed.record)
+            let record = parsed.record
+            records.append(LHAEntryRecord(
+                method: record.method,
+                dataOffset: record.dataOffset,
+                compressedSize: recoverDamagedArchives
+                    ? min(record.compressedSize, source.length - record.dataOffset)
+                    : record.compressedSize,
+                uncompressedSize: record.uncompressedSize,
+                crc16: record.crc16,
+                headerLevel: record.headerLevel
+            ))
             offset = parsed.nextOffset
         }
 
@@ -262,7 +282,7 @@ enum LHAHeaderParser {
            larcMethods.contains(finalMethod) || sawAnonymousRegularMember {
             foundEndMarker = true
         }
-        guard foundEndMarker else { throw KaitoError.truncated }
+        guard foundEndMarker || recoverDamagedArchives else { throw KaitoError.truncated }
         return try publish(
             pendingEntries: &pendingEntries,
             records: records,
@@ -275,7 +295,8 @@ enum LHAHeaderParser {
         source: any ByteSource,
         offset: UInt64,
         firstByte: UInt8,
-        limits: ReadLimits
+        limits: ReadLimits,
+        recoverDamagedArchives: Bool
     ) throws -> ParsedHeader {
         let totalHeaderSize = try Checked.add(UInt64(firstByte), 2)
         guard totalHeaderSize >= UInt64(level0MinimumHeaderSize) else {
@@ -332,7 +353,8 @@ enum LHAHeaderParser {
         let nextOffset = try checkedPayloadEnd(
             dataOffset: dataOffset,
             compressedSize: packedSize,
-            sourceLength: source.length
+            sourceLength: source.length,
+            recoverDamagedArchives: recoverDamagedArchives
         )
         try validateDirectorySizes(
             method: method,
@@ -377,7 +399,8 @@ enum LHAHeaderParser {
         source: any ByteSource,
         offset: UInt64,
         firstByte: UInt8,
-        limits: ReadLimits
+        limits: ReadLimits,
+        recoverDamagedArchives: Bool
     ) throws -> ParsedHeader {
         let baseHeaderSize = try Checked.add(UInt64(firstByte), 2)
         guard baseHeaderSize >= UInt64(level1MinimumHeaderSize) else {
@@ -455,7 +478,8 @@ enum LHAHeaderParser {
         let nextOffset = try checkedPayloadEnd(
             dataOffset: dataOffset,
             compressedSize: compressedSize,
-            sourceLength: source.length
+            sourceLength: source.length,
+            recoverDamagedArchives: recoverDamagedArchives
         )
         try validateDirectorySizes(
             method: method,
@@ -501,7 +525,8 @@ enum LHAHeaderParser {
     private static func parseLevel2(
         source: any ByteSource,
         offset: UInt64,
-        limits: ReadLimits
+        limits: ReadLimits,
+        recoverDamagedArchives: Bool
     ) throws -> ParsedHeader {
         let sizeBytes = try readByteRange(source: source, offset: offset, count: 2)
         let declaredHeaderSize = UInt64(littleUInt16(sizeBytes, at: 0))
@@ -596,7 +621,8 @@ enum LHAHeaderParser {
         let nextOffset = try checkedPayloadEnd(
             dataOffset: dataOffset,
             compressedSize: compressedSize,
-            sourceLength: source.length
+            sourceLength: source.length,
+            recoverDamagedArchives: recoverDamagedArchives
         )
         try validateDirectorySizes(
             method: method,
@@ -642,7 +668,8 @@ enum LHAHeaderParser {
     private static func parseLevel3(
         source: any ByteSource,
         offset: UInt64,
-        limits: ReadLimits
+        limits: ReadLimits,
+        recoverDamagedArchives: Bool
     ) throws -> ParsedHeader {
         let base = try readHeaderBytes(
             source: source,
@@ -698,7 +725,8 @@ enum LHAHeaderParser {
         let nextOffset = try checkedPayloadEnd(
             dataOffset: dataOffset,
             compressedSize: compressedSize,
-            sourceLength: source.length
+            sourceLength: source.length,
+            recoverDamagedArchives: recoverDamagedArchives
         )
         try validateDirectorySizes(
             method: method,
@@ -1186,7 +1214,8 @@ enum LHAHeaderParser {
                 solidGroup: -1,
                 crc32: nil,
                 methodDescription: pending.method,
-                formatSpecific: specific
+                formatSpecific: specific,
+                isIncomplete: records[index].compressedSize < pending.compressedSize
             ))
             publishedRecords.append(records[index])
         }
@@ -1373,10 +1402,11 @@ enum LHAHeaderParser {
     private static func checkedPayloadEnd(
         dataOffset: UInt64,
         compressedSize: UInt64,
-        sourceLength: UInt64
+        sourceLength: UInt64,
+        recoverDamagedArchives: Bool
     ) throws -> UInt64 {
         let end = try Checked.add(dataOffset, compressedSize)
-        guard end <= sourceLength else { throw KaitoError.truncated }
+        guard end <= sourceLength || recoverDamagedArchives else { throw KaitoError.truncated }
         return end
     }
 

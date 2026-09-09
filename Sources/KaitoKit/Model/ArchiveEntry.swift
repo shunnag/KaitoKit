@@ -32,6 +32,11 @@ public struct ArchiveEntry: Sendable, Equatable {
     /// Whether the entry payload is encrypted.
     public let isEncrypted: Bool
 
+    /// Whether recovery found missing payload bytes or an unverified payload extent.
+    /// The payload of such an entry is returned without any integrity check
+    /// (CRC-32, WinZip AES HMAC, MacBinary CRC-16), so it is unauthenticated.
+    public let isIncomplete: Bool
+
     /// Solid-stream group identifier, or `-1` for an independent entry.
     public let solidGroup: Int
 
@@ -59,8 +64,10 @@ public struct ArchiveEntry: Sendable, Equatable {
         solidGroup: Int,
         crc32: UInt32?,
         methodDescription: String,
-        formatSpecific: [String: String]
+        formatSpecific: [String: String],
+        isIncomplete: Bool = false
     ) {
+        self.isIncomplete = isIncomplete
         self.index = index
         self.rawName = rawName
         self.name = name

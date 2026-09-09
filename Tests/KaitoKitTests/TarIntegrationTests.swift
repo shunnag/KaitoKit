@@ -145,7 +145,11 @@ final class TarIntegrationTests: XCTestCase {
 
         var corrupt = valid
         corrupt[0] ^= 0x01
-        XCTAssertThrowsError(try ArchiveReader.open(data: corrupt)) { error in
+        let directory = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let corruptURL = directory.appendingPathComponent("corrupt.tar")
+        try corrupt.write(to: corruptURL)
+        XCTAssertThrowsError(try ArchiveReader.open(url: corruptURL)) { error in
             guard case KaitoError.malformed = error else {
                 return XCTFail("expected malformed, got \(error)")
             }

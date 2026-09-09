@@ -30,6 +30,23 @@
   RISC-V filter は XADMaster も全 entry を空で返すため対象外とし、
   引き続き明示的に unsupported とする。
 
+- 破損書庫の救済モード `ReaderOptions.recoverDamagedArchives`(既定 false)を追加。
+  中央ディレクトリを失った ZIP は local file header を走査して救済し、tar と LHA は
+  切断点まで entry を保持する。切れた entry は `ArchiveEntry.isIncomplete` で示し、
+  読めた byte だけを返す(いずれも原本の正しい prefix であることを実測で確認)。
+  EOCD を潰した ZIP は XADMaster と同じ総合 SHA-256 に到達し、ZIP と LHA の
+  切れた entry では XADMaster が 0 byte を返すのに対し KaitoKit は救済できる。
+  不完全な entry では CRC-32 / WinZip AES HMAC / MacBinary CRC-16 の検証を飛ばすため、
+  救済した byte は認証されていない旨を公開 doc に明記した。password verifier は
+  救済時も働き、誤ったパスワードは `wrongPassword` のままになる。
+  健全な書庫 95 件と暗号化書庫 6 件は、この設定の有無で結果が完全に一致する。
+
+- tar の形式判定が member header の数値フィールドまで解析していたため、size が壊れた
+  tar が `malformed` ではなく「未対応形式」に化けていたのを修正。判定は 512 byte・
+  非空のパス名・checksum 一致だけを見る。あわせて、先頭が 0 で埋まったファイルを
+  「空の tar」として受理していた挙動を止めた(ISO 9660 が tar と誤判定され、
+  0 件で成功していた直接の原因)。
+
 
 - CRC-16/ARC を実行時判定付き PMULL / PCLMULQDQ folding で高速化。小入力・未対応 CPU は
   従来の slice-by-eight を維持し、公開 API・逐次更新・検証結果を変えずに LHA 展開時間を短縮。

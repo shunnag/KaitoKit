@@ -1,5 +1,6 @@
+import CryptoKit
 import Foundation
-import KaitoKit
+@testable import KaitoKit
 import XCTest
 
 private struct ZipFixedPasswordProvider: PasswordProvider {
@@ -12,6 +13,176 @@ private struct ZipFixedPasswordProvider: PasswordProvider {
 }
 
 final class ZipHardeningTests: XCTestCase {
+    func testRecoveryRetainsStoredPayloadPrefixesAndRejectsCompleteCRCFailures() throws {
+        let first = Data("complete payload".utf8)
+        let last = Data((0..<4_096).map { UInt8(truncatingIfNeeded: $0) })
+        let archive = try ZipTestSupport.makeArchive(entries: [
+            HandZipEntry(name: "first", uncompressedData: first),
+            HandZipEntry(name: "last", uncompressedData: last),
+        ])
+        let layout = try ZipTestSupport.layout(of: archive)
+        let dataOffset = layout.localHeaderOffsets[1] + 30 + 4
+        let options = ReaderOptions(recoverDamagedArchives: true)
+        for survived in [0, 1, 1_023, 4_096] {
+            let cut = Data(archive.prefix(dataOffset + survived))
+            XCTAssertThrowsError(try ArchiveReader.open(data: cut)) { error in
+                guard case KaitoError.malformed(let message) = error else {
+                    return XCTFail("Unexpected error: \(error)")
+                }
+                XCTAssertEqual(message, "ZIP end-of-central-directory record was not found")
+            }
+            let reader = try ArchiveReader.open(data: cut, options: options)
+            XCTAssertEqual(reader.entries.map(\.name), ["first", "last"])
+            XCTAssertFalse(reader.entries[0].isIncomplete)
+            XCTAssertEqual(reader.entries[1].isIncomplete, survived < last.count)
+            XCTAssertEqual(try reader.read(reader.entries[0]), first)
+            XCTAssertEqual(try reader.read(reader.entries[1]), last.prefix(survived))
+        }
+        let partialHeader = Data(archive.prefix(layout.localHeaderOffsets[1] + 20))
+        let reader = try ArchiveReader.open(data: partialHeader, options: options)
+        XCTAssertEqual(reader.entries.count, 1)
+        XCTAssertEqual(try reader.read(reader.entries[0]), first)
+        var corrupt = Data(archive.prefix(dataOffset + 20))
+        corrupt[30 + 5] ^= 1
+        let corruptReader = try ArchiveReader.open(data: corrupt, options: options)
+        XCTAssertThrowsError(try corruptReader.read(corruptReader.entries[0])) { error in
+            guard case KaitoError.checksumMismatch(entry: 0) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testRecoveryEOCDAbsenceDoesNotRelaxCentralDirectoryErrorsOrLimits() throws {
+        let archive = try ZipTestSupport.makeArchive(entries: [
+            HandZipEntry(name: "one", uncompressedData: Data("one".utf8)),
+            HandZipEntry(name: "two", uncompressedData: Data("two".utf8)),
+        ])
+        let layout = try ZipTestSupport.layout(of: archive)
+        var missingEnd = archive
+        try ZipTestSupport.writeUInt32(0, to: &missingEnd, at: layout.endRecordOffset)
+        XCTAssertThrowsError(try ArchiveReader.open(data: missingEnd))
+        let recovered = try ArchiveReader.open(
+            data: missingEnd, options: ReaderOptions(recoverDamagedArchives: true)
+        )
+        XCTAssertEqual(recovered.entries.map(\.name), ["one", "two"])
+        for entry in recovered.entries {
+            XCTAssertFalse(entry.isIncomplete)
+            XCTAssertEqual(try recovered.read(entry), Data(entry.name.utf8))
+        }
+        var corruptDirectory = archive
+        try ZipTestSupport.writeUInt32(0, to: &corruptDirectory, at: layout.centralDirectoryOffset)
+        for recovery in [false, true] {
+            XCTAssertThrowsError(try ArchiveReader.open(
+                data: corruptDirectory, options: ReaderOptions(recoverDamagedArchives: recovery)
+            ))
+        }
+        for limits in [
+            ReadLimits(maxEntrySize: 2), ReadLimits(maxTotalUncompressedSize: 5),
+            ReadLimits(maxEntryCount: 1), ReadLimits(maxMetadataSize: 29),
+            ReadLimits(maxTotalMetadataSize: 1), ReadLimits(maxPathComponentCount: 0),
+        ] {
+            assertLimitExceeded {
+                try ArchiveReader.open(data: missingEnd, options: ReaderOptions(
+                    limits: limits, recoverDamagedArchives: true
+                ))
+            }
+        }
+    }
+
+    func testRecoveryDataDescriptorsBoundDeflateAndStoredEntries() throws {
+        let payload = Data((0..<4_096).map { UInt8(truncatingIfNeeded: $0) })
+        // 最終の非圧縮 DEFLATE block を既存 ZIP helper に渡す。
+        var deflate = Data([1, 0, 16, 255, 239])
+        deflate.append(payload)
+        for method: UInt16 in [0, 8] {
+            let packed = method == 0 ? payload : deflate
+            let archive = try ZipTestSupport.makeArchive(entries: [
+                HandZipEntry(name: "one", uncompressedData: payload, compressedData: packed,
+                             method: method, hasDataDescriptor: true),
+                HandZipEntry(name: "two", uncompressedData: payload, compressedData: packed,
+                             method: method, hasDataDescriptor: true),
+            ])
+            let layout = try ZipTestSupport.layout(of: archive)
+            let options = ReaderOptions(recoverDamagedArchives: true)
+            for end in [layout.centralDirectoryOffset, archive.count] {
+                var missingEnd = Data(archive.prefix(end))
+                if end == archive.count {
+                    try ZipTestSupport.writeUInt32(0, to: &missingEnd, at: layout.endRecordOffset)
+                }
+                let reader = try ArchiveReader.open(data: missingEnd, options: options)
+                XCTAssertEqual(reader.entries.count, 2)
+                for entry in reader.entries {
+                    XCTAssertFalse(entry.isIncomplete)
+                    XCTAssertEqual(try reader.read(entry), payload)
+                }
+            }
+            let survived = 777
+            let cut = Data(archive.prefix(
+                layout.localHeaderOffsets[1] + 33 + (method == 8 ? 5 : 0) + survived
+            ))
+            XCTAssertThrowsError(try ArchiveReader.open(data: cut))
+            let reader = try ArchiveReader.open(data: cut, options: options)
+            XCTAssertEqual(reader.entries.count, 2)
+            XCTAssertTrue(reader.entries[1].isIncomplete)
+            XCTAssertEqual(try reader.read(reader.entries[0]), payload)
+            XCTAssertEqual(try reader.read(reader.entries[1]), payload.prefix(survived))
+            assertLimitExceeded {
+                let limited = try ArchiveReader.open(data: cut, options: ReaderOptions(
+                    limits: ReadLimits(maxTotalMetadataSize: 100), recoverDamagedArchives: true
+                ))
+                return try limited.read(limited.entries[0])
+            }
+        }
+    }
+
+
+    func testRecoveryClipsEncryptedPayloadWithoutTreatingCiphertextAsAuthentication() throws {
+        let password = "recovery-password"
+        let payload = Data(repeating: 0xA5, count: 1_024)
+        let salt = Data(repeating: 0x5A, count: 16)
+        let keys = try WinZipAESDerivedKeys.derive(for: WinZipAESKeyCacheKey(
+            password: password, salt: salt, strength: .aes256
+        ))
+        var ctr = try WinZipAESCTR(encryptionKey: keys.encryptionKey)
+        let ciphertext = try ctr.transform(payload)
+        let authentication = Data(HMAC<Insecure.SHA1>.authenticationCode(
+            for: ciphertext, using: SymmetricKey(data: keys.authenticationKey)
+        ).prefix(10))
+        let packed = salt + keys.passwordVerifier + ciphertext + authentication
+        let extra = try ZipTestSupport.extraField(
+            identifier: 0x9901, payload: Data([2, 0, 65, 69, 3, 0, 0])
+        )
+        let archive = try ZipTestSupport.makeArchive(entries: [
+            HandZipEntry(name: "secret", uncompressedData: payload, compressedData: packed,
+                         method: 99, flags: 0x0801, localExtra: extra, centralExtra: extra,
+                         centralCRC32: 0, localCRC32: 0),
+        ])
+        let layout = try ZipTestSupport.layout(of: archive)
+        let dataOffset = 30 + 6 + extra.count
+        let options = ReaderOptions(password: password, recoverDamagedArchives: true)
+        for survived in [0, 1, 777, 1_024] {
+            let cut = Data(archive.prefix(dataOffset + 18 + survived))
+            XCTAssertThrowsError(try ArchiveReader.open(data: cut))
+            let reader = try ArchiveReader.open(data: cut, options: options)
+            XCTAssertTrue(reader.entries[0].isIncomplete)
+            XCTAssertEqual(try reader.read(reader.entries[0]), payload.prefix(survived))
+        }
+        let shortHeader = try ArchiveReader.open(
+            data: Data(archive.prefix(dataOffset + 5)), options: options
+        )
+        XCTAssertTrue(shortHeader.entries[0].isIncomplete)
+        XCTAssertEqual(try shortHeader.read(shortHeader.entries[0]), Data())
+        var complete = Data(archive.prefix(layout.centralDirectoryOffset))
+        let recovered = try ArchiveReader.open(data: complete, options: options)
+        XCTAssertFalse(recovered.entries[0].isIncomplete)
+        XCTAssertEqual(try recovered.read(recovered.entries[0]), payload)
+        complete[complete.count - 1] ^= 1
+        let corrupt = try ArchiveReader.open(data: complete, options: options)
+        XCTAssertThrowsError(try corrupt.read(corrupt.entries[0])) { error in
+            XCTAssertEqual(error as? KaitoError, .wrongPassword)
+        }
+    }
+
     func testAggregateMetadataBudgetIsPreflightedBeforeEntryParsing() throws {
         var archive = try ZipTestSupport.makeArchive(entries: [
             HandZipEntry(name: "first.txt"),

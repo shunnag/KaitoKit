@@ -3,6 +3,72 @@ import KaitoKit
 import XCTest
 
 final class TarHardeningTests: XCTestCase {
+    func testRecoveryRetainsTarHeadersAndAvailablePayloadWithoutRelaxingLimits() throws {
+        let first = Data("first".utf8)
+        let last = Data(repeating: 0xA5, count: 16_384)
+        let archive = try TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "first", contents: first),
+            HandTarEntry(name: "last", contents: last),
+        ])
+        for end in [1_024 + 17, 1_536, 1_536 + 8_192, 1_536 + last.count] {
+            let cut = Data(archive.prefix(end))
+            XCTAssertThrowsError(try ArchiveReader.open(data: cut)) { error in
+                guard case KaitoError.truncated = error else {
+                    return XCTFail("Unexpected error: \(error)")
+                }
+            }
+            let reader = try ArchiveReader.open(
+                data: cut, options: ReaderOptions(recoverDamagedArchives: true)
+            )
+            XCTAssertEqual(reader.entries.count, end < 1_536 ? 1 : 2)
+            XCTAssertFalse(reader.entries[0].isIncomplete)
+            XCTAssertEqual(try reader.read(reader.entries[0]), first)
+            if reader.entries.count == 2 {
+                XCTAssertEqual(reader.entries[1].isIncomplete, end < 1_536 + last.count)
+                XCTAssertEqual(try reader.read(reader.entries[1]), last.prefix(end - 1_536))
+            }
+        }
+        let cut = Data(archive.prefix(1_536 + 8_192))
+        for limits in [ReadLimits(maxEntrySize: 16_383), ReadLimits(maxEntryCount: 1),
+                       ReadLimits(maxTotalUncompressedSize: 16_384),
+                       ReadLimits(maxTotalMetadataSize: 100)] {
+            XCTAssertThrowsError(try ArchiveReader.open(data: cut, options: ReaderOptions(
+                limits: limits, recoverDamagedArchives: true
+            ))) { error in
+                guard case KaitoError.limitExceeded = error else {
+                    return XCTFail("Unexpected error: \(error)")
+                }
+            }
+        }
+        var malformed = cut
+        malformed[1_024] ^= 1
+        XCTAssertThrowsError(try ArchiveReader.open(
+            data: malformed, options: ReaderOptions(recoverDamagedArchives: true)
+        ))
+    }
+
+    func testRecoveryStopsAtCutTarExtensionMetadata() throws {
+        let first = Data("kept".utf8)
+        let archive = try TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "first", contents: first),
+            HandTarEntry(name: "././@LongLink", contents: Data(repeating: 65, count: 1_024),
+                         type: 76),
+            HandTarEntry(name: "last"),
+        ])
+        let cut = Data(archive.prefix(1_536 + 25))
+        XCTAssertThrowsError(try ArchiveReader.open(data: cut)) { error in
+            guard case KaitoError.truncated = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+        let reader = try ArchiveReader.open(
+            data: cut, options: ReaderOptions(recoverDamagedArchives: true)
+        )
+        XCTAssertEqual(reader.entries.map(\.name), ["first"])
+        XCTAssertEqual(try reader.read(reader.entries[0]), first)
+    }
+
+
     func testForgedArchiveEntryIsRejectedByAllEntryOperations() throws {
         let archive = try TarTestSupport.makeTar(entries: [
             HandTarEntry(name: "payload.txt", contents: Data("trusted".utf8)),
@@ -613,7 +679,11 @@ final class TarHardeningTests: XCTestCase {
             )
         }
 
-        XCTAssertThrowsError(try ArchiveReader.open(data: smuggled)) { error in
+        let directory = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("smuggled.tar")
+        try smuggled.write(to: url)
+        XCTAssertThrowsError(try ArchiveReader.open(url: url)) { error in
             guard case KaitoError.malformed = error else {
                 return XCTFail("expected malformed, got \(error)")
             }

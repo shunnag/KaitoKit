@@ -111,3 +111,18 @@ ISO 9660(先頭 32 KiB が全 0 の system area)が tar と誤判定されて
 - `swift test` 終了コード **0**、651 test / 0 failure(33 skip)
 - 先頭 4 KiB が 0 のファイル・ISO 9660 とも `Unsupported archive format`
   (以前は「空の tar」として 0 件で成功していた)。健全な tar は 7 entry で回帰なし
+
+## 残る差 — RAR5 の切り詰め
+
+今回の救済は ZIP / tar / LHA が対象で、**RAR5 は未対応のまま**である。
+
+| 書庫 | KaitoKit(救済有効) | XADMaster |
+|---|---|---|
+| rar5 を 90 / 60 / 30% に切り詰め | いずれも `The archive is truncated` | 5 entry(`c8261f1296…`) |
+
+3 段階の切り詰めで XADMaster の総合 SHA-256 が同じになるのは、この書庫では
+非圧縮性の `c.rnd`(40,000 byte)が容量の大半を占め、どの切断点も `c.rnd` の
+内側に落ちるためである。XADMaster が返すのは手前の 4 entry の完全な内容と、
+`c.rnd` の **0 byte** で、部分救済をしているわけではない。したがって RAR5 に
+同じ経路を入れれば、KaitoKit は ZIP / LHA と同様に XADMaster を上回れる見込みが
+ある。作業単位として分離した(bead を参照)。

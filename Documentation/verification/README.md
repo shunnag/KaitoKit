@@ -13,9 +13,9 @@
 | [2026-09-08-review-fixes-verification.md](2026-09-08-review-fixes-verification.md) | 2026-09-08 | 敵対レビュー指摘（展開先を脱出する symbolic link を含む）の修正検証 | `7a1d210` |
 | [2026-09-08-performance-rar5-ppmd.md](2026-09-08-performance-rar5-ppmd.md) | 2026-09-08 | RAR5 の周期コピーと 10bit Huffman lookup、PPMd の固定確率表 | `a70bd9d` |
 | [2026-09-09-xadmaster-feature-gap.md](2026-09-09-xadmaster-feature-gap.md) | 2026-09-09 | XADMaster との機能差分の black-box 調査(86 書庫 + 破損 27 書庫) | `4f6c138` |
-| [2026-09-09-sevenzip-singlefile-gaps.md](2026-09-09-sevenzip-singlefile-gaps.md) | 2026-09-09 | 7z coder 連鎖・LZMA_Alone・`.tar.Z` の実装と検証 | (本コミット) |
+| [2026-09-09-sevenzip-singlefile-gaps.md](2026-09-09-sevenzip-singlefile-gaps.md) | 2026-09-09 | 7z coder 連鎖・LZMA_Alone・`.tar.Z` の実装と検証 | `fc8146e` |
 | [2026-09-09-branch-filter-derivation.md](2026-09-09-branch-filter-derivation.md) | 2026-09-09 | SPARC / IA-64 branch filter の black-box 導出とオラクル固定ベクタ | `b18f11b` |
-| [2026-09-09-recovery-mode.md](2026-09-09-recovery-mode.md) | 2026-09-09 | 破損書庫の救済モードの実測(XADMaster 比較・健全書庫と暗号化書庫の不変性・tar 検出の修正) | (本コミット) |
+| [2026-09-09-recovery-mode.md](2026-09-09-recovery-mode.md) | 2026-09-09 | 破損書庫の救済モードの実測(XADMaster 比較・健全書庫と暗号化書庫の不変性・tar 検出の修正) | `4969b34` |
 
 これらは 2026-09-08 に `Documentation/` 直下から本ディレクトリへ移した。記録本文に埋め込まれた
 `git status` などの出力には移動前のパスが残っているが、当時の実行結果として意図的に手を入れて

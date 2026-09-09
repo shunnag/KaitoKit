@@ -24,6 +24,9 @@ public enum ArchiveFormat: String, Sendable, CaseIterable {
     /// ISO 9660 optical disc images.
     case iso
 
+    /// RPM packages containing a compressed or stored cpio payload.
+    case rpm
+
     /// eXtensible ARchive containers, including macOS flat installer packages.
     case xar
 

@@ -33,6 +33,7 @@ private func formatName(_ format: ArchiveFormat) -> String {
     case .tar: return "tar"
     case .iso: return "iso"
     case .xar: return "xar"
+    case .rpm: return "rpm"
     case .ar: return "ar"
     case .cpio: return "cpio"
     case .gzip: return "gzip"

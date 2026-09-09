@@ -6,6 +6,18 @@
 
 ## [0.1.0] - Unreleased
 
+### 追加・修正（2026-09-09、RPM）
+
+- 依存を追加せず純 Swift の RPM reader を追加。lead / signature header / main header を
+  解析し、payload の cpio entry を直接公開する（`.tar.gz` と同じ方針）。
+  gzip / bzip2 / xz / lzma / 無圧縮 の payload に対応し、source package も読む。
+- codec は宣言 tag ではなく payload 先頭の magic で決める。`RPMTAG_PAYLOADCOMPRESSOR`
+  が無い古い package（既定は gzip）や、宣言と実体が食い違う package も読める。
+- zstd payload・rpm 6 の簡略 cpio（`07070X`）・drpm・cpio でない payload は、
+  圧縮済み payload を 1 entry として公開する。
+- nindex / hsize / index entry の offset と count を確保前に検査し、
+  巨大値は `limitExceeded` で即座に停止する。
+
 ### 追加・修正（2026-09-09、xar）
 
 - 依存を追加せず純 Swift の xar reader を追加。TOC XML（自前の部分集合 pull parser）と

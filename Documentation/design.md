@@ -176,6 +176,24 @@ streaming 検証契約:
 
 ## 10. 出自(プロベナンス)と参照の規則
 
+RPM reader の形式入力は、利用者が rpmbuild 6.1.0 の project-owned package から
+実測して提供した lead / header / index / payload の byte 表と固定 fixture、
+および利用者による payload magic 優先の訂正仕様である。
+許可資料は Linux Standard Base「Package File Format」、rpm(8)、rpm.org の prose、
+RFC 1950/1951/1952。この作業では外部資料の追加取得も他の実装 source の閲覧も行っていない。
+rpm の C source、libarchive、7-Zip/p7zip、XADMaster、The Unarchiver、dpkg の
+source は開かず、参照・引用していない。fixture の再生成も行っていない。
+signature header だけを 8-byte 境界へ進め、main header の直後から EOF までを payload とする。
+既存 SingleFileMaterializer / codec / CpioReader を再利用し、対応 cpio の entry を直接公開する。
+container identity は `.rpm` を保持し、cpio metadata に RPM metadata を非破壊で追加する。
+codec は payload の magic を優先し、判別できない場合だけ PAYLOADCOMPRESSOR を hint にする。
+tag 欠落は無圧縮の証拠とせず、古い gzip package も実体から判定する。
+宣言値は rpmPayloadCompressor に残し、magic の判定が異なるときだけ
+rpmPayloadCompressorDetected（無圧縮は `none`）を併記する。
+未対応 compressor / payload format / cpio magic は生 payload の単一 entry に戻すが、
+復号失敗・認識済み cpio の構造破損・resource limit は fallback で隠さない。
+検証値と提供された位置例との差は [RPM 検証記録](verification/2026-09-09-rpm.md)。
+
 ar reader の形式入力は macOS / FreeBSD ar(5)、System V ABI、SDK の ar.h /
 mach-o/ranlib.h、Solaris ar.h(3HEAD)、GNU binutils の ar manual、deb(5) と、
 macOS ar(1) / ranlib(1) / libtool(1)、Debian Policy 等の公開仕様・prose に基づく
@@ -267,6 +285,36 @@ xar は hard link の実体を参照より後ろに置くため、`Extractor` �
 前方参照の遅延は 1 entry 単位の `ArchiveReader.extract` を呼ぶ側の責務とし、
 doc comment に明記した。`linkPath` と `hardLinkTargetIndex` は同じ entry を指す。
 検証値・再実行手順は [xar 検証記録](verification/2026-09-09-xar.md)。
+
+
+RPM reader の形式入力は Linux Standard Base「Package File Format」、rpm(8)、
+rpm.org の prose 文書、RFC 1950/1951/1952 と、本セッションで `rpmbuild` 6.1.0 が
+生成した package から実測した byte 表である。rpm / libarchive / 7-Zip / XADMaster /
+The Unarchiver / dpkg の実装 source は開かず、参照・引用していない。
+`rpmbuild` は project-owned spec からの black-box writer としてのみ実行した。
+
+実測で確定した点: lead は 96 byte で magic `ED AB EE DB`、header は
+`8E AD E8 01` + nindex + hsize、**signature header の後だけ** 8 byte 境界へ padding し
+main header の後には padding が無い、index entry は tag 番号順で offset 順ではない
+(region entry 62/63 の data は store の末尾近くを指す)。
+
+payload は `.tar.gz` と同じ方針で**中の cpio entry を直接公開する**。XADMaster は
+payload の圧縮済みブロブを 1 entry 返すだけなので、この形式では総合 digest の直接比較が
+できない。検証は「payload を取り出して XADMaster に渡した結果との比較」と
+「blob fallback の byte 一致」の 2 系統に分け、さらに RPM ヘッダ自身の
+`RPMTAG_FILEDIGESTS` を第 3 の参照値として使った。
+
+codec は宣言 tag ではなく **payload 先頭の magic** で決める。`RPMTAG_PAYLOADCOMPRESSOR`
+が導入される前の古い package は tag を持たず、その既定は gzip だからである
+(tag 不在を無圧縮と決め打つと古い package を読めない)。宣言値は
+`rpmPayloadCompressor` に保存し、実体と食い違うときだけ
+`rpmPayloadCompressorDetected` を併記する。payload の復号に失敗した場合は
+blob へ fallback せず開封時に失敗させる。壊れたデータを黙って別の形で見せない。
+
+zstd payload と rpm 6 の簡略 cpio(`07070X`)は圧縮済み payload を 1 entry として出す
+(`cooViewer-c1vj.3` / `c1vj.4`)。XADMaster も同じく中へ降りられず、しかも無圧縮 payload を
+`.cpio.gz`、zstd payload を拡張子なしと誤って命名する。
+検証値・再実行手順は [RPM 検証記録](verification/2026-09-09-rpm.md)。
 
 
 - XADMaster のコードは実装資料として**参照・流用しない**。比較する場合もブラックボックスの展開オラクルに限る。ユーザー指示。

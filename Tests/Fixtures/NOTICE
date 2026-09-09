@@ -349,6 +349,30 @@ implementation source was consulted.
       container/xar-subdoc.xar    561  9c70e590b2e355165109e3bbc680a464a7ba1b3cb8fcb18e9a2abdd0dec61a8a
       container/xar-xz.xar        538  b207e6a434e7eb685316e5f628e4b682b2d4d361ee87e7541308012d99e86b80
 
+  container/rpm-gzip.rpm.b64     rpmbuild --define '_rpmformat 4'   (6 entries)
+  container/rpm-xz.rpm.b64       同上 --define '_binary_payload w9.xzdio'
+  container/rpm-bzip2.rpm.b64    同上 w9.bzdio
+  container/rpm-none.rpm.b64     同上 w.ufdio (PAYLOADCOMPRESSOR タグ無し)
+  container/rpm-zstd.rpm.b64     同上 w19.zstdio (zstd 未対応のため blob fallback)
+  container/rpm-src.rpm.b64      同上 -bs (source package, lead type 1)
+  container/rpm-v6.rpm.b64       rpm 6 の既定 package format (07070X payload)
+    Project-owned spec file から macOS の rpmbuild 6.1.0 で生成。rpmbuild は
+    black-box writer としてのみ実行し、rpm の source は参照していない。
+    payload は project-owned の決定的バイト列。Payload SHA-256:
+      a.txt (10 bytes)          7ccc92b5adfd832a3f56064ad8304349e7b373a3b90c76de110a012251ed3455
+      b.bin (4096 bytes)        0d356260eaf09e3b3dc81a65b2ad2399aa7c4921c0274bd2cbb54c2a21c46e3b
+      sub/nested.txt (20 bytes) 5d0e5bc93dbc8febbb6b3cea0503bfd7460284e544c2f689538fd55da59accb2
+      link.txt                  a.txt への symlink
+    b.bin is UInt8((i * 7 + 3) % 251) for i in 0..<4096.
+    Decoded archive SHA-256:
+      container/rpm-bzip2.rpm   7478  f754acc7c746dd3f5014541f8f6184dba60fd5033bdd9647aa9df21dab26686a
+      container/rpm-gzip.rpm    7058  1000f2b5d54bcbcfbddae5bc28dc170e9d69317d92a05bd65b42d0a5637aee49
+      container/rpm-none.rpm   11601  67c2954cb784390722b36bb727ed808dd0b7a0d15a8a1d39cf41be7a41290115
+      container/rpm-src.rpm     7609  c58272ad30600a9243f43e57d127472f924d239ccc20ba227927dd3d68ece354
+      container/rpm-v6.rpm      7417  d2b0f2e50d03b67448082169cdb902c25ad9914e1385c2937e74b30213b8dc54
+      container/rpm-xz.rpm      7093  2b41d581f37f5c4fcc948b30f0ed944063f96da1281d73a7405f4b258fd7498b
+      container/rpm-zstd.rpm    7047  737232a5dccd5a9c009e53e45554a67dcf181123424c3320ee6ada61a77d5e56
+
   rar/rar5-recovery.rar.b64
     RAR 6.24 の -ma5 -m3 で生成した非 solid の切断救済テスト用書庫。
     one.txt / two.txt は各 33 byte、tail.bin は非圧縮性の 512 byte。

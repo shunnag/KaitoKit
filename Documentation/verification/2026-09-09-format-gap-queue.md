@@ -48,7 +48,7 @@ C の形式は brew で writer を入れれば独立確認が増えるが、必�
 | 4 | **xar** | XML TOC + zlib/bzip2/lzma heap | A(checked-in)| `cooViewer-7wbx` | 実装済み `deed11d` |
 | 5 | **Deb** | `ar` の中の `debian-binary` + `control.tar.*` + `data.tar.*` | B | 未作成 | 対応済み(ar reader が兼ねる) |
 | 6 | **RPM** | lead + signature/header(index+store)+ cpio payload | B | 未作成 | 実装済み `975cde6` |
-| 7 | **CAB** | MSZIP(Deflate)/ LZX / Quantum、folder 跨ぎ | C | 未作成 | None+MSZIP 実装済み(本コミット)。LZX/Quantum は c1vj.5 / c1vj.6 |
+| 7 | **CAB** | MSZIP(Deflate)/ LZX / Quantum、folder 跨ぎ | C | 未作成 | None+MSZIP 実装済み `efb978b`。LZX/Quantum は c1vj.5 / c1vj.6 |
 | 8 | **ZIP method 93/95/96/98** | Zipx: zstd / xz / JPEG / PPMd | A | `cooViewer-th30` | — |
 | 9 | **ARJ** | 古典 DOS 書庫 | C | 未作成 | — |
 | 10 | **ZOO** | 古典 | C | 未作成 | — |

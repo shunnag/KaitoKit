@@ -310,3 +310,23 @@ implementation source was consulted.
     RAR 6.24 の -ma5 -m3 で生成した非 solid の切断救済テスト用書庫。
     one.txt / two.txt は各 33 byte、tail.bin は非圧縮性の 512 byte。
     無傷の 701 byte を保存し、切断版はテスト内で生成する。
+
+iso/joliet.iso.gz.b64
+  Project-owned payloads; macOS hdiutil makehybrid -iso -joliet used solely as a black-box writer.
+  Trimmed to declared volume size, gzip compressed and base64 encoded.
+  No external decoder or writer implementation source was consulted.
+  ISO SHA-256: 502168dd4745bd0ce04414fc6d2236f4a5c68ed823c81bc28c8ddfd3d03c36e4 (65536 bytes)
+iso/rr-joliet.iso.gz.b64
+  Project-owned payloads; xorriso -as mkisofs -R -J -no-pad used solely as a black-box writer.
+  Trimmed to declared volume size, gzip compressed and base64 encoded.
+  No external decoder or writer implementation source was consulted.
+  ISO SHA-256: 87bd02dfdb4450166e3376462f39dbd8928651c3ae35dd1c84d7376c201eeedc (77824 bytes)
+  Payloads common to both images (SHA-256):
+    a.txt (28 bytes): ef6a3c128318d25c251d1ecccd739031cbbe69fbf5958f66c0fdba52ef5fbe81
+    data.bin (4096 bytes): e05455bcbbec58463277e8874036e57bdcf8c49c792a23ce03d6baba0765271c
+    rr-joliet only: link -> sub/nested.txt
+    sub/nested.txt (15 bytes): 4e7267fd5c54130fe83e69920d63e38117957e56f9172965b8db27c75a3c1a96
+    日本語ファイル.txt (19 bytes): 1f06c4462778e16d84ec28f021875dbff3352d5c7d2534c0039d39ef8a3e559b
+  data.bin: UInt8((i * 13) % 251), i in 0..<4096.
+  ISOImageBuilder constructs synthetic images directly from the ECMA-119/SUSP/RRIP
+  field tables supplied in the clean-room implementation specification.

@@ -31,6 +31,7 @@ private func formatName(_ format: ArchiveFormat) -> String {
     case .sevenZip: return "7z"
     case .lha: return "lha"
     case .tar: return "tar"
+    case .iso: return "iso"
     case .gzip: return "gzip"
     case .bzip2: return "bzip2"
     case .xz: return "xz"

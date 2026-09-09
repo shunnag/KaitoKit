@@ -178,6 +178,14 @@ public enum FormatDetector {
             return .lha
         }
 
+        // 既存の native ZIP 復旧・SFX 判定を優先する。書庫 payload 内の CD001 が
+        // 既存の検出結果を奪わないよう、ISO の固定 offset probe はその後に置く。
+        // 短い入力では read を行わず、従来の拡張子判定まで到達させる。
+        if source.length >= 34816 {
+            let sector = try read(source: source, at: 32768, count: 2048)
+            if ISOReader.isPlausibleVolumeDescriptor(sector) { return .iso }
+        }
+
         if let fileName {
             let pathExtension = URL(fileURLWithPath: fileName).pathExtension
             if pathExtension.caseInsensitiveCompare("tar") == .orderedSame {

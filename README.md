@@ -56,6 +56,7 @@ for entry in directories {
 
 | 形式 | コンテナ・圧縮方式 | 暗号化 | multi-volume / multi-stream |
 |---|---|---|---|
+| ISO 9660 | PVD、Joliet、Rock Ridge（NM/CE/PX/SL/TF、深い階層）、multi-extent、stored | なし | 最初の session のみ |
 | tar | POSIX/ustar、pax、GNU long name/link、stored member | なし | volume 分割なし |
 | gzip | RFC 1952、FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT、DEFLATE、CRC32/ISIZE | なし | concatenated member 対応 |
 | bzip2 | BZip2 block size 1〜9 | なし | concatenated stream 対応 |
@@ -134,7 +135,9 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 
 ## 既知の制限
 
-- CAB、ARJ、ACE、StuffIt/SIT、ISO 9660 disk image、cpio、ar、xar、zstd stream は未対応です。
+- ISO は Rock Ridge（NM あり）> Joliet > PVD の順で名前の木を選びます。UDF、raw sector image、
+  後続 session、interleaved / sparse / zisofs の内容展開は未対応です。
+- CAB、ARJ、ACE、StuffIt/SIT、cpio、ar、xar、zstd stream は未対応です。
 - ZIP は multi-disk/spanned と method 93 (zstd)、95 (xz)、96 (JPEG)、98 (PPMd) を扱いません。
 - 7z は RISC-V filter (method 0x0B) と external volume 分割 (`.7z.001`) を扱いません。
 - RAR4 は unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成、SFX と multi-volume の組合せを

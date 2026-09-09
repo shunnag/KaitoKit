@@ -116,7 +116,8 @@ streaming 検証契約:
 3. 7z/CB7(LZMA, LZMA2, PPMd, BCJ/BCJ2, Delta, Deflate, BZip2, AES-256, solid/ブロック)
 4. LHA/LZH(lh0, lh4〜lh7, lh1, lz4/lz5/lzs, ヘッダ level 0/1/2, SJIS 名, 0x46 コードページ)
 5. tar 系(ustar/pax/GNU)+ gz/bz2/xz(xz は Compression framework)
-6. 後段候補: CAB(MSZIP/LZX), zstd, StuffIt/SIT(要検討), ISO, ARJ, ACE
+6. ISO 9660（PVD / Joliet / Rock Ridge、multi-extent、stored）
+7. 後段候補: CAB(MSZIP/LZX), zstd, StuffIt/SIT(要検討), ARJ, ACE
 
 ## 6. 実装方式の比較(調査 2026-09-06)
 
@@ -175,9 +176,23 @@ streaming 検証契約:
 
 ## 10. 出自(プロベナンス)と参照の規則
 
+ISO reader の形式入力は ECMA-119、Joliet 仕様、IEEE P1281（SUSP 1.10）、IEEE P1282
+（Rock Ridge）、Apple Technote FL 36 に基づく利用者提供の clean-room byte 表・実装仕様書。
+`Formats/ISO/` の 4 source と `ISOImageBuilder.swift` はこの公開仕様の表から新規作成した。
+ORACLE.md は black-box 実測による受け入れ値と木の選択判断にのみ使用する。
+XADMaster、The Unarchiver、libarchive、libcdio、cdrtools/mkisofs、genisoimage、7-Zip/p7zip、
+bsdtar、xorriso/libisofs、Linux isofs の実装 source は開かず、参照・引用していない。
+`hdiutil` / `xorriso` は project-owned payload の black-box writer としてのみ実行した。
+木は NM ありの Rock Ridge > Joliet > PVD。Joliet 優先で symlink が失われる差を避ける。
+CE 8 回、階層 64、section 64、directory 65,536 の上限と ancestor extent 集合で前進を保証し、
+ReadLimits は metadata の両候補走査にも共通適用する。record の sector 跨ぎは malformed とする。
+検出では既存 ZIP 復旧 / SFX が CD001 を含む場合も既存形式を優先する。
+検証値・再実行手順は [ISO 検証記録](verification/2026-09-09-iso9660.md)。
+
+
 - XADMaster のコードは実装資料として**参照・流用しない**。比較する場合もブラックボックスの展開オラクルに限る。ユーザー指示。
 - 復号器ごとに参照した資料を design.md と該当ソースの先頭コメントに記録する。
-- 読んでよい一次資料(公開ドメイン/公式): LZMA SDK の `lzma-specification.txt`・`7zFormat.txt`・`C/Ppmd7.c`・`C/Ppmd7.h`・`C/Ppmd7Dec.c`、Shkarin の PPMd var.H / var.I、RARLab の RAR 5.0 technote、LHa for UNIX の `header.doc`、Lhasa の利用者向け `lha.1`、MacBinary / MacBinary II standard proposals、PKWARE APPNOTE、POSIX tar、RFC 1951/1952。LHArk については Jason Summers の公開 format note を用いる。
+- 読んでよい一次資料(公開ドメイン/公式): LZMA SDK の `lzma-specification.txt`・`7zFormat.txt`・`C/Ppmd7.c`・`C/Ppmd7.h`・`C/Ppmd7Dec.c`、Shkarin の PPMd var.H / var.I、RARLab の RAR 5.0 technote、LHa for UNIX の `header.doc`、Lhasa の利用者向け `lha.1`、MacBinary / MacBinary II standard proposals、PKWARE APPNOTE、POSIX tar、RFC 1951/1952。LHArk については Jason Summers の公開 format note を用いる。 ISO 9660 については ECMA-119(Ecma International が無償公開。第 6 版 2025-12 を参照し、節番号を旧版と対応づけた)、Microsoft の Joliet 仕様、IEEE P1281(SUSP)、IEEE P1282(Rock Ridge)、Apple Technote FL 36。
 - RAR5 の形式固有の外部資料は **RARLab の RAR 5.0 technote だけ**とする。RAR5 LZ grammar を定義・検証した入力は、(1) container を定義する同 technote (圧縮 grammar の詳細は非公開)、(2) task orchestrator から供給された clean-room 仕様、(3) RAR 7.23 が生成・展開した black-box 入出力 vector、の 3 つである。orchestrator 仕様は第三者 decoder の source ではなく、`rar` / `unrar` executable は oracle としてだけ使い、その source は参照しない。
 - RAR 1.5-4.x の形式固有の参照は bitplane/rar-research の非公式ノートと libarchive の BSD-2 `archive_read_support_format_rar.c` の挙動に限る。7-Zip の Rar29 復号器、unrar、XADMaster、The Unarchiver の source は参照しない。
 - LHA の container と method parameter は LHa for UNIX `header.doc.md`、同 project の公開

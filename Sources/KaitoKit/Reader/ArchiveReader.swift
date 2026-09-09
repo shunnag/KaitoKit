@@ -198,6 +198,11 @@ public final class ArchiveReader {
             reader = lha
             entries = lha.entries
             format = .lha
+        case .iso:
+            let iso = try ISOReader(source: source, options: options)
+            reader = iso
+            entries = iso.entries
+            format = .iso
         case .gzip, .bzip2, .xz, .compress, .lzma:
             let single = try SingleFileReader(
                 source: source,

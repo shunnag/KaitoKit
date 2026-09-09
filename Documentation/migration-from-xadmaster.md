@@ -330,11 +330,16 @@ multi-volume RAR は URL open を使い、nested ZIP/PDF/EPUB のように既に
 - **multi-volume**: sibling volume を扱えるのは URL-backed RAR4/RAR5 です。Data/任意 `ByteSource` は
   continuation を解決しません。
 
+ISO 9660 は `ISO 9660` として列挙できます。木の優先順位は Rock Ridge（NM あり）>
+Joliet > PVD です。XADMaster の Joliet 優先と異なり、両方ある画像の symlink を保持します。
+NM は書庫全体の UTF-8 / CP932 / EUC-JP 判定、Joliet は UCS-2BE、PVD 名は大文字のままです。
+
 ## 11. 対応外形式・方式
 
-現時点で container reader を提供しない主な形式は CAB、ARJ、ACE、StuffIt/SIT、ISO disk image、zstd
+現時点で container reader を提供しない主な形式は CAB、ARJ、ACE、StuffIt/SIT、zstd
 stream です。対応済み container 内でも次は未対応です。
 
+- ISO の UDF、raw 2352/2336-byte sector、後続 session、interleaved / sparse / zisofs 展開。
 - ZIP multi-disk/spanned と zstd/xz/JPEG/PPMd method。
 - 7z IA-64/SPARC filter。
 - RAR4 の unpack version 15/20/26、custom VM、一部の solid 構成、SFX と multi-volume の組合せ。

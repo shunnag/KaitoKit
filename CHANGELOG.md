@@ -6,6 +6,14 @@
 
 ## [0.1.0] - Unreleased
 
+### 追加・修正（2026-09-09、ISO 9660）
+
+- 依存を追加せず純 Swift の ISO 9660 reader を追加。PVD / Joliet / Rock Ridge、CE 継続、
+  symlink、深い階層の relocation、multi-extent に対応。NM ありの Rock Ridge を Joliet より
+  優先し、両方ある画像でも symlink を保持する。NM は既存の書庫全体の文字コード判定を使う。
+- extent / sector 境界、metadata 予算、directory / CE 循環を検査する。UDF は対象外。
+  CLI と互換層に統合し、小さい実 writer fixture と合成画像の境界・上限テストを追加。
+
 ### 追加・修正（2026-09-09、XADMaster との black-box 差分調査から）
 
 - 7z の coder 連鎖に対応。byte を消費する coder（LZMA / LZMA2 / PPMd7 / Deflate /

@@ -13,7 +13,8 @@ final class FormatDetectorM5Tests: XCTestCase {
         iso[32_768] = 1
         iso.replaceSubrange(32_769..<32_774, with: Data("CD001".utf8))
         iso[32_774] = 1
-        assertUnsupported(iso)
+        XCTAssertEqual(try FormatDetector.detect(data: iso), .iso)
+        XCTAssertThrowsError(try ArchiveReader.open(data: iso))
         let real = try TarTestSupport.makeTar(entries: [
             HandTarEntry(name: "member", contents: Data("tar".utf8)),
         ])

@@ -15,6 +15,9 @@ public enum ArchiveFormat: String, Sendable, CaseIterable {
     /// POSIX, pax, or GNU tar containers.
     case tar
 
+    /// ISO 9660 optical disc images.
+    case iso
+
     /// Gzip streams.
     case gzip
 

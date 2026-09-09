@@ -176,6 +176,16 @@ streaming 検証契約:
 
 ## 10. 出自(プロベナンス)と参照の規則
 
+cpio reader の形式入力は POSIX / IEEE Std 1003.1（SUSv2 pax cpio interchange format）、
+cpio(5)、GNU cpio manual、Heirloom cpio(1)、Linux initramfs buffer format、HP-UX cpio(4)
+に基づく利用者提供の PLAN.md の公開仕様 byte 表・prose。ORACLE.md は受け入れ値だけに使用する。
+XADMaster、The Unarchiver、libarchive、GNU cpio、bsdcpio、7-Zip/p7zip の source は
+開かず、引用・参照していない。pax / GNU cpio executable は小型 fixture の black-box writer
+としてのみ実行した。hard link の補正案は利用者指示を優先し、宣言サイズと実体をそのまま返す。
+crc は通常 file の完全な非空データだけを単純加算で検証し、不一致は malformed。
+HP-UX variant は対応 envelope と同じ解釈で、device number は復元しない。
+検証結果は [cpio 検証記録](verification/2026-09-09-cpio.md)。
+
 ISO reader の形式入力は ECMA-119、Joliet 仕様、IEEE P1281（SUSP 1.10）、IEEE P1282
 （Rock Ridge）、Apple Technote FL 36 に基づく利用者提供の clean-room byte 表・実装仕様書。
 `Formats/ISO/` の 4 source と `ISOImageBuilder.swift` はこの公開仕様の表から新規作成した。

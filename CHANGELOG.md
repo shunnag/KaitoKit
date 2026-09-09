@@ -6,6 +6,13 @@
 
 ## [0.1.0] - Unreleased
 
+### 追加・修正（2026-09-09、cpio）
+
+- 純 Swift の cpio reader を追加。bin（両 byte order / PDP-endian）、odc、newc、crc、
+  hpbin / hpodc、連結書庫、symlink に対応し、hard link は宣言サイズを保持する。
+- binary 検出を既存検出の後に置き、最大4レコードの連鎖を検証する。名前・サイズ・
+  metadata・entry 数の上限と切り詰めを検査し、crc の単純加算不一致は malformed とする。
+
 ### 追加・修正（2026-09-09、ISO 9660）
 
 - 依存を追加せず純 Swift の ISO 9660 reader を追加。PVD / Joliet / Rock Ridge、CE 継続、

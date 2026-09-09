@@ -4,6 +4,18 @@ import KaitoKit
 import XCTest
 
 final class CLISmokeTests: XCTestCase {
+    func testListCpioFixture() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/newc.cpio.b64"), encoding: .utf8)
+        let temp = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let url = temp.appendingPathComponent("newc.cpio")
+        try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
+        let output = try runKaito(findKaitoExecutable(), arguments: ["list", url.path])
+        XCTAssertEqual(output.split(separator: "\n").count, 5)
+        XCTAssertTrue(output.contains("cpio (stored)\tplain\t./a.txt"))
+    }
+
     func testListShowsMethodEncryptionAndOptionalRawName() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }

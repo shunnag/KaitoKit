@@ -330,3 +330,29 @@ iso/rr-joliet.iso.gz.b64
   data.bin: UInt8((i * 13) % 251), i in 0..<4096.
   ISOImageBuilder constructs synthetic images directly from the ECMA-119/SUSP/RRIP
   field tables supplied in the clean-room implementation specification.
+
+cpio additional small writer fixtures (2026-09-09)
+------------------------------------------------
+container/{crc,bcpio,hpbin,hpodc}.cpio.b64 are base64 of archives made
+from project-owned tiny payloads: a.txt = "hello\n", hard.txt a hard link
+to a.txt, link.txt a symlink to a.txt, sub/n.txt = "nested\n", plus directories.
+The original newc/odc/bin fixtures are retained unchanged.
+Commands, run in the source tree:
+  /bin/pax -w -x sv4crc . > crc.cpio
+  /bin/pax -w -x bcpio . > bcpio.cpio
+  printf '.\n./a.txt\n./hard.txt\n./link.txt\n./sub\n./sub/n.txt\n' |
+    /opt/homebrew/opt/cpio/bin/cpio -o --format=hpbin > hpbin.cpio
+  (same pathname list) | cpio -o --format=hpodc > hpodc.cpio
+  base64 -i NAME.cpio -o NAME.cpio.b64
+macOS /bin/pax and GNU cpio 2.15 were used purely as black-box writers;
+no decoder or writer source was consulted. The implementation and synthetic
+builder derive only from the user-supplied public cpio format byte tables.
+Archive SHA-256 (decoded base64):
+  crc:    3f4c7640984ece93cd448abc04cbeff742266bb196d191841674cdf135341a75
+  bcpio:  3a0a0890e6145c92c9e99837a43b4ea696fc9c37071dabfaf1b54510336cc86c
+  hpbin:  3884248f23e645d5cfa68f89dd7e7df92b5549369ff1ef5384648b345f756eee
+  hpodc:  c18fc2f1e9ffc06f2381522a12d14cdb45aa7764610cb6cd3499cae784d54785
+Payload SHA-256:
+  hello\n: 5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03
+  nested\n: 370a8c04b8a65bb4494275eec227f1b694db04c76da6b0b8ae88ed1ab19790a3
+  symlink bytes a.txt: 18b7cb099a9ea3f50ba899b5ba81e0d377a5f3b16f8f6eeb8b3e58cd4692b993

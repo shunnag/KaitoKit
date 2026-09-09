@@ -1,7 +1,7 @@
 # KaitoKit (解凍Kit)
 
 KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。tar、ZIP / ZIP64、7z、
-RAR4 / RAR5、LHA / LZH に加え、gzip、bzip2、xz、UNIX compress (`.Z`) と圧縮 tar を扱います。
+RAR4 / RAR5、LHA / LZH、ISO 9660、cpio に加え、gzip、bzip2、xz、UNIX compress (`.Z`) と圧縮 tar を扱います。
 書庫の検出から列挙、ストリーミング読み取り、展開までを一つのパイプラインとして提供します。
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon / Intel
@@ -57,6 +57,7 @@ for entry in directories {
 | 形式 | コンテナ・圧縮方式 | 暗号化 | multi-volume / multi-stream |
 |---|---|---|---|
 | ISO 9660 | PVD、Joliet、Rock Ridge（NM/CE/PX/SL/TF、深い階層）、multi-extent、stored | なし | 最初の session のみ |
+| cpio | bin（両 byte order）、odc、newc、crc、hpbin、hpodc、stored | なし | 連結書庫、symlink、宣言サイズどおりの hard link |
 | tar | POSIX/ustar、pax、GNU long name/link、stored member | なし | volume 分割なし |
 | gzip | RFC 1952、FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT、DEFLATE、CRC32/ISIZE | なし | concatenated member 対応 |
 | bzip2 | BZip2 block size 1〜9 | なし | concatenated stream 対応 |
@@ -137,7 +138,9 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 
 - ISO は Rock Ridge（NM あり）> Joliet > PVD の順で名前の木を選びます。UDF、raw sector image、
   後続 session、interleaved / sparse / zisofs の内容展開は未対応です。
-- CAB、ARJ、ACE、StuffIt/SIT、cpio、ar、xar、zstd stream は未対応です。
+- cpio は PWB / newcx、HP-UX device number の解釈、device node の再作成に対応しません。
+  hard link の 0-byte placeholder は内容を補完しません。圧縮 cpio の自動連鎖は対象外です。
+- CAB、ARJ、ACE、StuffIt/SIT、ar、xar、zstd stream は未対応です。
 - ZIP は multi-disk/spanned と method 93 (zstd)、95 (xz)、96 (JPEG)、98 (PPMd) を扱いません。
 - 7z は RISC-V filter (method 0x0B) と external volume 分割 (`.7z.001`) を扱いません。
 - RAR4 は unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成、SFX と multi-volume の組合せを

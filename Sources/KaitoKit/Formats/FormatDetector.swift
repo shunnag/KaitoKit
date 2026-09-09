@@ -7,13 +7,14 @@ import Foundation
 /// 1. A checksum-valid tar member header wins
 ///    over bytes in its pathname that resemble a shorter stream signature.
 /// 2. Native markers are checked in this order: ZIP, RAR, 7-Zip, XZ,
-///    structurally plausible LHA, gzip, bzip2, UNIX compress.
+///    structurally plausible LHA, gzip, bzip2, UNIX compress, structurally valid ASCII cpio.
 ///    LHA precedes the two-byte stream markers because its header supplies a
 ///    method and a bounded size envelope.
 /// 3. When enabled, markers inside a recognized Mach-O or PE prefix are
 ///    considered by ascending offset, with ZIP, RAR, then 7-Zip as the stable
 ///    same-offset order.
-/// 4. File-name hints are considered last and never replace content evidence.
+/// 4. File-name hints follow existing content evidence.
+/// 5. Binary cpio is considered last and must validate a bounded record chain.
 public enum FormatDetector {
     private static let tarBlockSize = 512
     private static let zipEOCDMinimumSize = 22
@@ -67,7 +68,8 @@ public enum FormatDetector {
             sfxScanSize: options.scanForSFXInData
                 ? options.maximumSFXScanSize
                 : 0,
-            limits: options.limits
+            limits: options.limits,
+            recoverDamagedArchives: options.recoverDamagedArchives
         )
     }
 
@@ -87,7 +89,7 @@ public enum FormatDetector {
     /// File URLs inspect a bounded Mach-O or PE prefix by default. If content
     /// recognition does not decide the result, `.tar` and `.Z` extensions are
     /// used as hints. LZMA_Alone requires a `.lzma` extension and a plausible
-    /// header, and is checked last.
+    /// header, and is checked before binary cpio.
     public static func detect(
         url: URL,
         options: ReaderOptions = ReaderOptions()
@@ -97,7 +99,8 @@ public enum FormatDetector {
             source: source,
             fileName: url.lastPathComponent,
             sfxScanSize: options.maximumSFXScanSize,
-            limits: options.limits
+            limits: options.limits,
+            recoverDamagedArchives: options.recoverDamagedArchives
         )
     }
 
@@ -116,7 +119,8 @@ public enum FormatDetector {
             sfxScanSize: sourceURL != nil
                 ? options.maximumSFXScanSize
                 : (options.scanForSFXInData ? options.maximumSFXScanSize : 0),
-            limits: options.limits
+            limits: options.limits,
+            recoverDamagedArchives: options.recoverDamagedArchives
         )
     }
 
@@ -124,7 +128,8 @@ public enum FormatDetector {
         source: any ByteSource,
         fileName: String?,
         sfxScanSize: UInt64,
-        limits: ReadLimits
+        limits: ReadLimits,
+        recoverDamagedArchives: Bool
     ) throws -> ArchiveFormat {
         let prefixLength = try Checked.toInt(min(source.length, UInt64(tarBlockSize)))
         let prefix = try read(source: source, at: 0, count: prefixLength)
@@ -161,6 +166,7 @@ public enum FormatDetector {
         if hasPrefix(prefix, [0x1F, 0x9D]) {
             return .compress
         }
+        if CpioHeader.probe(prefix, source: source) != nil { return .cpio }
         // A damaged first local marker can still belong to a native ZIP when
         // its end record places the central directory at an absolute base of
         // zero. A nonzero inferred base is an SFX prefix and follows the
@@ -202,6 +208,7 @@ public enum FormatDetector {
             }
         }
 
+        if CpioHeader.probeBinary(source: source, recoverDamagedArchives: recoverDamagedArchives) { return .cpio }
         throw KaitoError.unsupportedFormat
     }
 

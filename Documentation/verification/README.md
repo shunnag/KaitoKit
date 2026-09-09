@@ -15,6 +15,9 @@
 | [2026-09-09-xadmaster-feature-gap.md](2026-09-09-xadmaster-feature-gap.md) | 2026-09-09 | XADMaster との機能差分の black-box 調査(86 書庫 + 破損 27 書庫) | `4f6c138` |
 | [2026-09-09-sevenzip-singlefile-gaps.md](2026-09-09-sevenzip-singlefile-gaps.md) | 2026-09-09 | 7z coder 連鎖・LZMA_Alone・`.tar.Z` の実装と検証 | `fc8146e` |
 | [2026-09-09-branch-filter-derivation.md](2026-09-09-branch-filter-derivation.md) | 2026-09-09 | SPARC / IA-64 branch filter の black-box 導出とオラクル固定ベクタ | `b18f11b` |
+| [2026-09-09-iso9660.md](2026-09-09-iso9660.md) | 2026-09-09 | ISO 9660 reader(ECMA-119 / Joliet / Rock Ridge)の実装と XADMaster 比較 | `a1a2753` |
+| [2026-09-09-cpio.md](2026-09-09-cpio.md) | 2026-09-09 | cpio reader(bin / odc / newc / crc / hpbin / hpodc)の実装と XADMaster 比較 | (本コミット) |
+| [2026-09-09-format-gap-queue.md](2026-09-09-format-gap-queue.md) | 2026-09-09 | XADMaster が対応し KaitoKit が未対応の形式の洗い出しと実装キュー | `0b38a37` |
 | [2026-09-09-recovery-mode.md](2026-09-09-recovery-mode.md) | 2026-09-09 | 破損書庫の救済モードの実測(XADMaster 比較・健全書庫と暗号化書庫の不変性・tar 検出の修正)、追補で RAR5 の切り詰め救済 | `4969b34` / `7aba9ae` / `5e83353` / `c00dd09` |
 
 これらは 2026-09-08 に `Documentation/` 直下から本ディレクトリへ移した。記録本文に埋め込まれた

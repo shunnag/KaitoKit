@@ -481,7 +481,7 @@ final class RAR5Reader: FormatReader {
     /// Returns an independent mutable reader while retaining the exact source
     /// handles authenticated during the original parse. In particular, a
     /// reopened multi-volume reader never resolves sibling paths a second time.
-    func reopened(options: ReaderOptions) -> RAR5Reader {
+    func reopened(options: ReaderOptions) -> sending RAR5Reader {
         let reader = RAR5Reader(
             source: source,
             sourceURL: sourceURL,

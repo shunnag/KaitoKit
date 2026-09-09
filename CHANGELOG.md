@@ -4,6 +4,28 @@
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
 バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従う。
 
+## [0.3.0] - 2026-09-10
+
+### 追加・修正（2026-09-10、reader の送信と親ディレクトリの権限）
+
+- `ArchiveReader.reopen()` の戻り値を `sending ArchiveReader` にし、Swift 6 の
+  actor から別の isolation domain へ独立した reader を送信できるようにした。
+  既存の呼び出しはソース互換で、実行時の処理は変えない。
+- 親ディレクトリを開く際の `EPERM` / `EACCES` に限り、`FileByteSource` は葉の
+  パスを直接開く。`ArchiveReader.open(url:)` と公開 initializer の両方に適用し、
+  通常の `openat()` と directory anchor は維持する。fallback では anchor を持たず、
+  RAR の後続巻探索は匿名 origin の既存の `unsupportedMethod` を返す。
+
+> **Added and fixed (2026-09-10, reader transfer and parent-directory permissions)**
+>
+> - `ArchiveReader.reopen()` now returns `sending ArchiveReader`, allowing an independent reader
+>   to cross from a Swift 6 actor into another isolation domain. Existing calls remain source
+>   compatible, with no change to the runtime implementation.
+> - Only `EPERM` or `EACCES` when opening the parent directory makes `FileByteSource` open the
+>   leaf path directly. This applies to both `ArchiveReader.open(url:)` and the public initializer.
+>   Normal `openat()` and directory anchoring are preserved. The fallback has no anchor, so RAR
+>   continuation lookup returns the existing anonymous-origin `unsupportedMethod` error.
+
 ## [0.2.0] - 2026-09-09
 
 ### 修正（2026-09-09、CAB の救済性と展開性能）

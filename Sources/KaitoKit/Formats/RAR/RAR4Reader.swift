@@ -487,7 +487,7 @@ final class RAR4Reader: FormatReader {
         self.password = options.password
     }
 
-    func reopened(options: ReaderOptions) -> RAR4Reader {
+    func reopened(options: ReaderOptions) -> sending RAR4Reader {
         RAR4Reader(
             source: source,
             sourceURL: sourceURL,

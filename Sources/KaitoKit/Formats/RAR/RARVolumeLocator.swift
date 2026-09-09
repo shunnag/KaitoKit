@@ -77,9 +77,9 @@ final class RARVolumeLocator {
         }
 
         let source: any ByteSource
-        let handle: FileByteSource.DirectoryAnchor
+        let handle: FileByteSource.DirectoryAnchor?
         switch (firstVolumeSource, firstVolumeDirectory) {
-        case let (providedSource?, providedDirectory?):
+        case let (providedSource?, providedDirectory):
             source = providedSource
             handle = providedDirectory
         case (nil, nil):
@@ -99,6 +99,15 @@ final class RARVolumeLocator {
         let directory = firstURL.deletingLastPathComponent().standardizedFileURL
         guard let descriptorSource = source as? FileByteSource else {
             throw KaitoError.malformed("RAR first volume anchor is incomplete")
+        }
+        guard let handle else {
+            // 親を開けない fallback は匿名 origin とし、後続巻は既存の unsupportedMethod で拒否する。
+            self.naming = naming
+            self.origin = .anonymous
+            self.maxMetadataSize = maxMetadataSize
+            self.maxVolumeCount = maxVolumeCount
+            self.volumes = [0: first]
+            return
         }
         try Self.validateFirstVolumeAnchor(
             source: descriptorSource,

@@ -29,13 +29,13 @@ public final class FileByteSource: ByteSource {
 
     struct AnchoredOpen: Sendable {
         let source: FileByteSource
-        let directory: DirectoryAnchor
+        let directory: DirectoryAnchor?
     }
 
     private struct OpenedDescriptor {
         let descriptor: Int32
         let length: UInt64
-        let directory: DirectoryAnchor
+        let directory: DirectoryAnchor?
     }
 
     private let descriptor: Int32
@@ -59,8 +59,8 @@ public final class FileByteSource: ByteSource {
         self.length = opened.length
     }
 
-    /// Opens the parent before the leaf and returns both owned handles. Archive
-    /// readers pass the exact parent handle to sibling-file locators.
+    /// 親を葉より先に開き、所有する両ハンドルを返す。親の読み取りが許可されない
+    /// 場合だけ directory は nil となる。reader はこの親ハンドルを巻探索へ渡す。
     static func openAnchored(url: URL) throws -> AnchoredOpen {
         let opened = try openDescriptorAnchoredToParent(url: url)
         return AnchoredOpen(
@@ -77,16 +77,30 @@ public final class FileByteSource: ByteSource {
     ) throws -> OpenedDescriptor {
         let standardized = url.standardizedFileURL
         let parent = standardized.deletingLastPathComponent().standardizedFileURL
-        let directory = try DirectoryAnchor(path: parent.path)
+        let directory: DirectoryAnchor?
+        do {
+            directory = try DirectoryAnchor(path: parent.path)
+        } catch KaitoError.io(let code) where code == EPERM || code == EACCES {
+            // 親の読み取りだけが許可されない場合は、葉を直接開き、巻探索の anchor は持たない。
+            directory = nil
+        }
 
         // O_NONBLOCK prevents a hostile FIFO path from hanging before fstat can
         // reject it. Explicit archive leaves may still be symbolic links; RAR
         // volume-set lookup applies its stricter no-follow policy separately.
-        let descriptor = Darwin.openat(
-            directory.descriptor,
-            standardized.lastPathComponent,
-            O_RDONLY | O_CLOEXEC | O_NONBLOCK
-        )
+        let descriptor: Int32
+        if let directory {
+            descriptor = Darwin.openat(
+                directory.descriptor,
+                standardized.lastPathComponent,
+                O_RDONLY | O_CLOEXEC | O_NONBLOCK
+            )
+        } else {
+            descriptor = Darwin.open(
+                standardized.path,
+                O_RDONLY | O_CLOEXEC | O_NONBLOCK
+            )
+        }
         guard descriptor >= 0 else {
             throw KaitoError.io(errno)
         }

@@ -392,8 +392,9 @@ public final class ArchiveReader {
         return result.url
     }
 
-    /// Creates a new independent reader sharing the same immutable byte source.
-    public func reopen() throws -> ArchiveReader {
+    /// 同じ不変の byte source を共有する独立した reader を作る。
+    /// 返された reader は別の isolation domain に送信できる。
+    public func reopen() throws -> sending ArchiveReader {
         var reopenedOptions = options
         reopenedOptions.password = password
         if let rar5 = reader as? RAR5Reader {

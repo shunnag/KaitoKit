@@ -4,7 +4,10 @@
 GitHub wiki mirror `mietek/theunarchiver`。**source は参照していない**、§10)と、
 手元コーパスでの black-box 実測。
 
-## 実測で確認した差(XADMaster が開き KaitoKit が開けない)
+**方針**: 汎用書庫ライブラリとして XADMaster との差をできるだけ減らす。特定の
+利用側(cooViewer 等)の都合では優先順位を決めない。
+
+## 実測で確認した差
 
 `hdiutil` / `cpio` / `ar` / `xar` で生成した書庫を両エンジンに与えた結果:
 
@@ -17,25 +20,49 @@ GitHub wiki mirror `mietek/theunarchiver`。**source は参照していない**�
 | UNIX compress `.Z` | 1 entry | **一致**(対応済み)|
 | HFS dmg | 開けない | 開けない(差ではない)|
 
+## 検証方法とツールの状況
+
+オラクルは XADMaster の実行ファイル(black-box)。fixture の作り方は 3 通り:
+
+- **A. 手元にツールがある** — `hdiutil`(ISO)、`cpio`、`ar`、`xar`、`zip`、`7zz`、
+  `lha`、`tar`、`zstd`。この範囲は即座に検証できる。
+- **B. 既存ツールの組合せで作れる** — Deb は `ar` + `tar.gz`/`tar.xz`、
+  RPM は header + cpio payload。どちらも手元の道具で構成できる。
+- **C. writer が無い** — ARJ / ZOO / ARC / PAK / CAB / StuffIt / ACE / ALZip /
+  LZX / ADF / DMS など。仕様から encoder を自作し、**XADMaster が正しく読めることを
+  先に確認**してから KaitoKit と突き合わせる。XADMaster がオラクルとして機能するので、
+  自作 encoder と自作 decoder が同じ誤読をする循環は避けられる。
+
+C の形式は brew で writer を入れれば独立確認が増えるが、必須ではない。
+導入が要る場面では都度ユーザーに確認する。
+
 ## 実装キュー
 
-cooViewer は漫画ビューアなので、書庫としての実用度と、cooViewer が既に対応を
-宣言しているかを基準に並べる。
+汎用性(遭遇頻度)と実装可能性で並べる。
 
-| 順 | 形式 | 根拠 | bead |
-|---:|---|---|---|
-| 1 | **ISO 9660**(+ Joliet / Rock Ridge)| スキャン漫画のディスクイメージ。P1 | `cooViewer-ogfp` |
-| 2 | **StuffIt / StuffIt X** | cooViewer が `.sit` の対応を宣言しているのに開けない | `cooViewer-gu28` |
-| 3 | **cpio / ar / xar** | 実測済みの差。fixture は checked-in 済み | `cooViewer-7wbx` |
-| 4 | **ZIP method 93/95/96/98**(Zipx)| ZIP の中の方式差。zstd / xz / JPEG / PPMd | `cooViewer-th30` |
-| 5 | ARJ | 古い書庫。漫画では稀 | 未作成 |
-| 6 | ACE(旧形式のみ)| `.cba` は Comic Book ACE。XADMaster も 2.0 は非対応 | 未作成 |
-| 7 | Zoo / ARC / PAK / LBR / Squeeze / Crunch | 歴史的形式 | 未作成 |
-| 8 | CAB / MSI / NSIS | Windows installer 系。漫画では稀 | 未作成 |
-| 9 | ALZip(`.alz`)| 韓国圏。漫画配布に使われることがある | 未作成 |
-| 10 | RPM / Deb / WARC | 漫画ビューアの用途外 | 作らない |
-| 11 | LZX / PowerPacker / ADF / DMS / DiskDoubler / Compact Pro / PackIt | Amiga・旧 Mac。用途外 | 作らない |
-| 12 | NDS / SWF / PDF / NSA / SAR | 書庫ではなく抽出。用途外 | 作らない |
+| 順 | 形式 | 内容 | fixture | bead |
+|---:|---|---|---|---|
+| 1 | **ISO 9660** | ECMA-119 + Joliet + Rock Ridge(SUSP/RRIP) | A | `cooViewer-ogfp` |
+| 2 | **cpio** | newc / odc / bin / crc / hpodc | A(checked-in)| `cooViewer-7wbx` |
+| 3 | **ar** | SysV/GNU 長名表・BSD `#1/` 長名 | A(checked-in)| `cooViewer-7wbx` |
+| 4 | **xar** | XML TOC + zlib/bzip2/lzma heap | A(checked-in)| `cooViewer-7wbx` |
+| 5 | **Deb** | `ar` の中の `debian-binary` + `control.tar.*` + `data.tar.*` | B | 未作成 |
+| 6 | **RPM** | lead + signature/header(index+store)+ cpio payload | B | 未作成 |
+| 7 | **CAB** | MSZIP(Deflate)/ LZX / Quantum、folder 跨ぎ | C | 未作成 |
+| 8 | **ZIP method 93/95/96/98** | Zipx: zstd / xz / JPEG / PPMd | A | `cooViewer-th30` |
+| 9 | **ARJ** | 古典 DOS 書庫 | C | 未作成 |
+| 10 | **ZOO** | 古典 | C | 未作成 |
+| 11 | **ARC / PAK / Squeeze / Crunch / LBR** | CP/M・DOS 系。RLE と LZW が主 | C | 未作成 |
+| 12 | **StuffIt / StuffIt X** | Mac 古典。SIT は方式が多い | C | `cooViewer-gu28` |
+| 13 | **Compact Pro / PackIt / DiskDoubler** | Mac 古典 | C | 未作成 |
+| 14 | **LZX / PowerPacker / ADF / DMS** | Amiga | C | 未作成 |
+| 15 | **ACE**(旧形式のみ)| XADMaster も 2.0 は非対応 | C | 未作成 |
+| 16 | **ALZip** | Bzip2 / Deflate / 難読化 Deflate | C | 未作成 |
+| 17 | **WARC** | HTTP record の連結。構造は単純 | B | 未作成 |
+| 18 | **MSI / NSIS** | MSI は CFB 複合ファイル、NSIS は版が多い | C | 未作成 |
 
 ディスクイメージの BIN / MDF / NRG / CDI は ISO 9660 の上に載る raw sector 形式なので、
-1 を終えてから同じ reader の入口として検討する。
+1 を終えてから同じ reader の入口として扱う。
+
+SWF / PDF / NDS / NSA / SAR は「書庫の展開」ではなく「メディアの抽出」なので、
+KaitoKit の対象外とする(XADMaster との差として残ることは記録しておく)。

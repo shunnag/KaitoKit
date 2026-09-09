@@ -368,6 +368,30 @@ final class ISOReaderTests: XCTestCase {
         }
     }
 
+    func testJapaneseNamesNormalizeAndSlashKeepsExactDiagnostic() throws {
+        // Swift の文字列等価比較は正規等価も受理するため、NFC の出力バイト自体を検証する。
+        let names = ["ASCII.txt", "日本語.txt", "か\u{3099}く.txt", "日本／語.txt"]
+        let expected = ["ASCII.txt", "日本語.txt", "がく.txt", "日本／語.txt"]
+        for joliet in [false, true] {
+            var b = B(joliet: joliet)
+            let records = names.enumerated().map { index, name in
+                joliet ? B.record(B.ucs2(name + ";1"), lba: 22)
+                    : B.record(Array("FILE\(index);1".utf8), lba: 22, su: B.nm(name))
+            }
+            b.root(records, systemUse: joliet ? [] : B.sp(), joliet: joliet)
+            let reader = try open(b)
+            XCTAssertEqual(reader.entries.map { Array($0.name.utf8) }, expected.map { Array($0.utf8) })
+            for invalid in ["a/b", "日本/語.txt", "日本\0語.txt"] {
+                let record = joliet ? B.record(B.ucs2(invalid), lba: 22)
+                    : B.record(Array("FILE;1".utf8), lba: 22, su: B.nm(invalid))
+                b.root([record], systemUse: joliet ? [] : B.sp(), joliet: joliet)
+                XCTAssertThrowsError(try open(b)) { error in
+                    guard case KaitoError.malformed("iso name") = error else { return XCTFail("\(error)") }
+                }
+            }
+        }
+    }
+
     func testBadNamesUnfinishedNMAndSLRejected() throws {
         for su in [B.nm("a/b"), B.nm(".."), B.nm("a\0b"), B.nm("x", flags: 1),
                    B.su("SL", [1,0,1,97]), B.su("SL", [0,1,1,97]),

@@ -326,6 +326,80 @@ final class XarReaderTests: XCTestCase {
         assertError("malformed") { _ = try stream.readAll() }
     }
 
+    func testModificationDatesMatchLegacyFormatter() throws {
+        // 切替前の暦・可変桁年・往復検査も含めて、従来の受理範囲と秒値を固定する。
+        let reference = DateFormatter()
+        reference.locale = Locale(identifier: "en_US_POSIX")
+        reference.calendar = Calendar(identifier: .gregorian)
+        reference.timeZone = TimeZone(secondsFromGMT: 0)
+        reference.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        reference.isLenient = false
+        func legacy(_ mtime: String) -> Date? {
+            let text = mtime.trimmingCharacters(in: .whitespacesAndNewlines)
+            let plain = text.hasSuffix("Z") ? String(text.dropLast()) : text
+            if let parsed = reference.date(from: plain), reference.string(from: parsed) == plain { return parsed }
+            return nil
+        }
+        var candidates: [String] = []
+        for year in [1, 4, 100, 400, 1500, 1582, 1583, 1600, 1700, 1800, 1900,
+                     1969, 1970, 1999, 2000, 2023, 2024, 2100, 2400, 9999, 10000] {
+            for month in 1...12 {
+                for day in 1...31 {
+                    for time in ["00:00:00", "12:34:56", "23:59:59"] {
+                        candidates.append(String(format: "%04d-%02d-%02dT", year, month, day) + time)
+                    }
+                }
+            }
+        }
+        let edgeCases = [
+            "2023-02-29T12:34:56", "2024-02-29T12:34:56", "2024-02-30T12:34:56",
+            "2024-00-01T00:00:00", "2024-13-01T00:00:00", "2024-01-00T00:00:00",
+            "2024-01-32T00:00:00", "2024-01-01T24:00:00", "2024-01-01T23:60:00",
+            "2024-01-01T23:59:60", "2024-01-01T23:59:59", "2024-01-0123:59:59",
+            "2024-01-01 23:59:59", "2024/01/01T23:59:59", "2024-01-01T23-59-59",
+            "2024-01-01T23:59:5", "2024-01-01T23:59:599", "", "Z", "ZZ",
+            "abcd-ef-ghTij:kl:mn", "２０２４-01-01T23:59:59", "2024-01-01t23:59:59",
+            "1500-02-29T00:00:00", "1582-10-04T00:00:00", "1582-10-10T00:00:00",
+            "1582-10-15T00:00:00", "1583-01-01T00:00:00", "10000-01-01T00:00:00",
+            "0000-01-01T00:00:00", "2024-01-01T23:59:59z", "2024-01-01T23:59:59ZZ"
+        ]
+        for text in edgeCases {
+            candidates += [text, text + "Z", " \t\n" + text, text + "\r\n ",
+                           "\u{00A0}" + text + "Z\u{2003}"]
+        }
+        // 各位置の誤字が算術経路へ紛れ込まないことも確認する。
+        let valid = Array("2024-02-29T23:59:59".utf8)
+        for index in valid.indices {
+            for byte: UInt8 in [0, 32, 47, 58, 65, 90, 127] {
+                var changed = valid
+                changed[index] = byte
+                candidates.append(String(decoding: changed, as: UTF8.self))
+            }
+        }
+        var formatter: DateFormatter?
+        for text in candidates {
+            XCTAssertEqual(XarReader.parseModificationDate(text, formatter: &formatter), legacy(text), text.debugDescription)
+        }
+        // TOC からの呼出しでも前処理と任意の末尾 Z を保持する。
+        for text in edgeCases {
+            let reader = try openXML(member("<mtime> \n\(text)\t </mtime>"))
+            XCTAssertEqual(reader.entries[0].modificationDate, legacy(text), text.debugDescription)
+        }
+    }
+
+    func testModificationDateFormatterIsCreatedOnlyForFallback() throws {
+        var formatter: DateFormatter?
+        XCTAssertEqual(XarReader.parseModificationDate("1970-01-01T00:00:00Z", formatter: &formatter),
+                       Date(timeIntervalSince1970: 0))
+        XCTAssertNotNil(XarReader.parseModificationDate("1583-01-01T00:00:00", formatter: &formatter))
+        XCTAssertNil(XarReader.parseModificationDate("2024-02-30T00:00:00", formatter: &formatter))
+        XCTAssertNil(formatter)
+        XCTAssertNotNil(XarReader.parseModificationDate("1500-02-29T00:00:00", formatter: &formatter))
+        let fallback = try XCTUnwrap(formatter)
+        XCTAssertNotNil(XarReader.parseModificationDate("10000-01-01T00:00:00", formatter: &formatter))
+        XCTAssertTrue(formatter === fallback)
+    }
+
     func testXMLSubsetAndUnknownSubtrees() throws {
         let xml = """
         <?xml version='1.0' encoding='uTf-8'?><?test arbitrary text?>

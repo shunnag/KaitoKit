@@ -11,6 +11,8 @@ final class CabReader: FormatReader {
     private let files: [CabFile]
     private let blocks: [[CabDataBlock]]
     private let folderSizes: [UInt64]
+    private var folderCoordinators: [Int: SolidCoordinator] = [:]
+    private var activeFolderIndex: Int?
 
     init(source: any ByteSource, options: ReaderOptions) throws {
         self.source = source
@@ -77,7 +79,7 @@ final class CabReader: FormatReader {
             for _ in 0..<folder.blockCount {
                 let bytes = try dataCursor.read(8)
                 try dataCursor.skip(dataReserve)
-                let block = try CabDataBlock(bytes, dataOffset: dataCursor.offset)
+                let block = try CabDataBlock(bytes, dataOffset: dataCursor.offset, folderOffset: size)
                 try dataCursor.skip(UInt64(block.compressedSize))
                 size = try Checked.add(size, UInt64(block.uncompressedSize))
                 folderBlocks.append(block)
@@ -155,11 +157,89 @@ final class CabReader: FormatReader {
         guard folder.method <= 1 else { throw KaitoError.unsupportedMethod("cab \(folder.methodName)") }
         try Checked.size(folderSizes[index], limit: limits.maxTotalUncompressedSize)
         if folder.method == 1 { try Checked.size(32768, limit: limits.maxDictionarySize) }
-        let decoder = try MSZIPDecompressor(source: source, blocks: blocks[index], stored: folder.method == 0,
-            offset: file.folderOffset, length: file.size, entryIndex: entry.index)
+        // 短いフォルダーを多数並べた入力でも復号バッファが累積しないよう、保持する復号器を一つに制限する。
+        if let activeFolderIndex, activeFolderIndex != index {
+            try folderCoordinators[activeFolderIndex]?.invalidateAndRelease()
+        }
+        activeFolderIndex = index
+        let coordinator: SolidCoordinator
+        if let cached = folderCoordinators[index] {
+            coordinator = cached
+        } else {
+            coordinator = SolidCoordinator(source: source, blocks: blocks[index], stored: folder.method == 0)
+            folderCoordinators[index] = coordinator
+        }
+        let decoder = try coordinator.stream(offset: file.folderOffset, length: file.size, entryIndex: entry.index)
         return try EntryStream(decompressor: decoder, length: file.size, expectedCRC32: nil,
-            entryIndex: entry.index, limits: limits, completionCheck: {
-                guard decoder.checksumsMatch else { throw KaitoError.checksumMismatch(entry: entry.index) }
-            })
+            entryIndex: entry.index, limits: limits)
+    }
+
+    private final class SolidCoordinator {
+        private let source: any ByteSource
+        private let blocks: [CabDataBlock]
+        private let stored: Bool
+        private var decoder: MSZIPDecompressor?
+        private var generation: UInt64 = 0
+
+        init(source: any ByteSource, blocks: [CabDataBlock], stored: Bool) {
+            self.source = source; self.blocks = blocks; self.stored = stored
+        }
+
+        func invalidateAndRelease() throws {
+            generation = try Checked.add(generation, 1)
+            decoder = nil
+        }
+
+        func stream(offset: UInt64, length: UInt64, entryIndex: Int) throws -> SolidRangeDecompressor {
+            let end = try Checked.add(offset, length)
+            generation = try Checked.add(generation, 1)
+            // 空ファイルは履歴再構築も不要。開始位置が後退するときだけ先頭からやり直す。
+            if length > 0, decoder == nil || offset < decoder!.position {
+                decoder = MSZIPDecompressor(source: source, blocks: blocks, stored: stored)
+            }
+            return SolidRangeDecompressor(coordinator: self, generation: generation,
+                offset: offset, end: end, entryIndex: entryIndex)
+        }
+
+        func read(generation expected: UInt64, offset: inout UInt64, end: UInt64,
+                  entryIndex: Int, into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+            guard expected == generation else {
+                throw KaitoError.malformed("a newer CAB folder stream invalidated this stream")
+            }
+            guard offset < end, !buffer.isEmpty else { return 0 }
+            guard let decoder else { throw KaitoError.malformed("cab folder decoder is unavailable") }
+            do {
+                try decoder.skip(to: offset, entryIndex: entryIndex)
+                let count = try Checked.toInt(min(UInt64(buffer.count), Checked.sub(end, offset)))
+                let actual = try decoder.read(into: UnsafeMutableRawBufferPointer(rebasing: buffer[..<count]),
+                    entryIndex: entryIndex)
+                offset = try Checked.add(offset, UInt64(actual))
+                return actual
+            } catch {
+                self.decoder = nil
+                throw error
+            }
+        }
+    }
+
+    private final class SolidRangeDecompressor: Decompressor {
+        private let coordinator: SolidCoordinator
+        private let generation: UInt64
+        private let end: UInt64
+        private let entryIndex: Int
+        private var offset: UInt64
+
+        init(coordinator: SolidCoordinator, generation: UInt64, offset: UInt64, end: UInt64, entryIndex: Int) {
+            self.coordinator = coordinator; self.generation = generation
+            self.offset = offset; self.end = end; self.entryIndex = entryIndex
+        }
+
+        // 200 ファイルの実測では末尾一箇所の破損が全件を失敗させた。範囲終端で完了させ波及を防ぐ。
+        var isFinished: Bool { offset == end }
+
+        func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+            try coordinator.read(generation: generation, offset: &offset, end: end,
+                entryIndex: entryIndex, into: buffer)
+        }
     }
 }

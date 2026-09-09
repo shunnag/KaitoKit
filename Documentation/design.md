@@ -234,6 +234,12 @@ ReadLimits は metadata の両候補走査にも共通適用する。record の 
 検出では既存 ZIP 復旧 / SFX が CD001 を含む場合も既存形式を優先する。
 検証値・再実行手順は [ISO 検証記録](verification/2026-09-09-iso9660.md)。
 
+追補(2026-09-09): 名前の妥当性検査は UTF-8 の byte 走査で行う。`/` は単一 ASCII byte で
+UTF-8 の継続 byte に 0x2F は現れないため、Foundation の Unicode 照合(`String.contains`)を
+使う必要がない。NFC 正規化も非 ASCII byte を含む名前だけに限る(全 ASCII では恒等変換)。
+5,110 項目の open profile で前者が 8.8%、後者が 3.2% を占めていた。
+[新規 6 形式の検証記録](verification/2026-09-09-new-format-performance.md) §5 / §9.2。
+
 
 xar reader の形式入力は xar の公開形式説明と xar(1) man page、RFC 1950 / 1951、
 LZMA SDK `lzma-specification.txt`、XZ file-format spec、および本セッションで
@@ -286,6 +292,15 @@ xar は hard link の実体を参照より後ろに置くため、`Extractor` �
 doc comment に明記した。`linkPath` と `hardLinkTargetIndex` は同じ entry を指す。
 検証値・再実行手順は [xar 検証記録](verification/2026-09-09-xar.md)。
 
+追補(2026-09-09): `mtime` の解析は二段構えにした。`yyyy-MM-ddTHH:mm:ss`(+ 任意の `Z`)の
+定型かつ年が 1583 以上のときだけ桁を直接読み、UTC の proleptic Gregorian で秒を算術計算する。
+1583 年以降は Foundation の `.gregorian`(1582-10-15 を境とする混合暦)と一致するため、
+算術で厳密に同じ Date になる。1582 年以前・5 桁の年・形の違う文字列は、従来どおりの
+非 lenient `DateFormatter` と `string(from:)` 往復検査へ落とす(遅延生成)。
+5,110 項目の書庫では open の 68% が `NSDateFormatter` 経由の ICU 日付シンボル再読み込みで、
+これが 3.55 倍の短縮になった。受理範囲の同等性は 23,724 通りの差分 test で固定している。
+[新規 6 形式の検証記録](verification/2026-09-09-new-format-performance.md) §4 / §9.1。
+
 
 RPM reader の形式入力は Linux Standard Base「Package File Format」、rpm(8)、
 rpm.org の prose 文書、RFC 1950/1951/1952 と、本セッションで `rpmbuild` 6.1.0 が
@@ -337,6 +352,24 @@ Quantum と LZX は一覧のみ対応し、展開時に具体的な unsupportedM
 ZIP の DOS 日時変換は `Core/DOSTimestamp.swift` へ移して両 reader で共有する。
 CAB では不正な日時を nil とし、書庫を失敗させない。
 検証値・再実行手順は [CAB 検証記録](verification/2026-09-09-cab.md)。
+
+**追補(2026-09-09): entry の検証範囲を「消費した block だけ」に改めた。**
+当初は folder 全体の CFDATA を復号し、その checksum をまとめて entry の成否にしていた。
+これは (a) 1 block の破損で folder 内の全ファイルが読めなくなり、(b) 1 folder に N entry が
+あると展開が N × folderSize になる、という 2 つの問題を同時に起こしていた。
+cabextract(libmspack)と XADMaster の 2 つのオラクルはいずれも、破損 block に重なる
+ファイルだけを落として残りを救済する。その契約に合わせた。
+
+そのため `CabReader` は folder 単位の前進復号器を保持する。設計は RAR5 の
+solid coordinator と同じで、世代番号によって古い `EntryStream` を明示的なエラーで
+無効化し、folder を切り替えるときに直前の復号器を解放する(復号器 1 つで約 170 KB を
+持つため、短い folder を大量に並べた入力で累積させない)。
+
+意図して受け入れた限界: MSZIP で entry の手前にある block は辞書再構築のために復号するが、
+その CFDATA checksum は entry の成否に反映しない。反映すると、復号器を捨てて先頭から
+やり直す経路を通じて (a) の folder 全滅が再発し、かつ結果が読み出し順に依存する。
+残余 risk の実測は
+[新規 6 形式の検証記録](verification/2026-09-09-new-format-performance.md) §8.5。
 
 
 - XADMaster のコードは実装資料として**参照・流用しない**。比較する場合もブラックボックスの展開オラクルに限る。ユーザー指示。

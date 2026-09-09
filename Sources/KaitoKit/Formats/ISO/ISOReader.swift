@@ -296,8 +296,10 @@ final class ISOReader: FormatReader {
                 }
                 if name.hasSuffix(".") { name.removeLast() }
             }
-            name = name.precomposedStringWithCanonicalMapping
-            guard !name.isEmpty, name != ".", name != "..", !name.utf8.contains(0), !name.contains("/") else {
+            // 全 ASCII 文字列では NFC 正規化は恒等変換なので、非 ASCII バイトがある場合だけ行う。
+            if name.utf8.contains(where: { $0 >= 0x80 }) { name = name.precomposedStringWithCanonicalMapping }
+            // open 標本の 8.8% を占めた文字列検索を避ける。UTF-8 の継続バイトに 0x2F は現れない。
+            guard !name.isEmpty, name != ".", name != "..", !name.utf8.contains(where: { $0 == 0 || $0 == 0x2F }) else {
                 throw KaitoError.malformed("iso name")
             }
             var components = item.parent.flatMap { paths[$0] } ?? []

@@ -71,13 +71,15 @@ struct CabDataBlock {
     let checksum: UInt32
     let compressedSize, uncompressedSize: UInt16
     let dataOffset: UInt64
+    let folderOffset: UInt64
 
-    init(_ bytes: [UInt8], dataOffset: UInt64) throws {
+    init(_ bytes: [UInt8], dataOffset: UInt64, folderOffset: UInt64 = 0) throws {
         checksum = CabCursor.u32(bytes, 0)
         compressedSize = CabCursor.u16(bytes, 4)
         uncompressedSize = CabCursor.u16(bytes, 6)
         guard uncompressedSize <= 32768 else { throw KaitoError.malformed("cab block size") }
         self.dataOffset = dataOffset
+        self.folderOffset = folderOffset
     }
 
     func computedChecksum(_ data: [UInt8]) -> UInt32 {

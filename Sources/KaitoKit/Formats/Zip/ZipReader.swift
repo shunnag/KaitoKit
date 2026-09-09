@@ -195,10 +195,12 @@ final class ZipReader: FormatReader {
                 source: source, offset: local.dataOffset, compressedSize: 0
             )
         }
+        // Recovery bounds unencrypted stored payload.size to available source bytes,
+        // so CopyDecompressor can preserve bulk reads without recovery wrapping.
         return try EntryStream(
-            decompressor: entry.isIncomplete ? RecoveryDecompressor(
-                decompressor, maximumOutputSize: entry.uncompressedSize
-            ) : decompressor,
+            decompressor: entry.isIncomplete && !(record.method == 0 && !entry.isEncrypted)
+                ? RecoveryDecompressor(decompressor, maximumOutputSize: entry.uncompressedSize)
+                : decompressor,
             length: entry.isIncomplete ? nil : entry.uncompressedSize,
             expectedCRC32: entry.isIncomplete ? nil : record.crc32,
             entryIndex: entry.index,

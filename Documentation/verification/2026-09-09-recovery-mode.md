@@ -271,3 +271,50 @@ stored 分岐の `CopyDecompressor` は既に実在 byte 数へ丸めて構築�
 宣言サイズをその場で切り詰めると資源上限が黙って緩むため、ZIP と同じく
 `availablePackedSize` を別に持つ形にした(`RAR5RecoveryTests`
 `testRecoveryPreservesDeclaredPackedSizeLimit` がこれを固定している)。
+
+---
+
+# stored entry の部分救済を ZIP / LHA にも広げて高速化(追補 2)
+
+RAR5 の高速化(`5e83353`)で見つけた `RecoveryDecompressor` の 1 byte 読み問題は、
+**ZIP と LHA にも同じように残っていた**。deflate や lh5 では inflate 側の内部
+バッファが効くため現れず、**stored(無圧縮)の entry でだけ**顕在化する。
+最初に「ZIP は約 50 MB/s」と測ったのは deflate の書庫で、この問題が隠れていた。
+
+`CopyDecompressor` の一括読み取り経路(`directReadMinimumSize` 1MB /
+`directReadChunkSize` 4MB)が 1 byte の buffer で無効化され、byte ごとに
+`ByteSource` を叩いていた。救済時の packed サイズは既に実在 byte 数へ丸めて
+あるので、その `CopyDecompressor` は read 中に `.truncated` を投げ得ない。
+よって包む意味が無い。
+
+適用範囲は RAR5 と同じ考え方で絞った。
+
+| 形式 | 外す条件 | 維持するもの |
+|---|---|---|
+| ZIP | method 0(stored)かつ**非暗号化** | ZipCrypto / WinZip AES は従来どおり(部分 byte を返す既存挙動)|
+| LHA | `-lh0-` | MacBinary 経路の 2 つめの wrapper は維持(フィルタ自身が `.truncated` を投げ得る)|
+| RAR5 | method 0 かつ `encryption == nil` | 暗号化 entry は「何も返さない」挙動を維持 |
+
+## 実測
+
+| 書庫 | 最適化前 | 最適化後 | 倍率 |
+|---|---:|---:|---:|
+| ZIP stored 20MB・末尾 1.2MB 欠落(897,704 byte 救済)| 248ms | **8.4ms** | 約 30 倍 |
+| LHA `-lh0-` 12MB・末尾 1.2MB 欠落(897,153 byte 救済)| 236ms | **5.1ms** | 約 46 倍 |
+| RAR5 40MB・末尾 1MB 欠落(1,098,419 byte 救済)| 295ms | 15.3ms | 約 19 倍 |
+
+いずれも部分救済のコストが計測できないところまで下がり、切断のない読み取りと
+同じ速度になった(ZIP 無傷 8.5〜10ms / LHA 無傷 5.4ms に対し、救済ありでも同等)。
+
+## 出力が変わっていないこと
+
+| 確認 | 結果 |
+|---|---|
+| ZIP `p09.bin` 897,704 byte が原本の先頭と一致 | OK |
+| LHA `p5.bin` 897,153 byte が原本の先頭と一致 | OK |
+| 健全な書庫 95 件の strict と救済の一致 | **95/95** |
+| 暗号化 ZIP の不完全 entry(37,794 byte、`5d8f19d32b…`)| 最適化前と同一 |
+| `swift build -c release` / `swift test` | BUILD=0 / TEST=0、665 test・0 failure |
+
+`RecoveryDecompressor` 自体は変更していない。圧縮 entry(deflate / lh5 / lh6 /
+lh7 / RAR5 の圧縮方式)の経路も変更していない。

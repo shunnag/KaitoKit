@@ -39,9 +39,11 @@ final class LHAReader: FormatReader {
             entry: entry,
             limits: limits
         )
-        let decoded: any Decompressor = entry.isIncomplete ? RecoveryDecompressor(
-            rawDecoded, maximumOutputSize: record.uncompressedSize
-        ) : rawDecoded
+        // The parser clips recovered packed sizes to available source bytes, so
+        // the -lh0- CopyDecompressor can read in bulk without recovery wrapping.
+        let decoded: any Decompressor = entry.isIncomplete && record.method != "-lh0-"
+            ? RecoveryDecompressor(rawDecoded, maximumOutputSize: record.uncompressedSize)
+            : rawDecoded
         let decompressor: any Decompressor
         let outputSize: UInt64
         let expectedCRC16: UInt16?

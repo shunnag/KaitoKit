@@ -3,6 +3,28 @@ import Foundation
 import XCTest
 
 final class LHAHardeningTests: XCTestCase {
+    func testIncompleteStoredEntryMatchesOriginalPrefix() throws {
+        let original = Data((0..<(2 * 1_024 * 1_024)).map {
+            UInt8(truncatingIfNeeded: $0 ^ ($0 >> 8) ^ ($0 >> 16))
+        })
+        let archive = try LHATestSupport.makeArchive(entries: [
+            HandLHAEntry(name: "stored", contents: original, method: "-lh0-", headerLevel: 2),
+        ])
+        let dataOffset = archive.count - 1 - original.count
+        let survived = 1_024 * 1_024 + 193
+        let reader = try ArchiveReader.open(
+            data: Data(archive.prefix(dataOffset + survived)),
+            options: ReaderOptions(recoverDamagedArchives: true)
+        )
+        let entry = try XCTUnwrap(reader.entries.first)
+        XCTAssertTrue(entry.isIncomplete)
+        XCTAssertEqual(entry.methodDescription, "-lh0-")
+        XCTAssertEqual(entry.uncompressedSize, UInt64(original.count))
+        let payload = try reader.read(entry)
+        XCTAssertEqual(payload.count, survived)
+        XCTAssertEqual(payload, Data(original.prefix(survived)))
+    }
+
     func testRecoveryRetainsLHAHeadersAndCutStoredPayloadAcrossAllLevels() throws {
         let first = Data("complete".utf8)
         let last = Data(repeating: 0xA5, count: 4_096)

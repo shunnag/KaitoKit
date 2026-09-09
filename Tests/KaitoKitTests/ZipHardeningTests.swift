@@ -13,6 +13,29 @@ private struct ZipFixedPasswordProvider: PasswordProvider {
 }
 
 final class ZipHardeningTests: XCTestCase {
+    func testIncompleteUnencryptedStoredEntryMatchesOriginalPrefix() throws {
+        let original = Data((0..<(2 * 1_024 * 1_024)).map {
+            UInt8(truncatingIfNeeded: $0 ^ ($0 >> 8) ^ ($0 >> 16))
+        })
+        let archive = try ZipTestSupport.makeArchive(entries: [
+            HandZipEntry(name: "stored", uncompressedData: original, method: 0),
+        ])
+        let layout = try ZipTestSupport.layout(of: archive)
+        let dataOffset = layout.localHeaderOffsets[0] + 30 + "stored".utf8.count
+        let survived = 1_024 * 1_024 + 193
+        let reader = try ArchiveReader.open(
+            data: Data(archive.prefix(dataOffset + survived)),
+            options: ReaderOptions(recoverDamagedArchives: true)
+        )
+        let entry = try XCTUnwrap(reader.entries.first)
+        XCTAssertTrue(entry.isIncomplete)
+        XCTAssertFalse(entry.isEncrypted)
+        XCTAssertEqual(entry.uncompressedSize, UInt64(original.count))
+        let payload = try reader.read(entry)
+        XCTAssertEqual(payload.count, survived)
+        XCTAssertEqual(payload, Data(original.prefix(survived)))
+    }
+
     func testRecoveryRetainsStoredPayloadPrefixesAndRejectsCompleteCRCFailures() throws {
         let first = Data("complete payload".utf8)
         let last = Data((0..<4_096).map { UInt8(truncatingIfNeeded: $0) })
@@ -802,6 +825,26 @@ final class ZipHardeningTests: XCTestCase {
             )
         )
         XCTAssertEqual(try provided.read(provided.entries[0]), payload)
+
+        let archiveData = try Data(contentsOf: archive)
+        let layout = try ZipTestSupport.layout(of: archiveData)
+        let local = layout.localHeaderOffsets[0]
+        let nameLength = Int(try ZipTestSupport.readUInt16(archiveData, at: local + 26))
+        let extraLength = Int(try ZipTestSupport.readUInt16(archiveData, at: local + 28))
+        let dataOffset = local + 30 + nameLength + extraLength
+        for available in [5, ZipCrypto.headerSize, ZipCrypto.headerSize + 17] {
+            let recovered = try ArchiveReader.open(
+                data: Data(archiveData.prefix(dataOffset + available)),
+                options: ReaderOptions(password: "fixed-password", recoverDamagedArchives: true)
+            )
+            let entry = try XCTUnwrap(recovered.entries.first)
+            XCTAssertTrue(entry.isIncomplete)
+            XCTAssertTrue(entry.isEncrypted)
+            XCTAssertEqual(
+                try recovered.read(entry),
+                Data(payload.prefix(max(0, available - ZipCrypto.headerSize)))
+            )
+        }
     }
 
     func testWinZipAESRequiresPasswordAndRejectsWrongPassword() throws {

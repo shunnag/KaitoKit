@@ -266,6 +266,18 @@ black-box 入出力だけである。新たな第三者 decoder source は参照
 `Tests/Fixtures/rar4/libarchive_*.rar.b64` は libarchive test suite の BSD-2-Clause フィクスチャ、
 `Tests/Fixtures/lha/lh{4,6,7}-small.lzh.b64` は ISC フィクスチャであり、`Tests/Fixtures/NOTICE` に記録する。
 
+2026-09-09 の incident 開示。この日の作業 session では、cooViewer 側の XADMaster fork にある
+RAR4 solid entry の不具合を修正するため、`XADRAR30Handle.m` と `XADRARParser.m` を読み、
+`XAD7ZipParser.m` に対して grep を実行した。加えて harness が session 開始時に `CSFileHandle.m` を
+context へ挿入し、`CSMultiHandle.h` の method 一覧を参照した。これは LGPL である fork 側の
+保守作業としては正当だが、§10 は KaitoKit について XADMaster source の参照を無条件に禁じる。
+是正として、同一 session 内では KaitoKit の RAR3 / RAR4 復号領域
+(`Formats/RAR/RAR4Reader.swift`、`Codecs/RAR/RAR29Decoder.swift`、
+`Codecs/PPMd/RARPPMdRangeDecoder.swift`、`Codecs/RAR/RARStandardFilters.swift`、および
+RAR solid stream・filter 実行に触れる箇所)を変更しない。この session で行う XADMaster との
+機能・性能比較は §10 どおり black-box 展開オラクル(実行ファイルの入出力)に限り、
+XADMaster の source は KaitoKit の実装入力にしない。
+
 ## 11. 実装記録(2026-09-06〜08)
 
 - M0(コミット da98a9f, 16d27f8): 骨格・コア・tar・互換層・CLI・fuzz 基盤。CI は macos-26 / macos-26-intel。

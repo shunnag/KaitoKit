@@ -21,6 +21,7 @@
 | [2026-09-09-cpio.md](2026-09-09-cpio.md) | 2026-09-09 | cpio reader(bin / odc / newc / crc / hpbin / hpodc)の実装と XADMaster 比較 | `94bc3f5` |
 | [2026-09-09-xar.md](2026-09-09-xar.md) | 2026-09-09 | xar reader(TOC XML / zlib・bzip2・lzma・xz heap / flat package)の実装と XADMaster 比較 | `deed11d` |
 | [2026-09-09-rpm.md](2026-09-09-rpm.md) | 2026-09-09 | RPM reader(lead / header / cpio payload / blob fallback)の実装と XADMaster 比較 | `975cde6` |
+| [2026-09-09-cab.md](2026-09-09-cab.md) | 2026-09-09 | CAB reader(CFHEADER / CFFOLDER / CFFILE / CFDATA、MSZIP の folder 内辞書引き継ぎ)の実装と XADMaster 比較 | (本コミット) |
 | [2026-09-09-format-gap-queue.md](2026-09-09-format-gap-queue.md) | 2026-09-09 | XADMaster が対応し KaitoKit が未対応の形式の洗い出しと実装キュー | `0b38a37` |
 | [2026-09-09-recovery-mode.md](2026-09-09-recovery-mode.md) | 2026-09-09 | 破損書庫の救済モードの実測(XADMaster 比較・健全書庫と暗号化書庫の不変性・tar 検出の修正)、追補で RAR5 の切り詰め救済 | `4969b34` / `7aba9ae` / `5e83353` / `c00dd09` |
 

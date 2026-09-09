@@ -317,6 +317,28 @@ zstd payload と rpm 6 の簡略 cpio(`07070X`)は圧縮済み payload を 1 ent
 検証値・再実行手順は [RPM 検証記録](verification/2026-09-09-rpm.md)。
 
 
+CAB reader の形式入力は Microsoft の公開仕様 [MS-CAB]、RFC 1951、zlib manual と、
+`gcab` 1.6 が生成したキャビネットおよび自作 writer で組んだキャビネットからの実測である。
+libmspack、cabextract、gcab、7-Zip/p7zip、XADMaster、The Unarchiver、wine の実装 source は
+開かず、参照・引用していない。`gcab` と `cabextract` は black-box の writer / oracle としてのみ
+実行した。
+
+MSZIP は各 CFDATA が `CK` + 独立した raw deflate stream でありながら、**LZ77 の履歴は
+folder 内の CFDATA をまたいで引き継がれる**。zlib では block ごとに `inflateReset` した後、
+最初の `inflate` の前に `inflateSetDictionary(直前までの出力の末尾 32 KiB)` を呼ぶ。
+履歴は folder 境界は越えない。これを外すと block 0 は解けて block 1 で distance-too-far に
+なるが、単一 block の書庫では露見しないため、11 block に分かれる fixture を専用に用意した。
+
+予約領域(flags 0x0004)があると CFFOLDER と CFDATA のレコード長が伸びる。
+多分割キャビネットは、フラグが立っていても手元のキャビネットのファイルは通常どおり読み、
+実際にまたぐファイルだけを個別に拒否する(XADMaster の挙動を実測して合わせた)。
+Quantum と LZX は一覧のみ対応し、展開時に具体的な unsupportedMethod を返す
+(`cooViewer-c1vj.5` / `c1vj.6`)。
+ZIP の DOS 日時変換は `Core/DOSTimestamp.swift` へ移して両 reader で共有する。
+CAB では不正な日時を nil とし、書庫を失敗させない。
+検証値・再実行手順は [CAB 検証記録](verification/2026-09-09-cab.md)。
+
+
 - XADMaster のコードは実装資料として**参照・流用しない**。比較する場合もブラックボックスの展開オラクルに限る。ユーザー指示。
 - 復号器ごとに参照した資料を design.md と該当ソースの先頭コメントに記録する。
 - 読んでよい一次資料(公開ドメイン/公式): LZMA SDK の `lzma-specification.txt`・`7zFormat.txt`・`C/Ppmd7.c`・`C/Ppmd7.h`・`C/Ppmd7Dec.c`、Shkarin の PPMd var.H / var.I、RARLab の RAR 5.0 technote、LHa for UNIX の `header.doc`、Lhasa の利用者向け `lha.1`、MacBinary / MacBinary II standard proposals、PKWARE APPNOTE、POSIX tar、RFC 1951/1952。LHArk については Jason Summers の公開 format note を用いる。 ISO 9660 については ECMA-119(Ecma International が無償公開。第 6 版 2025-12 を参照し、節番号を旧版と対応づけた)、Microsoft の Joliet 仕様、IEEE P1281(SUSP)、IEEE P1282(Rock Ridge)、Apple Technote FL 36。 xar については xar の公開形式説明・xar(1) man page・RFC 1950・XZ file format spec。

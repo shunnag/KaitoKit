@@ -349,6 +349,26 @@ implementation source was consulted.
       container/xar-subdoc.xar    561  9c70e590b2e355165109e3bbc680a464a7ba1b3cb8fcb18e9a2abdd0dec61a8a
       container/xar-xz.xar        538  b207e6a434e7eb685316e5f628e4b682b2d4d361ee87e7541308012d99e86b80
 
+  container/cab-stored.cab.b64      gcab -c                     (6 entries)
+  container/cab-mszip.cab.b64       gcab -c -z                  (6 entries, 1 CFDATA)
+  container/cab-multiblock.cab.b64  gcab -c -z                  (2 entries, 11 CFDATA)
+  container/cab-utf8.cab.b64        gcab -c -z, 日本語ファイル名 (attribs 0x00a0)
+  container/cab-reserve.cab.b64     自作: 予約領域 cbCFHeader=6 / cbCFFolder=2 / cbCFData=3
+  container/cab-next.cab.b64        自作: NEXT_CABINET フラグと前後キャビネット名
+    Project-owned payload を macOS の gcab 1.6 で書庫化。gcab は black-box writer
+    としてのみ実行した。予約領域と多分割フラグは gcab が書けないため、公開仕様
+    [MS-CAB] から自作 writer で組み立て、XADMaster と cabextract 1.11 の 2 つの
+    オラクルが通常版と同じ内容を返すことで裏を取った。
+    multi.txt は 'line {i%97} of repeating compressible text' を 9000 行
+    (350,070 bytes)で、MSZIP が 32 KiB ごとに 11 ブロックへ分かれる。
+    Decoded archive SHA-256:
+      container/cab-mszip.cab        627  86f392ba1c9f3aa123c39b4934213fe73caf45989208531fd411e59ea6797e2c
+      container/cab-multiblock.cab  5444  b8046e244e4cb7d44cbb99dfd846744177e3b918b937b089e22d80935f7c3c2b
+      container/cab-next.cab         644  40c073443cb45def03bf2bbfab7d29c1454c21843c0bc1cc082536937e3cdcc2
+      container/cab-reserve.cab      642  f9154d492687037692f1a440e85721374245696e39982397feac3fe40726c07c
+      container/cab-stored.cab     24339  2e05328954963d35e6be9317e134170e911ae388d89316a0aacf6ddaa4247ff2
+      container/cab-utf8.cab         121  9dcf1ac3e3e5b83099c6f2a795e143362602d39fa81508b95ae4cd914ad7eaa8
+
   container/rpm-gzip.rpm.b64     rpmbuild --define '_rpmformat 4'   (6 entries)
   container/rpm-xz.rpm.b64       同上 --define '_binary_payload w9.xzdio'
   container/rpm-bzip2.rpm.b64    同上 w9.bzdio

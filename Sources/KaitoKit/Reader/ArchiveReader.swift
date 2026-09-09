@@ -213,6 +213,11 @@ public final class ArchiveReader {
             reader = iso
             entries = iso.entries
             format = .iso
+        case .cab:
+            let cab = try CabReader(source: source, options: options)
+            reader = cab
+            entries = cab.entries
+            format = .cab
         case .rpm:
             let rpm = try RpmReader(source: source, options: options)
             reader = rpm

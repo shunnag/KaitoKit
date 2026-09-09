@@ -484,6 +484,7 @@ public final class KaitoArchive {
         case "ar": "AR"
         case "cpio": "Cpio"
         case "xar": "XAR"
+        case "cab": "CAB"
         case "rpm": "RPM"
         case "iso": "ISO 9660"
         case "gzip": "Gzip"

@@ -6,6 +6,16 @@
 
 ## [0.1.0] - Unreleased
 
+### 追加・修正（2026-09-09、CAB）
+
+- 依存を追加せず純 Swift の Microsoft Cabinet reader を追加。None と MSZIP の
+  圧縮、予約領域、多分割フラグ、UTF-8 ファイル名（attribs 0x80）に対応。
+- MSZIP は CFDATA ブロックをまたいで LZ77 履歴を引き継ぐ。folder ごとに
+  直前までの出力の末尾 32 KiB を辞書として渡す。履歴は folder 境界を越えない。
+- CFDATA の checksum を展開完了時に検証する（0 は未計算として飛ばす）。
+- Quantum と LZX は一覧のみ対応し、展開時に具体的なエラーを返す。
+- ZIP の DOS 日時変換を `Core/DOSTimestamp.swift` へ移して共有した（ZIP の挙動は不変）。
+
 ### 追加・修正（2026-09-09、RPM）
 
 - 依存を追加せず純 Swift の RPM reader を追加。lead / signature header / main header を

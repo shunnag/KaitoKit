@@ -6,7 +6,7 @@ import Foundation
 ///
 /// 1. A checksum-valid tar member header wins
 ///    over bytes in its pathname that resemble a shorter stream signature.
-/// 2. Native markers are checked in this order: ZIP, RAR, 7-Zip, XZ, xar, RPM,
+/// 2. Native markers are checked in this order: ZIP, RAR, 7-Zip, XZ, xar, RPM, CAB,
 ///    structurally plausible LHA, gzip, bzip2, UNIX compress, then `!<arch>` / `!<thin>` ar, structurally valid ASCII cpio.
 ///    LHA precedes the two-byte stream markers because its header supplies a
 ///    method and a bounded size envelope.
@@ -156,6 +156,7 @@ public enum FormatDetector {
         }
         if XarHeader.probe(prefix) { return .xar }
         if hasPrefix(prefix, [0xED, 0xAB, 0xEE, 0xDB]) { return .rpm }
+        if prefix.count > 25, hasPrefix(prefix, [0x4D, 0x53, 0x43, 0x46]), prefix[25] == 1 { return .cab }
         if try isLHAHeader(prefix, sourceLength: source.length) {
             return .lha
         }

@@ -149,6 +149,24 @@ KaitoKit は link target の 9 byte(`empty.txt`)を entry のデータとして�
 cooViewer-7wbx に分けてある。切り詰めからの救済(cooViewer-7q8s)は
 この表とは別枠で、依然として最大の差である。
 
+## cooViewer から見た優先度
+
+cooViewer の `SupportedTypes.archiveExtensions` は
+`zip / cbz / rar / cbr / lzh / lha / 7z / sit` と、3 桁の番号系列
+(`r00`〜`r99`、`z01`〜`z99`、`000`〜`099`)である。したがって
+
+- **`.7z.001` は cooViewer が開く**(`001` が分割書庫の先頭巻として通る)。
+  KaitoKit が開けないので常に XADMaster へ fallback している。cooViewer-1h3p を
+  P1 に上げた。
+- **`.sit`(StuffIt)も開く宣言をしている**が、KaitoKit に reader が無い。
+  書き手が手元に無いため今回の実測には含まれていないが、
+  `Sources/KaitoKit/Formats` に StuffIt が存在しないことは確認した。cooViewer-gu28。
+- cpio / ar / xar / ISO 9660 は cooViewer の対象拡張子ではないので、
+  ライブラリ単体としての差分であり cooViewer への影響は無い。
+
+切り詰めからの救済(cooViewer-7q8s)は拡張子に関係なく効くので、
+cooViewer 利用者にとってはこれが最も影響の大きい差である。
+
 ## 性能の残差と、そこで否定した 5 つの仮説
 
 2026-09-08 の三系統ベンチ(§9.3)で、KaitoKit がフォーク XADMaster に負けて

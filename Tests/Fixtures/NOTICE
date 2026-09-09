@@ -249,3 +249,33 @@ b.txt = "second file contents 12345\n" (UTF-8, no additional bytes).
     SHA-256, in order:
       095169b323dcaaa2baaac506cf45d9bfd59c0e87cbd4b60b138db4b631f66401
       8cc84c74e124a0562ca155b098c605f5517c5ca65a614d55f1d5576b681fde55
+
+XADMaster gap-survey fixtures (project-generated, MIT)
+-----------------------------------------------------
+Generated 2026-09-09 for the black-box feature-gap survey recorded in
+Documentation/verification/2026-09-09-xadmaster-feature-gap.md. All payload
+bytes are project-owned and synthetic; 7-Zip 25.x, XZ Utils 5.8.3, BSD tar and
+BSD compress were used only as black-box writers. No third-party decoder
+implementation source was consulted.
+
+  sevenzip/code-payload.bin.b64 (8192 bytes decoded)
+    The shared payload for every fixture in this group. Produced by a
+    deterministic LCG (state = state * 1103515245 + 12345 mod 2^32, seeded
+    0x12345678) emitting 2048 little-endian words; every 7th word is shaped as a
+    SPARC CALL, an IA-64 bundle template, an x86 CALL rel32 or a RISC-V JAL so
+    that branch filters actually transform the data.
+    SHA-256: 50707e3abaa5a1b0676e0bd6b120133034ba7358c4584acc2b473207e015a2b8
+
+  sevenzip/chain-lzma-lzma-lzma2-bcj2.7z.b64
+    7zz a -t7z -mhc=off -m0=BCJ2 -m1=LZMA2 -m2=LZMA -m3=LZMA
+    A folder whose coder graph is LZMA -> LZMA -> LZMA2 -> BCJ2.main, i.e. a
+    byte-consuming coder reading another coder's output.
+
+  sevenzip/branch-sparc.7z.b64   7zz a -t7z -m0=SPARC -m1=LZMA2
+  sevenzip/branch-ia64.7z.b64    7zz a -t7z -m0=IA64  -m1=LZMA2
+  sevenzip/branch-riscv.7z.b64   7zz a -t7z -m0=RISCV -m1=LZMA2
+
+  singlefile/alone.lzma.b64      xz --format=lzma -9
+  singlefile/tar-compress.tar.Z.b64
+    tar -cf t.tar code.bin && compress -c t.tar
+    Inner tar SHA-256: 87d2cff4c95ba6df1d49d3f3221284f4084bffac928dfdd9a347ab4e8a674aa3

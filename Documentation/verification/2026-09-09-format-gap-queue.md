@@ -46,7 +46,7 @@ C の形式は brew で writer を入れれば独立確認が増えるが、必�
 | 2 | **cpio** | newc / odc / bin / crc / hpodc | A(checked-in)| `cooViewer-7wbx` | 実装済み `94bc3f5` |
 | 3 | **ar** | SysV/GNU 長名表・BSD `#1/` 長名 | A(checked-in)| `cooViewer-7wbx` | 実装済み `4466c30` |
 | 4 | **xar** | XML TOC + zlib/bzip2/lzma heap | A(checked-in)| `cooViewer-7wbx` | 実装済み `deed11d` |
-| 5 | **Deb** | `ar` の中の `debian-binary` + `control.tar.*` + `data.tar.*` | B | 未作成 | — |
+| 5 | **Deb** | `ar` の中の `debian-binary` + `control.tar.*` + `data.tar.*` | B | 未作成 | 対応済み(ar reader が兼ねる) |
 | 6 | **RPM** | lead + signature/header(index+store)+ cpio payload | B | 未作成 | — |
 | 7 | **CAB** | MSZIP(Deflate)/ LZX / Quantum、folder 跨ぎ | C | 未作成 | — |
 | 8 | **ZIP method 93/95/96/98** | Zipx: zstd / xz / JPEG / PPMd | A | `cooViewer-th30` | — |
@@ -60,6 +60,22 @@ C の形式は brew で writer を入れれば独立確認が増えるが、必�
 | 16 | **ALZip** | Bzip2 / Deflate / 難読化 Deflate | C | 未作成 | — |
 | 17 | **WARC** | HTTP record の連結。構造は単純 | B | 未作成 | — |
 | 18 | **MSI / NSIS** | MSI は CFB 複合ファイル、NSIS は版が多い | C | 未作成 | — |
+
+### Deb について(2026-09-09 追記)
+
+実測の結果、**追加実装は不要**だった。`.deb` は ar 書庫そのもので、XADMaster も
+入れ子の `control.tar.*` / `data.tar.*` へは降りず、3 つの member をそのまま並べる。
+KaitoKit の ar reader も同じ 3 entry を返し、data の圧縮を gz / xz / bz2 に変えた
+3 種すべてで順序込みの総合 digest が XADMaster と一致した。
+
+| fixture | entry 数 | 総合 digest | 判定 |
+|---|---|---|---|
+| gz.deb | 3 | 86b19017962a8c93bc8df683ff7d7cd8122b94e196e0453ea0a33e42deceedb0 | 一致 |
+| xz.deb | 3 | 5424bbf28f1e6b82dc9819a342b6de04b54fbaae57f9ddbdf5fee5189f6da882 | 一致 |
+| bz2.deb | 3 | e66abcf7a315a6bbe5a0e14e1a452c6df0ec19ab8045762bc41734ad108cc212 | 一致 |
+
+入れ子の tar を透過的に展開するかどうかは形式対応の話ではなく UI の設計判断なので、
+XADMaster との差を埋める本キューの対象からは外す。
 
 ディスクイメージの BIN / MDF / NRG / CDI は ISO 9660 の上に載る raw sector 形式なので、
 1 を終えてから同じ reader の入口として扱う。

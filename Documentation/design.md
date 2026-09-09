@@ -278,6 +278,19 @@ RAR solid stream・filter 実行に触れる箇所)を変更しない。この s
 機能・性能比較は §10 どおり black-box 展開オラクル(実行ファイルの入出力)に限り、
 XADMaster の source は KaitoKit の実装入力にしない。
 
+2026-09-09 の incident 開示(2 件目)。ユーザーから The Unarchiver の対応形式一覧
+(`code.google.com/archive/p/theunarchiver/wikis/SupportedFormats.wiki`)を参考資料として
+提示された。当該ページは JavaScript で描画されるため本文を取得できず、Google Code Archive
+の storage から取得を試みた際、誤って `source-archive.zip`(The Unarchiver の全 source、
+50,905,501 byte)を `/tmp/uawiki.out` へダウンロードした。ダウンロード直後に
+`head -c 300` の出力として ZIP の先頭 —— central directory のパス断片
+(`theunarchiver/UniversalDetector/UniversalDetector.m` 等の名前)と圧縮済み byte 列 —— が
+端末に表示された。**source file を展開・閲覧しておらず、内容は読んでいない。**
+発見と同時に当該ファイルを削除した。形式一覧はその後、prose の documentation
+(`theunarchiver.com` および GitHub wiki mirror `mietek/theunarchiver`)から取得しており、
+source を実装入力にしていない。是正として、以後 The Unarchiver 関連の URL を取得する際は
+prose ページであることを確認し、`source-archive` を含む URL は取得しない。
+
 ## 11. 実装記録(2026-09-06〜08)
 
 - M0(コミット da98a9f, 16d27f8): 骨格・コア・tar・互換層・CLI・fuzz 基盤。CI は macos-26 / macos-26-intel。

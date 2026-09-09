@@ -117,16 +117,71 @@ CP932 名の LZH で XADMaster は `表計算①.txt` を percent escape に落�
 正しく復元する。CP932 名 2000 件の ZIP は両者とも正しい。4 件しか手がかりが無い
 CP932 ZIP は両者とも判定に失敗するが、KaitoKit は byte を失わない。
 
-## 性能の残差
+## 結果 7: 第 3 ラウンド(2026-09-09 追加、fc8146e で再測)
 
-2026-09-08 の三系統ベンチ(`inbox/bench-2026-09-08/benchmark-report.md` §9.3)で、
-KaitoKit がフォーク XADMaster に負けているのは LZMA/LZMA2 だけである。
+`7zz` の timestamp / attribute 保存、空ファイル・空ディレクトリ・symlink、
+RAR4 の旧形式分割(`.r00`)、RAR4 / RAR5 の recovery record、gzip の
+FEXTRA+FNAME+FCOMMENT+FHCRC 全部入り、GNU sparse tar、`.lzma`、`.tar.lzma`、
+LHA の空 member を含む 14 書庫。
+
+`t.lzma` と `tar.tar.lzma` は fc8146e で XADMaster と一致するようになった
+(それ以前は `Unsupported archive format`)。残り 11 書庫も総合 SHA-256 が一致。
+
+唯一違うのは RAR5 の symlink で、XADMaster が 0 バイトを返すのに対し
+KaitoKit は link target の 9 byte(`empty.txt`)を entry のデータとして返す。
+これは `linkTargetStoredAsData` という意図した設計(design.md §11)であって
+欠落ではない。
+
+## 性能の残差と、そこで否定した 5 つの仮説
+
+2026-09-08 の三系統ベンチ(§9.3)で、KaitoKit がフォーク XADMaster に負けて
+いるのは LZMA/LZMA2 だけである。
 
 | 書庫 | フォーク ms | KaitoKit ms | K/F |
 |---|---:|---:|---:|
-| `book-solid.7z`(LZMA2 solid) | 6,660.1 | 9,314.7 | 1.40 |
-| `book-tiff.7z`(LZMA2) | 396.5 | 497.3 | 1.25 |
+| `book-solid.7z`(LZMA2 solid、1.2 GB) | 6,660.1 | 9,314.7 | 1.40 |
+| `book-tiff.7z`(LZMA2、384 MB) | 396.5 | 497.3 | 1.25 |
 | `book-tiff-rar4.cbr` | 313.9 | 379.0 | 1.21 |
 
-RAR4 は本 session の provenance 制約(§10 の 2026-09-09 開示)で対象外。
-LZMA/LZMA2 を cooViewer-9tlo として追う。
+RAR4 は本 session の provenance 制約(design.md §10 の 2026-09-09 開示)で対象外。
+
+### 律速の特定
+
+`sample` の top-of-stack は書庫によって全く違う。
+
+- `book-tiff.7z`(TIFF、match が多い): `decodeLZMANewMatchBatch` 204 /
+  `AccelerateCrypto_SHA256_compress` 71 / `_platform_memmove` 30 /
+  `LZMADecoder.read` 25 / `decodeLZMARepeatedMatchSymbol` 15。
+- `book-solid.7z`(JPEG、literal が支配的): `decodeLZMALiteralRun` **8,636** /
+  `decodeLZMANewMatchBatch` 799 / `pread` 369 / `LZMADecoder.read` 146 /
+  `_platform_memmove` 57 / zlib CRC32 **7**。
+
+CRC32 の寄与は 7 sample しかないので、checksum を削る方向の改善は無い。
+1.40 倍の書庫では時間の 87% が literal の 8 bit 木そのものである。
+
+instrumented copy で呼び出し回数も採った(本体には入れていない)。
+
+| 書庫 | matchBatch 呼出 | match/呼出 | literalRun 呼出 | literal/呼出 |
+|---|---:|---:|---:|---:|
+| `book-tiff.7z` | 1,334,916 | 4.13 | 99,000 | 1.70 |
+| `book-solid.7z` | 16,228,748 | 1.06 | 16,082,783 | 19.09 |
+
+### 試して否定した 5 案
+
+いずれも `book-tiff.7z` / `book-solid.7z` で base と交互に回し、総合 SHA-256 の
+一致を確認したうえでの中央値。採用閾値は 3%。
+
+| 案 | 結果 |
+|---|---|
+| 3 つの hot 関数から `@inline(never)` を外す | 差 1% 未満、方向も一定しない |
+| `decodeBit` を mask/select の branchless 形にする | **3.5% 悪化**(3 ラウンドとも同方向) |
+| literal 木の子 (2s, 2s+1) を 32-bit で一度に読み、次段の load を重ねる | **47% 悪化** |
+| range state を struct+`inout` から scalar local へ開く | **7% 悪化** |
+| pread から `mappedIfSafe` へ | 僅かに悪化 |
+
+`decodeLZMAPlainLiteral` は既に 8 段完全展開済みで、branchless 化も先読みも
+手展開も逆効果だった。**既存の LZMA 復号器は Swift としては既に局所最適**で、
+残る 1.25〜1.40 倍は微調整では埋まらない。次に試すなら literal の 8 bit 逐次
+依存鎖そのものを短くする構造(range register の拡幅で normalize 頻度を下げる等)
+だが、復号結果の bit 一致を壊す危険があるため独立した課題として扱う。
+cooViewer-9tlo に測定値ごと記録した。

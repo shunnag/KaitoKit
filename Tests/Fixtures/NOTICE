@@ -294,3 +294,14 @@ implementation source was consulted.
       678c8ff2903b5b39ac5e4cb34a426cae7a2bc6e131617a162302a93a464b5488
       ed1eb85d618010a3cec4e1cbc429e3de3671a387f1d1ce2bb2e1c19a42a88f40
       a91802db740401e17d61f724c4bb403a82bf68a303af96ad591662e5782b7c30
+  container/newc.cpio.b64   find . | cpio -o -H newc     (5 entries)
+  container/odc.cpio.b64    find . | cpio -o -H odc      (5 entries)
+  container/bin.cpio.b64    find . | cpio -o -H bin      (5 entries)
+  container/lib.a.b64       ar -qS lib.a a.txt b.bin     (2 entries)
+  container/pkg.xar.b64     xar -cf pkg.xar .            (4 entries)
+    Project-owned payloads archived with the BSD cpio / ar / xar shipped with
+    macOS, used purely as black-box writers. Payload SHA-256:
+      a.txt (27 bytes)          70bf6ca40d63eeb669f684aafbf02a896c396de1b3aab3b0efe107d66279c202
+      b.bin (4096 bytes)        e05455bcbbec58463277e8874036e57bdcf8c49c792a23ce03d6baba0765271c
+      sub/nested.txt (15 bytes) 4e7267fd5c54130fe83e69920d63e38117957e56f9172965b8db27c75a3c1a96
+    b.bin is UInt8((i * 13) % 251) for i in 0..<4096.

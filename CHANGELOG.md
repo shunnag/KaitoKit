@@ -6,6 +6,13 @@
 
 ## [0.1.0] - Unreleased
 
+### 追加・修正（2026-09-09、ar）
+
+- 依存を追加せず純 Swift の ar reader を追加。BSD `#1/LEN`（NUL padding）、
+  SysV/GNU `//` 長名表、16 byte 短名、混在形式、`.deb` の stored member に対応。
+- symbol table を通常 entry として公開し、名前解決に使う string table `//` だけを除外。thin archive は検出後に具体的なエラーで拒否。
+- header / サイズ / 長名参照 / ReadLimits の検査、末尾欠損の recovery、fixture と異常系テストを追加。
+
 ### 追加・修正（2026-09-09、cpio）
 
 - 純 Swift の cpio reader を追加。bin（両 byte order / PDP-endian）、odc、newc、crc、

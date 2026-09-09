@@ -198,6 +198,11 @@ public final class ArchiveReader {
             reader = lha
             entries = lha.entries
             format = .lha
+        case .ar:
+            let ar = try ArReader(source: source, options: options)
+            reader = ar
+            entries = ar.entries
+            format = .ar
         case .cpio:
             let cpio = try CpioReader(source: source, options: options)
             reader = cpio

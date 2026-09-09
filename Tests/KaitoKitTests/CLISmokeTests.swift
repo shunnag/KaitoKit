@@ -4,6 +4,22 @@ import KaitoKit
 import XCTest
 
 final class CLISmokeTests: XCTestCase {
+    func testArListAndSHA() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/lib.a.b64"), encoding: .utf8)
+        let temp = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let url = temp.appendingPathComponent("lib.a")
+        try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
+        let executable = try findKaitoExecutable()
+        let output = try runKaito(executable, arguments: ["list", url.path])
+        XCTAssertEqual(output.split(separator: "\n").count, 2)
+        XCTAssertTrue(output.contains("ar (stored)\tplain\ta.txt"))
+        let hashes = try runKaito(executable, arguments: ["sha", url.path])
+        XCTAssertTrue(hashes.contains("70bf6ca40d63eeb669f684aafbf02a896c396de1b3aab3b0efe107d66279c202"))
+        XCTAssertTrue(hashes.contains("e05455bcbbec58463277e8874036e57bdcf8c49c792a23ce03d6baba0765271c"))
+    }
+
     func testListCpioFixture() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/newc.cpio.b64"), encoding: .utf8)

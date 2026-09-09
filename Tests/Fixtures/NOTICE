@@ -356,3 +356,75 @@ Payload SHA-256:
   hello\n: 5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03
   nested\n: 370a8c04b8a65bb4494275eec227f1b694db04c76da6b0b8ae88ed1ab19790a3
   symlink bytes a.txt: 18b7cb099a9ea3f50ba899b5ba81e0d377a5f3b16f8f6eeb8b3e58cd4692b993
+
+ar small fixtures (2026-09-09)
+----------------------------
+Project-owned payloads. Only the supplied public ar byte tables/prose were
+used for the synthetic SysV writer. macOS /usr/bin/ar, /usr/bin/clang and
+/usr/bin/tar were executed as black-box writers; no third-party archiver or
+decoder implementation source was read. New decoded archives are 136–1296
+bytes; the supplied 30,000-byte oracle payload is not checked in.
+
+In an empty temporary directory, create these literal UTF-8 payloads:
+  exactly16char.txt = "hello\n"; has space.txt = "hi\n";
+  sixteen_chars.aa = "z\n"; s.txt = "y\n";
+  o.txt = "odd\n"; tail3.txt = "abc"; debian-binary = "2.0\n";
+  o1.c = "int alpha(void){return 1;}\n";
+  o2.c = "int beta(void){return 2;}\n".
+Exact writer commands (fresh output files):
+  /usr/bin/ar -qS ar-names.a exactly16char.txt 'has space.txt' sixteen_chars.aa s.txt
+  /usr/bin/clang -c o1.c -o o1.o
+  /usr/bin/clang -c o2.c -o o2.o
+  /usr/bin/ar rc ar-symtab.a o1.o o2.o
+  /usr/bin/ar -qS ar-tailpad.a o.txt tail3.txt
+  /usr/bin/tar czf control.tar.gz -T /dev/null
+  /usr/bin/tar czf data.tar.gz s.txt
+  /usr/bin/ar -qS ar-deb.a debian-binary control.tar.gz data.tar.gz
+For each NAME above, export with:
+  base64 -i NAME.a -o Tests/Fixtures/container/NAME.a.b64
+Writer timestamps are retained, so rerunning may change archive hashes.
+
+container/ar-sysv.a.b64: exact specification-only generator (Python 3):
+  python3 - <<'PYAR'
+from pathlib import Path
+import base64
+def member(name, body):
+    fields = [(name,16), ('0',12), ('12',6), ('34',6), ('100644',8), (str(len(body)),10)]
+    return b''.join(s.encode().ljust(w,b' ') for s,w in fields)+b'`\n'+body+(b'\n' if len(body)%2 else b'')
+names = ['a-very-long-member-name-exceeding-sixteen-chars.txt', 'sixteen_chars.aa', 'sub/deep/long-member-name.o']
+table = b''; refs = []
+for name in names:
+    refs.append(len(table)); table += name.encode()+b'/\n'
+data = b'!<arch>\n'+member('/',b'\0\0\0\0')+member('//',table)
+for ref,body in zip(refs,[b'long\n',b'16\n',b'path\n']):
+    data += member('/'+str(ref),body)
+data += member('short/',b'x')
+Path('Tests/Fixtures/container/ar-sysv.a.b64').write_bytes(base64.b64encode(data))
+PYAR
+Synthetic payload SHA-256:
+  b'long\n': bbdbb75b415ee9a40f0b3796a8b41a0b7723afe5726b870474ad220a4886d06d
+  b'16\n': e6c21e8d260fe71882debdb339d2402a2ca7648529bc2303f48649bce0380017
+  b'path\n': d8a68357f40705851032b610c2e1e753596c9370b7b2f459ae2d26c399475e2d
+  b'x': 2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881
+
+Decoded archive SHA-256 (filename, bytes, hash):
+  container/ar-deb.a 342 2b5804e34f69daf0b50b310b081e1aa2441dc63f0e464e25e76def98a7560b8f
+  container/ar-names.a 298 39a2a84fac865762c64453f4163ab0c9f23ad8fcc8eae73ff4425dd5c49b2529
+  container/ar-symtab.a 1296 5de60841f50ae0166abe117bbc8517b224fa8b010cdbd7647c7d51af10dda15c
+  container/ar-sysv.a 490 f6bfa206d95fb3a78b2ac321857a82bb211d40ec662b82317baec744c8ba1642
+  container/ar-tailpad.a 136 77c3c822414d6c63f32c01199bf515bc55f14c28d5d3fb4ff63eb0f4560387f3
+
+Writer payload SHA-256 (filename, bytes, hash):
+  exactly16char.txt 6 5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03
+  has space.txt 3 98ea6e4f216f2fb4b69fff9b3a44842c38686ca685f3f55dc48c5d3fb1107be4
+  sixteen_chars.aa 2 c865f6c5ab8d1b0bcd383a5e1e3879d22681c96bf462c269b7581d523fbe70ab
+  s.txt 2 3bb2abb69ebb27fbfe63c7639624c6ec5e331b841a5bc8c3ebc10b9285e90877
+  o.txt 4 80a3ef2f5539b0a6b5ee045e2a1de83bfb38550da54aa4d60dc1b9526b4b0805
+  tail3.txt 3 ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+  debian-binary 4 d526eb4e878a23ef26ae190031b4efd2d58ed66789ac049ea3dbaf74c9df7402
+  o1.c 27 0be88b32c18c65350535b39ffecea396687bf448c310f1b70aedf3ecca576773
+  o2.c 26 349522dc04fd43df1c689e70264678e10b616ca38e84d482e274103d8178a45e
+  o1.o 512 3df65c0758b77b028fb12ed9945f456137c19465764ecdd3d9ef49a8dc9e2bbb
+  o2.o 512 aeacbdb7d373f60cc34a23c5c570ff151291aed75cdfb8a9710a8e46bcda98ca
+  control.tar.gz 29 e507c23a7f04d36333658090ee12ac44807169f9c432d909df4d5d5edd7d1639
+  data.tar.gz 119 89a61e871bd91f64ef247ebc81b9aa055b580968582d2d7d81672db88bbdd407

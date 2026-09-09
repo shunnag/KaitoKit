@@ -18,6 +18,9 @@ public enum ArchiveFormat: String, Sendable, CaseIterable {
     /// Binary, odc, newc, or additive-checksum cpio containers.
     case cpio
 
+    /// Unix `ar` archives, including `.deb` packages.
+    case ar
+
     /// ISO 9660 optical disc images.
     case iso
 

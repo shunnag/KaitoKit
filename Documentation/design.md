@@ -176,6 +176,23 @@ streaming 検証契約:
 
 ## 10. 出自(プロベナンス)と参照の規則
 
+ar reader の形式入力は macOS / FreeBSD ar(5)、System V ABI、SDK の ar.h /
+mach-o/ranlib.h、Solaris ar.h(3HEAD)、GNU binutils の ar manual、deb(5) と、
+macOS ar(1) / ranlib(1) / libtool(1)、Debian Policy 等の公開仕様・prose に基づく
+利用者提供 PLAN.md の byte 表・説明だけである。ORACLE.md は受け入れ実測値にのみ使用した。
+XADMaster、The Unarchiver、libarchive、GNU binutils（bfd / ar.c を含む）、LLVM、
+ELF Tool Chain の実装 source は開かず、引用・参照していない。
+macOS ar / clang / tar は小型 project-owned fixture の black-box writer としてのみ実行した。
+利用者の訂正指示に従い、BSD 拡張名を解決してから symbol table を通常 entry として公開する。
+`/` / `/SYM64/` も名前を保持して公開し、名前解決に消費される `//` だけを隠す。
+SysV 表の内部 slash は保持する。
+thin archive は外部ファイルを読まず unsupportedMethod("thin ar archive") とする。
+名前の `..` / 絶対パスは一覧に保存し、既存 Extractor が展開時に拒否する。NUL は名前解決時に拒否。
+文字列表の宣言範囲が EOF を超える場合は recovery でも拒否する。一方、範囲内の表の最終名に
+終端が無い場合は PLAN §5 row 18 に従って表の末尾までを名前として受理する。
+検証値と再実行手順は [ar 検証記録](verification/2026-09-09-ar.md)。
+
+
 cpio reader の形式入力は POSIX / IEEE Std 1003.1（SUSv2 pax cpio interchange format）、
 cpio(5)、GNU cpio manual、Heirloom cpio(1)、Linux initramfs buffer format、HP-UX cpio(4)
 に基づく利用者提供の PLAN.md の公開仕様 byte 表・prose。ORACLE.md は受け入れ値だけに使用する。

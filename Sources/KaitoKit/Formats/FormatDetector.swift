@@ -7,7 +7,7 @@ import Foundation
 /// 1. A checksum-valid tar member header wins
 ///    over bytes in its pathname that resemble a shorter stream signature.
 /// 2. Native markers are checked in this order: ZIP, RAR, 7-Zip, XZ,
-///    structurally plausible LHA, gzip, bzip2, UNIX compress, structurally valid ASCII cpio.
+///    structurally plausible LHA, gzip, bzip2, UNIX compress, then `!<arch>` / `!<thin>` ar, structurally valid ASCII cpio.
 ///    LHA precedes the two-byte stream markers because its header supplies a
 ///    method and a bounded size envelope.
 /// 3. When enabled, markers inside a recognized Mach-O or PE prefix are
@@ -166,6 +166,7 @@ public enum FormatDetector {
         if hasPrefix(prefix, [0x1F, 0x9D]) {
             return .compress
         }
+        if ArReader.isPlausibleArchive(prefix, sourceLength: source.length) { return .ar }
         if CpioHeader.probe(prefix, source: source) != nil { return .cpio }
         // A damaged first local marker can still belong to a native ZIP when
         // its end record places the central directory at an absolute base of

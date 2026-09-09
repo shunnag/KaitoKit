@@ -213,6 +213,11 @@ public final class ArchiveReader {
             reader = iso
             entries = iso.entries
             format = .iso
+        case .xar:
+            let xar = try XarReader(source: source, options: options)
+            reader = xar
+            entries = xar.entries
+            format = .xar
         case .gzip, .bzip2, .xz, .compress, .lzma:
             let single = try SingleFileReader(
                 source: source,
@@ -350,7 +355,8 @@ public final class ArchiveReader {
     /// The caller must prevent other threads or processes from mutating the
     /// extraction root until this operation returns.
     /// A zero-body hard link requires its target to have been extracted first,
-    /// in archive order, to the same root with this reader. Switching roots or
+    /// to the same root with this reader. Forward references must be deferred
+    /// until their targets are extracted. Switching roots or
     /// calling ``reopen()`` starts independent extraction provenance.
     public func extract(
         _ entry: ArchiveEntry,

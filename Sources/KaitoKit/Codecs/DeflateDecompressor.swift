@@ -3,12 +3,13 @@ private import zlib
 
 // 参照仕様: RFC 1951、および zlib 公式マニュアルの inflate API。
 
-/// A streaming RFC 1951 raw-DEFLATE decompressor backed by system zlib.
+/// A streaming raw-DEFLATE or RFC 1950 zlib decompressor backed by system zlib.
 public final class DeflateDecompressor: Decompressor {
     private static let chunkSize = 256 * 1024
 
     private let source: any ByteSource
     private let compressedEnd: UInt64
+    private let streamDescription: String
     private var sourceOffset: UInt64
     private var input = [UInt8](repeating: 0, count: chunkSize)
     private var inputOffset = 0
@@ -17,20 +18,22 @@ public final class DeflateDecompressor: Decompressor {
     private var streamWasInitialized = false
     private var finished = false
 
-    /// Creates a raw-DEFLATE stream over a validated byte-source range.
-    public init(source: any ByteSource, offset: UInt64, compressedSize: UInt64) throws {
+    /// Creates a DEFLATE stream over a validated byte-source range.
+    /// Set `zlibWrapped` to parse an RFC 1950 header and verify its Adler-32.
+    public init(source: any ByteSource, offset: UInt64, compressedSize: UInt64, zlibWrapped: Bool = false) throws {
         let compressedEnd = try Checked.add(offset, compressedSize)
         guard compressedEnd <= source.length else {
             throw KaitoError.truncated
         }
 
+        self.streamDescription = zlibWrapped ? "zlib" : "raw DEFLATE"
         self.source = source
         self.sourceOffset = offset
         self.compressedEnd = compressedEnd
 
         let status = inflateInit2_(
             &stream,
-            -MAX_WBITS,
+            zlibWrapped ? MAX_WBITS : -MAX_WBITS,
             ZLIB_VERSION,
             Int32(MemoryLayout<z_stream>.size)
         )
@@ -112,14 +115,14 @@ public final class DeflateDecompressor: Decompressor {
                 return totalProduced
             }
             guard status == Z_OK || status == Z_BUF_ERROR else {
-                throw KaitoError.malformed("invalid raw DEFLATE stream (zlib \(status))")
+                throw KaitoError.malformed("invalid \(streamDescription) stream (zlib \(status))")
             }
 
             if totalProduced > 0 {
                 return totalProduced
             }
             if consumed == 0 {
-                throw KaitoError.malformed("raw DEFLATE stream made no progress")
+                throw KaitoError.malformed("\(streamDescription) stream made no progress")
             }
         }
 

@@ -24,6 +24,9 @@ public enum ArchiveFormat: String, Sendable, CaseIterable {
     /// ISO 9660 optical disc images.
     case iso
 
+    /// eXtensible ARchive containers, including macOS flat installer packages.
+    case xar
+
     /// Gzip streams.
     case gzip
 

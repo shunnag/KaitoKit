@@ -217,9 +217,61 @@ ReadLimits は metadata の両候補走査にも共通適用する。record の 
 検証値・再実行手順は [ISO 検証記録](verification/2026-09-09-iso9660.md)。
 
 
+xar reader の形式入力は xar の公開形式説明と xar(1) man page、RFC 1950 / 1951、
+LZMA SDK `lzma-specification.txt`、XZ file-format spec、および本セッションで
+`/usr/bin/xar --dump-header` / `--dump-toc` と自作 fixture から実測した byte 表である。
+xar project の C source、libarchive、7-Zip/p7zip、XADMaster、The Unarchiver の
+実装 source は開かず、参照・引用していない。
+macOS の `/usr/bin/xar` 1.8dev と `pkgbuild` は project-owned payload の black-box
+writer としてのみ実行し、lzma / xz / subdoc など macOS xar が書けない形は
+公開仕様から自作 writer で組み立て、XADMaster を展開オラクルとして検証した。
+
+実測で確定した点: TOC は zlib 生 stream(RFC 1950)、heap は圧縮 TOC の直後、
+`<offset>` は heap 先頭からの相対、`<size>` が展開後・`<length>` が heap 上のバイト数、
+TOC checksum は**圧縮後**の TOC bytes に対する digest、
+`application/x-gzip` の実体は gzip container ではなく zlib 生 stream。
+
+entry の並びは TOC の文書順(親 directory が子より先の pre-order)で、XADMaster と一致する。
+順序込みの総合 digest は下記 (2) の書庫を除き全 fixture で一致した。
+なお `xar --dump-toc` は保存されている XML をそのまま出さず、兄弟を逆順に再生成して
+表示する。並びの検証には TOC を自前で inflate した生 bytes を使うこと。
+
+XADMaster との意図的な差異は 2 点で、いずれも検証記録に測定値を残す。
+(1) `<name enctype="base64">` を復号する(XADMaster は base64 のまま出す)。
+中身の digest は一致するので、この差は名前だけに現れる。
+(2) `<subdoc>` 内の `<file>` を entry にしない。XADMaster はこれを実在 member として
+公開するため、細工した subdoc で heap の任意範囲を読ませる偽 member を注入できる。
+KaitoKit は subdoc の subtree を丸ごと読み飛ばす。
+加えて TOC checksum を開封時に検証する。heap 先頭の digest だけを壊した書庫を
+XADMaster はそのまま開くが、KaitoKit は malformed で拒否する。
+
+TOC XML は Foundation の `XMLParser` を使わず、必要な部分集合だけの自作 pull parser で
+読む。libxml2 の DTD / 外部実体の攻撃面を持ち込まず、`ReadLimits` と `Checked` の
+規律を TOC 解析にも通すためである。`<!DOCTYPE` と定義済み 5 実体・数値参照以外の
+実体参照は malformed とする。
+
+調査補助として kaitai_struct_formats の `archive/xar.ksy`(宣言的な binary format 記述)を
+参照した。archiver の実装 source ではないが、その doc-ref は xar の実装ファイル行番号を
+引用しているため境界的な資料として開示する。ここから得た header layout と
+checksum algorithm の解釈は、いずれも `--dump-header` の実測と自作 fixture で
+独立に再導出しており、実装は実測値だけに基づく。
+encoding style と checksum style は大小文字を区別せず照合する(同一文書内で `sha1` と
+`SHA1` が混在する実例がある)。`--rfc6713` が書く `application/zlib` は
+`application/x-gzip` と同じ zlib payload なので同じ codec で受理する。
+`application/x-lzma` と宣言されていても payload が xz magic で始まる場合は xz として読む
+(LZMA_Alone の properties byte は 225 未満なので `0xFD` と衝突しない)。
+
+xar は hard link の実体を参照より後ろに置くため、`Extractor` と compat 層にあった
+「target は自分より前の index」という前提を外した。安全性は index の前後ではなく、
+`trustedTargets` にこの reader が同じ root へ展開した inode があることで担保する。
+前方参照の遅延は 1 entry 単位の `ArchiveReader.extract` を呼ぶ側の責務とし、
+doc comment に明記した。`linkPath` と `hardLinkTargetIndex` は同じ entry を指す。
+検証値・再実行手順は [xar 検証記録](verification/2026-09-09-xar.md)。
+
+
 - XADMaster のコードは実装資料として**参照・流用しない**。比較する場合もブラックボックスの展開オラクルに限る。ユーザー指示。
 - 復号器ごとに参照した資料を design.md と該当ソースの先頭コメントに記録する。
-- 読んでよい一次資料(公開ドメイン/公式): LZMA SDK の `lzma-specification.txt`・`7zFormat.txt`・`C/Ppmd7.c`・`C/Ppmd7.h`・`C/Ppmd7Dec.c`、Shkarin の PPMd var.H / var.I、RARLab の RAR 5.0 technote、LHa for UNIX の `header.doc`、Lhasa の利用者向け `lha.1`、MacBinary / MacBinary II standard proposals、PKWARE APPNOTE、POSIX tar、RFC 1951/1952。LHArk については Jason Summers の公開 format note を用いる。 ISO 9660 については ECMA-119(Ecma International が無償公開。第 6 版 2025-12 を参照し、節番号を旧版と対応づけた)、Microsoft の Joliet 仕様、IEEE P1281(SUSP)、IEEE P1282(Rock Ridge)、Apple Technote FL 36。
+- 読んでよい一次資料(公開ドメイン/公式): LZMA SDK の `lzma-specification.txt`・`7zFormat.txt`・`C/Ppmd7.c`・`C/Ppmd7.h`・`C/Ppmd7Dec.c`、Shkarin の PPMd var.H / var.I、RARLab の RAR 5.0 technote、LHa for UNIX の `header.doc`、Lhasa の利用者向け `lha.1`、MacBinary / MacBinary II standard proposals、PKWARE APPNOTE、POSIX tar、RFC 1951/1952。LHArk については Jason Summers の公開 format note を用いる。 ISO 9660 については ECMA-119(Ecma International が無償公開。第 6 版 2025-12 を参照し、節番号を旧版と対応づけた)、Microsoft の Joliet 仕様、IEEE P1281(SUSP)、IEEE P1282(Rock Ridge)、Apple Technote FL 36。 xar については xar の公開形式説明・xar(1) man page・RFC 1950・XZ file format spec。
 - RAR5 の形式固有の外部資料は **RARLab の RAR 5.0 technote だけ**とする。RAR5 LZ grammar を定義・検証した入力は、(1) container を定義する同 technote (圧縮 grammar の詳細は非公開)、(2) task orchestrator から供給された clean-room 仕様、(3) RAR 7.23 が生成・展開した black-box 入出力 vector、の 3 つである。orchestrator 仕様は第三者 decoder の source ではなく、`rar` / `unrar` executable は oracle としてだけ使い、その source は参照しない。
 - RAR 1.5-4.x の形式固有の参照は bitplane/rar-research の非公式ノートと libarchive の BSD-2 `archive_read_support_format_rar.c` の挙動に限る。7-Zip の Rar29 復号器、unrar、XADMaster、The Unarchiver の source は参照しない。
 - LHA の container と method parameter は LHa for UNIX `header.doc.md`、同 project の公開

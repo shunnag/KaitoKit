@@ -6,6 +6,25 @@
 
 ## [0.1.0] - Unreleased
 
+### 追加・修正（2026-09-09、xar）
+
+- 依存を追加せず純 Swift の xar reader を追加。TOC XML（自前の部分集合 pull parser）と
+  zlib / bzip2 / lzma / xz / 無圧縮の heap、入れ子ディレクトリ、symlink、hard link、
+  `<name enctype="base64">`、macOS の flat package（`.pkg`）に対応。
+- `<subdoc>` の subtree は entry にしない。細工した subdoc に `<file>` を仕込むと
+  heap の任意範囲を読む偽 member を注入できるため、丸ごと読み飛ばす。
+- TOC checksum（圧縮後の TOC に対する sha1 / md5 / sha256 / sha512）を開封時に、
+  `<extracted-checksum>` を展開完了時に検証する。style は大小文字を区別せず照合する。
+- `application/x-lzma` と宣言されていても payload が xz magic なら xz として読み、
+  `--rfc6713` の `application/zlib` も受理する。
+- `DeflateDecompressor` に RFC 1950 の zlib mode を追加（既定の raw DEFLATE は不変）。
+  一範囲だけを見せる `BoundedByteSource` を追加。
+- hard link の実体が参照より後ろに置かれる書庫を展開できるようにした。`Extractor` と
+  互換層の「target は自分より前の index」という前提を外し、安全性は `trustedTargets` に
+  同じ root へ展開済みの inode があることで担保する。前方参照の遅延は展開ループ側の責務。
+- DTD・未知の実体参照・入れ子 256 段超を拒否し、TOC サイズ・entry 数・サイズ・
+  metadata・パス構成要素数に ReadLimits を適用する。
+
 ### 追加・修正（2026-09-09、ar）
 
 - 依存を追加せず純 Swift の ar reader を追加。BSD `#1/LEN`（NUL padding）、

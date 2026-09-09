@@ -719,21 +719,13 @@ enum Extractor {
         _ entry: ArchiveEntry,
         in reader: ArchiveReader
     ) throws -> ArchiveEntry {
-        // parser は各 target index を直前の正規化名へ結び、過去向きの file/link chain
-        // だけを発行する。公開 entry の canonical 検証後なので、ここでは直近一段で十分。
-        return try priorHardLinkTarget(of: entry, in: reader)
-    }
-
-    private static func priorHardLinkTarget(
-        of entry: ArchiveEntry,
-        in reader: ArchiveReader
-    ) throws -> ArchiveEntry {
+        // xar の前方参照も許すが、実際の link には同じ reader が展開した inode を要求する。
         guard let indexText = entry.formatSpecific["hardLinkTargetIndex"],
               let targetIndex = Int(indexText),
               targetIndex >= 0,
-              targetIndex < entry.index,
+              targetIndex != entry.index,
               reader.entries.indices.contains(targetIndex) else {
-            throw KaitoError.malformed("hard-link target is not a prior archive member")
+            throw KaitoError.malformed("hard-link target is not a distinct archive member")
         }
         return reader.entries[targetIndex]
     }

@@ -306,6 +306,49 @@ implementation source was consulted.
       sub/nested.txt (15 bytes) 4e7267fd5c54130fe83e69920d63e38117957e56f9172965b8db27c75a3c1a96
     b.bin is UInt8((i * 13) % 251) for i in 0..<4096.
 
+  container/xar-plain.xar.b64    xar -cf                      (10 entries)
+  container/xar-stored.xar.b64   xar --compression=none -cf   (10 entries)
+  container/xar-bzip2.xar.b64    xar --compression=bzip2 -cf  (10 entries)
+  container/xar-sha512.xar.b64   xar --toc-cksum=sha512 --file-cksum=sha512 -cf (10 entries)
+    Same project-owned tree in four encodings, archived with the xar 1.8dev
+    shipped with macOS, used purely as a black-box writer.  The tree carries a
+    hardlink pair, a symlink, an empty file, a nested directory and a Japanese
+    filename that xar stores as <name enctype="base64">.
+  container/xar-pkg.pkg.b64      pkgbuild --root ...          (3 entries)
+    A real macOS flat installer package (Bom / Payload / PackageInfo) built by
+    pkgbuild from a project-owned two-line shell script.  Payload is stored with
+    encoding style application/octet-stream, the other two with application/x-gzip.
+  container/xar-lzma.xar.b64     hand-built                   (1 entry)
+  container/xar-xz.xar.b64       hand-built                   (1 entry)
+  container/xar-links.xar.b64    hand-built                   (5 entries)
+  container/xar-subdoc.xar.b64   hand-built                   (2 entries for KaitoKit)
+    Assembled byte by byte by a project-owned Python writer from the published
+    xar format description, because macOS xar has no lzma/xz support and cannot
+    emit a <subdoc> carrying a nested <file>.  Each was validated by opening it
+    with XADMaster as a black-box oracle; no archiver source was consulted.
+    xar-links covers link="original" plus an id chain and a dangling reference;
+    xar-subdoc covers a <subdoc> whose nested <file id="99"> must NOT become an
+    entry, and a name written with XML entities (a&b<c>.txt).
+    Payload SHA-256:
+      a.txt (10 bytes)                 1ddc234bae1b3930239b3d8625224117828d8a576bb8951087cbe6097387fb1e
+      sub/nested.txt (20 bytes)        5d0e5bc93dbc8febbb6b3cea0503bfd7460284e544c2f689538fd55da59accb2
+      sub/deep/d.txt (5 bytes)         64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599
+      日本語.txt (3 bytes)             a10ea5adfcc15e3ead98a4fa85e9cee3cc266896a4df04511812b939d4101d22
+      b.bin (4096 bytes)               0d356260eaf09e3b3dc81a65b2ad2399aa7c4921c0274bd2cbb54c2a21c46e3b
+      lzma / xz payload (1800 bytes)   4a26bca315603e8ba47688af0b94f8061a871ca95fcb3c0358fa6a357123d741
+      links / subdoc payload (13 b)    86d7bb82c5856157d89466dc8fc8d52b8e14742702359f500dd09f0f912bb77c
+    b.bin is UInt8((i * 7 + 3) % 251) for i in 0..<4096.
+    Decoded archive SHA-256:
+      container/xar-bzip2.xar    2223  ab31e6952db5012ac94b1d65d15cca6562cf3f587963c50f85ea95b5094221fc
+      container/xar-links.xar     522  473a65968df7928fa2c26821310688cc04773de7ee32214d69e811502d41f990
+      container/xar-lzma.xar      490  843a66d43f5831094a2454fd78023f860f60360ba71c8831e826e7f4ecc72077
+      container/xar-pkg.pkg      1773  40902ff5a5c26cfac23604f18be3cc871f099025615f65e29d1fed982d158f28
+      container/xar-plain.xar    1702  53af043c41a0a46da5bd4c0d84ee93b2b8a0a9f6b3c6fcd8275a8dab52fe8a5b
+      container/xar-sha512.xar   2312  35a7a4d1b9c95a12a9fd39f95855a808ffe4daf7374ff1650bef3acc2f3958a3
+      container/xar-stored.xar   5340  c562bc00f0ece79c74379dc2c52787a4c24217a7c652227e751698f7a560fb4f
+      container/xar-subdoc.xar    561  9c70e590b2e355165109e3bbc680a464a7ba1b3cb8fcb18e9a2abdd0dec61a8a
+      container/xar-xz.xar        538  b207e6a434e7eb685316e5f628e4b682b2d4d361ee87e7541308012d99e86b80
+
   rar/rar5-recovery.rar.b64
     RAR 6.24 の -ma5 -m3 で生成した非 solid の切断救済テスト用書庫。
     one.txt / two.txt は各 33 byte、tail.bin は非圧縮性の 512 byte。

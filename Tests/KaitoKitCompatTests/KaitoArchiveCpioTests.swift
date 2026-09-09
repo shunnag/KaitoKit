@@ -9,7 +9,7 @@ final class KaitoArchiveCpioTests: XCTestCase {
             let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/\(name).cpio.b64"), encoding: .utf8)
             let data = try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))
             let archive = try XCTUnwrap(KaitoArchive(data: data))
-            XCTAssertEqual(archive.formatName(), "cpio")
+            XCTAssertEqual(archive.formatName(), "Cpio")
             XCTAssertEqual(archive.numberOfEntries(), ["newc", "odc", "bin"].contains(name) ? 5 : 6)
         }
     }

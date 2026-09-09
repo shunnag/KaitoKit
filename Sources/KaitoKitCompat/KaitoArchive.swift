@@ -482,6 +482,8 @@ public final class KaitoArchive {
         case "lha": "LHA"
         case "tar": "Tar"
         case "ar": "AR"
+        case "cpio": "Cpio"
+        case "xar": "XAR"
         case "iso": "ISO 9660"
         case "gzip": "Gzip"
         case "bzip2": "Bzip2"
@@ -687,7 +689,7 @@ public final class KaitoArchive {
                   let targetText = current.formatSpecific["hardLinkTargetIndex"],
                   let targetIndex = Int(targetText),
                   targetIndex >= 0,
-                  targetIndex < current.index,
+                  targetIndex != current.index,
                   reader.entries.indices.contains(targetIndex) else {
                 return nil
             }

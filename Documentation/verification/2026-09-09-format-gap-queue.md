@@ -40,26 +40,26 @@ C の形式は brew で writer を入れれば独立確認が増えるが、必�
 
 汎用性(遭遇頻度)と実装可能性で並べる。
 
-| 順 | 形式 | 内容 | fixture | bead |
-|---:|---|---|---|---|
-| 1 | **ISO 9660** | ECMA-119 + Joliet + Rock Ridge(SUSP/RRIP) | A | `cooViewer-ogfp` |
-| 2 | **cpio** | newc / odc / bin / crc / hpodc | A(checked-in)| `cooViewer-7wbx` |
-| 3 | **ar** | SysV/GNU 長名表・BSD `#1/` 長名 | A(checked-in)| `cooViewer-7wbx` |
-| 4 | **xar** | XML TOC + zlib/bzip2/lzma heap | A(checked-in)| `cooViewer-7wbx` |
-| 5 | **Deb** | `ar` の中の `debian-binary` + `control.tar.*` + `data.tar.*` | B | 未作成 |
-| 6 | **RPM** | lead + signature/header(index+store)+ cpio payload | B | 未作成 |
-| 7 | **CAB** | MSZIP(Deflate)/ LZX / Quantum、folder 跨ぎ | C | 未作成 |
-| 8 | **ZIP method 93/95/96/98** | Zipx: zstd / xz / JPEG / PPMd | A | `cooViewer-th30` |
-| 9 | **ARJ** | 古典 DOS 書庫 | C | 未作成 |
-| 10 | **ZOO** | 古典 | C | 未作成 |
-| 11 | **ARC / PAK / Squeeze / Crunch / LBR** | CP/M・DOS 系。RLE と LZW が主 | C | 未作成 |
-| 12 | **StuffIt / StuffIt X** | Mac 古典。SIT は方式が多い | C | `cooViewer-gu28` |
-| 13 | **Compact Pro / PackIt / DiskDoubler** | Mac 古典 | C | 未作成 |
-| 14 | **LZX / PowerPacker / ADF / DMS** | Amiga | C | 未作成 |
-| 15 | **ACE**(旧形式のみ)| XADMaster も 2.0 は非対応 | C | 未作成 |
-| 16 | **ALZip** | Bzip2 / Deflate / 難読化 Deflate | C | 未作成 |
-| 17 | **WARC** | HTTP record の連結。構造は単純 | B | 未作成 |
-| 18 | **MSI / NSIS** | MSI は CFB 複合ファイル、NSIS は版が多い | C | 未作成 |
+| 順 | 形式 | 内容 | fixture | bead | 状況 |
+|---:|---|---|---|---|---|
+| 1 | **ISO 9660** | ECMA-119 + Joliet + Rock Ridge(SUSP/RRIP) | A | `cooViewer-ogfp` | 実装済み `a1a2753` |
+| 2 | **cpio** | newc / odc / bin / crc / hpodc | A(checked-in)| `cooViewer-7wbx` | 実装済み `94bc3f5` |
+| 3 | **ar** | SysV/GNU 長名表・BSD `#1/` 長名 | A(checked-in)| `cooViewer-7wbx` | 実装済み `4466c30` |
+| 4 | **xar** | XML TOC + zlib/bzip2/lzma heap | A(checked-in)| `cooViewer-7wbx` | 実装済み(本コミット) |
+| 5 | **Deb** | `ar` の中の `debian-binary` + `control.tar.*` + `data.tar.*` | B | 未作成 | — |
+| 6 | **RPM** | lead + signature/header(index+store)+ cpio payload | B | 未作成 | — |
+| 7 | **CAB** | MSZIP(Deflate)/ LZX / Quantum、folder 跨ぎ | C | 未作成 | — |
+| 8 | **ZIP method 93/95/96/98** | Zipx: zstd / xz / JPEG / PPMd | A | `cooViewer-th30` | — |
+| 9 | **ARJ** | 古典 DOS 書庫 | C | 未作成 | — |
+| 10 | **ZOO** | 古典 | C | 未作成 | — |
+| 11 | **ARC / PAK / Squeeze / Crunch / LBR** | CP/M・DOS 系。RLE と LZW が主 | C | 未作成 | — |
+| 12 | **StuffIt / StuffIt X** | Mac 古典。SIT は方式が多い | C | `cooViewer-gu28` | — |
+| 13 | **Compact Pro / PackIt / DiskDoubler** | Mac 古典 | C | 未作成 | — |
+| 14 | **LZX / PowerPacker / ADF / DMS** | Amiga | C | 未作成 | — |
+| 15 | **ACE**(旧形式のみ)| XADMaster も 2.0 は非対応 | C | 未作成 | — |
+| 16 | **ALZip** | Bzip2 / Deflate / 難読化 Deflate | C | 未作成 | — |
+| 17 | **WARC** | HTTP record の連結。構造は単純 | B | 未作成 | — |
+| 18 | **MSI / NSIS** | MSI は CFB 複合ファイル、NSIS は版が多い | C | 未作成 | — |
 
 ディスクイメージの BIN / MDF / NRG / CDI は ISO 9660 の上に載る raw sector 形式なので、
 1 を終えてから同じ reader の入口として扱う。

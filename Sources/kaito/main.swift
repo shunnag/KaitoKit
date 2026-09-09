@@ -32,6 +32,7 @@ private func formatName(_ format: ArchiveFormat) -> String {
     case .lha: return "lha"
     case .tar: return "tar"
     case .iso: return "iso"
+    case .xar: return "xar"
     case .ar: return "ar"
     case .cpio: return "cpio"
     case .gzip: return "gzip"
@@ -213,7 +214,16 @@ private func runExtract(_ arguments: [String]) throws {
             reportEntryFailure(error, entry: entry)
         }
     }
-    for entry in reader.entries where entry.kind != .directory { extract(entry) }
+    var deferred: [ArchiveEntry] = []
+    for entry in reader.entries where entry.kind != .directory {
+        // 前方参照は実体の展開後まで待ち、既存の後方参照の順序を保つ。
+        if entry.kind == .hardlink,
+           let targetText = entry.formatSpecific["hardLinkTargetIndex"],
+           let targetIndex = Int(targetText), targetIndex > entry.index {
+            deferred.append(entry)
+        } else { extract(entry) }
+    }
+    for entry in deferred { extract(entry) }
     // 部分的な失敗後も子の作成を終え、ディレクトリの最終 mode/mtime を復元する。
     let directories = reader.entries
         .filter { $0.kind == .directory }

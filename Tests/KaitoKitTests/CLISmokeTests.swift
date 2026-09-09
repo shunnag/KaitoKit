@@ -4,6 +4,61 @@ import KaitoKit
 import XCTest
 
 final class CLISmokeTests: XCTestCase {
+    func testXarExtractionDefersForwardLinksAndReportsTargetFailures() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let executable = try findKaitoExecutable()
+        for name in ["xar-plain.xar", "xar-links.xar"] {
+            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/\(name).b64"), encoding: .utf8)
+            let archive = temporary.appendingPathComponent(name)
+            try XCTUnwrap(Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines))).write(to: archive)
+            for failedTarget in (name == "xar-plain.xar" ? [false, true] : [false]) {
+                let output = temporary.appendingPathComponent("\(name)-\(failedTarget)")
+                if failedTarget {
+                    // 実体の公開を失敗させ、同名の既存 object を link が信用しないことを検査する。
+                    try FileManager.default.createDirectory(at: output.appendingPathComponent("hard.txt"), withIntermediateDirectories: true)
+                }
+                let process = Process()
+                let stderr = Pipe()
+                process.executableURL = executable
+                process.arguments = ["extract", archive.path, "-o", output.path]
+                process.standardOutput = FileHandle.nullDevice
+                process.standardError = stderr
+                try process.run()
+                process.waitUntilExit()
+                let errors = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                XCTAssertEqual(process.terminationReason, .exit)
+                if failedTarget {
+                    XCTAssertEqual(process.terminationStatus, 1)
+                    XCTAssertTrue(errors.contains("failed entry 7 (hard.txt)"), errors)
+                    XCTAssertTrue(errors.contains("failed entry 1 (a.txt)"), errors)
+                    XCTAssertTrue(errors.contains("hard-link target was not materialized by this archive reader"), errors)
+                    XCTAssertTrue(errors.contains("2 archive entries failed"), errors)
+                    XCTAssertFalse(FileManager.default.fileExists(atPath: output.appendingPathComponent("a.txt").path))
+                    continue
+                }
+                XCTAssertEqual(process.terminationStatus, name == "xar-links.xar" ? 1 : 0, errors)
+                if name == "xar-links.xar" {
+                    XCTAssertTrue(errors.contains("failed entry 3 (dangling.txt)"), errors)
+                    XCTAssertTrue(errors.contains("1 archive entries failed"), errors)
+                } else { XCTAssertEqual(errors, "") }
+                let members = name == "xar-plain.xar" ? ["a.txt", "hard.txt"] : ["orig.txt", "l1.txt", "l2.txt"]
+                let expected = name == "xar-plain.xar"
+                    ? "1ddc234bae1b3930239b3d8625224117828d8a576bb8951087cbe6097387fb1e"
+                    : "86d7bb82c5856157d89466dc8fc8d52b8e14742702359f500dd09f0f912bb77c"
+                var inode: NSNumber?
+                for member in members {
+                    let url = output.appendingPathComponent(member)
+                    let data = try Data(contentsOf: url)
+                    XCTAssertEqual(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), expected)
+                    let actual = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? NSNumber)
+                    if let inode { XCTAssertEqual(actual, inode) } else { inode = actual }
+                }
+            }
+        }
+    }
+
     func testArListAndSHA() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/lib.a.b64"), encoding: .utf8)

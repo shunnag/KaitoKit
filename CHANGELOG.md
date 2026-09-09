@@ -6,6 +6,31 @@
 
 ## [0.1.0] - Unreleased
 
+### 追加・修正（2026-09-09、XADMaster との black-box 差分調査から）
+
+- 7z の coder 連鎖に対応。byte を消費する coder（LZMA / LZMA2 / PPMd7 / Deflate /
+  BZip2 / AES）の入力が他 coder の出力である folder を、宣言サイズちょうどで
+  上限内に実体化してから復号する。`-m0=BCJ2 -m1=LZMA2 -m2=LZMA -m3=LZMA` が作る
+  `LZMA -> LZMA -> LZMA2 -> BCJ2.main` の folder が展開できるようになった。
+  入力がもともと byte 範囲の経路は割り当てなしのまま。
+
+- LZMA_Alone（`.lzma`）を単一 entry 形式として追加。13 byte header を検証して
+  既存の LZMA 復号器へ繋ぐ。magic を持たない形式なので判定は最後に行い、
+  拡張子・properties・辞書サイズ・range coder 先頭 byte がすべて揃うことを要求する。
+  互換層の `formatName()` は XADMaster と同じ `LZMA_Alone` を返す。
+
+- `.tar.Z` / `.tZ` を `.tar.gz` / `.tar.bz2` / `.tar.xz` と同じ compressed-tar 経路に
+  載せた。4 形式すべてが同じ entry 列と同じ内容を返す。
+
+- 7z の SPARC / IA-64 branch filter に対応。変換規則は 7-Zip を
+  `-m0=<FILTER> -m1=Copy -mhc=off` で filter 出力オラクルとして使い、
+  実行ファイルの入出力だけから導出した（記録は
+  `Documentation/verification/2026-09-09-branch-filter-derivation.md`）。
+  6 回 × 8,192 byte の敵対的ベクタでオラクルと完全一致する。
+  RISC-V filter は XADMaster も全 entry を空で返すため対象外とし、
+  引き続き明示的に unsupported とする。
+
+
 - CRC-16/ARC を実行時判定付き PMULL / PCLMULQDQ folding で高速化。小入力・未対応 CPU は
   従来の slice-by-eight を維持し、公開 API・逐次更新・検証結果を変えずに LHA 展開時間を短縮。
 

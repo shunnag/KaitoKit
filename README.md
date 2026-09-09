@@ -61,9 +61,10 @@ for entry in directories {
 | bzip2 | BZip2 block size 1〜9 | なし | concatenated stream 対応 |
 | xz | XZ container、Apple Compression の LZMA、footer/padding | なし | concatenated stream 対応 |
 | UNIX compress (`.Z`) | LZW、9〜16 bit、block mode | なし | なし |
-| 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz2` / `.tar.bz2`、`.txz` / `.tar.xz` を展開後に TarReader で列挙 | なし | なし |
+| LZMA_Alone (`.lzma`) | 13 byte header + raw LZMA。magic が無いため拡張子・properties・辞書サイズ・range coder 先頭 byte がすべて揃ったときだけ受理し、判定は最後に回す | なし | なし |
+| 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz2` / `.tar.bz2`、`.txz` / `.tar.xz`、`.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
 | ZIP / ZIP64 | stored (0)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、中央 directory、SFX | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | multi-disk / spanned は非対応 |
-| 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、BZip2、Delta、BCJ (x86/ARM/ARMT/ARM64/PPC)、BCJ2、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | external volume 分割なし、solid/block split 対応 |
+| 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、BZip2、Delta、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | external volume 分割なし、solid/block split 対応 |
 | RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
 | LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
@@ -133,15 +134,16 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 
 ## 既知の制限
 
-- CAB、ARJ、ACE、StuffIt/SIT、ISO disk image、zstd stream は未対応です。
+- CAB、ARJ、ACE、StuffIt/SIT、ISO 9660 disk image、cpio、ar、xar、zstd stream は未対応です。
 - ZIP は multi-disk/spanned と method 93 (zstd)、95 (xz)、96 (JPEG)、98 (PPMd) を扱いません。
-- 7z は IA-64 / SPARC filter を扱いません。
+- 7z は RISC-V filter (method 0x0B) と external volume 分割 (`.7z.001`) を扱いません。
 - RAR4 は unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成、SFX と multi-volume の組合せを
   扱いません。RAR5 は compression version 1、file-copy redirection、SFX、サイズ不明の暗号化
   stored entry を扱いません。
 - LHA は `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` を一覧できますが、読み取り時に
   `unsupportedMethod` になります。resource fork は separate entry として公開しません。
-- XZ は Apple Compression が扱う XZ container が対象で、raw `.lzma` は対象外です。gzip/bzip2/xz の
+- XZ は Apple Compression が扱う XZ container が対象で、同 liblzma が知らない RISC-V filter 付き
+  stream は読めません。raw `.lzma` (LZMA_Alone) は `.lzma` 拡張子付きのときだけ対象です。gzip/bzip2/xz の
   concatenated stream は一つの entry として連結した出力を返します。
 - gzip/bzip2/xz/`.Z` の出力サイズは読み終えるまで不明です。modern API では `nil`、compat API では
   `entryHasSize == false` / `Int64.max` になります。

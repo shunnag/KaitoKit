@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 @testable import KaitoKit
 import XCTest
@@ -93,6 +94,28 @@ final class SevenZipFilterTests: XCTestCase {
             "480000014800000948000005480000004800000348000015"
         )
         try assertBranchDecode(encoded: encoded, expected: original, filter: .powerPC)
+    }
+
+    func testSPARCFilterMatchesOracleAcrossChunkBoundaries() throws {
+        try assertOracleBranchDecode(
+            fixture: "sparc", name: "SPARC", unitSize: 4,
+            methodIDs: [[0x09], [0x03, 0x03, 0x08, 0x05]]
+        )
+    }
+
+    func testIA64FilterMatchesOracleAcrossChunkBoundaries() throws {
+        try assertOracleBranchDecode(
+            fixture: "ia64", name: "IA64", unitSize: 16,
+            methodIDs: [[0x06], [0x03, 0x03, 0x04, 0x01]]
+        )
+    }
+
+    func testSPARCArchiveExtractsExpectedSHA256() throws {
+        try assertBranchArchive(fixture: "sparc", name: "SPARC")
+    }
+
+    func testIA64ArchiveExtractsExpectedSHA256() throws {
+        try assertBranchArchive(fixture: "ia64", name: "IA64")
     }
 
     func testBCJ2CallJumpAndConditionalJump() throws {
@@ -261,6 +284,86 @@ final class SevenZipFilterTests: XCTestCase {
                 }
             }
         }
+    }
+
+    private func assertOracleBranchDecode(
+        fixture: String,
+        name: String,
+        unitSize: Int,
+        methodIDs: [[UInt8]]
+    ) throws {
+        let encoded = try fixtureBytes("\(fixture)-vector-filtered.bin")
+        let expected = try fixtureBytes("\(fixture)-vector-plain.bin")
+        XCTAssertEqual(encoded.count, 4_096)
+        XCTAssertEqual(expected.count, 4_096)
+        for methodID in methodIDs {
+            // 新しい enum case を直接参照せず、修正前にも実行できる回帰テストにする。
+            guard case let .branch(filter) = SevenZipMethod.kind(for: methodID) else {
+                XCTFail("\(name) method \(methodID) is not a branch filter")
+                continue
+            }
+            let coder = SevenZipCoder(
+                methodID: methodID, inputCount: 1, outputCount: 1,
+                properties: [], firstInput: 0, firstOutput: 0
+            )
+            XCTAssertEqual(SevenZipMethod.description(for: coder), name)
+            let chunks = [1, 3, 4, 16, 17, 4_096]
+            for inputChunk in chunks {
+                for outputChunk in chunks {
+                    let decoder = try BCJFilterDecompressor(
+                        input: TestChunkDecompressor(encoded, maximumRead: inputChunk),
+                        filter: filter,
+                        expectedSize: UInt64(expected.count)
+                    )
+                    XCTAssertEqual(
+                        try drain(decoder, bufferSize: outputChunk), expected,
+                        "\(name): input \(inputChunk), output \(outputChunk)"
+                    )
+                }
+            }
+
+            // 先頭 unit を除くと同じ oracle で非ゼロ開始位置を検証できる。
+            // 最後の不完全な unit は変換せず、そのまま返す。
+            for tailSize in 0..<unitSize {
+                let tail = Array(encoded.prefix(tailSize))
+                let shiftedInput = Array(encoded.dropFirst(unitSize)) + tail
+                let shiftedExpected = Array(expected.dropFirst(unitSize)) + tail
+                let decoder = try BCJFilterDecompressor(
+                    input: TestChunkDecompressor(shiftedInput, maximumRead: 3),
+                    filter: filter,
+                    startOffset: UInt64(unitSize),
+                    expectedSize: UInt64(shiftedExpected.count)
+                )
+                XCTAssertEqual(try drain(decoder, bufferSize: 17), shiftedExpected)
+            }
+            for offset in 1..<unitSize {
+                XCTAssertThrowsError(try BCJFilterDecompressor(
+                    input: TestChunkDecompressor([], maximumRead: 1),
+                    filter: filter, startOffset: UInt64(offset), expectedSize: 0
+                ))
+            }
+        }
+    }
+
+    private func assertBranchArchive(fixture: String, name: String) throws {
+        let reader = try ArchiveReader.open(data: Data(fixtureBytes("branch-\(fixture).7z")))
+        XCTAssertEqual(reader.entries.map(\.name), ["code.bin"])
+        let entry = try XCTUnwrap(reader.entries.first)
+        XCTAssertTrue(entry.methodDescription.split(separator: "+").contains(Substring(name)))
+        let payload = try reader.read(entry)
+        XCTAssertEqual(payload.count, 8_192)
+        XCTAssertEqual(
+            SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined(),
+            "50707e3abaa5a1b0676e0bd6b120133034ba7358c4584acc2b473207e015a2b8"
+        )
+    }
+
+    private func fixtureBytes(_ name: String) throws -> [UInt8] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/sevenzip/\(name).b64")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        return try base64(text.components(separatedBy: .whitespacesAndNewlines).joined())
     }
 
     private func assertBranchDecode(

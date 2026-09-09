@@ -578,9 +578,9 @@ enum SevenZipMethod {
         case [0x0A]: return .branch(.arm64)
         case [0x03, 0x03, 0x01, 0x1B]: return .bcj2
         case [0x06], [0x03, 0x03, 0x04, 0x01]:
-            return .unsupported("7z IA64 filter")
+            return .branch(.ia64)
         case [0x09], [0x03, 0x03, 0x08, 0x05]:
-            return .unsupported("7z SPARC filter")
+            return .branch(.sparc)
         default:
             let text = id.map { String(format: "%02X", $0) }.joined()
             return .unsupported("7z method 0x\(text)")
@@ -607,6 +607,8 @@ enum SevenZipMethod {
             case .armThumb: return "ARMT"
             case .arm64: return "ARM64"
             case .powerPC: return "PPC"
+            case .sparc: return "SPARC"
+            case .ia64: return "IA64"
             }
         case .bcj2: return "BCJ2"
         case let .unsupported(name): return name

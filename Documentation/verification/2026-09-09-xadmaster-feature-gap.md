@@ -132,6 +132,23 @@ KaitoKit は link target の 9 byte(`empty.txt`)を entry のデータとして�
 これは `linkTargetStoredAsData` という意図した設計(design.md §11)であって
 欠落ではない。
 
+## 修正後の再測(2026-09-09)
+
+第 1 ラウンドの 66 書庫を、7z coder 連鎖・LZMA_Alone・`.tar.Z`・SPARC / IA-64 filter を
+入れたあとで測り直した結果。
+
+| 分類 | 件数 | 内訳 |
+|---|---:|---|
+| 総合 SHA-256 が一致 | 40 | 修正前 34 から +6(7z BCJ2 連鎖・SPARC・IA-64・`.lzma`・`.tar.Z` ほか) |
+| KaitoKit が正しく XADMaster が誤る | 3 | 7z ARM64 filter、7z / RAR5 の header 暗号化 |
+| XADMaster が正しく KaitoKit が誤る | **7** | ISO 9660(tar 誤判定)、ZIP method 98、7z 分割、cpio × 2、ar、xar |
+| 両者とも扱えない | 8 | `.zst` / `.lz4` / `.br` / `.wim` / `.dmg` / uuencode / zip method 95 / 7z RISC-V |
+| 意味論の違い(欠落ではない) | 8 | 圧縮 tar の展開(KaitoKit は中の entry を返す)、RAR5 symlink、ZIP AES-256 の全件列挙 |
+
+残る 7 件は cooViewer-ogfp / cooViewer-k8v4 / cooViewer-th30 / cooViewer-1h3p /
+cooViewer-7wbx に分けてある。切り詰めからの救済(cooViewer-7q8s)は
+この表とは別枠で、依然として最大の差である。
+
 ## 性能の残差と、そこで否定した 5 つの仮説
 
 2026-09-08 の三系統ベンチ(§9.3)で、KaitoKit がフォーク XADMaster に負けて

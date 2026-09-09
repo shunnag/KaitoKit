@@ -2,6 +2,8 @@ import Foundation
 
 // 参照仕様: LZMA SDK の Methods.txt と各 ISA の公開命令形式。
 // x86 は呼出し境界をまたぐ候補を 5-byte lookback state で追跡する。
+// SPARC / IA-64 は Documentation/verification/2026-09-09-branch-filter-derivation.md
+// のブラックボックス導出に従う。
 
 /// 7z の単一入力 branch-conversion filter。
 enum SevenZipBranchFilter: Sendable, Equatable {
@@ -10,6 +12,8 @@ enum SevenZipBranchFilter: Sendable, Equatable {
     case armThumb
     case arm64
     case powerPC
+    case sparc
+    case ia64
 }
 
 /// 7z branch filter を固定長の出力ストリームとして逆変換する。
@@ -41,13 +45,17 @@ final class BCJFilterDecompressor: Decompressor {
             throw KaitoError.malformed("BCJ start offset exceeds 32 bits")
         }
         switch filter {
-        case .arm, .arm64, .powerPC:
+        case .arm, .arm64, .powerPC, .sparc:
             guard startOffset.isMultiple(of: 4) else {
                 throw KaitoError.malformed("BCJ start offset is not 4-byte aligned")
             }
         case .armThumb:
             guard startOffset.isMultiple(of: 2) else {
                 throw KaitoError.malformed("ARMT start offset is not 2-byte aligned")
+            }
+        case .ia64:
+            guard startOffset.isMultiple(of: 16) else {
+                throw KaitoError.malformed("IA64 start offset is not 16-byte aligned")
             }
         case .x86:
             break
@@ -57,7 +65,7 @@ final class BCJFilterDecompressor: Decompressor {
         self.filter = filter
         self.startOffset = UInt32(startOffset)
         self.expectedSize = expectedSize
-        pending.reserveCapacity(Self.inputChunkSize + 8)
+        pending.reserveCapacity(Self.inputChunkSize + 16)
     }
 
     var isFinished: Bool {
@@ -152,6 +160,10 @@ final class BCJFilterDecompressor: Decompressor {
             consumed = Self.decodeARM64(&pending, instructionPointer: virtualOffset)
         case .powerPC:
             consumed = Self.decodePowerPC(&pending, instructionPointer: virtualOffset)
+        case .sparc:
+            consumed = Self.decodeSPARC(&pending, instructionPointer: virtualOffset)
+        case .ia64:
+            consumed = Self.decodeIA64(&pending, instructionPointer: virtualOffset)
         }
 
         guard consumed >= 0, consumed <= pending.count else {
@@ -344,6 +356,73 @@ final class BCJFilterDecompressor: Decompressor {
                 writeUInt32BE(replacement, into: &bytes, at: index)
             }
             index += 4
+        }
+        return count
+    }
+
+    private static func decodeSPARC(
+        _ bytes: inout [UInt8],
+        instructionPointer: UInt32
+    ) -> Int {
+        let count = bytes.count - (bytes.count % 4)
+        var index = 0
+        while index < count {
+            if (bytes[index] == 0x40 && (bytes[index + 1] & 0xC0) == 0)
+                || (bytes[index] == 0x7F && (bytes[index + 1] & 0xC0) == 0xC0) {
+                let encoded = readUInt32BE(bytes, at: index) << 2
+                let decoded = (encoded &- (instructionPointer &+ UInt32(index))) >> 2
+                // 22-bit 変位の符号拡張と CALL opcode を再構成する。
+                let replacement = (0x4000_0000 - (decoded & 0x0040_0000))
+                    | 0x4000_0000 | (decoded & 0x003F_FFFF)
+                writeUInt32BE(replacement, into: &bytes, at: index)
+            }
+            index += 4
+        }
+        return count
+    }
+
+    private static func decodeIA64(
+        _ bytes: inout [UInt8],
+        instructionPointer: UInt32
+    ) -> Int {
+        let slotMasks: [UInt8] = [
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            4, 4, 6, 6, 0, 0, 7, 7,
+            4, 4, 0, 0, 4, 4, 0, 0,
+        ]
+        let instructionMask = (UInt64(1) << 41) - 1
+        let count = bytes.count - (bytes.count % 16)
+        var index = 0
+        while index < count {
+            let slotMask = slotMasks[Int(bytes[index] & 0x1F)]
+            for slot in 0..<3 where (slotMask & (UInt8(1) << slot)) != 0 {
+                let bitOffset = 5 + 41 * slot
+                let byteOffset = index + bitOffset / 8
+                let shift = bitOffset % 8
+                // 41-bit slot は常に bundle 内の 6 byte に収まる。
+                var window: UInt64 = 0
+                for byte in 0..<6 {
+                    window |= UInt64(bytes[byteOffset + byte]) << (8 * byte)
+                }
+                var instruction = (window >> shift) & instructionMask
+                guard ((instruction >> 37) & 0xF) == 5,
+                      ((instruction >> 9) & 7) == 0 else { continue }
+
+                let immediate = UInt32((instruction >> 13) & 0xF_FFFF)
+                    | (UInt32((instruction >> 36) & 1) << 20)
+                let decoded = ((immediate << 4)
+                    &- (instructionPointer &+ UInt32(index))) >> 4
+                instruction &= ~(UInt64(0x8F_FFFF) << 13)
+                instruction |= UInt64(decoded & 0xF_FFFF) << 13
+                instruction |= UInt64((decoded >> 20) & 1) << 36
+                // 隣接 slot と template の bit は変更しない。
+                window = (window & ~(instructionMask << shift)) | (instruction << shift)
+                for byte in 0..<6 {
+                    bytes[byteOffset + byte] = UInt8(truncatingIfNeeded: window >> (8 * byte))
+                }
+            }
+            index += 16
         }
         return count
     }

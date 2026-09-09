@@ -1,5 +1,8 @@
 import Foundation
 
+// coder の結合と出力サイズの参照仕様: LZMA SDK 7zFormat.txt (18.06)、
+// Folder / Coders Info。中間 buffer の制限は既存 ReadLimits に従う。
+
 struct SevenZipPackRange: Sendable, Equatable {
     let offset: UInt64
     let size: UInt64
@@ -131,11 +134,45 @@ private enum SevenZipPipelineValue {
         }
     }
 
-    func asBytes(method: String) throws -> SevenZipByteInput {
-        guard case let .bytes(input) = self else {
-            throw KaitoError.unsupportedMethod("7z \(method) after a streaming coder")
+    func asBytes(expectedSize: UInt64, limits: ReadLimits) throws -> SevenZipByteInput {
+        switch self {
+        case let .bytes(input):
+            return input
+        case let .stream(stream):
+            // 単一の展開済み buffer を保持するため、readAll と同じメモリ上限を使う。
+            try Checked.size(expectedSize, limit: limits.maxInMemorySize)
+            try Checked.size(expectedSize, limit: limits.maxTotalUncompressedSize)
+            let count = try Checked.toInt(expectedSize)
+            var data = Data(count: count)
+            try data.withUnsafeMutableBytes { storage in
+                var written = 0
+                while written < count {
+                    // written..<count は事前確保した未充填範囲だけを指す。
+                    let destination = UnsafeMutableRawBufferPointer(
+                        rebasing: storage[written..<count]
+                    )
+                    let actual = try stream.read(into: destination)
+                    guard actual > 0, actual <= destination.count else {
+                        throw KaitoError.truncated
+                    }
+                    written += actual
+                }
+            }
+            if !stream.isFinished {
+                var extra: UInt8 = 0
+                let actual = try withUnsafeMutableBytes(of: &extra) {
+                    try stream.read(into: $0)
+                }
+                guard actual == 0, stream.isFinished else {
+                    throw KaitoError.malformed("7z coder output exceeds its declared size")
+                }
+            }
+            return SevenZipByteInput(
+                source: DataByteSource(data: data),
+                offset: 0,
+                length: expectedSize
+            )
         }
-        return input
     }
 }
 
@@ -210,6 +247,13 @@ final class SevenZipFolderDecoderFactory {
             ))
         }
 
+        func byteInput(_ inputIndex: Int) throws -> SevenZipByteInput {
+            try inputValue(inputIndex).asBytes(
+                expectedSize: inputSize(inputIndex),
+                limits: limits
+            )
+        }
+
         func outputValue(_ outputIndex: Int) throws -> SevenZipPipelineValue {
             guard activeOutputs.insert(outputIndex).inserted else {
                 throw KaitoError.malformed("cyclic 7z coder graph")
@@ -235,7 +279,7 @@ final class SevenZipFolderDecoderFactory {
 
             case .lzma:
                 try requireArity(coder, inputs: 1)
-                let input = try inputValue(coder.firstInput).asBytes(method: "LZMA")
+                let input = try byteInput(coder.firstInput)
                 return .stream(try LZMADecoder(
                     source: input.source,
                     offset: input.offset,
@@ -247,7 +291,7 @@ final class SevenZipFolderDecoderFactory {
 
             case .lzma2:
                 try requireArity(coder, inputs: 1)
-                let input = try inputValue(coder.firstInput).asBytes(method: "LZMA2")
+                let input = try byteInput(coder.firstInput)
                 return .stream(try LZMA2Decoder(
                     source: input.source,
                     offset: input.offset,
@@ -259,7 +303,7 @@ final class SevenZipFolderDecoderFactory {
 
             case .ppmd7:
                 try requireArity(coder, inputs: 1)
-                let input = try inputValue(coder.firstInput).asBytes(method: "PPMd7")
+                let input = try byteInput(coder.firstInput)
                 return .stream(try PPMd7Decoder(
                     source: input.source,
                     offset: input.offset,
@@ -274,7 +318,7 @@ final class SevenZipFolderDecoderFactory {
                 guard coder.properties.isEmpty else {
                     throw KaitoError.malformed("7z Deflate has unexpected properties")
                 }
-                let input = try inputValue(coder.firstInput).asBytes(method: "Deflate")
+                let input = try byteInput(coder.firstInput)
                 return .stream(try DeflateDecompressor(
                     source: input.source,
                     offset: input.offset,
@@ -286,7 +330,7 @@ final class SevenZipFolderDecoderFactory {
                 guard coder.properties.isEmpty else {
                     throw KaitoError.malformed("7z BZip2 has unexpected properties")
                 }
-                let input = try inputValue(coder.firstInput).asBytes(method: "BZip2")
+                let input = try byteInput(coder.firstInput)
                 return .stream(try Bzip2Decompressor(
                     source: input.source,
                     offset: input.offset,
@@ -295,7 +339,7 @@ final class SevenZipFolderDecoderFactory {
 
             case .aes:
                 try requireArity(coder, inputs: 1)
-                let input = try inputValue(coder.firstInput).asBytes(method: "AES")
+                let input = try byteInput(coder.firstInput)
                 guard let password else { throw KaitoError.passwordRequired }
                 let properties = try SevenZipAESProperties(
                     bytes: coder.properties,

@@ -24,6 +24,9 @@ public enum ArchiveFormat: String, Sendable, CaseIterable {
     /// XZ streams.
     case xz
 
+    /// LZMA_Alone (`.lzma`) streams.
+    case lzma
+
     /// UNIX compress (`.Z`) streams.
     case compress
 }

@@ -3,6 +3,103 @@ import Foundation
 import XCTest
 
 final class SingleFileFormatTests: XCTestCase {
+    func testLZMAAloneKnownAndUnknownSizes() throws {
+        let directory = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = try ZipTestSupport.checkedInFixture("singlefile/alone.lzma")
+        let payload = try ZipTestSupport.checkedInFixture("sevenzip/code-payload.bin")
+        for knownSize in [false, true] {
+            var archive = fixture
+            let size: UInt64 = knownSize ? 8_192 : UInt64.max
+            for index in 0..<8 {
+                archive[5 + index] = UInt8(truncatingIfNeeded: size >> (index * 8))
+            }
+            let url = directory.appendingPathComponent("code.bin.lzma")
+            try archive.write(to: url)
+            let reader = try ArchiveReader.open(url: url)
+            XCTAssertEqual(reader.format.rawValue, "lzma")
+            XCTAssertEqual(reader.entries.map(\.name), ["code.bin"])
+            XCTAssertEqual(reader.entries[0].uncompressedSize, knownSize ? 8_192 : nil)
+            XCTAssertEqual(try reader.read(reader.entries[0]), payload)
+            XCTAssertEqual(try reader.reopen().read(reader.entries[0]), payload)
+            XCTAssertEqual(
+                try drain(reader.stream(reader.entries[0]), bufferSize: 7),
+                payload
+            )
+        }
+    }
+
+    func testLZMAAloneLimitsMalformedHeadersAndTruncation() throws {
+        let format = try XCTUnwrap(ArchiveFormat(rawValue: "lzma"))
+        let archive = try ZipTestSupport.checkedInFixture("singlefile/alone.lzma")
+        func reader(_ bytes: Data, limits: ReadLimits = ReadLimits()) throws -> SingleFileReader {
+            try SingleFileReader(
+                source: DataByteSource(data: bytes), format: format,
+                options: ReaderOptions(limits: limits), fallbackFileName: "code.bin.lzma"
+            )
+        }
+        for count in [0, 12, 13, 17] {
+            XCTAssertThrowsError(try reader(Data(archive.prefix(count)))) { error in
+                XCTAssertEqual(error as? KaitoError, .truncated)
+            }
+        }
+        for offset in [0, 13] {
+            var bad = archive
+            bad[offset] = 0xFF
+            XCTAssertThrowsError(try reader(bad))
+        }
+        XCTAssertThrowsError(try reader(archive, limits: ReadLimits(maxDictionarySize: 4_095))) { error in
+            guard case .limitExceeded = error as? KaitoError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+        var known = archive
+        for index in 0..<8 {
+            known[5 + index] = UInt8(truncatingIfNeeded: UInt64(8_192) >> (index * 8))
+        }
+        for limits in [ReadLimits(maxEntrySize: 8_191), ReadLimits(maxTotalUncompressedSize: 8_191)] {
+            XCTAssertThrowsError(try reader(known, limits: limits)) { error in
+                guard case .limitExceeded = error as? KaitoError else {
+                    return XCTFail("unexpected error: \(error)")
+                }
+            }
+        }
+        let unknown = try reader(archive)
+        XCTAssertThrowsError(try unknown.stream(
+            for: unknown.entries[0], limits: ReadLimits(maxEntrySize: 8_191)
+        ).readAll())
+        for limits in [ReadLimits(maxTotalUncompressedSize: 8_191), ReadLimits(maxInMemorySize: 8_191)] {
+            let directory = try TarTestSupport.temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let url = directory.appendingPathComponent("code.lzma")
+            try archive.write(to: url)
+            let bounded = try ArchiveReader.open(url: url, options: ReaderOptions(limits: limits))
+            XCTAssertThrowsError(try bounded.read(bounded.entries[0]))
+        }
+        let truncated = try reader(Data(archive.dropLast(8)))
+        XCTAssertThrowsError(try truncated.stream(for: truncated.entries[0], limits: ReadLimits()).readAll())
+    }
+
+    func testCompressTarCheckedInFixtureMemoryAndFileStaging() throws {
+        let directory = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = try ZipTestSupport.checkedInFixture("singlefile/tar-compress.tar.Z")
+        let payload = try ZipTestSupport.checkedInFixture("sevenzip/code-payload.bin")
+        for name in ["fixture.tar.Z", "fixture.tZ"] {
+            let url = directory.appendingPathComponent(name)
+            try fixture.write(to: url)
+            for memoryLimit: UInt64 in [1, 9_728] {
+                let limits = ReadLimits(inMemorySingleFileLimit: memoryLimit)
+                let reader = try ArchiveReader.open(url: url, options: ReaderOptions(limits: limits))
+                XCTAssertEqual(reader.format, .tar)
+                XCTAssertEqual(reader.entries.map(\.name), ["code.bin"])
+                XCTAssertEqual(reader.entries[0].uncompressedSize, 8_192)
+                XCTAssertEqual(try reader.read(reader.entries[0]), payload)
+                XCTAssertEqual(try reader.reopen().read(reader.entries[0]), payload)
+            }
+        }
+    }
+
     func testGzipAllHeaderFlagsNameAndConcatenatedMembers() throws {
         let first = Data("first member 日本語\n".utf8)
         let second = Data((0..<4_096).map { UInt8(truncatingIfNeeded: $0 * 29) })

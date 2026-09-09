@@ -1,9 +1,76 @@
 import CryptoKit
 import Foundation
-import KaitoKit
+@testable import KaitoKit
 import XCTest
 
 final class SevenZipIntegrationTests: XCTestCase {
+    func testStreamingCoderChainCheckedInFixture() throws {
+        let archive = try ZipTestSupport.checkedInFixture(
+            "sevenzip/chain-lzma-lzma-lzma2-bcj2.7z"
+        )
+        let payload = try ZipTestSupport.checkedInFixture("sevenzip/code-payload.bin")
+        let reader = try ArchiveReader.open(data: archive)
+        XCTAssertEqual(reader.entries.map(\.name), ["code.bin"])
+        XCTAssertEqual(reader.entries[0].uncompressedSize, 8_192)
+        let decoded = try reader.read(reader.entries[0])
+        XCTAssertEqual(decoded, payload)
+        XCTAssertEqual(
+            SHA256.hash(data: decoded).map { String(format: "%02x", $0) }.joined(),
+            "50707e3abaa5a1b0676e0bd6b120133034ba7358c4584acc2b473207e015a2b8"
+        )
+        XCTAssertEqual(try reader.reopen().read(reader.entries[0]), payload)
+    }
+
+    func testStreamingCoderMaterializationLimitsAndDeclaredSizes() throws {
+        // stored DEFLATE の二重符号化。外側は 6 bytes、内側は 1 byte を展開する。
+        // RFC 1951 の BFINAL / LEN / NLEN で構成し、出力宣言だけを変えて検証する。
+        let inner: [UInt8] = [1, 1, 0, 0xFE, 0xFF, 0x41]
+        let packed = Data([1, 6, 0, 0xF9, 0xFF] + inner)
+        func factory(size: UInt64, limits: ReadLimits) throws -> SevenZipFolderDecoderFactory {
+            try SevenZipFolderDecoderFactory(
+                source: DataByteSource(data: packed),
+                folder: SevenZipFolder(
+                    coders: (0..<2).map { index in
+                        SevenZipCoder(
+                            methodID: [0x04, 0x01, 0x08], inputCount: 1, outputCount: 1,
+                            properties: [], firstInput: index, firstOutput: index
+                        )
+                    },
+                    bindPairs: [SevenZipBindPair(input: 1, output: 0)],
+                    packedIndices: [0], inputCount: 2, outputCount: 2,
+                    finalOutputIndex: 1, unpackSizes: [size, 1],
+                    digest: SevenZipDigest(value: nil)
+                ),
+                packedRanges: [0: SevenZipPackRange(
+                    offset: 0, size: UInt64(packed.count), digest: SevenZipDigest(value: nil)
+                )],
+                limits: limits, password: nil, keyCache: SevenZipAESKeyCache(),
+                maximumAESCyclesPower: 24
+            )
+        }
+        XCTAssertEqual(try factory(size: 6, limits: ReadLimits()).decodeAll(limit: 1), Data([0x41]))
+        XCTAssertThrowsError(try factory(size: 7, limits: ReadLimits()).makeDecoder()) { error in
+            XCTAssertEqual(error as? KaitoError, .truncated)
+        }
+        for size: UInt64 in [0, 5] {
+            XCTAssertThrowsError(try factory(size: size, limits: ReadLimits()).makeDecoder()) { error in
+                guard case .malformed = error as? KaitoError else {
+                    return XCTFail("unexpected error: \(error)")
+                }
+            }
+        }
+        for limits in [
+            ReadLimits(maxInMemorySize: 5),
+            ReadLimits(maxTotalUncompressedSize: 5),
+        ] {
+            XCTAssertThrowsError(try factory(size: 6, limits: limits).makeDecoder()) { error in
+                guard case .limitExceeded = error as? KaitoError else {
+                    return XCTFail("unexpected error: \(error)")
+                }
+            }
+        }
+    }
+
     func testCopyLZMALZMA2DeflateAndBZip2MatchSevenZipBySHA256() throws {
         try SevenZipTestSupport.requireSevenZip()
         let temporary = try SevenZipTestSupport.temporaryDirectory(label: "7z-methods")

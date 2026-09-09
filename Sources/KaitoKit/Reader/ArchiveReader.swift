@@ -198,7 +198,7 @@ public final class ArchiveReader {
             reader = lha
             entries = lha.entries
             format = .lha
-        case .gzip, .bzip2, .xz, .compress:
+        case .gzip, .bzip2, .xz, .compress, .lzma:
             let single = try SingleFileReader(
                 source: source,
                 format: detected,
@@ -443,6 +443,10 @@ public final class ArchiveReader {
         }
         if name.hasSuffix(".tar.xz") || name.hasSuffix(".txz") {
             return .xz
+        }
+        // 既存の LZWDecoder と tar staging を .tar.Z / .tZ にも適用する。
+        if name.hasSuffix(".tar.z") || name.hasSuffix(".tz") {
+            return .compress
         }
         return nil
     }

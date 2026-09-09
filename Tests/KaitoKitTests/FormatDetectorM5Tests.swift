@@ -1,8 +1,89 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 @testable import KaitoKit
 import XCTest
 
 final class FormatDetectorM5Tests: XCTestCase {
+    func testLZMAAloneDetectionRequiresHintAndRejectsNonArchives() throws {
+        let directory = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = try ZipTestSupport.checkedInFixture("singlefile/alone.lzma")
+        let url = directory.appendingPathComponent("fixture.LZMA")
+        try fixture.write(to: url)
+        // 正例も同じテストに置き、検出を常に拒否する実装では通らないようにする。
+        XCTAssertEqual(try FormatDetector.detect(url: url).rawValue, "lzma")
+        assertUnsupported(fixture)
+        let unhinted = directory.appendingPathComponent("fixture.bin")
+        try fixture.write(to: unhinted)
+        XCTAssertThrowsError(try FormatDetector.detect(url: unhinted))
+
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        let image = try XCTUnwrap(context.makeImage())
+        var negatives: [Data] = []
+        // OS の画像 writer で完全な JPEG / PNG を作る。archive source は参照しない。
+        for type in ["public.jpeg", "public.png"] {
+            let data = NSMutableData()
+            let destination = try XCTUnwrap(CGImageDestinationCreateWithData(
+                data, type as CFString, 1, nil
+            ))
+            CGImageDestinationAddImage(destination, image, nil)
+            XCTAssertTrue(CGImageDestinationFinalize(destination))
+            negatives.append(data as Data)
+        }
+        negatives.append(Data("これは UTF-8 のテキストです。Archive detection test.\n".utf8))
+        var state: UInt64 = 0x4B41_4954_4F
+        negatives.append(Data((0..<(64 * 1_024)).map { _ in
+            state ^= state << 13
+            state ^= state >> 7
+            state ^= state << 17
+            return UInt8(truncatingIfNeeded: state)
+        }))
+        negatives.append(Data(repeating: 0, count: 64 * 1_024))
+        for data in negatives {
+            XCTAssertNotEqual(try? FormatDetector.detect(data: data).rawValue, "lzma")
+            try data.write(to: url)
+            XCTAssertNotEqual(try? FormatDetector.detect(url: url).rawValue, "lzma")
+        }
+    }
+
+    func testLZMAAloneDetectionChecksPropertiesLimitsAndRunsLast() throws {
+        let directory = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = try ZipTestSupport.checkedInFixture("singlefile/alone.lzma")
+        let url = directory.appendingPathComponent("fixture.lzma")
+        try fixture.write(to: url)
+        XCTAssertEqual(try FormatDetector.detect(url: url).rawValue, "lzma")
+        for properties: UInt8 in [5, 45 * 5, 255] {
+            var invalid = fixture
+            invalid[0] = properties
+            try invalid.write(to: url)
+            XCTAssertThrowsError(try FormatDetector.detect(url: url))
+        }
+        try fixture.write(to: url)
+        XCTAssertThrowsError(try FormatDetector.detect(
+            url: url, options: ReaderOptions(limits: ReadLimits(maxDictionarySize: 4_095))
+        ))
+        var known = fixture
+        for index in 0..<8 {
+            known[5 + index] = UInt8(truncatingIfNeeded: UInt64(8_192) >> (index * 8))
+        }
+        try known.write(to: url)
+        XCTAssertEqual(try FormatDetector.detect(url: url).rawValue, "lzma")
+        for limits in [ReadLimits(maxEntrySize: 8_191), ReadLimits(maxTotalUncompressedSize: 8_191)] {
+            XCTAssertThrowsError(try FormatDetector.detect(url: url, options: ReaderOptions(limits: limits)))
+        }
+        // 拡張子は native signature や既存の SFX 検出より優先しない。
+        try Data(zip).write(to: url)
+        XCTAssertEqual(try FormatDetector.detect(url: url), .zip)
+        try makePE(marker: sevenZip, at: 192).write(to: url)
+        XCTAssertEqual(try FormatDetector.detect(url: url), .sevenZip)
+    }
+
     private let zip = [UInt8]([0x50, 0x4B, 0x03, 0x04])
     private let rar5 = [UInt8]([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00])
     private let sevenZip = [UInt8]([0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])

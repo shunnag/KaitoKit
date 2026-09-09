@@ -279,3 +279,18 @@ implementation source was consulted.
   singlefile/tar-compress.tar.Z.b64
     tar -cf t.tar code.bin && compress -c t.tar
     Inner tar SHA-256: 87d2cff4c95ba6df1d49d3f3221284f4084bffac928dfdd9a347ab4e8a674aa3
+  sevenzip/sparc-vector-plain.bin.b64      (4096 bytes decoded)
+  sevenzip/sparc-vector-filtered.bin.b64   (4096 bytes decoded)
+  sevenzip/ia64-vector-plain.bin.b64       (4096 bytes decoded)
+  sevenzip/ia64-vector-filtered.bin.b64    (4096 bytes decoded)
+    Branch-filter oracle vectors for the derivation recorded in
+    Documentation/verification/2026-09-09-branch-filter-derivation.md. The plain
+    files are project-owned deterministic words (Python random, seed 20260909)
+    shaped as SPARC CALL / sign-extended CALL / IA-64 bundles. The filtered files
+    are the corresponding output of `7zz a -t7z -mhc=off -m0=SPARC|IA64 -m1=Copy`,
+    i.e. 7-Zip used purely as a black-box filter oracle; no 7-Zip source was read.
+    SHA-256, in the order above:
+      42355772e089ee253ca6b361993156c6fd50dd9dea78110d7f387e8c4b1ac6d1
+      678c8ff2903b5b39ac5e4cb34a426cae7a2bc6e131617a162302a93a464b5488
+      ed1eb85d618010a3cec4e1cbc429e3de3671a387f1d1ce2bb2e1c19a42a88f40
+      a91802db740401e17d61f724c4bb403a82bf68a303af96ad591662e5782b7c30

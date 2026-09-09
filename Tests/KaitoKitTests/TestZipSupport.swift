@@ -138,6 +138,12 @@ struct ZipCommandResult {
 }
 
 enum ZipTestSupport {
+    static func checkedInFixture(_ relativePath: String) throws -> Data {
+        let url = repositoryRoot.appendingPathComponent("Tests/Fixtures/\(relativePath).b64")
+        let encoded = try String(contentsOf: url, encoding: .utf8)
+        return try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters))
+    }
+
     static let infoZipPath = "/usr/bin/zip"
     static let unzipPath = "/usr/bin/unzip"
     static let bsdTarPath = "/usr/bin/bsdtar"

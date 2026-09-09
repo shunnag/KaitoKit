@@ -66,7 +66,8 @@ public enum FormatDetector {
             fileName: nil,
             sfxScanSize: options.scanForSFXInData
                 ? options.maximumSFXScanSize
-                : 0
+                : 0,
+            limits: options.limits
         )
     }
 
@@ -85,7 +86,8 @@ public enum FormatDetector {
     ///
     /// File URLs inspect a bounded Mach-O or PE prefix by default. If content
     /// recognition does not decide the result, `.tar` and `.Z` extensions are
-    /// used as hints for formats whose names are useful compatibility signals.
+    /// used as hints. LZMA_Alone requires a `.lzma` extension and a plausible
+    /// header, and is checked last.
     public static func detect(
         url: URL,
         options: ReaderOptions = ReaderOptions()
@@ -94,7 +96,8 @@ public enum FormatDetector {
         return try detect(
             source: source,
             fileName: url.lastPathComponent,
-            sfxScanSize: options.maximumSFXScanSize
+            sfxScanSize: options.maximumSFXScanSize,
+            limits: options.limits
         )
     }
 
@@ -112,14 +115,16 @@ public enum FormatDetector {
             fileName: sourceURL?.lastPathComponent,
             sfxScanSize: sourceURL != nil
                 ? options.maximumSFXScanSize
-                : (options.scanForSFXInData ? options.maximumSFXScanSize : 0)
+                : (options.scanForSFXInData ? options.maximumSFXScanSize : 0),
+            limits: options.limits
         )
     }
 
     private static func detect(
         source: any ByteSource,
         fileName: String?,
-        sfxScanSize: UInt64
+        sfxScanSize: UInt64,
+        limits: ReadLimits
     ) throws -> ArchiveFormat {
         let prefixLength = try Checked.toInt(min(source.length, UInt64(tarBlockSize)))
         let prefix = try read(source: source, at: 0, count: prefixLength)
@@ -186,6 +191,12 @@ public enum FormatDetector {
             }
             if pathExtension.caseInsensitiveCompare("Z") == .orderedSame {
                 return .compress
+            }
+            // LZMA SDK lzma-specification.txt (2015-06-14) の header を
+            // 最後に検査する。magic が無いため拡張子だけでは受理しない。
+            if pathExtension.caseInsensitiveCompare("lzma") == .orderedSame,
+               LZMAAloneHeader.isPlausible(prefix, limits: limits) {
+                return .lzma
             }
         }
 

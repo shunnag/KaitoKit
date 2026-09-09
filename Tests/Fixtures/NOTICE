@@ -305,3 +305,8 @@ implementation source was consulted.
       b.bin (4096 bytes)        e05455bcbbec58463277e8874036e57bdcf8c49c792a23ce03d6baba0765271c
       sub/nested.txt (15 bytes) 4e7267fd5c54130fe83e69920d63e38117957e56f9172965b8db27c75a3c1a96
     b.bin is UInt8((i * 13) % 251) for i in 0..<4096.
+
+  rar/rar5-recovery.rar.b64
+    RAR 6.24 の -ma5 -m3 で生成した非 solid の切断救済テスト用書庫。
+    one.txt / two.txt は各 33 byte、tail.bin は非圧縮性の 512 byte。
+    無傷の 701 byte を保存し、切断版はテスト内で生成する。

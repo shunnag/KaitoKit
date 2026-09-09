@@ -41,6 +41,15 @@
   救済時も働き、誤ったパスワードは `wrongPassword` のままになる。
   健全な書庫 95 件と暗号化書庫 6 件は、この設定の有無で結果が完全に一致する。
 
+- 救済モードを RAR5 にも広げた。切り詰められた RAR5 で切断点より前の entry を返し、
+  切れた entry を `isIncomplete` として読めた byte だけ返す。末尾の end marker だけを
+  失った書庫は無傷と同一の結果に到達し、stored entry では XADMaster(常に 0 byte)を
+  上回って部分救済できる。solid は切れた member 以降を読ませないことで総合結果が
+  XADMaster と一致する。多巻の欠落は次巻へまたがる entry を完全と偽らないため
+  救済対象外とした。暗号化された不完全 entry は認証されない byte を返さず何も返さない。
+  宣言 packed サイズはそのまま保持し `availablePackedSize` を別に持つため、
+  `maxEntrySize` の資源上限は緩まない。
+
 - tar の形式判定が member header の数値フィールドまで解析していたため、size が壊れた
   tar が `malformed` ではなく「未対応形式」に化けていたのを修正。判定は 512 byte・
   非空のパス名・checksum 一致だけを見る。あわせて、先頭が 0 で埋まったファイルを

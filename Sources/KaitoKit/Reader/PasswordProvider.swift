@@ -36,13 +36,21 @@ public struct ReaderOptions: Sendable {
     /// Whether ZIP local headers are validated only when their entry is first read.
     public var lazyLocalHeaders: Bool
 
-    /// Whether damaged ZIP, tar, and LHA archives retain recoverable entries.
+    /// Whether damaged ZIP, tar, LHA, and RAR5 archives retain recoverable entries.
     /// Incomplete entries expose only the payload bytes that can be decoded, and
     /// their integrity is **not** verified: CRC-32, WinZip AES HMAC, and MacBinary
     /// CRC-16 checks are all skipped for them. Bytes recovered from an encrypted
     /// incomplete entry are unauthenticated and may have been tampered with, so
     /// treat them as untrusted. Entries that are not incomplete stay fully
     /// verified, and healthy archives read identically with this enabled.
+    ///
+    /// Two RAR5 cases are deliberately not recovered. A multi-volume archive
+    /// whose later volumes are missing still fails, so an entry that continues
+    /// into the next volume is never reported as complete. An incomplete member
+    /// of a solid group is listed with `isIncomplete` but throws when read,
+    /// because its decoder state is shared with the members that follow it.
+    /// An incomplete *encrypted* RAR5 entry returns no bytes at all rather than
+    /// unauthenticated ones.
     public var recoverDamagedArchives: Bool
 
     /// Maximum iterated-SHA-256 cycle power accepted from 7zAES metadata.

@@ -126,3 +126,128 @@ ISO 9660(先頭 32 KiB が全 0 の system area)が tar と誤判定されて
 `c.rnd` の **0 byte** で、部分救済をしているわけではない。したがって RAR5 に
 同じ経路を入れれば、KaitoKit は ZIP / LHA と同様に XADMaster を上回れる見込みが
 ある。作業単位として分離した(bead を参照)。
+
+---
+
+# RAR5 の切り詰め救済(追補)
+
+ZIP / tar / LHA に続いて RAR5 を救済対象に加えた。オラクルは XADMaster の
+実行ファイルの入出力のみ。RAR5 の block 構造は RARLab の RAR 5.0 technote だけを
+使って解析した。
+
+## 構造の把握
+
+`full.rar`(RAR5 / -m3 / 非 solid / 40,594 byte)。
+
+| block | header | data | packed |
+|---|---|---|---|
+| main | 8..25 | — | 0 |
+| `b.bin` | 25..67 | 67..379 | 312(60,000 を圧縮)|
+| `a.txt` | 379..421 | 421..473 | 52(9,200 を圧縮)|
+| `c.rnd` | 473..515 | 515..40515 | 40,000(非圧縮性)|
+| service | 40515..40586 | 40534..40586 | 52 |
+| end marker | 40586..40594 | — | 0 |
+
+packed data が header 直後にインラインなので、切断は必ず**最後に到達した block**
+に落ちる。よって不完全 entry は常に最後の published entry になり、solid の
+復号状態を共有する経路(`SolidCoordinator` / `makeSolidVerifiedStream`)を
+一切変更せずに済む。
+
+当初の bead は「90/60/30% に切り詰めた 3 書庫」でしか測っておらず、3 つとも
+同じ digest になる理由を説明できていなかった。byte 単位で切断点を指定して
+測り直した結果、非圧縮性の `c.rnd` が容量の大半を占めるためどの切断点も
+`c.rnd` の内側に落ちていただけだと分かった。
+
+## 切断点ごとの結果
+
+| 切断 byte | KaitoKit(救済 ON) | XADMaster | 判定 |
+|---:|---|---|---|
+| 40,515(end marker のみ欠落)| 3 entry 完全 `51251bfa73…` | 同一 | **無傷と完全に同じ** |
+| 20,515(`c.rnd` の途中)| 2 entry + `c.rnd` を **20,000 byte** 救済 | `c.rnd` は **0 byte** | **上回る** |
+| 600 | 2 entry + `c.rnd` を **85 byte** 救済 | **0 byte** | **上回る** |
+| 490(`c.rnd` の header 途中)| 2 entry 完全 `3060f071eb…` | 同一 | 一致 |
+| 450(`a.txt` の途中)| 1 entry + `a.txt` 0 byte `af36d015f7…` | 同一 | 一致 |
+| 200(`b.bin` の途中)| `b.bin` 0 byte のみ `cd372fb851…` | 同一 | 一致 |
+
+**XADMaster は切れた entry を一度も部分救済しない**(常に 0 byte)。
+KaitoKit は stored 相当の entry では部分救済でき、圧縮 entry では最初の block が
+揃わないため 0 byte になる(XADMaster と同じ)。
+
+「end marker だけ欠落」は、データは全部あるのに従来は**全件を失っていた**
+ケースで、実害としては最大だった。
+
+## solid
+
+格納順 b.bin → c.rnd → a.txt の `-s` 書庫。
+
+| 変種 | KaitoKit | XADMaster | 判定 |
+|---|---|---|---|
+| 無傷 | 3 entry `20ea442832…` | 同一 | 一致 |
+| 中央で切断 | `b.bin` 完全 + `c.rnd` は一覧に出るが読むと `truncated` `af36d015f7…` | 同一 | **総合 digest が一致** |
+| 末尾 80 byte 欠落 | `b.bin`/`c.rnd` 完全 + `a.txt` 同上 `478888093d…` | 同一 | **一致** |
+
+solid 群では復号状態が連続するため、切れた member を部分救済すると後続の出力が
+壊れる。よって切れた member は `isIncomplete` として一覧には出すが、読むと
+`truncated` を投げる。XADMaster が 0 byte を返すのと結果は同じで、総合 digest も
+一致する。
+
+## 暗号化書庫の切り詰め
+
+`-ppw`(データ暗号化)と `-hppw`(ヘッダ暗号化)で作り、最後の entry の
+内側で切ったもの。**16 byte 境界に揃えた切断も含めて**確認した。
+
+| 確認 | 結果 |
+|---|---|
+| 正しいパスワード + 救済 | 切断前の entry は完全に復号でき、切れた entry は **0 byte + `truncated`** |
+| 誤ったパスワード + 救済 | データ暗号化は全 entry が `The password is incorrect`、ヘッダ暗号化は書庫全体が同エラー |
+| 16 byte 境界で切断 + 誤パスワード | 同上。**ごみを返す経路は無い** |
+| 救済 OFF | 従来どおり `The archive is truncated` |
+
+RAR5 では、暗号化された不完全 entry は**認証されない byte を返さず、何も返さない**。
+ZIP の WinZip AES が部分 byte を返す(認証なし)のとは異なり、こちらの方が
+安全側に倒れている。password verifier は救済モードでも素通りしない。
+
+## 多巻は救済しない(意図的な差)
+
+| 状況 | KaitoKit | XADMaster |
+|---|---|---|
+| 全巻あり | 3 entry `51251bfa73…` | 一致 |
+| part2/part3 を削除 | **`truncated`(救済 ON でも)** | part1 に収まる 2 entry を返す |
+
+XADMaster は多巻の欠落を切り詰めと同じに扱うが、KaitoKit は救済しない。
+次巻へまたがる entry を「完全」と偽らないことを優先した。`.volume` フラグの
+立った書庫が救済停止した場合は従来どおり失敗させるため、`RARVolumeLocator` /
+`mergeSplitParts` / `activeSplit` は救済経路から到達不能になる。
+
+## 規模と速度(40MB / 20 entry)
+
+非圧縮性 2MB × 20 = 41,945,353 byte。すべて `-m0`(stored)。
+
+| 変種 | 結果 | 時間 |
+|---|---|---:|
+| 無傷 | 20 entry `b65637540a…` | 15〜24ms |
+| 末尾 8 byte 欠落 | 20 entry、**無傷と同一の digest** | 15ms |
+| 末尾 1MB 欠落 | 19 entry 完全 + `page19.bin` を **1,098,419 byte** 救済(原本の先頭と一致)| 295〜300ms |
+
+XADMaster は同じ書庫で `page19.bin` を 0 byte で返す。
+
+**部分救済の速度は現状 3.9 MB/s で、ZIP の約 50 MB/s に対しておよそ 13 倍遅い。**
+原因は `RecoveryDecompressor` が 1 byte ずつ読む点にある。ZIP では inflate の
+内部バッファから 1 byte を取り出すだけだが、RAR5 の stored entry では
+`CopyDecompressor` 経由で毎回 `ByteSource` に触れるため割高になる。
+不完全 entry にしか使わない経路なので機能上の問題は無いが、実測値として記録する。
+
+## 既定動作が変わっていないことの確認
+
+| 確認 | 結果 |
+|---|---|
+| 健全な書庫 95 件の strict と救済の一致 | **95/95** |
+| 暗号化書庫 6 件の strict と救済の一致 | **6/6** |
+| 禁止領域(RAR4Reader / RAR29Decoder / RARStandardFilters / RARPPMdRangeDecoder)| すべて HEAD と同一 |
+| `SolidCoordinator` / `makeSolidVerifiedStream` | 差分なし |
+| `swift build -c release` / `swift test` | BUILD=0 / TEST=0、662 test・0 failure(33 skip)|
+
+`Checked.size(record.packedSize, limit: limits.maxEntrySize)` は**宣言値**を見続ける。
+宣言サイズをその場で切り詰めると資源上限が黙って緩むため、ZIP と同じく
+`availablePackedSize` を別に持つ形にした(`RAR5RecoveryTests`
+`testRecoveryPreservesDeclaredPackedSizeLimit` がこれを固定している)。

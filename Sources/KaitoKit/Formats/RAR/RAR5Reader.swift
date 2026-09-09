@@ -16,6 +16,8 @@ final class RAR5Reader: FormatReader {
         let extra: RAR5ByteCursor
         let dataOffset: UInt64
         let dataSize: UInt64
+        let availableDataSize: UInt64
+        let isDataTruncated: Bool
         let nextOffset: UInt64
     }
 
@@ -49,6 +51,8 @@ final class RAR5Reader: FormatReader {
         let kind: EntryKind
         let unpackedSize: UInt64?
         let packedSize: UInt64
+        var availablePackedSize: UInt64? = nil
+        var isIncomplete = false
         let modificationDate: Date?
         let permissions: UInt16?
         let crc32: UInt32?
@@ -74,6 +78,8 @@ final class RAR5Reader: FormatReader {
         let packedSegments: [RARSourceSegment]
         let packedPartIntegrity: [PackedPartIntegrity]
         let packedSize: UInt64
+        var availablePackedSize: UInt64? = nil
+        var isIncomplete = false
         let unpackedSize: UInt64?
         let compression: RAR5CompressionInfo
         let encryption: RAR5EncryptionRecord?
@@ -525,6 +531,11 @@ final class RAR5Reader: FormatReader {
             try Checked.size(unpackedSize, limit: limits.maxEntrySize)
         }
 
+        // 切れた solid member は列挙だけ許し、連続する復号状態には渡さない。
+        if options.recoverDamagedArchives, entry.isIncomplete, entry.solidGroup >= 0 {
+            throw KaitoError.truncated
+        }
+
         if Self.isZeroBodyRedirection(record.redirectionType) {
             return try EntryStream(
                 source: source,
@@ -587,18 +598,32 @@ final class RAR5Reader: FormatReader {
             decompressor = try CopyDecompressor(
                 source: prepared.source,
                 offset: prepared.offset,
-                compressedSize: logicalStoredSize
+                compressedSize: entry.isIncomplete
+                    ? min(logicalStoredSize, record.availablePackedSize ?? record.packedSize)
+                    : logicalStoredSize
             )
         } else {
-            decompressor = try Self.makeCompressedDecompressor(
-                source: prepared.source,
-                offset: prepared.offset,
-                compressedSize: record.packedSize,
-                unpackedSize: outputLength,
-                dictionarySize: record.compression.dictionarySize,
-                limits: limits,
-                mismatchIsWrongPassword: prepared.mismatchIsWrongPassword
-            )
+            do {
+                decompressor = try Self.makeCompressedDecompressor(
+                    source: prepared.source,
+                    offset: prepared.offset,
+                    compressedSize: record.availablePackedSize ?? record.packedSize,
+                    unpackedSize: outputLength,
+                    dictionarySize: record.compression.dictionarySize,
+                    limits: limits,
+                    mismatchIsWrongPassword: prepared.mismatchIsWrongPassword
+                )
+            } catch KaitoError.truncated {
+                guard options.recoverDamagedArchives, entry.isIncomplete else {
+                    throw KaitoError.truncated
+                }
+                // 最初の圧縮 block すら揃わない場合、復号できた出力は 0 byte。
+                decompressor = try CopyDecompressor(
+                    source: prepared.source,
+                    offset: prepared.offset,
+                    compressedSize: 0
+                )
+            }
         }
 
         var completionCheck: (() throws -> Void)?
@@ -607,6 +632,7 @@ final class RAR5Reader: FormatReader {
         // records without that independent check necessarily remain ambiguous.
         let mismatchIsWrongPassword = prepared.mismatchIsWrongPassword
         if options.verifyRAR5Blake2sp,
+           !entry.isIncomplete,
            let recordHash = record.hash,
            recordHash.type == 0 {
             let hashing = try RAR5Blake2spDecompressor(
@@ -623,9 +649,11 @@ final class RAR5Reader: FormatReader {
             { checksum in RAR5ChecksumMAC.crc32(checksum, hashKey: key) }
         }
         return try EntryStream(
-            decompressor: decompressor,
-            length: outputLength,
-            expectedCRC32: expectedCRC,
+            decompressor: entry.isIncomplete
+                ? RecoveryDecompressor(decompressor, maximumOutputSize: outputLength)
+                : decompressor,
+            length: entry.isIncomplete ? nil : outputLength,
+            expectedCRC32: entry.isIncomplete ? nil : expectedCRC,
             entryIndex: entry.index,
             limits: limits,
             completionCheck: completionCheck,
@@ -1153,6 +1181,12 @@ final class RAR5Reader: FormatReader {
             )
         }
 
+        // 多巻の欠損を単一書庫の切断と混同せず、分割 entry の救済を禁止する。
+        if options.recoverDamagedArchives,
+           !first.sawEndHeader, first.archiveFlags.contains(RAR5ArchiveFlags.volume) {
+            throw KaitoError.truncated
+        }
+
         guard first.archiveFlags.contains(RAR5ArchiveFlags.volume), let sourceURL else {
             if first.endFlags.contains(RAR5EndFlags.moreVolumes),
                !first.archiveFlags.contains(RAR5ArchiveFlags.volume) {
@@ -1162,7 +1196,8 @@ final class RAR5Reader: FormatReader {
             }
             let published = try publish(
                 first.pending,
-                archiveFlags: first.archiveFlags
+                archiveFlags: first.archiveFlags,
+                recoverDamagedArchives: options.recoverDamagedArchives
             )
             return (published.entries, published.records, resolvedPassword)
         }
@@ -1257,7 +1292,11 @@ final class RAR5Reader: FormatReader {
         guard merged.count <= options.limits.maxEntryCount else {
             throw KaitoError.limitExceeded("RAR5 entry count")
         }
-        let published = try publish(merged, archiveFlags: first.archiveFlags)
+        let published = try publish(
+            merged,
+            archiveFlags: first.archiveFlags,
+            recoverDamagedArchives: options.recoverDamagedArchives
+        )
         return (published.entries, published.records, resolvedPassword)
     }
 
@@ -1283,9 +1322,12 @@ final class RAR5Reader: FormatReader {
         expectedHeaderEncryption: Bool?,
         headerKDFBudget: inout HeaderKDFWorkBudget
     ) throws -> ParseState {
+        // 後続巻では救済を有効にせず、従来どおり切断を通知する。
+        let recoverDamagedArchives = options.recoverDamagedArchives && volumeNumber == 0
         var state = ParseState()
         var offset = UInt64(signature.count)
         var archiveEncryption: ArchiveEncryptionContext?
+        var headerBodyWasVerified = false
         // Allocation profiling found a 256 KiB allocation and zero fill in
         // every readBlock. Keep one bounded cursor per volume and seek across
         // payloads, retaining read-ahead when the next header is still cached.
@@ -1300,7 +1342,9 @@ final class RAR5Reader: FormatReader {
                 source: source,
                 reader: &headerReader,
                 offset: offset,
-                limits: options.limits
+                limits: options.limits,
+                recoverDamagedArchives: recoverDamagedArchives,
+                headerBodyWasVerified: &headerBodyWasVerified
             )
             let headersEncrypted = firstBlock.typeValue
                 == RAR5HeaderType.encryption.rawValue
@@ -1325,20 +1369,25 @@ final class RAR5Reader: FormatReader {
 
         while offset < source.length, !state.sawEndHeader {
             let block: Block
+            headerBodyWasVerified = false
             do {
                 if let archiveEncryption {
                     block = try readEncryptedBlock(
                         source: source,
                         offset: offset,
                         key: archiveEncryption.key,
-                        limits: options.limits
+                        limits: options.limits,
+                        recoverDamagedArchives: recoverDamagedArchives,
+                        headerBodyWasVerified: &headerBodyWasVerified
                     )
                 } else {
                     block = try readBlock(
                         source: source,
                         reader: &headerReader,
                         offset: offset,
-                        limits: options.limits
+                        limits: options.limits,
+                        recoverDamagedArchives: recoverDamagedArchives,
+                        headerBodyWasVerified: &headerBodyWasVerified
                     )
                 }
             } catch {
@@ -1346,6 +1395,14 @@ final class RAR5Reader: FormatReader {
                    !archiveEncryption.passwordWasVerified,
                    !state.sawMainHeader {
                     throw KaitoError.wrongPassword
+                }
+                // header 自体が EOF で切れた場合だけ、既読 entry を残す。
+                // CRC 検証後の共通 header の自己矛盾も救済しない。
+                if recoverDamagedArchives,
+                   state.sawMainHeader,
+                   !headerBodyWasVerified,
+                   case KaitoError.truncated = error {
+                    break
                 }
                 throw error
             }
@@ -1422,7 +1479,7 @@ final class RAR5Reader: FormatReader {
         guard state.sawMainHeader else {
             throw KaitoError.malformed("RAR5 main header is missing")
         }
-        guard state.sawEndHeader else {
+        guard recoverDamagedArchives || state.sawEndHeader else {
             throw KaitoError.truncated
         }
         if state.endFlags.contains(RAR5EndFlags.moreVolumes),
@@ -1500,7 +1557,9 @@ final class RAR5Reader: FormatReader {
         source: any ByteSource,
         offset: UInt64,
         key: Data,
-        limits: ReadLimits
+        limits: ReadLimits,
+        recoverDamagedArchives: Bool,
+        headerBodyWasVerified: inout Bool
     ) throws -> Block {
         guard offset <= source.length,
               try Checked.sub(source.length, offset) >= 32 else {
@@ -1579,11 +1638,13 @@ final class RAR5Reader: FormatReader {
                 "RAR5 encrypted header CRC mismatch at offset \(offset)"
             )
         }
+        headerBodyWasVerified = true
         return try makeBlock(
             offset: offset,
             body: body,
             dataOffset: ciphertextEnd,
-            sourceLength: source.length
+            sourceLength: source.length,
+            recoverDamagedArchives: recoverDamagedArchives
         )
     }
 
@@ -1591,7 +1652,9 @@ final class RAR5Reader: FormatReader {
         source: any ByteSource,
         reader: inout ByteReader,
         offset: UInt64,
-        limits: ReadLimits
+        limits: ReadLimits,
+        recoverDamagedArchives: Bool,
+        headerBodyWasVerified: inout Bool
     ) throws -> Block {
         try reader.seek(to: offset)
         guard reader.remaining >= 5 else { throw KaitoError.truncated }
@@ -1614,11 +1677,13 @@ final class RAR5Reader: FormatReader {
             throw KaitoError.malformed("RAR5 header CRC mismatch at offset \(offset)")
         }
 
+        headerBodyWasVerified = true
         return try makeBlock(
             offset: offset,
             body: body,
             dataOffset: reader.offset,
-            sourceLength: source.length
+            sourceLength: source.length,
+            recoverDamagedArchives: recoverDamagedArchives
         )
     }
 
@@ -1626,7 +1691,8 @@ final class RAR5Reader: FormatReader {
         offset: UInt64,
         body: [UInt8],
         dataOffset: UInt64,
-        sourceLength: UInt64
+        sourceLength: UInt64,
+        recoverDamagedArchives: Bool
     ) throws -> Block {
         var cursor = RAR5ByteCursor(body)
         let type = try cursor.readVInt()
@@ -1644,8 +1710,21 @@ final class RAR5Reader: FormatReader {
             throw KaitoError.malformed("RAR5 header cursor is inconsistent")
         }
 
-        let nextOffset = try Checked.add(dataOffset, dataSize)
-        guard nextOffset <= sourceLength else { throw KaitoError.truncated }
+        let declaredEnd = try Checked.add(dataOffset, dataSize)
+        let availableDataSize: UInt64
+        let isDataTruncated: Bool
+        let nextOffset: UInt64
+        if declaredEnd <= sourceLength {
+            availableDataSize = dataSize
+            isDataTruncated = false
+            nextOffset = declaredEnd
+        } else {
+            // 宣言値は保持し、救済時だけ EOF までを読み取り範囲にする。
+            guard recoverDamagedArchives else { throw KaitoError.truncated }
+            availableDataSize = try Checked.sub(sourceLength, dataOffset)
+            isDataTruncated = true
+            nextOffset = sourceLength
+        }
         guard nextOffset > offset else {
             throw KaitoError.malformed("RAR5 block did not advance")
         }
@@ -1657,6 +1736,8 @@ final class RAR5Reader: FormatReader {
             extra: extra,
             dataOffset: dataOffset,
             dataSize: dataSize,
+            availableDataSize: availableDataSize,
+            isDataTruncated: isDataTruncated,
             nextOffset: nextOffset
         )
     }
@@ -1795,6 +1876,8 @@ final class RAR5Reader: FormatReader {
             limit: options.limits.maxTotalMetadataSize
         )
 
+        let isIncomplete = options.recoverDamagedArchives && block.isDataTruncated
+        let availablePackedSize = isIncomplete ? block.availableDataSize : nil
         let splitAfter = block.flags.contains(.splitAfter)
         return PendingEntry(
             rawName: rawName,
@@ -1803,6 +1886,8 @@ final class RAR5Reader: FormatReader {
             kind: kind,
             unpackedSize: unpackedSize,
             packedSize: block.dataSize,
+            availablePackedSize: availablePackedSize,
+            isIncomplete: isIncomplete,
             modificationDate: extras.modificationDate ?? basicModificationDate,
             permissions: permissions,
             crc32: splitAfter ? nil : dataCRC,
@@ -1812,7 +1897,7 @@ final class RAR5Reader: FormatReader {
             packedSegments: [RARSourceSegment(
                 source: source,
                 offset: block.dataOffset,
-                length: block.dataSize
+                length: availablePackedSize ?? block.dataSize
             )],
             packedPartIntegrity: [PackedPartIntegrity(
                 crc32: splitAfter ? dataCRC : nil,
@@ -2227,7 +2312,8 @@ final class RAR5Reader: FormatReader {
 
     private static func publish(
         _ pending: [PendingEntry],
-        archiveFlags: RAR5ArchiveFlags
+        archiveFlags: RAR5ArchiveFlags,
+        recoverDamagedArchives: Bool
     ) throws -> (entries: [ArchiveEntry], records: [Record]) {
         var solidGroups = [Int](repeating: -1, count: pending.count)
         if archiveFlags.contains(RAR5ArchiveFlags.solid) {
@@ -2344,7 +2430,8 @@ final class RAR5Reader: FormatReader {
                 solidGroup: solidGroups[index],
                 crc32: zeroBodyRedirection ? nil : item.crc32,
                 methodDescription: methodDescription,
-                formatSpecific: specific
+                formatSpecific: specific,
+                isIncomplete: recoverDamagedArchives && item.isIncomplete
             )
             entries.append(entry)
             if let normalizedName = normalizedExtractionPath(item.name) {
@@ -2358,6 +2445,8 @@ final class RAR5Reader: FormatReader {
                     ? []
                     : item.packedPartIntegrity,
                 packedSize: publishedPackedSize,
+                availablePackedSize: item.availablePackedSize,
+                isIncomplete: recoverDamagedArchives && item.isIncomplete,
                 unpackedSize: publishedUnpackedSize,
                 compression: item.compression,
                 encryption: item.extras.encryption,

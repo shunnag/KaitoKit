@@ -152,7 +152,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 - 組込み cancellation token は未提供です。incremental 処理は caller が `EntryStream` の read loop を
   終了して制御します。
 - 破損書庫の救済は既定で無効です。`ReaderOptions.recoverDamagedArchives = true` にすると、
-  ZIP（中央ディレクトリを失ったもの）・tar・LHA から読める entry を取り出せます。救済対象は
+  ZIP（中央ディレクトリを失ったもの）・tar・LHA・RAR5 から読める entry を取り出せます。救済対象は
   「EOCD が見つからない ZIP」であり、EOCD はあるが中央ディレクトリが壊れている ZIP は
   従来どおり `malformed` です。7z はヘッダが末尾にあるため切り詰められた書庫を救済できません。
   切れた entry は `ArchiveEntry.isIncomplete` が `true` になり、**CRC-32 / WinZip AES の HMAC /
@@ -160,6 +160,11 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
   いないため、信頼できない入力として扱ってください（password verifier は救済時も働くので、
   誤ったパスワードは従来どおり `wrongPassword` になります）。完全な entry と健全な書庫の
   読み取り結果は、この設定を有効にしても変わりません。
+- RAR5 の救済には意図的な制限が 2 つあります。後続巻が欠けた multi-volume 書庫は救済せず
+  従来どおり失敗します（次巻へまたがる entry を「完全」と偽らないため）。solid 群で切れた
+  member は `isIncomplete` として一覧に出ますが、読むと `truncated` になります（復号状態が
+  後続 member と連続するため）。なお暗号化された不完全 RAR5 entry は、認証されない byte を
+  返さず何も返しません。
 
 ## 組み込みの注意
 

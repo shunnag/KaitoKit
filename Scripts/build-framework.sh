@@ -1,10 +1,37 @@
 #!/usr/bin/env bash
-# SwiftPM のユニバーサル dylib と公開モジュールを KaitoKit.framework にまとめる。
+# SwiftPM の dylib と公開モジュールを KaitoKit.framework にまとめる。
 # 複数の --arch を同時に指定すると SwiftBuild 経由になり .swiftinterface が
 # 出力されないため、各トリプルを個別にビルドして結合する。
 # SwiftPM を介さない利用側では、ネストした KaitoKitCompat を解決するため
 # `-I KaitoKit.framework/Modules` も指定する必要がある。
 set -euo pipefail
+
+# 公開パッケージの利用者に非互換を持ち込まないよう、既定は universal のままにする。
+# 必要な場合だけ KAITOKIT_ARCHS="arm64" などを空白区切りで指定する。
+IFS=$' \t\n' read -r -d '' -a REQUESTED_ARCHS < <(
+    printf '%s\0' "${KAITOKIT_ARCHS-arm64 x86_64}"
+)
+if [[ ${#REQUESTED_ARCHS[@]} -eq 0 ]]; then
+    echo "error: KAITOKIT_ARCHS must not be empty; supported architectures: arm64 x86_64" >&2
+    exit 1
+fi
+for arch in "${REQUESTED_ARCHS[@]}"; do
+    case "$arch" in
+        arm64|x86_64) ;;
+        *)
+            echo "error: unsupported architecture '$arch' in KAITOKIT_ARCHS; supported architectures: arm64 x86_64" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# 重複を除き、指定順が違っても同じビルド設定として扱う。
+ARCHS=()
+for arch in arm64 x86_64; do
+    if [[ " ${REQUESTED_ARCHS[*]} " == *" $arch "* ]]; then
+        ARCHS+=("$arch")
+    fi
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -12,8 +39,16 @@ FRAMEWORKS_DIR="$ROOT_DIR/Frameworks"
 FRAMEWORK="$FRAMEWORKS_DIR/KaitoKit.framework"
 EXECUTABLE="$FRAMEWORK/Versions/A/KaitoKit"
 STAMP_FILE="$FRAMEWORK/Versions/A/Resources/.swift-version"
+ARCHS_STAMP_FILE="$FRAMEWORK/Versions/A/Resources/.archs"
 CALLER_HOME="${HOME:-/var/empty}"
 CALLER_DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app}"
+
+verify_architectures() {
+    local arch
+    for arch in "${ARCHS[@]}"; do
+        lipo "$EXECUTABLE" -verify_arch "$arch" || return 1
+    done
+}
 
 # Xcode の Run Script から継承したビルド設定が SwiftPM に混ざらないようにする。
 run_swift() {
@@ -26,9 +61,11 @@ run_swift() {
 
 SWIFT_VERSION="$(run_swift --version 2>/dev/null | sed -n '1p')"
 
-# ソースとツールチェーンが変わっていなければ既存成果物を使う。
-if [[ -f "$EXECUTABLE" && -f "$STAMP_FILE" ]] && \
-        [[ "$(<"$STAMP_FILE")" == "$SWIFT_VERSION" ]]; then
+# ソース・ツールチェーン・要求アーキテクチャが同じ場合だけ既存成果物を使う。
+if [[ -f "$EXECUTABLE" && -f "$STAMP_FILE" && -f "$ARCHS_STAMP_FILE" ]] && \
+        [[ "$(<"$STAMP_FILE")" == "$SWIFT_VERSION" && \
+           "$(<"$ARCHS_STAMP_FILE")" == "${ARCHS[*]}" ]] && \
+        verify_architectures >/dev/null 2>&1; then
     if [[ -z "$(find "$ROOT_DIR/Sources" "$ROOT_DIR/Package.swift" \
             "$SCRIPT_DIR/build-framework.sh" \
             -type f -newer "$EXECUTABLE" -print -quit)" ]]; then
@@ -51,32 +88,35 @@ build_for_triple() {
         -Xswiftc -emit-module-interface "$@"
 }
 
-for build_triple in arm64-apple-macosx x86_64-apple-macosx; do
+BIN_DIRS=()
+DYLIBS=()
+for arch in "${ARCHS[@]}"; do
+    build_triple="$arch-apple-macosx"
     build_for_triple "$build_triple"
-done
 
-# ビルド時と同じオプションで、SwiftPM が決めた出力先を取得する。
-ARM64_BIN_DIR="$(build_for_triple arm64-apple-macosx --show-bin-path)"
-X86_64_BIN_DIR="$(build_for_triple x86_64-apple-macosx --show-bin-path)"
-ARM64_DYLIB="$ARM64_BIN_DIR/libKaitoKitDynamic.dylib"
-X86_64_DYLIB="$X86_64_BIN_DIR/libKaitoKitDynamic.dylib"
-
-for dylib in "$ARM64_DYLIB" "$X86_64_DYLIB"; do
+    # ビルド時と同じオプションで、SwiftPM が決めた出力先を取得する。
+    bin_dir="$(build_for_triple "$build_triple" --show-bin-path)"
+    dylib="$bin_dir/libKaitoKitDynamic.dylib"
     if [[ ! -f "$dylib" ]]; then
         echo "error: dynamic library not found: $dylib" >&2
         exit 1
     fi
+    BIN_DIRS+=("$bin_dir")
+    DYLIBS+=("$dylib")
 done
 
 rm -rf "$FRAMEWORK"
 MODULES_DIR="$FRAMEWORK/Versions/A/Modules"
 RESOURCES_DIR="$FRAMEWORK/Versions/A/Resources"
 mkdir -p "$MODULES_DIR" "$RESOURCES_DIR"
-lipo -create "$X86_64_DYLIB" "$ARM64_DYLIB" -output "$EXECUTABLE"
+if [[ ${#DYLIBS[@]} -eq 1 ]]; then
+    cp "${DYLIBS[0]}" "$EXECUTABLE"
+else
+    lipo -create "${DYLIBS[@]}" -output "$EXECUTABLE"
+fi
 
-if ! lipo -info "$EXECUTABLE" | grep -q 'arm64' || \
-        ! lipo -info "$EXECUTABLE" | grep -q 'x86_64'; then
-    echo "error: KaitoKit is not a universal arm64/x86_64 binary" >&2
+if ! verify_architectures; then
+    echo "error: KaitoKit is missing requested architectures: ${ARCHS[*]}" >&2
     exit 1
 fi
 
@@ -142,9 +182,12 @@ install_arch_artifacts() {
 install_module() {
     local name="$1"
     local destination="$MODULES_DIR/$name.swiftmodule"
+    local index
     mkdir -p "$destination"
-    install_arch_artifacts "$name" arm64-apple-macosx "$destination" "$ARM64_BIN_DIR"
-    install_arch_artifacts "$name" x86_64-apple-macosx "$destination" "$X86_64_BIN_DIR"
+    for index in "${!ARCHS[@]}"; do
+        install_arch_artifacts "$name" "${ARCHS[$index]}-apple-macosx" \
+            "$destination" "${BIN_DIRS[$index]}"
+    done
 }
 
 # Compat の interface が import KaitoKit を含むため両モジュールが必要。
@@ -178,6 +221,7 @@ cat > "$RESOURCES_DIR/Info.plist" <<'PLIST'
 </plist>
 PLIST
 echo "$SWIFT_VERSION" > "$STAMP_FILE"
+echo "${ARCHS[*]}" > "$ARCHS_STAMP_FILE"
 
 ln -s A "$FRAMEWORK/Versions/Current"
 ln -s Versions/Current/KaitoKit "$FRAMEWORK/KaitoKit"

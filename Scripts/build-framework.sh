@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SwiftPM のユニバーサル dylib と公開モジュールを KaitoKit.framework にまとめる。
 # 複数の --arch を同時に指定すると SwiftBuild 経由になり .swiftinterface が
-# 出力されないため、各トリプルをネイティブの SwiftPM で個別にビルドして結合する。
+# 出力されないため、各トリプルを個別にビルドして結合する。
 # SwiftPM を介さない利用側では、ネストした KaitoKitCompat を解決するため
 # `-I KaitoKit.framework/Modules` も指定する必要がある。
 set -euo pipefail
@@ -39,15 +39,25 @@ fi
 
 cd "$ROOT_DIR"
 # library evolution を有効にし、異なる Swift コンパイラ用の interface も残す。
-for build_triple in arm64-apple-macosx x86_64-apple-macosx; do
+build_for_triple() {
+    local build_triple="$1"
+    shift
+    # 新しい SwiftPM は出力先がトリプルに依存せず衝突するため、
+    # スクラッチ領域を分けて両アーキテクチャの成果物を保持する。
     run_swift build -c release --triple "$build_triple" \
+        --scratch-path "$ROOT_DIR/.build/$build_triple" \
         --product KaitoKitDynamic \
         -Xswiftc -enable-library-evolution \
-        -Xswiftc -emit-module-interface
+        -Xswiftc -emit-module-interface "$@"
+}
+
+for build_triple in arm64-apple-macosx x86_64-apple-macosx; do
+    build_for_triple "$build_triple"
 done
 
-ARM64_BIN_DIR="$ROOT_DIR/.build/arm64-apple-macosx/release"
-X86_64_BIN_DIR="$ROOT_DIR/.build/x86_64-apple-macosx/release"
+# ビルド時と同じオプションで、SwiftPM が決めた出力先を取得する。
+ARM64_BIN_DIR="$(build_for_triple arm64-apple-macosx --show-bin-path)"
+X86_64_BIN_DIR="$(build_for_triple x86_64-apple-macosx --show-bin-path)"
 ARM64_DYLIB="$ARM64_BIN_DIR/libKaitoKitDynamic.dylib"
 X86_64_DYLIB="$X86_64_BIN_DIR/libKaitoKitDynamic.dylib"
 
@@ -71,7 +81,7 @@ if ! lipo -info "$EXECUTABLE" | grep -q 'arm64' || \
 fi
 
 find_latest_interface() {
-    local bin_dir="$1"
+    local search_dir="$1"
     local name="$2"
     local latest=""
     local candidate
@@ -80,7 +90,7 @@ find_latest_interface() {
         if [[ -z "$latest" || "$candidate" -nt "$latest" ]]; then
             latest="$candidate"
         fi
-    done < <(find "$bin_dir" -name "$name.swiftinterface" \
+    done < <(find "$search_dir" -name "$name.swiftinterface" \
         -not -path '*ModuleCache*' -print0 2>/dev/null)
 
     [[ -n "$latest" ]] || return 1
@@ -91,25 +101,36 @@ install_arch_artifacts() {
     local name="$1"
     local build_triple="$2"
     local destination="$3"
+    local bin_dir="$4"
     local arch="${build_triple%%-*}"
     local triple="$arch-apple-macos"
-    local bin_dir="$ROOT_DIR/.build/$build_triple/release"
-    local modules_dir="$bin_dir/Modules"
+    local modules_dir="$bin_dir/$name.swiftmodule"
+    local artifact
     local interface
     local extension
 
     for extension in swiftmodule swiftdoc; do
-        if [[ ! -f "$modules_dir/$name.$extension" ]]; then
+        if [[ -d "$modules_dir" ]]; then
+            # 新レイアウトはモジュールのディレクトリ内にトリプル別のファイルを置く。
+            artifact="$modules_dir/$triple.$extension"
+            if [[ ! -f "$artifact" ]]; then
+                artifact="$modules_dir/$build_triple.$extension"
+            fi
+        else
+            # 旧レイアウトは Modules 内にモジュール名で平置きする。
+            artifact="$bin_dir/Modules/$name.$extension"
+        fi
+        if [[ ! -f "$artifact" ]]; then
             echo "error: $name $arch $extension not found" >&2
             exit 1
         fi
-        cp "$modules_dir/$name.$extension" \
-            "$destination/$triple.$extension"
+        cp "$artifact" "$destination/$triple.$extension"
         cp "$destination/$triple.$extension" \
             "$destination/$build_triple.$extension"
     done
 
-    if ! interface="$(find_latest_interface "$bin_dir" "$name")"; then
+    # Products の外の中間生成物も、同じトリプルのスクラッチ領域内だけで探す。
+    if ! interface="$(find_latest_interface "$ROOT_DIR/.build/$build_triple" "$name")"; then
         echo "error: $name $arch swiftinterface not emitted" >&2
         exit 1
     fi
@@ -122,8 +143,8 @@ install_module() {
     local name="$1"
     local destination="$MODULES_DIR/$name.swiftmodule"
     mkdir -p "$destination"
-    install_arch_artifacts "$name" arm64-apple-macosx "$destination"
-    install_arch_artifacts "$name" x86_64-apple-macosx "$destination"
+    install_arch_artifacts "$name" arm64-apple-macosx "$destination" "$ARM64_BIN_DIR"
+    install_arch_artifacts "$name" x86_64-apple-macosx "$destination" "$X86_64_BIN_DIR"
 }
 
 # Compat の interface が import KaitoKit を含むため両モジュールが必要。

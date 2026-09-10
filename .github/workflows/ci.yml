@@ -7,8 +7,9 @@ on:
 jobs:
   build-and-test:
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-26, macos-26-intel]
+        os: [macos-26, macos-26-intel, xcode-27]
     # ラベルが利用できない場合は macos-15 へ一時的に戻す。
     runs-on: ${{ matrix.os }}
     steps:
@@ -23,6 +24,58 @@ jobs:
           KAITO_REQUIRE_XZ: "1"
         run: swift test
 
+  # 利用側の cooViewer は、このスクリプトが作るフレームワークを組み込む。
+  # swift build / swift test が緑でも、ここが壊れると利用側はビルドできない（2026-09 に実際に発生）。
+  # スクリプトは新旧のモジュール配置を分岐するため、macos-26 と xcode-27 の両方で検証する。
+  # 片方だけでは分岐の半分しか通らず、修正前のバグは実際に Xcode 27 でのみ再現した。
+  # xcode-27 は現時点ではプレビュー扱いの arm64 イメージで、Intel 版は存在しない。
+  framework:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-26, xcode-27]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Show toolchain versions
+        run: |
+          swift --version
+          xcodebuild -version
+      - name: Build framework
+        run: ./Scripts/build-framework.sh
+      - name: Verify framework artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="Frameworks/KaitoKit.framework/Versions/A/KaitoKit"
+          modules="Frameworks/KaitoKit.framework/Versions/A/Modules"
+
+          if ! lipo_info="$(lipo -info "$binary")"; then
+            echo "error: unable to inspect framework binary: $binary" >&2
+            exit 1
+          fi
+          printf '%s\n' "$lipo_info"
+          if ! grep -qw 'arm64' <<< "$lipo_info" ||
+             ! grep -qw 'x86_64' <<< "$lipo_info"; then
+            echo "error: KaitoKit must contain both arm64 and x86_64" >&2
+            exit 1
+          fi
+
+          for module in KaitoKit KaitoKitCompat; do
+            module_directory="$modules/$module.swiftmodule"
+            if [[ ! -d "$module_directory" ]]; then
+              echo "error: module directory not found: $module_directory" >&2
+              exit 1
+            fi
+            if ! interface="$(find "$module_directory" -type f -name '*.swiftinterface' -print -quit)" ||
+               [[ -z "$interface" ]]; then
+              echo "error: swiftinterface not found: $module_directory" >&2
+              exit 1
+            fi
+          done
+
+          ls "$modules/"
+
   compressed-payload-mutants:
     runs-on: macos-26
     steps:
@@ -31,7 +84,7 @@ jobs:
         run: brew install sevenzip
       - name: Check fuzz tooling
         run: |
-          bash -n Scripts/fuzz/*.sh
+          bash -n Scripts/build-framework.sh Scripts/fuzz/*.sh
           python3 -m py_compile Scripts/fuzz/mutate.py
       - name: Run compressed-payload sanitizer smoke
         run: |

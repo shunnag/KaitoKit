@@ -3,6 +3,7 @@ import Foundation
 // 参照仕様: PKWARE APPNOTE.TXT 6.3.x。通常は中央ディレクトリを索引として扱う。
 final class ZipReader: FormatReader {
     private static let localHeaderSignature: UInt32 = 0x0403_4b50
+    private static let dataDescriptorSignature: UInt32 = 0x0807_4b50
     private static let centralHeaderSignature: UInt32 = 0x0201_4b50
     private static let endSignature: UInt32 = 0x0605_4b50
     private static let zip64EndSignature: UInt32 = 0x0606_4b50
@@ -28,6 +29,7 @@ final class ZipReader: FormatReader {
         let method: UInt16
         let headerMethod: UInt16
         let encryption: Encryption
+        let usesZIP64: Bool
         var availableCompressedSize: UInt64? = nil
         var hasKnownCompressedSize = true
     }
@@ -36,6 +38,8 @@ final class ZipReader: FormatReader {
         let dataOffset: UInt64
         let usesDataDescriptor: Bool
         let dosTime: UInt16
+        let usesZIP64: Bool
+        var rawRecordEnd: UInt64? = nil
     }
 
     private struct DirectoryLocation {
@@ -110,6 +114,8 @@ final class ZipReader: FormatReader {
     private let localHeaderOrderPositions: [Int]
     private var localRecords: [LocalRecord?]
     private var validatedLocalRangePosition = -1
+    // 通常の読取は従来どおり payload まで。descriptor を含む検証の進捗は分離する。
+    private var validatedRawRangePosition = -1
     private var password: String?
     private var aesDerivedKeyCache: [WinZipAESKeyCacheKey: WinZipAESDerivedKeys] = [:]
 
@@ -209,6 +215,35 @@ final class ZipReader: FormatReader {
         )
     }
 
+    func rawRecord(for entry: ArchiveEntry, limits: ReadLimits) throws -> RawEntryRecord? {
+        guard entry.index >= 0,
+              entry.index < records.count,
+              entries[entry.index] == entry else {
+            throw KaitoError.notFound("zip entry index \(entry.index)")
+        }
+        guard !entry.isIncomplete else { return nil }
+        try validateEntryRanges(
+            through: localHeaderOrderPositions[entry.index],
+            limits: limits,
+            includingDataDescriptors: true
+        )
+        let record = records[entry.index]
+        let local = try resolveLocalRecord(at: entry.index, limits: limits)
+        guard let end = local.rawRecordEnd else {
+            throw KaitoError.malformed("ZIP raw record range was not validated")
+        }
+        var specific = entry.formatSpecific
+        specific["crc32"] = String(format: "0x%08x", record.storedCRC32)
+        specific["headerMethod"] = String(record.headerMethod)
+        specific["hasDataDescriptor"] = String(local.usesDataDescriptor)
+        specific["isZIP64"] = String(record.usesZIP64 || local.usesZIP64)
+        return RawEntryRecord(
+            recordRange: record.localHeaderOffset..<end,
+            payloadRange: local.dataOffset..<(try Checked.add(local.dataOffset, record.compressedSize)),
+            formatSpecific: specific
+        )
+    }
+
     private func localRecord(at index: Int, limits: ReadLimits) throws -> LocalRecord {
         let local = try resolveLocalRecord(at: index, limits: limits)
         try validateEntryRanges(
@@ -263,6 +298,7 @@ final class ZipReader: FormatReader {
             throw KaitoError.malformed("ZIP encryption flag differs between headers")
         }
 
+        var usesZIP64 = false
         if extraLength > 0 {
             try Checked.size(extraLength, limit: limits.maxMetadataSize)
             let extra = try Self.readExactly(
@@ -275,6 +311,7 @@ final class ZipReader: FormatReader {
                 recordLimit: limits.maxMetadataRecordCount,
                 tailPolicy: .zeroPadding
             )
+            usesZIP64 = fields.contains { $0.identifier == 0x0001 }
             if localCompressed32 == UInt32.max || localUncompressed32 == UInt32.max {
                 guard let zip64 = Self.uniqueExtra(0x0001, in: fields) else {
                     throw KaitoError.malformed("ZIP64 local sizes are missing")
@@ -298,7 +335,8 @@ final class ZipReader: FormatReader {
         let local = LocalRecord(
             dataOffset: dataOffset,
             usesDataDescriptor: localFlags & 0x0008 != 0,
-            dosTime: localDOSTime
+            dosTime: localDOSTime,
+            usesZIP64: usesZIP64
         )
         localRecords[index] = local
         return local
@@ -306,10 +344,13 @@ final class ZipReader: FormatReader {
 
     private func validateEntryRanges(
         through requestedPosition: Int,
-        limits: ReadLimits
+        limits: ReadLimits,
+        includingDataDescriptors: Bool = false
     ) throws {
-        while validatedLocalRangePosition < requestedPosition {
-            let position = validatedLocalRangePosition + 1
+        var validatedPosition = includingDataDescriptors
+            ? validatedRawRangePosition : validatedLocalRangePosition
+        while validatedPosition < requestedPosition {
+            let position = validatedPosition + 1
             let index = localHeaderOrder[position]
             let start = records[index].localHeaderOffset
             if position > 0 {
@@ -319,19 +360,87 @@ final class ZipReader: FormatReader {
                 }
             }
 
-            let local = try resolveLocalRecord(at: index, limits: limits)
+            var local = try resolveLocalRecord(at: index, limits: limits)
             let end = try Checked.add(
                 local.dataOffset,
                 records[index].availableCompressedSize ?? records[index].compressedSize
             )
+            var upperBound = min(centralDirectoryOffset, source.length)
             if position + 1 < localHeaderOrder.count {
                 let nextIndex = localHeaderOrder[position + 1]
                 if records[nextIndex].localHeaderOffset < end {
                     throw KaitoError.malformed("ZIP entry ranges overlap")
                 }
+                upperBound = min(upperBound, records[nextIndex].localHeaderOffset)
             }
-            validatedLocalRangePosition = position
+            if includingDataDescriptors {
+                guard !entries[index].isIncomplete else {
+                    throw KaitoError.malformed("ZIP preceding entry has an unverified extent")
+                }
+                guard local.usesDataDescriptor == (records[index].flags & 0x0008 != 0) else {
+                    throw KaitoError.malformed("ZIP data-descriptor flag differs between headers")
+                }
+                // 前の entry の descriptor も調べ、呼出順にかかわらず重なりを拒否する。
+                local.rawRecordEnd = try rawRecordEnd(
+                    record: records[index], local: local, payloadEnd: end, upperBound: upperBound
+                )
+                localRecords[index] = local
+                validatedRawRangePosition = position
+            } else {
+                validatedLocalRangePosition = position
+            }
+            validatedPosition = position
         }
+    }
+
+    private func rawRecordEnd(
+        record: Record,
+        local: LocalRecord,
+        payloadEnd: UInt64,
+        upperBound: UInt64
+    ) throws -> UInt64 {
+        guard payloadEnd <= upperBound else {
+            throw KaitoError.malformed("ZIP raw record lies outside its entry bounds")
+        }
+        guard local.usesDataDescriptor else { return payloadEnd }
+
+        // APPNOTE 4.3.9: entry の ZIP64 extra がサイズ幅を決める。
+        // 書庫全体の ZIP64 EOCD や展開バージョンだけでは判定しない。
+        let wide = record.usesZIP64 || local.usesZIP64
+        let unsignedSize = wide ? 20 : 12
+        let available = upperBound - payloadEnd
+        guard available >= UInt64(unsignedSize) else {
+            throw KaitoError.malformed("ZIP data descriptor overlaps the next record or central directory")
+        }
+        let bytes = try Self.readExactly(
+            source: source,
+            offset: payloadEnd,
+            count: Int(min(available, UInt64(unsignedSize + 4)))
+        )
+        var matchedEnd: UInt64?
+        // CRC 自体が署名と同値の場合があるため、署名の有無は全フィールドで照合する。
+        for base in [0, 4] {
+            if base == 4, Self.littleUInt32(bytes, at: 0) != Self.dataDescriptorSignature {
+                continue
+            }
+            guard bytes.count >= base + unsignedSize else { continue }
+            let crc = Self.littleUInt32(bytes, at: base)
+            let compressed = wide ? Self.littleUInt64(bytes, at: base + 4)
+                : UInt64(Self.littleUInt32(bytes, at: base + 4))
+            let uncompressed = wide ? Self.littleUInt64(bytes, at: base + 12)
+                : UInt64(Self.littleUInt32(bytes, at: base + 8))
+            guard crc == record.storedCRC32,
+                  compressed == record.compressedSize,
+                  uncompressed == record.uncompressedSize else { continue }
+            guard matchedEnd == nil else {
+                throw KaitoError.malformed("ambiguous ZIP data descriptor")
+            }
+            matchedEnd = try Checked.add(payloadEnd, UInt64(base + unsignedSize))
+        }
+        guard let matchedEnd else {
+            throw KaitoError.malformed("ZIP data descriptor disagrees with the central directory")
+        }
+        return matchedEnd
     }
 
     private func payloadSource(
@@ -1726,6 +1835,7 @@ final class ZipReader: FormatReader {
                 method: method,
                 headerMethod: headerMethod,
                 encryption: encryption,
+                usesZIP64: extraFields.contains { $0.identifier == 0x0001 },
                 availableCompressedSize: extent?.availableSize,
                 hasKnownCompressedSize: extent?.unknownSize != true
             ))

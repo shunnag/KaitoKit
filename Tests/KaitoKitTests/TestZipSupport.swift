@@ -32,6 +32,9 @@ struct HandZipEntry {
     var localCompressedSize: UInt32?
     var localUncompressedSize: UInt32?
     var hasDataDescriptor: Bool
+    // 公開 APPNOTE の byte 表から組み立てる descriptor の 4 形態。
+    var dataDescriptorHasSignature = true
+    var dataDescriptorUsesZIP64 = false
 
     init(
         name: String,
@@ -487,7 +490,7 @@ enum ZipTestSupport {
             let crc32 = CRC32.checksum(entry.uncompressedData)
             let flags = entry.hasDataDescriptor ? entry.flags | 0x0008 : entry.flags
             appendUInt32(0x0403_4B50, to: &body)
-            appendUInt16(20, to: &body)
+            appendUInt16(entry.dataDescriptorUsesZIP64 ? 45 : 20, to: &body)
             appendUInt16(flags, to: &body)
             appendUInt16(entry.method, to: &body)
             appendUInt16(0x1883, to: &body) // 03:04:06
@@ -497,13 +500,13 @@ enum ZipTestSupport {
                 to: &body
             )
             appendUInt32(
-                entry.hasDataDescriptor ? 0 : entry.localCompressedSize
-                    ?? UInt32(entry.compressedData.count),
+                entry.localCompressedSize
+                    ?? (entry.hasDataDescriptor ? 0 : UInt32(entry.compressedData.count)),
                 to: &body
             )
             appendUInt32(
-                entry.hasDataDescriptor ? 0 : entry.localUncompressedSize
-                    ?? UInt32(entry.uncompressedData.count),
+                entry.localUncompressedSize
+                    ?? (entry.hasDataDescriptor ? 0 : UInt32(entry.uncompressedData.count)),
                 to: &body
             )
             appendUInt16(UInt16(entry.rawName.count), to: &body)
@@ -512,10 +515,17 @@ enum ZipTestSupport {
             body.append(entry.localExtra)
             body.append(entry.compressedData)
             if entry.hasDataDescriptor {
-                appendUInt32(0x0807_4B50, to: &body)
+                if entry.dataDescriptorHasSignature {
+                    appendUInt32(0x0807_4B50, to: &body)
+                }
                 appendUInt32(crc32, to: &body)
-                appendUInt32(UInt32(entry.compressedData.count), to: &body)
-                appendUInt32(UInt32(entry.uncompressedData.count), to: &body)
+                if entry.dataDescriptorUsesZIP64 {
+                    appendUInt64(UInt64(entry.compressedData.count), to: &body)
+                    appendUInt64(UInt64(entry.uncompressedData.count), to: &body)
+                } else {
+                    appendUInt32(UInt32(entry.compressedData.count), to: &body)
+                    appendUInt32(UInt32(entry.uncompressedData.count), to: &body)
+                }
             }
             records.append((entry, localOffset, crc32))
         }
@@ -532,7 +542,7 @@ enum ZipTestSupport {
             let flags = entry.hasDataDescriptor ? entry.flags | 0x0008 : entry.flags
             appendUInt32(0x0201_4B50, to: &body)
             appendUInt16(entry.versionMadeBy, to: &body)
-            appendUInt16(20, to: &body)
+            appendUInt16(entry.dataDescriptorUsesZIP64 ? 45 : 20, to: &body)
             appendUInt16(flags, to: &body)
             appendUInt16(entry.method, to: &body)
             appendUInt16(0x1883, to: &body)

@@ -360,6 +360,16 @@ public final class ArchiveReader {
         return try stream(entry).readAll()
     }
 
+    /// 再圧縮せずに運べる形式では生レコード範囲を返す。未対応形式と isIncomplete は nil。
+    /// 現在は ZIP のみ対応し、data descriptor を含む範囲と中央ディレクトリとの整合を検証する。
+    /// 暗号化 entry もパスワードなしで取得できる。payload の復号・展開・完全性検証は行わない。
+    /// 呼び出しからコピー完了まで、source の byte は不変でなければならない。
+    public func rawRecord(of entry: ArchiveEntry) throws -> RawEntryRecord? {
+        try validate(entry)
+        guard !entry.isIncomplete else { return nil }
+        return try reader.rawRecord(for: entry, limits: options.limits)
+    }
+
     /// Safely extracts one entry below `directory` and returns its destination.
     ///
     /// The caller must prevent other threads or processes from mutating the

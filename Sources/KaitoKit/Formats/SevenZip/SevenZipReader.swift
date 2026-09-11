@@ -230,7 +230,7 @@ final class SevenZipReader: FormatReader {
         let absoluteOffset = try Checked.add(signatureHeaderSize, nextOffset)
         let end = try Checked.add(absoluteOffset, nextSize)
         guard end <= source.length else {
-            throw KaitoError.malformed("7z next header extends past end of file")
+            throw KaitoError.truncated
         }
         let bytes = try readByteRange(
             source: source,

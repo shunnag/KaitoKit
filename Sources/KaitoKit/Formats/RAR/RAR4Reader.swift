@@ -74,7 +74,7 @@ final class RAR4Reader: FormatReader {
     }
 
     private struct Record {
-        let packedSegments: [RARSourceSegment]
+        let packedSegments: [SourceSegment]
         let packedPartCRC32: [UInt32?]
         let packedSize: UInt64
         let unpackedSize: UInt64
@@ -561,10 +561,11 @@ final class RAR4Reader: FormatReader {
             packedSource = DataByteSource(data: Data())
             packedOffset = 0
         } else {
-            packedSource = try RARConcatenatedByteSource(
+            packedSource = try ConcatenatedByteSource(
                 segments: record.packedSegments,
                 maximumLength: record.packedSize,
-                maximumSegmentCount: limits.maxVolumeCount
+                maximumSegmentCount: limits.maxVolumeCount,
+                label: "RAR split stream"
             )
             packedOffset = 0
         }
@@ -816,10 +817,11 @@ final class RAR4Reader: FormatReader {
             packed = (DataByteSource(data: Data()), 0)
         } else {
             packed = (
-                try RARConcatenatedByteSource(
+                try ConcatenatedByteSource(
                     segments: record.packedSegments,
                     maximumLength: record.packedSize,
-                    maximumSegmentCount: limits.maxVolumeCount
+                    maximumSegmentCount: limits.maxVolumeCount,
+                    label: "RAR split stream"
                 ),
                 0
             )
@@ -1625,7 +1627,7 @@ final class RAR4Reader: FormatReader {
             formatSpecific: specific
         )
         let record = Record(
-            packedSegments: [RARSourceSegment(
+            packedSegments: [SourceSegment(
                 source: source,
                 offset: dataOffset,
                 length: packedSize

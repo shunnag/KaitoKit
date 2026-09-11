@@ -33,7 +33,8 @@ public struct ReadLimits: Sendable, Equatable {
     /// Maximum dictionary allocation accepted from compressed metadata.
     public var maxDictionarySize: UInt64
 
-    /// Maximum number of volumes accepted in one multi-volume archive.
+    /// RAR 多巻書庫と `.001` バイト分割セットで受理する最大巻数。既定は 128。
+    /// 分割探索できる先頭巻では 0 以下を拒否し、1 なら兄弟が実在する場合だけ上限超過。
     public var maxVolumeCount: Int
 
     /// Maximum aggregate PBKDF2 work used to decrypt RAR5 archive headers.
@@ -59,7 +60,7 @@ public struct ReadLimits: Sendable, Equatable {
     ///   - maxPathComponentCount: Maximum components in one path. The default is 1,024.
     ///   - maxTotalMetadataSize: Maximum aggregate retained metadata. The default is 256 MiB.
     ///   - maxDictionarySize: Maximum codec dictionary size. The default is 1 GiB.
-    ///   - maxVolumeCount: Maximum volumes in one archive. The default is 128.
+    ///   - maxVolumeCount: RAR 多巻・`.001` バイト分割セットの最大巻数。既定は 128。
     ///   - maxRAR5HeaderKDFWork: Maximum aggregate RAR5 encrypted-header KDF
     ///     work. The default permits four derivations at the maximum accepted
     ///     iteration exponent.

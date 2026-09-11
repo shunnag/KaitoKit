@@ -16,10 +16,7 @@ final class SevenZipHardeningTests: XCTestCase {
 
         let truncatedNext = Data(valid.dropLast())
         XCTAssertThrowsError(try ArchiveReader.open(data: truncatedNext)) { error in
-            guard case let .malformed(reason) = error as? KaitoError else {
-                return XCTFail("unexpected error: \(error)")
-            }
-            XCTAssertTrue(reason.contains("past end"), reason)
+            XCTAssertEqual(error as? KaitoError, .truncated)
         }
     }
 

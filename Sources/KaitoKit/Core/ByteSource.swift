@@ -177,6 +177,74 @@ public final class FileByteSource: ByteSource {
     }
 }
 
+extension FileByteSource.DirectoryAnchor {
+    /// 保持済みの親から兄弟を開く。欠番は nil、symlink・FIFO・directory は拒否する。
+    func openRegularFile(
+        named name: String,
+        label: String
+    ) throws -> FileByteSource? {
+        let descriptor = Darwin.openat(
+            self.descriptor,
+            name,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard descriptor >= 0 else {
+            let code = errno
+            if code == ENOENT { return nil }
+            if code == ELOOP {
+                throw KaitoError.malformed("\(label) volume is not a regular file")
+            }
+            throw KaitoError.io(code)
+        }
+
+        var information = stat()
+        guard Darwin.fstat(descriptor, &information) == 0 else {
+            let code = errno
+            _ = Darwin.close(descriptor)
+            throw KaitoError.io(code)
+        }
+        guard (information.st_mode & S_IFMT) == S_IFREG else {
+            _ = Darwin.close(descriptor)
+            throw KaitoError.malformed("\(label) volume is not a regular file")
+        }
+        guard information.st_size >= 0 else {
+            _ = Darwin.close(descriptor)
+            throw KaitoError.malformed("file has a negative size")
+        }
+        return FileByteSource(
+            takingOwnershipOfValidatedDescriptor: descriptor,
+            length: UInt64(information.st_size)
+        )
+    }
+
+    /// 先頭巻の dev/ino を保持した親の同名ファイルと比較し、差し替えを検出する。
+    func verifyFirstVolumeIdentity(
+        of source: FileByteSource,
+        named name: String,
+        label: String
+    ) throws {
+        let descriptor = Darwin.openat(
+            self.descriptor,
+            name,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard descriptor >= 0 else {
+            if errno == ELOOP {
+                throw KaitoError.malformed("\(label) volume is not a regular file")
+            }
+            throw KaitoError.malformed("\(label) first volume changed during open")
+        }
+        defer { _ = Darwin.close(descriptor) }
+
+        var information = stat()
+        guard Darwin.fstat(descriptor, &information) == 0,
+              (information.st_mode & S_IFMT) == S_IFREG,
+              source.hasSameFileIdentity(as: descriptor) else {
+            throw KaitoError.malformed("\(label) first volume changed during open")
+        }
+    }
+}
+
 /// A byte source that retains a `Data` value without copying its storage.
 public final class DataByteSource: ByteSource {
     // internal にして、テストでは COW ストレージの同一性を直接確認できるようにする。

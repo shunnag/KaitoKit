@@ -406,6 +406,8 @@ RAR 関連 source file ごとの実装入力は次のとおり。表の「black-
 | `Sources/KaitoKit/Formats/RAR/Blake2.swift` | RFC 7693、BLAKE2 paper / official CC0 vector、technote の BLAKE2sp record |
 | `Sources/KaitoKit/Formats/RAR/RAR5Integrity.swift` | technote の CRC / BLAKE2sp / HashMAC field と RFC 7693。archive decoder source は不使用 |
 | `Sources/KaitoKit/Formats/RAR/RARVolumeLocator.swift` | RAR5 numbering / header envelope は technote、RAR4 old/new naming は bitplane note、same-directory / dirfd / volume-limit は task の安全要件 |
+| `Sources/KaitoKit/Reader/SplitVolumeSet.swift` | 7-Zip `-v` の公開ユーザーマニュアル（ソース不参照）、7zz 26.03 のブラックボックス観察（バイト連結一致、`.999` → `.1000`、欠番停止、stale 巻許容）、公開仕様 LZMA SDK `7zFormat.txt` の start header。XADMaster / 7-Zip のソース参照・移植なし |
+| `Sources/KaitoKit/Core/ConcatenatedByteSource.swift` / `Core/ByteSource.swift` の DirectoryAnchor helper | KaitoKit 自身の既存 RAR 巻連結・openat / fstat / dev-ino 検証を形式非依存に移設。第三者ソース不使用 |
 | `Sources/KaitoKit/Reader/ArchiveReader.swift` | 既存 KaitoKit reader API と task の dispatch / reopen / password 要件。RAR grammar の外部 source は不使用 |
 | `Sources/KaitoKit/Reader/EntryStream.swift` | 既存 streaming / CRC 基盤と task の unknown-size / completion / limit 要件。RAR grammar の外部 source は不使用 |
 | `Sources/KaitoKit/Reader/Extractor.swift` | 既存 dirfd-based extraction と task の redirection failure semantics。RAR grammar の外部 source は不使用 |

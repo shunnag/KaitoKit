@@ -59,7 +59,7 @@ final class RAR5Reader: FormatReader {
         let compression: RAR5CompressionInfo
         let firstHeaderFlags: RAR5HeaderFlags
         let lastHeaderFlags: RAR5HeaderFlags
-        let packedSegments: [RARSourceSegment]
+        let packedSegments: [SourceSegment]
         let packedPartIntegrity: [PackedPartIntegrity]
         let firstVolumeNumber: UInt64
         let lastVolumeNumber: UInt64
@@ -75,7 +75,7 @@ final class RAR5Reader: FormatReader {
     }
 
     private struct Record {
-        let packedSegments: [RARSourceSegment]
+        let packedSegments: [SourceSegment]
         let packedPartIntegrity: [PackedPartIntegrity]
         let packedSize: UInt64
         var availablePackedSize: UInt64? = nil
@@ -1015,10 +1015,11 @@ final class RAR5Reader: FormatReader {
         } else {
             // Every split part repeats identical file-encryption metadata
             // (validated while merging), so CBC chaining crosses segments.
-            packedSource = try RARConcatenatedByteSource(
+            packedSource = try ConcatenatedByteSource(
                 segments: record.packedSegments,
                 maximumLength: record.packedSize,
-                maximumSegmentCount: limits.maxVolumeCount
+                maximumSegmentCount: limits.maxVolumeCount,
+                label: "RAR split stream"
             )
             packedOffset = 0
         }
@@ -1897,7 +1898,7 @@ final class RAR5Reader: FormatReader {
             compression: compression,
             firstHeaderFlags: block.flags,
             lastHeaderFlags: block.flags,
-            packedSegments: [RARSourceSegment(
+            packedSegments: [SourceSegment(
                 source: source,
                 offset: block.dataOffset,
                 length: availablePackedSize ?? block.dataSize

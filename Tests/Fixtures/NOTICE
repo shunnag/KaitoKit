@@ -373,7 +373,7 @@ implementation source was consulted.
   container/rpm-xz.rpm.b64       同上 --define '_binary_payload w9.xzdio'
   container/rpm-bzip2.rpm.b64    同上 w9.bzdio
   container/rpm-none.rpm.b64     同上 w.ufdio (PAYLOADCOMPRESSOR タグ無し)
-  container/rpm-zstd.rpm.b64     同上 w19.zstdio (zstd 未対応のため blob fallback)
+  container/rpm-zstd.rpm.b64     同上 w19.zstdio (2026-09-12 より cpio の 6 entries を公開)
   container/rpm-src.rpm.b64      同上 -bs (source package, lead type 1)
   container/rpm-v6.rpm.b64       rpm 6 の既定 package format (07070X payload)
     Project-owned spec file から macOS の rpmbuild 6.1.0 で生成。rpmbuild は
@@ -552,3 +552,33 @@ cab-lzx/（2026-09-12、bd cooViewer-c1vj.5）
   Fourteen project-owned CAB/LZX fixtures, encoded by our specification-derived Python encoder and
   verified byte-for-byte with the cabextract binary before publication. No third-party LZX source
   was consulted or incorporated. Large and randomized archives are generated during tests.
+
+
+Zstandard (2026-09-12, bd cooViewer-c1vj.3)
+  zstd/*.b64: プロジェクト所有データから生成した固定 fixture 46 件。
+  各 base64 は最大 22,152 byte（40 KB 以下）。生成器は Scripts/fixtures/make-zstd.py。
+  Python 標準ライブラリと zstd CLI 1.5.7 を使用し、seed 8878 の text / 構造化 binary /
+  一様乱数 / 高反復 / 空 / 1 byte を level 1/3/9/19/22 で圧縮した。
+  checksum・content-size の有無、--single-thread、-T4、--rsyncable、--long=20 を含む。
+  連結 frame と skippable envelope は RFC 8878 に従って組み立てた。
+  table-reuse.zst は外部辞書なしで direct / FSE weights、4 streams、Treeless literals、
+  Repeat FSE を複数 block に持つ。dictionary.zst は --train で作った ID 8878 の辞書を
+  使用し、KaitoKit の unsupportedMethod を検証する。
+  bundle.tar.zst は Python tarfile による決定的な USTAR。二つの ZIP 93 は既存の
+  make-zip-ppmd.py と同じ最小 envelope を使い、圧縮 bytes を zstd にした。
+  payload.rpm は上記 project-owned rpm-none.rpm の envelope / cpio を再利用して
+  payload を zstd CLI で圧縮した。既存 rpm-zstd.rpm の六つの cpio entry も検証する。
+  辞書なしの .zst 42 件と ZIP 2 件を 7zz 26.03 arm64 と照合し、.zst は zstd とも照合した。
+  zstd / 7zz は black-box writer / 展開 oracle としてのみ使用した。
+  参照資料は RFC 8878、同梱 xxHash 仕様、既存 KaitoKit。Web と他実装 source は参照していない。
+  元入力の名前・サイズ・SHA-256、圧縮オプション、観測した block 機能は zstd/manifest.json。
+  再生成した全 47 ファイル（manifest を含む）は byte 一致した。
+  実行時 matrix は 5 入力 × 4 level × 2 checksum × 2 content-size = 80 通り。
+
+  English: 46 project-generated fixtures, each under 40 KB as base64; seed 8878 and zstd 1.5.7.
+  Coverage includes all listed levels/options, dictionary-free table reuse, concatenated/skippable
+  frames, a dictionary rejection fixture, tar, ZIP 93 and RPM. Original names, sizes and SHA-256
+  hashes are in manifest.json. All 47 files regenerate identically. Forty-four valid streams/ZIPs
+  were checked with 7zz 26.03, and .zst files also with zstd, exclusively as black-box oracles.
+  Only RFC 8878, the supplied xxHash specification and existing KaitoKit sources were consulted;
+  no web pages or third-party implementation sources were accessed. Runtime tests add 80 cases.

@@ -40,6 +40,7 @@ private func formatName(_ format: ArchiveFormat) -> String {
     case .gzip: return "gzip"
     case .bzip2: return "bzip2"
     case .xz: return "xz"
+    case .zstd: return "zstd"
     case .lzma: return "lzma"
     case .compress: return "compress"
     }

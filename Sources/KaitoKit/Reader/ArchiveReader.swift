@@ -238,7 +238,7 @@ public final class ArchiveReader {
             reader = xar
             entries = xar.entries
             format = .xar
-        case .gzip, .bzip2, .xz, .compress, .lzma:
+        case .gzip, .bzip2, .xz, .zstd, .compress, .lzma:
             let single = try SingleFileReader(
                 source: source,
                 format: detected,
@@ -508,6 +508,9 @@ public final class ArchiveReader {
         }
         if name.hasSuffix(".tar.xz") || name.hasSuffix(".txz") {
             return .xz
+        }
+        if name.hasSuffix(".tar.zst") || name.hasSuffix(".tzst") {
+            return .zstd
         }
         // 既存の LZWDecoder と tar staging を .tar.Z / .tZ にも適用する。
         if name.hasSuffix(".tar.z") || name.hasSuffix(".tz") {

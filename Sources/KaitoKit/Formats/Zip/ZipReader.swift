@@ -597,7 +597,10 @@ final class ZipReader: FormatReader {
                 expectedSize: uncompressedSize,
                 memorySizeLimit: limits.maxDictionarySize
             )
-        case 93, 95, 96:
+        case 93:
+            return try ZstdDecompressor(source: source, offset: offset, compressedSize: compressedSize,
+                                        expectedSize: uncompressedSize, limits: limits)
+        case 95, 96:
             throw KaitoError.unsupportedMethod(String(method))
         default:
             throw KaitoError.unsupportedMethod(String(method))

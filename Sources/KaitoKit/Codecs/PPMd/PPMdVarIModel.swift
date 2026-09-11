@@ -65,11 +65,11 @@ final class PPMdVarIModel {
     private var previousSuccess = 0
     private var numberMasked = 0
     private var escapeCount: UInt8 = 1
-    private var charMask = [UInt8](repeating: 0, count: 256)
-    private var binSumm = [UInt16](repeating: 0, count: 25 * 64)
-    private var see = [SEE](repeating: SEE(0), count: 24 * 32)
+    private let charMask: UnsafeMutablePointer<UInt8>
+    private let binSumm: UnsafeMutablePointer<UInt16>
+    private let see: UnsafeMutablePointer<SEE>
     private var dummySEE = SEE(signature: 0x84ACAF8F)
-    private var unmasked = [Offset](repeating: 0, count: 256)
+    private let unmasked: UnsafeMutablePointer<Offset>
     private var needsNormalization = false
 
     internal private(set) var restartCount = 0
@@ -84,7 +84,27 @@ final class PPMdVarIModel {
         self.maximumOrder = maximumOrder
         self.restoreMethod = restoreMethod
         arena = try PPMdVarISuballocator(memorySize: memorySize)
+        charMask = .allocate(capacity: 256)
+        binSumm = .allocate(capacity: 25 * 64)
+        see = .allocate(capacity: 24 * 32)
+        unmasked = .allocate(capacity: 256)
+        charMask.initialize(repeating: 0, count: 256)
+        binSumm.initialize(repeating: 0, count: 25 * 64)
+        see.initialize(repeating: SEE(0), count: 24 * 32)
+        unmasked.initialize(repeating: 0, count: 256)
+        // 確保後の例外は全プロパティの初期化後に発生させ、失敗時も解放処理を通す。
         try startModelRare()
+    }
+
+    deinit {
+        charMask.deinitialize(count: 256)
+        charMask.deallocate()
+        binSumm.deinitialize(count: 25 * 64)
+        binSumm.deallocate()
+        see.deinitialize(count: 24 * 32)
+        see.deallocate()
+        unmasked.deinitialize(count: 256)
+        unmasked.deallocate()
     }
 
     func releaseArena() { arena.release() }
@@ -118,7 +138,7 @@ final class PPMdVarIModel {
     }
 
     private func startModelRare() throws {
-        charMask = [UInt8](repeating: 0, count: 256)
+        charMask.update(repeating: 0, count: 256)
         escapeCount = 1
         orderFall = maximumOrder
         arena.initialize()
@@ -183,7 +203,8 @@ final class PPMdVarIModel {
     private func decodeSymbol1(_ c: Offset, _ decoder: PPMdVarIRangeDecoder) throws {
         let base = try stats(c), n = try numStats(c), total = try sum(c)
         let count = try decoder.threshold(total: total)
-        let first = try state(base)
+        // stats が検証した連続領域内だけを読み、領域を変更する更新の後は再利用しない。
+        let first = uncheckedState(Int(base))
         var high = first.frequency
         if count < high {
             try decoder.remove(low: 0, high: high)
@@ -197,7 +218,7 @@ final class PPMdVarIModel {
         }
         previousSuccess = 0
         for i in 1...n {
-            let p = try at(base, i), f = try frequency(p)
+            let p = base + Offset(i * 6), f = Int(arena.uncheckedGet8(Int(p) + 1))
             high += f
             if count < high {
                 try decoder.remove(low: high - f, high: high)
@@ -206,7 +227,7 @@ final class PPMdVarIModel {
             }
         }
         try decoder.remove(low: high, high: total)
-        for i in 0...n { charMask[Int(try symbol(at(base, i)))] = escapeCount }
+        for i in 0...n { charMask[Int(arena.uncheckedGet8(Int(base) + i * 6))] = escapeCount }
         numberMasked = n
         foundState = 0
     }
@@ -255,8 +276,9 @@ final class PPMdVarIModel {
         guard expected > 0 else { throw malformed("no unmasked states") }
         var count = 0, high = 0
         for i in 0...n {
-            let p = try at(base, i), s = try state(p)
+            let p = base + Offset(i * 6), s = uncheckedState(Int(p))
             if charMask[Int(s.symbol)] != escapeCount {
+                // n は一バイト、count は処理済みの状態数以下なので書込み添字は 0...255。
                 unmasked[count] = p
                 count += 1
                 high += s.frequency
@@ -268,7 +290,7 @@ final class PPMdVarIModel {
         if threshold < high {
             high = 0
             for i in 0..<count {
-                let p = unmasked[i], f = try frequency(p)
+                let p = unmasked[i], f = Int(arena.uncheckedGet8(Int(p) + 1))
                 high += f
                 if threshold < high {
                     try decoder.remove(low: high - f, high: high)
@@ -282,14 +304,14 @@ final class PPMdVarIModel {
         }
         try decoder.remove(low: high, high: total)
         numberMasked = n
-        for i in 0..<count { charMask[Int(try symbol(unmasked[i]))] = escapeCount }
+        for i in 0..<count { charMask[Int(arena.uncheckedGet8(Int(unmasked[i])))] = escapeCount }
         if let index = estimator.index { see[index].sum &+= UInt16(truncatingIfNeeded: total) }
         else { dummySEE.sum &+= UInt16(truncatingIfNeeded: total) }
     }
 
     private func clearMask() {
         escapeCount = 1
-        charMask = [UInt8](repeating: 0, count: 256)
+        charMask.update(repeating: 0, count: 256)
     }
 
     private func rescale(_ c: Offset) throws {
@@ -376,120 +398,135 @@ final class PPMdVarIModel {
     }
 
     private func createSuccessors(skip: Bool, hint: Offset, context: Offset) throws -> Offset {
-        let selected = try state(foundState)
-        let upBranch = selected.successor
-        var pc = context, p = hint
-        var pending = [Offset]()
-        pending.reserveCapacity(16)
-        if !skip { pending.append(foundState) }
-        var depth = 0
-        if try skip || suffix(pc) != 0 {
-            while true {
-                try step(&depth)
-                pc = try suffix(pc)
-                guard pc != 0 else { throw malformed("successor suffix is missing") }
-                if p == 0 {
-                    p = try findState(pc, selected.symbol)
-                    let f = try frequency(p)
-                    if try numStats(pc) != 0 {
-                        let delta = f < 124 - 9 ? 1 : 0
-                        try setFrequency(p, f + delta)
-                        try setSum(pc, sum(pc) + delta)
-                    } else {
-                        let delta = try numStats(suffix(pc)) == 0 && f < 24 ? 1 : 0
-                        try setFrequency(p, f + delta)
-                    }
-                }
-                let successor = try self.successor(p)
-                if successor != upBranch { pc = successor; break }
-                guard pending.count < 16 else { throw malformed("successor stack overflow") }
-                pending.append(p)
-                if try suffix(pc) == 0 { break }
-                p = 0
+        try withUnsafeTemporaryAllocation(of: Offset.self, capacity: 16) { pending in
+            let selected = try state(foundState)
+            let upBranch = selected.successor
+            var pc = context, p = hint
+            var pendingCount = 0
+            defer { pending.baseAddress!.deinitialize(count: pendingCount) }
+            if !skip {
+                pending.baseAddress!.initialize(to: foundState)
+                pendingCount = 1
             }
+            var depth = 0
+            if try skip || suffix(pc) != 0 {
+                while true {
+                    try step(&depth)
+                    pc = try suffix(pc)
+                    guard pc != 0 else { throw malformed("successor suffix is missing") }
+                    if p == 0 {
+                        p = try findState(pc, selected.symbol)
+                        let f = try frequency(p)
+                        if try numStats(pc) != 0 {
+                            let delta = f < 124 - 9 ? 1 : 0
+                            try setFrequency(p, f + delta)
+                            try setSum(pc, sum(pc) + delta)
+                        } else {
+                            let delta = try numStats(suffix(pc)) == 0 && f < 24 ? 1 : 0
+                            try setFrequency(p, f + delta)
+                        }
+                    }
+                    let successor = try self.successor(p)
+                    if successor != upBranch { pc = successor; break }
+                    guard pendingCount < 16 else { throw malformed("successor stack overflow") }
+                    pending.baseAddress!.advanced(by: pendingCount).initialize(to: p)
+                    pendingCount += 1
+                    if try suffix(pc) == 0 { break }
+                    p = 0
+                }
+            }
+            if pendingCount == 0 { return pc }
+            guard upBranch >= PPMdVarISuballocator.heapStart, upBranch < arena.text else {
+                throw malformed("successor text is unresolved")
+            }
+            let newSymbol = try arena.get8(upBranch)
+            let newSuccessor = try arena.advance(upBranch, 1)
+            let newFlags = (selected.symbol >= 0x40 ? 0x10 : 0) + (newSymbol >= 0x40 ? 8 : 0)
+            let newFrequency: Int
+            if try numStats(pc) != 0 {
+                p = try findState(pc, newSymbol)
+                let cf = try frequency(p) - 1
+                let s0 = try sum(pc) - numStats(pc) - cf
+                guard cf >= 0, s0 > 0 else { throw malformed("invalid successor frequency") }
+                newFrequency = 1 + (2 * cf <= s0 ? (5 * cf > s0 ? 1 : 0) : (cf + 2 * s0 - 3) / s0)
+            } else { newFrequency = try frequency(oneState(pc)) }
+            for i in stride(from: pendingCount - 1, through: 0, by: -1) {
+                let owner = pending[i]
+                let next = try arena.allocateContext()
+                if next == 0 { return 0 }
+                try setNumStats(next, 0)
+                try setFlags(next, newFlags)
+                try writeState(oneState(next), State(symbol: newSymbol, frequency: newFrequency, successor: newSuccessor))
+                try setSuffix(next, pc)
+                pc = next
+                try setSuccessor(owner, pc)
+            }
+            return pc
         }
-        if pending.isEmpty { return pc }
-        guard upBranch >= PPMdVarISuballocator.heapStart, upBranch < arena.text else {
-            throw malformed("successor text is unresolved")
-        }
-        let newSymbol = try arena.get8(upBranch)
-        let newSuccessor = try arena.advance(upBranch, 1)
-        let newFlags = (selected.symbol >= 0x40 ? 0x10 : 0) + (newSymbol >= 0x40 ? 8 : 0)
-        let newFrequency: Int
-        if try numStats(pc) != 0 {
-            p = try findState(pc, newSymbol)
-            let cf = try frequency(p) - 1
-            let s0 = try sum(pc) - numStats(pc) - cf
-            guard cf >= 0, s0 > 0 else { throw malformed("invalid successor frequency") }
-            newFrequency = 1 + (2 * cf <= s0 ? (5 * cf > s0 ? 1 : 0) : (cf + 2 * s0 - 3) / s0)
-        } else { newFrequency = try frequency(oneState(pc)) }
-        for owner in pending.reversed() {
-            let next = try arena.allocateContext()
-            if next == 0 { return 0 }
-            try setNumStats(next, 0)
-            try setFlags(next, newFlags)
-            try writeState(oneState(next), State(symbol: newSymbol, frequency: newFrequency, successor: newSuccessor))
-            try setSuffix(next, pc)
-            pc = next
-            try setSuccessor(owner, pc)
-        }
-        return pc
     }
 
     private func reduceOrder(hint: Offset, context: Offset) throws -> Offset {
-        let selectedSymbol = try symbol(foundState), upBranch = arena.text
-        var pending = [foundState]
-        pending.reserveCapacity(16)
-        var pc = context, p = hint, depth = 0
-        try setSuccessor(foundState, upBranch)
-        orderFall += 1
-        while true {
-            try step(&depth)
-            if p == 0 {
-                if try suffix(pc) == 0 {
-                    if restoreMethod > 2 {
-                        for owner in pending.reversed() { try setSuccessor(owner, pc) }
-                        arena.resetText(plusOne: true)
-                        orderFall = 1
-                    }
-                    return pc
-                }
-                pc = try suffix(pc)
-                p = try findState(pc, selectedSymbol)
-                let f = try frequency(p)
-                if try numStats(pc) != 0 {
-                    let delta = f < 124 - 9 ? 2 : 0
-                    try setFrequency(p, f + delta)
-                    try setSum(pc, sum(pc) + delta)
-                } else { try setFrequency(p, f + (f < 32 ? 1 : 0)) }
-            } else { pc = try suffix(pc) }
-            if try successor(p) != 0 { break }
-            guard pending.count < 16 else { throw malformed("reduce-order stack overflow") }
-            pending.append(p)
-            try setSuccessor(p, upBranch)
+        try withUnsafeTemporaryAllocation(of: Offset.self, capacity: 16) { pending in
+            let selectedSymbol = try symbol(foundState), upBranch = arena.text
+            pending.baseAddress!.initialize(to: foundState)
+            var pendingCount = 1
+            defer { pending.baseAddress!.deinitialize(count: pendingCount) }
+            var pc = context, p = hint, depth = 0
+            try setSuccessor(foundState, upBranch)
             orderFall += 1
-            p = 0
+            while true {
+                try step(&depth)
+                if p == 0 {
+                    if try suffix(pc) == 0 {
+                        if restoreMethod > 2 {
+                            for i in stride(from: pendingCount - 1, through: 0, by: -1) {
+                                try setSuccessor(pending[i], pc)
+                            }
+                            arena.resetText(plusOne: true)
+                            orderFall = 1
+                        }
+                        return pc
+                    }
+                    pc = try suffix(pc)
+                    p = try findState(pc, selectedSymbol)
+                    let f = try frequency(p)
+                    if try numStats(pc) != 0 {
+                        let delta = f < 124 - 9 ? 2 : 0
+                        try setFrequency(p, f + delta)
+                        try setSum(pc, sum(pc) + delta)
+                    } else { try setFrequency(p, f + (f < 32 ? 1 : 0)) }
+                } else { pc = try suffix(pc) }
+                if try successor(p) != 0 { break }
+                guard pendingCount < 16 else { throw malformed("reduce-order stack overflow") }
+                pending.baseAddress!.advanced(by: pendingCount).initialize(to: p)
+                pendingCount += 1
+                try setSuccessor(p, upBranch)
+                orderFall += 1
+                p = 0
+            }
+            if restoreMethod > 2 {
+                pc = try successor(p)
+                for i in stride(from: pendingCount - 1, through: 0, by: -1) {
+                    try setSuccessor(pending[i], pc)
+                }
+                arena.resetText(plusOne: true)
+                orderFall = 1
+                return pc
+            }
+            if try successor(p) <= upBranch {
+                let saved = foundState
+                foundState = p
+                let result = try createSuccessors(skip: false, hint: 0, context: pc)
+                try setSuccessor(p, result)
+                foundState = saved
+            }
+            let result = try successor(p)
+            if orderFall == 1, context == maximumContext {
+                try setSuccessor(foundState, result)
+                try arena.retractText()
+            }
+            return result
         }
-        if restoreMethod > 2 {
-            pc = try successor(p)
-            for owner in pending.reversed() { try setSuccessor(owner, pc) }
-            arena.resetText(plusOne: true)
-            orderFall = 1
-            return pc
-        }
-        if try successor(p) <= upBranch {
-            let saved = foundState
-            foundState = p
-            let result = try createSuccessors(skip: false, hint: 0, context: pc)
-            try setSuccessor(p, result)
-            foundState = saved
-        }
-        let result = try successor(p)
-        if orderFall == 1, context == maximumContext {
-            try setSuccessor(foundState, result)
-            try arena.retractText()
-        }
-        return result
     }
 
     private func updateModel(_ minimum: Offset) throws {
@@ -763,7 +800,8 @@ final class PPMdVarIModel {
     }
     private func stats(_ c: Offset) throws -> Offset {
         let n = try numStats(c)
-        let p = try arena.get32(arena.advance(c, 4))
+        // numStats が検証した 12 バイトの文脈内に、4 バイトの参照が収まる。
+        let p = arena.uncheckedGet32(Int(c) + 4)
         try arena.requireUnit(p, count: 6 * (n + 1))
         return p
     }
@@ -805,14 +843,21 @@ final class PPMdVarIModel {
     }
     private func state(_ p: Offset) throws -> State {
         guard p >= arena.unitsStart else { throw malformed("state outside unit area") }
-        _ = try arena.checkedInt(p, count: 6)
-        return try State(symbol: symbol(p), frequency: frequency(p), successor: successor(p))
+        let i = try arena.checkedInt(p, count: 6)
+        return uncheckedState(i)
+    }
+    // 呼出元の checkedInt または stats が検証した 6 バイトだけを読む。
+    @inline(__always)
+    private func uncheckedState(_ i: Int) -> State {
+        State(symbol: arena.uncheckedGet8(i), frequency: Int(arena.uncheckedGet8(i + 1)),
+              successor: arena.uncheckedGet32(i + 2))
     }
     private func writeState(_ p: Offset, _ value: State) throws {
-        _ = try arena.checkedInt(p, count: 6)
-        try arena.put8(value.symbol, p)
-        try setFrequency(p, value.frequency)
-        try setSuccessor(p, value.successor)
+        let i = try arena.checkedInt(p, count: 6)
+        arena.uncheckedPut8(value.symbol, i)
+        guard (0...255).contains(value.frequency) else { throw malformed("invalid state frequency") }
+        arena.uncheckedPut8(UInt8(value.frequency), i + 1)
+        arena.uncheckedPut32(value.successor, i + 2)
     }
     private func copyState(_ source: Offset, _ destination: Offset) throws {
         try arena.copy(from: source, to: destination, count: 6)
@@ -825,9 +870,10 @@ final class PPMdVarIModel {
     }
     private func findState(_ c: Offset, _ symbol: UInt8) throws -> Offset {
         let n = try numStats(c), base = try n == 0 ? oneState(c) : stats(c)
+        // 複数状態は stats の全範囲検査、単一状態は oneState の文脈検査に含まれる。
         for i in 0...n {
-            let p = try at(base, i)
-            if try self.symbol(p) == symbol { return p }
+            let p = base + Offset(i * 6)
+            if arena.uncheckedGet8(Int(p)) == symbol { return p }
         }
         throw malformed("suffix symbol is missing")
     }

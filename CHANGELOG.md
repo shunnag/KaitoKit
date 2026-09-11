@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+### 追加（RAR5 SFX）
+
+- RAR5 の上限付き SFX に対応した。SFX と multi-volume の組合せは引き続き非対応（bd cooViewer-yd18）。
+
+> **Added (RAR5 SFX)**
+>
+> - Added bounded RAR5 SFX support. SFX combined with multi-volume remains unsupported (bd cooViewer-yd18).
+
 ### 追加（ZIP PPMd、cooViewer-th30）
 
 - ZIP method 98 の PPMd var.I rev.1 decoder を追加した。公開ドメイン原典を、

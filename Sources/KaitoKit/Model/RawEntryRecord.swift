@@ -3,6 +3,7 @@ public struct RawEntryRecord: Sendable {
     /// 書き出し先へ verbatim でコピーすべき範囲。ZIP では
     /// [local header][name][extra][payload] と、bit 3 のときは data descriptor まで。
     /// offset は source の先頭からの絶対値（SFX prefix も含めた実 offset）。
+    /// 複数ファイルを連結した分割セットでは、ArchiveReader.rawRecord(of:) は nil を返す。
     public let recordRange: Range<UInt64>
 
     /// 検証用。圧縮データ本体だけの範囲。

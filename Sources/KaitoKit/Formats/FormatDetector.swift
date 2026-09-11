@@ -85,6 +85,7 @@ public enum FormatDetector {
     }
 
     /// Detects the archive format at a file URL.
+    /// `.001` からのバイト分割巻は ArchiveReader と同じ規則・上限で連結する。
     ///
     /// File URLs inspect a bounded Mach-O or PE prefix by default. If content
     /// recognition does not decide the result, `.tar` and `.Z` extensions are
@@ -94,13 +95,21 @@ public enum FormatDetector {
         url: URL,
         options: ReaderOptions = ReaderOptions()
     ) throws -> ArchiveFormat {
-        let source = try FileByteSource(url: url)
+        let standardized = url.standardizedFileURL
+        let opened = try FileByteSource.openAnchored(url: standardized)
+        let split = try SplitVolumeSet.assemble(
+            firstVolumeURL: standardized,
+            firstVolumeSource: opened.source,
+            directory: opened.directory,
+            limits: options.limits
+        )
+        let sourceURL = SplitVolumeSet.naming(forFirstVolumeName: standardized.lastPathComponent) != nil
+            ? standardized.deletingPathExtension()
+            : standardized
         return try detect(
-            source: source,
-            fileName: url.lastPathComponent,
-            sfxScanSize: options.maximumSFXScanSize,
-            limits: options.limits,
-            recoverDamagedArchives: options.recoverDamagedArchives
+            source: split?.source ?? opened.source,
+            sourceURL: sourceURL,
+            options: options
         )
     }
 

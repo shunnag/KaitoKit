@@ -398,12 +398,13 @@ final class RARCommonPrimitiveTests: XCTestCase {
             data: Data("ZZdefghQ".utf8),
             maximumReadSize: 2
         )
-        let source = try RARConcatenatedByteSource(
+        let source = try ConcatenatedByteSource(
             segments: [
-                RARSourceSegment(source: first, offset: 1, length: 3),
-                RARSourceSegment(source: second, offset: 2, length: 5),
+                SourceSegment(source: first, offset: 1, length: 3),
+                SourceSegment(source: second, offset: 2, length: 5),
             ],
-            maximumLength: 8
+            maximumLength: 8,
+            label: "RAR split stream"
         )
         XCTAssertEqual(source.length, 8)
         XCTAssertEqual(
@@ -411,9 +412,10 @@ final class RARCommonPrimitiveTests: XCTestCase {
             Data("cdefg".utf8)
         )
         XCTAssertThrowsError(
-            try RARConcatenatedByteSource(
-                segments: [RARSourceSegment(source: first, offset: 1, length: 3)],
-                maximumLength: 2
+            try ConcatenatedByteSource(
+                segments: [SourceSegment(source: first, offset: 1, length: 3)],
+                maximumLength: 2,
+                label: "RAR split stream"
             )
         ) { error in
             XCTAssertEqual(
@@ -422,21 +424,23 @@ final class RARCommonPrimitiveTests: XCTestCase {
             )
         }
         XCTAssertThrowsError(
-            try RARConcatenatedByteSource(
-                segments: [RARSourceSegment(source: first, offset: 4, length: 2)],
-                maximumLength: 2
+            try ConcatenatedByteSource(
+                segments: [SourceSegment(source: first, offset: 4, length: 2)],
+                maximumLength: 2,
+                label: "RAR split stream"
             )
         ) { error in
             XCTAssertEqual(error as? KaitoError, .truncated)
         }
         XCTAssertThrowsError(
-            try RARConcatenatedByteSource(
+            try ConcatenatedByteSource(
                 segments: [
-                    RARSourceSegment(source: first, offset: 1, length: 1),
-                    RARSourceSegment(source: second, offset: 2, length: 1),
+                    SourceSegment(source: first, offset: 1, length: 1),
+                    SourceSegment(source: second, offset: 2, length: 1),
                 ],
                 maximumLength: 2,
-                maximumSegmentCount: 1
+                maximumSegmentCount: 1,
+                label: "RAR split stream"
             )
         ) { error in
             XCTAssertEqual(

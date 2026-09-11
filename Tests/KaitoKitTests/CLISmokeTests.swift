@@ -4,6 +4,21 @@ import KaitoKit
 import XCTest
 
 final class CLISmokeTests: XCTestCase {
+    func testSplitSevenZipListAndSHAMatchWholeArchive() throws {
+        let bytes = try ZipTestSupport.checkedInFixture("sevenzip/chain-lzma-lzma-lzma2-bcj2.7z")
+        let directory = try ZipTestSupport.temporaryDirectory(label: "cli-split-7z")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let whole = try ZipTestSupport.write(bytes, relativePath: "whole.7z", below: directory)
+        // 署名自体が巻をまたぐケースを CLI の detect / list / sha まで通す。
+        let first = try ZipTestSupport.write(Data(bytes.prefix(5)), relativePath: "split.7z.001", below: directory)
+        try ZipTestSupport.write(Data(bytes.dropFirst(5)), relativePath: "split.7z.002", below: directory)
+        let executable = try findKaitoExecutable()
+        for command in ["detect", "list", "sha"] {
+            XCTAssertEqual(try runKaito(executable, arguments: [command, first.path]),
+                           try runKaito(executable, arguments: [command, whole.path]))
+        }
+    }
+
     func testXarExtractionDefersForwardLinksAndReportsTargetFailures() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temporary = try TarTestSupport.temporaryDirectory()

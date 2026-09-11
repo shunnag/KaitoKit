@@ -97,8 +97,8 @@ for entry in directories {
 | UNIX compress (`.Z`) | LZW、9〜16 bit、block mode | なし | なし |
 | LZMA_Alone (`.lzma`) | 13 byte header + raw LZMA。magic が無いため拡張子・properties・辞書サイズ・range coder 先頭 byte がすべて揃ったときだけ受理し、判定は最後に回す | なし | なし |
 | 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz2` / `.tar.bz2`、`.txz` / `.tar.xz`、`.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
-| ZIP / ZIP64 | stored (0)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、中央 directory、SFX | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | multi-disk / spanned は非対応 |
-| 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、BZip2、Delta、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | external volume 分割なし、solid/block split 対応 |
+| ZIP / ZIP64 | stored (0)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、中央 directory、SFX | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001`（7-Zip `-v` のバイト分割）対応。`.z01` など multi-disk / spanned は非対応 |
+| 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、BZip2、Delta、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
 | RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
 | LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
@@ -138,11 +138,11 @@ for entry in directories {
 >   range coder all agree, and detection is left until last.
 > - **Compressed tar**: `.tgz` / `.tar.gz`, `.tbz2` / `.tar.bz2`, `.txz` / `.tar.xz` and
 >   `.tz` / `.tar.Z` are expanded and then listed with TarReader.
-> - **ZIP / ZIP64**: the central directory and SFX are supported; multi-disk and spanned archives
->   are not.
+> - **ZIP / ZIP64**: the central directory, SFX and `.zip.001` byte splits made with 7-Zip `-v`
+>   are supported; multi-disk and spanned archives such as `.z01` are not.
 > - **7z**: the coder chain covers a folder in which a byte-consuming coder takes the output of
->   another coder as its input; solid folders and a bounded Mach-O/PE SFX prefix are supported. No
->   external volume splitting; solid and block splits are supported.
+>   another coder as its input; solid folders and a bounded Mach-O/PE SFX prefix are supported.
+>   `.001` byte splits made with 7-Zip `-v`, solid and block splits are supported.
 > - **RAR4 / RAR5**: LZ and PPMd of the listed unpack versions, the listed filters, solid mode, and
 >   a bounded SFX prefix. Multi-volume works from URL-backed input, including encrypted volumes for
 >   RAR5.
@@ -242,6 +242,37 @@ volume handle を共有し、path を再解決しません。Data / 任意 `Byte
 > paths. `Data` and custom `ByteSource` inputs cannot identify sibling volumes uniquely, so reading
 > an unresolved split entry returns `unsupportedMethod("multi-volume from Data")`.
 
+`.7z.001` / `.zip.001` などのバイト分割セットは、`ArchiveReader.open(url:)` と
+`FormatDetector.detect(url:)` が形式検出の前に連結します。空でない名前に続く 3 桁以上の
+ASCII 数字で値 1 の拡張子から開始し、桁幅を保持して `.999` の次は `.1000` へ進みます。
+欠番で探索を停止し、7z の末尾巻・中間巻の欠落は `truncated` になります。余分な末尾巻は
+末尾ゴミとして許容します（ZIP は末尾探索の 1 MiB 上限内）。既定上限は同じ
+`ReadLimits.maxVolumeCount = 128` で、探索可能な先頭巻では 0 以下を拒否し、1 以上は
+実在する巻数が上限を超えると `limitExceeded("split volume count")` を返します。
+兄弟巻は保持した親 descriptor から symlink を追わず regular file として開きます。
+先頭巻が symlink または identity 不一致なら兄弟探索をせず単独扱いにし、兄弟がない
+単巻 `.001` でも `.tar.gz` 等の拡張子ヒントを使います。`reopen()` は全巻の削除後も
+保持済み source を使います。`.002` 等から先頭へは戻らず、Data / 任意 `ByteSource` では
+兄弟を探索しません。分割セットの `rawRecord(of:)` は `nil` です。連結した RAR に volume
+フラグがある場合も一覧と完結 entry は読めますが、RAR 独自の続巻探索はせず、未解決の
+分割 entry は `unsupportedMethod("multi-volume from Data")` になります。
+
+> **Byte-split volume sets**
+>
+> `ArchiveReader.open(url:)` and `FormatDetector.detect(url:)` concatenate `.7z.001`, `.zip.001`
+> and other byte splits before format detection. A nonempty stem and an ASCII numeric suffix of
+> at least three digits with value 1 are required. Width is preserved, growing from `.999` to
+> `.1000`. Discovery stops at the first gap; missing 7z volumes produce `truncated`. Stale trailing
+> volumes are tolerated (within ZIP's 1 MiB end-search bound). `ReadLimits.maxVolumeCount` defaults
+> to 128; discoverable sets reject zero or negative limits, and an existing volume beyond a positive
+> limit produces `limitExceeded("split volume count")`. Siblings must be regular files opened
+> without following symlinks under the retained directory descriptor. A symlink or changed first
+> volume is treated as a single file without sibling discovery. Even a single `.001` keeps extension
+> hints such as `.tar.gz`. `reopen()` retains the sources after all paths are deleted. Continuations
+> such as `.002` do not rewind; Data/custom-source opens do not discover siblings. `rawRecord(of:)`
+> returns `nil` for concatenated sets. A byte-split RAR bearing volume flags can list and read complete
+> entries, but unresolved RAR split entries return `unsupportedMethod("multi-volume from Data")`.
+
 RAR5 archive header の KDF は、個々の `count` を
 `ReaderOptions.maxRAR5KDFCountPower` (既定かつ上限 24) で制限します。さらに、header encryption
 を使う全 volume を通した実際の派生処理を `ReadLimits.maxRAR5HeaderKDFWork` で累積します。
@@ -303,7 +334,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
   圧縮済み payload を 1 entry として公開します。
 - ARJ、ACE、StuffIt/SIT、zstd stream は未対応です。
 - ZIP は multi-disk/spanned と method 93 (zstd)、95 (xz)、96 (JPEG)、98 (PPMd) を扱いません。
-- 7z は RISC-V filter (method 0x0B) と external volume 分割 (`.7z.001`) を扱いません。
+- 7z は RISC-V filter (method 0x0B) を扱いません。
 - RAR4 は unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成、SFX と multi-volume の組合せを
   扱いません。RAR5 は compression version 1、file-copy redirection、SFX、サイズ不明の暗号化
   stored entry を扱いません。
@@ -347,7 +378,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 > - ARJ, ACE, StuffIt/SIT and zstd streams are unsupported.
 > - ZIP does not handle multi-disk or spanned archives, nor methods 93 (zstd), 95 (xz), 96 (JPEG)
 >   and 98 (PPMd).
-> - 7z does not handle the RISC-V filter (method 0x0B) or external volume splitting (`.7z.001`).
+> - 7z does not handle the RISC-V filter (method 0x0B).
 > - RAR4 does not handle unpack versions 15, 20 and 26, the custom VM, solid configurations whose
 >   dictionary size changes, or SFX combined with multi-volume. RAR5 does not handle compression
 >   version 1, file-copy redirection, SFX, or an encrypted stored entry of unknown size.

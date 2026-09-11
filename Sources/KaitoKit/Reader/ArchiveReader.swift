@@ -62,9 +62,8 @@ private final class ArchiveOutputBudget {
 /// an inexpensive independent reader that shares the immutable byte source.
 public final class ArchiveReader {
     private let source: any ByteSource
-    // Retained only for formats whose continuation volumes are resolved beside
-    // the original file. Data and arbitrary ByteSource readers deliberately
-    // have no filesystem provenance.
+    // 拡張子・単一ストリームの名前・SFX 検出のヒント。分割セットでは .001 を除く。
+    // Data と任意の ByteSource はファイル名の由来を持たない。
     private let sourceURL: URL?
     private let reader: any FormatReader
     private let options: ReaderOptions
@@ -94,6 +93,7 @@ public final class ArchiveReader {
         source: any ByteSource,
         sourceURL: URL? = nil,
         sourceDirectoryAnchor: FileByteSource.DirectoryAnchor? = nil,
+        sourceVolumeURL: URL? = nil,
         options: ReaderOptions
     ) throws {
         self.source = source
@@ -133,6 +133,11 @@ public final class ArchiveReader {
             format = .sevenZip
             password = sevenZip.resolvedPassword
         case .rar:
+            // 連結済み source では RAR 独自の多巻探索を行わず、Data と同じ扱いにする。
+            // 単巻 .001 の場合は、名前ヒントでなく実際に開いた葉を identity 検証に使う。
+            let rarSourceURL = source is ConcatenatedByteSource
+                ? nil
+                : (sourceVolumeURL ?? sourceURL)
             guard let signature = try FormatDetector.findRARSignature(source: source) else {
                 throw KaitoError.unsupportedFormat
             }
@@ -143,7 +148,7 @@ public final class ArchiveReader {
                 let rar = try RAR5Reader(
                     source: source,
                     options: options,
-                    sourceURL: sourceURL,
+                    sourceURL: rarSourceURL,
                     sourceDirectoryAnchor: sourceDirectoryAnchor
                 )
                 reader = rar
@@ -154,7 +159,7 @@ public final class ArchiveReader {
                 let rar = try RAR4Reader(
                     source: source,
                     options: options,
-                    sourceURL: signature.offset == 0 ? sourceURL : nil,
+                    sourceURL: signature.offset == 0 ? rarSourceURL : nil,
                     sourceDirectoryAnchor: signature.offset == 0
                         ? sourceDirectoryAnchor
                         : nil,
@@ -288,15 +293,28 @@ public final class ArchiveReader {
     }
 
     /// Opens an archive stored at a file URL.
+    /// `.001` から始まるバイト分割巻は、形式検出の前に同じ親の兄弟巻を連結する。
     public static func open(
         url: URL,
         options: ReaderOptions = ReaderOptions()
     ) throws -> ArchiveReader {
-        let opened = try FileByteSource.openAnchored(url: url)
+        let standardized = url.standardizedFileURL
+        let opened = try FileByteSource.openAnchored(url: standardized)
+        let split = try SplitVolumeSet.assemble(
+            firstVolumeURL: standardized,
+            firstVolumeSource: opened.source,
+            directory: opened.directory,
+            limits: options.limits
+        )
+        // 兄弟のない .001 でも .tar.gz などのヒントを保持する。
+        let sourceURL = SplitVolumeSet.naming(forFirstVolumeName: standardized.lastPathComponent) != nil
+            ? standardized.deletingPathExtension()
+            : standardized
         return try ArchiveReader(
-            source: opened.source,
-            sourceURL: url.standardizedFileURL,
-            sourceDirectoryAnchor: opened.directory,
+            source: split?.source ?? opened.source,
+            sourceURL: sourceURL,
+            sourceDirectoryAnchor: split == nil ? opened.directory : nil,
+            sourceVolumeURL: split == nil ? standardized : nil,
             options: options
         )
     }
@@ -360,13 +378,13 @@ public final class ArchiveReader {
         return try stream(entry).readAll()
     }
 
-    /// 再圧縮せずに運べる形式では生レコード範囲を返す。未対応形式と isIncomplete は nil。
+    /// 再圧縮せずに運べる形式では生レコード範囲を返す。未対応形式・isIncomplete・分割セットは nil。
     /// 現在は ZIP のみ対応し、data descriptor を含む範囲と中央ディレクトリとの整合を検証する。
     /// 暗号化 entry もパスワードなしで取得できる。payload の復号・展開・完全性検証は行わない。
     /// 呼び出しからコピー完了まで、source の byte は不変でなければならない。
     public func rawRecord(of entry: ArchiveEntry) throws -> RawEntryRecord? {
         try validate(entry)
-        guard !entry.isIncomplete else { return nil }
+        guard !entry.isIncomplete, !(source is ConcatenatedByteSource) else { return nil }
         return try reader.rawRecord(for: entry, limits: options.limits)
     }
 

@@ -1,7 +1,11 @@
 name: CI
 
+# push は main と tag だけにする。PR ブランチへの push でも起動すると
+# pull_request と合わせて同じ commit に 6 job × 2 が走る(2026-09-11 PR #5 で確認)。
 on:
   push:
+    branches: [main]
+    tags: ['*']
   pull_request:
 
 jobs:

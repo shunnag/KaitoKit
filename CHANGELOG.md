@@ -6,6 +6,7 @@
 
 ## [Unreleased]
 
+- ZIP PPMd var.I の固定長バッファ化・局所スタック化・範囲検査の集約で、展開時間を 35.6%（Swift source 3.77 MB、order 8）／74.9%（PNG 3.00 MB、order 16）短縮した（2026-09-12、bd `cooViewer-2weq`）。
 - LZMA / LZMA2 の bit tree で子の確率を先読みし、book-tiff.7z の展開を10.7%、book-solid.7z を14.3%短縮した（2026-09-12、bd cooViewer-r897）。
 - zstd の宣言 window による即時確保 DoS を履歴の遅延確保で修正し、一覧取得の先読みを 64 KiB から 4 KiB に削減した。
 

@@ -308,7 +308,7 @@ final class PPMdVarISuballocator {
         budget -= 1
     }
 
-    // すべての生ポインタ操作の直前に Base 内の範囲を検証する。
+    // 生ポインタ操作が使う連続領域を検証し、解放済みの領域も拒否する。
     @inline(__always)
     func checkedInt(_ offset: Offset, count: Int) throws -> Int {
         let value = Int(offset)
@@ -359,6 +359,25 @@ final class PPMdVarISuballocator {
     @inline(__always)
     func put32(_ value: UInt32, _ p: Offset) throws {
         let i = try checkedInt(p, count: 4)
+        var little = value.littleEndian
+        memcpy(storage!.advanced(by: i), &little, 4)
+    }
+    // 復号の頻出経路専用。呼出元が checkedInt または requireUnit で全範囲を検証し、
+    // その検査から読書きまでの間に領域を解放しないこと。
+    @inline(__always)
+    internal func uncheckedGet8(_ i: Int) -> UInt8 {
+        storage!.load(fromByteOffset: i, as: UInt8.self)
+    }
+    @inline(__always)
+    internal func uncheckedPut8(_ value: UInt8, _ i: Int) {
+        storage!.storeBytes(of: value, toByteOffset: i, as: UInt8.self)
+    }
+    @inline(__always)
+    internal func uncheckedGet32(_ i: Int) -> UInt32 {
+        UInt32(littleEndian: storage!.loadUnaligned(fromByteOffset: i, as: UInt32.self))
+    }
+    @inline(__always)
+    internal func uncheckedPut32(_ value: UInt32, _ i: Int) {
         var little = value.littleEndian
         memcpy(storage!.advanced(by: i), &little, 4)
     }

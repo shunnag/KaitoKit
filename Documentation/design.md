@@ -603,6 +603,35 @@ prose ページであることを確認し、`source-archive` を含む URL は�
 
 ## 11. 実装記録(2026-09-06〜12)
 
+- ZIP PPMd var.I 復号ループ（2026-09-12、bd `cooViewer-2weq`）: mask・確率表・非マスク状態を
+  model 所有の固定長ポインタにし、再初期化は既存領域への更新、最大 16 要素の pending は
+  呼出しごとの局所領域にした。state の 6 バイト検査と stats の全配列検査を再利用し、
+  検証範囲内だけを unchecked load / store で扱う。添字上限・失敗条件・エラー文言を維持する。
+  着手前の profile では排他チェックが約 13%、Array の CoW 一意性判定が約 2.6% を占めており、
+  対象はこの 3 点だけでアルゴリズムは変えていない。是正後 `swift_beginAccess` は約 1.8% に下がった。
+  新旧の release を交互 5 巡（各 3 回）で比べた各巡 B/A 比の中央値は、
+  big.zip（Swift source 3,768,058 バイト、o=8 mem=64m）が 442.707 → 284.905 ms で **0.6436**、
+  mixed.zip（PNG 連結 3,000,000 バイト、o=16 mem=256m）が 5147.709 → 1283.218 ms で **0.2507**。
+  A/A ノイズ床はそれぞれ 1.0016 と 0.9980 で、改善はその 20〜40 倍ある。
+  高 order × 非圧縮向きデータの方が改善幅が大きく、`7zz` との比は約 3.3 倍 / 約 9 倍から
+  約 2 倍 / 約 2.3 倍に縮んだ。926 tests・38 skip・失敗 0、警告 0。
+  正常書庫の全 SHA 行が一致し、敵対的入力 3,516 件の
+  `(終了コード, stdout, stderr 先頭行)` も新旧で完全一致、ASan でも所見 0。
+  検査の等価性、初期化失敗時の解放、実測全値は [検証記録](verification/2026-09-12-ppmd-vari-perf.md) を参照。
+
+> ZIP PPMd var.I hot loop (2026-09-12, bd cooViewer-2weq): fixed model-owned pointer buffers replace
+> mutable arrays, mask resets reuse storage, and each successor/reduce-order call uses its own temporary
+> stack of at most 16 offsets. Checked six-byte states and complete stats ranges cover every unchecked
+> access; bounds, failure conditions and error messages are preserved. Before the change, exclusivity
+> checks took about 13% of profile leaves and array CoW checks 2.6%; only those three causes were
+> addressed and the algorithm is unchanged. Five alternating A/B rounds of three extractions give median
+> paired B/A ratios of 0.6436 for big.zip (Swift source, order 8, 64 MB: 442.707 to 284.905 ms) and
+> 0.2507 for mixed.zip (concatenated PNG, order 16, 256 MB: 5147.709 to 1283.218 ms), against A/A floors
+> of 1.0016 and 0.9980. High-order incompressible data gains the most. All 926 tests passed with 38 skips
+> and no compiler warnings. SHA output matched on every archive, 3,516 hostile inputs produced identical
+> exit codes, stdout and first stderr lines on both binaries, and ASan reported nothing.
+> See the verification record.
+
 - Zstandard（2026-09-12、bd `cooViewer-c1vj.3`）: `Codecs/Zstd/` の 6 ファイルに、FSE、
   Huffman、前向き byte / 逆向き bit reader、XXH64、frame / block / sequence、Decompressor を実装。
   ヘッダの先読みは 4 KiB とし、本文は先読みの残りを消費後、残り要求が 4 KiB 以上なら直接まとめて読む。

@@ -16,7 +16,7 @@ final class RpmReaderTests: XCTestCase {
         }
     }
 
-    private let variants = ["gzip", "xz", "bzip2", "none"]
+    private let variants = ["gzip", "xz", "bzip2", "none", "zstd"]
     private var binaryRows: [Row] {
         let empty = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         return [
@@ -119,7 +119,6 @@ final class RpmReaderTests: XCTestCase {
     func testSourceAndBlobFixturesMatchEveryGoldenRow() throws {
         for (variant, expected) in [
             ("src", Row("t.spec", 644, "88c78ecac96f3da9bffd0099da3d31e9f4bee59f8d1d0f40a9e2029db99342ab")),
-            ("zstd", Row("kaitotest.cpio.zst", 486, "65ee8557f6e6aee264731ba5e5e1b358debf93bf830d69ec45729e0b4c8983d3")),
             ("v6", Row("kaitotest.cpio.gz", 418, "5e8621a9c3769319a89f5da60e48490db631133c4a78e21fa240229acbb9e7bb"))
         ] {
             let bytes = try fixture(variant)
@@ -228,7 +227,7 @@ final class RpmReaderTests: XCTestCase {
     }
 
     func testCorruptCompressedPayloadIsRejectedWhileStagingForEntryReads() throws {
-        for variant in ["gzip", "xz", "bzip2"] {
+        for variant in ["gzip", "xz", "bzip2", "zstd"] {
             var damaged = try fixture(variant)
             // 圧縮 envelope を保ち、終端検証まで進んでも破損を成功扱いしないことを確認する。
             damaged[damaged.count - (variant == "gzip" ? 8 : 4)] ^= 0x80
@@ -272,7 +271,7 @@ final class RpmReaderTests: XCTestCase {
                 XCTAssertEqual(try reader.read(entry), payload)
             }
         }
-        for variant in variants + ["zstd"] {
+        for variant in variants {
             var bytes = try fixture(variant)
             let tag = try index(1124, in: bytes)
             let offset = layout(bytes).store + be32(bytes, tag + 8)

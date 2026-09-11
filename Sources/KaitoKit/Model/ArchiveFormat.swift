@@ -42,6 +42,9 @@ public enum ArchiveFormat: String, Sendable, CaseIterable {
     /// XZ streams.
     case xz
 
+    /// Zstandard ストリーム。/ Zstandard streams.
+    case zstd
+
     /// LZMA_Alone (`.lzma`) streams.
     case lzma
 

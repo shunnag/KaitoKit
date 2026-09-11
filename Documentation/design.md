@@ -115,9 +115,9 @@ streaming 検証契約:
 2. RAR/CBR(RAR 2.9/3.x, RAR 5.x, solid, 分割、暗号化)
 3. 7z/CB7(LZMA, LZMA2, PPMd, BCJ/BCJ2, Delta, Deflate, BZip2, AES-256, solid/ブロック)
 4. LHA/LZH(lh0, lh4〜lh7, lh1, lz4/lz5/lzs, ヘッダ level 0/1/2, SJIS 名, 0x46 コードページ)
-5. tar 系(ustar/pax/GNU)+ gz/bz2/xz(xz は Compression framework)
+5. tar 系(ustar/pax/GNU)+ gz/bz2/xz/zstd(xz は Compression framework)
 6. ISO 9660（PVD / Joliet / Rock Ridge、multi-extent、stored）
-7. 後段候補: CAB(Quantum), zstd, StuffIt/SIT(要検討), ARJ, ACE
+7. 後段候補: CAB(Quantum), StuffIt/SIT(要検討), ARJ, ACE
 
 ## 6. 実装方式の比較(調査 2026-09-06)
 
@@ -175,6 +175,20 @@ streaming 検証契約:
 - M6 cooViewer で ArchiveSource を KaitoKit に差し替える PoC(設定フラグ)、差分/ベンチ報告
 
 ## 10. 出自(プロベナンス)と参照の規則
+
+Zstandard（2026-09-12、bd `cooViewer-c1vj.3`）はローカルの
+`inbox/zstd/rfc8878.txt`（RFC 8878）と `inbox/zstd/xxhash_spec.md` の XXH64 algorithm
+description、および既存 KaitoKit の reader / codec / fixture 生成構造だけを実装入力とした。
+同梱 SHA256SUMS と両資料の一致を確認した。Web は使用していない。
+facebook/zstd、7-Zip / p7zip、libarchive、XADMaster、The Unarchiver、zstd-rs、zstandard、
+その他の移植・教育用実装・ブログ解説コードは開かず、検索・参照していない。
+zstd CLI 1.5.7 と 7zz は fixture の black-box writer / 展開 oracle としてのみ実行した。
+FSE の定義済み分布は RFC §3.1.1.3.2.2 の数値で、他実装の table を転記していない。
+
+> Zstandard uses only the supplied RFC 8878, the XXH64 algorithm description in xxhash_spec.md,
+> and existing KaitoKit code. Both supplied document hashes were verified. No web pages, reference
+> implementation, ports, third-party decoder sources or tutorial code were consulted.
+> zstd 1.5.7 and 7zz were used exclusively as black-box fixture tools and extraction oracles.
 
 ZIP method 98（`cooViewer-th30`、2026-09-11）の実装入力は、利用者提供の
 Dmitry Shkarin **PPMd var.I rev.1（2002-04-28）** 原典 `inbox/ppmdi1/` と
@@ -349,8 +363,9 @@ codec は宣言 tag ではなく **payload 先頭の magic** で決める。`RPM
 `rpmPayloadCompressorDetected` を併記する。payload の復号に失敗した場合は
 blob へ fallback せず開封時に失敗させる。壊れたデータを黙って別の形で見せない。
 
-zstd payload と rpm 6 の簡略 cpio(`07070X`)は圧縮済み payload を 1 entry として出す
-(`cooViewer-c1vj.3` / `c1vj.4`)。XADMaster も同じく中へ降りられず、しかも無圧縮 payload を
+rpm 6 の簡略 cpio(`07070X`)は圧縮済み payload を 1 entry として出す
+(`cooViewer-c1vj.4`)。zstd payload は 2026-09-12 より cpio へ降りる (`cooViewer-c1vj.3`)。
+以前の比較では XADMaster は中へ降りられず、しかも無圧縮 payload を
 `.cpio.gz`、zstd payload を拡張子なしと誤って命名する。
 検証値・再実行手順は [RPM 検証記録](verification/2026-09-09-rpm.md)。
 
@@ -586,7 +601,24 @@ XADMaster の source は KaitoKit の実装入力にしない。
 source を実装入力にしていない。是正として、以後 The Unarchiver 関連の URL を取得する際は
 prose ページであることを確認し、`source-archive` を含む URL は取得しない。
 
-## 11. 実装記録(2026-09-06〜08)
+## 11. 実装記録(2026-09-06〜12)
+
+- Zstandard（2026-09-12、bd `cooViewer-c1vj.3`）: `Codecs/Zstd/` の 6 ファイルに、FSE、
+  Huffman、前向き byte / 逆向き bit reader、XXH64、frame / block / sequence、Decompressor を実装。
+  入力を 64 KiB 単位で読み、window 分のリングと最大 128 KiB の block / literals を保持する。
+  window は確保前に maxDictionarySize（既定 1 GiB）で検証する。
+  `.zst`・圧縮 tar・RPM cpio・ZIP method 93 と CLI / Compat の表示名を接続した。
+  全 frame の宣言サイズがあれば合計を entry に公開し、欠落があれば nil とする。
+  fixture 46 件は決定的 text / binary / random / repetitive / empty / one byte、level 1/3/9/19/22、
+  checksum / content size の有無、thread / rsyncable / long、連結・skippable、辞書拒否、tar・ZIP・RPM。
+  80 通りの実行時 matrix と 7zz の第二オラクルも備える。未対応は外部辞書と 7z の zstd method。
+  件数・時間・コマンド・破損入力の受理範囲は [検証記録](verification/2026-09-12-zstd.md) に記録する。
+
+> Zstandard (2026-09-12, bd cooViewer-c1vj.3): six codec files implement bounded streaming decoding,
+> FSE/Huffman, frame/block/sequence processing and XXH64. Standalone and tar streams, RPM and ZIP 93
+> share the decoder. Known frame sizes are summed; any unknown size makes the entry size unknown.
+> The corpus has 46 fixed fixtures plus a 80-case runtime matrix and a 7zz oracle.
+> External dictionaries and zstd inside 7z remain unsupported; see the verification record for results.
 
 - ZIP PPMd（2026-09-11、bd `cooViewer-th30`）: var.I allocator / model / range decoder /
   Decompressor の 4 ファイルを追加し、ZIP method 98 を接続した。二バイトの little-endian

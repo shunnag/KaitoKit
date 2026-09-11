@@ -1,7 +1,7 @@
 # KaitoKit (解凍Kit)
 
 KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。tar、ZIP / ZIP64、7z、
-RAR4 / RAR5、LHA / LZH、ISO 9660、cpio、ar（.deb を含む）、xar（.pkg を含む）、CAB、RPM に加え、gzip、bzip2、xz、UNIX compress (`.Z`) と圧縮 tar を扱います。
+RAR4 / RAR5、LHA / LZH、ISO 9660、cpio、ar（.deb を含む）、xar（.pkg を含む）、CAB、RPM に加え、gzip、bzip2、xz、zstd、UNIX compress (`.Z`) と圧縮 tar を扱います。
 書庫の検出から列挙、ストリーミング読み取り、展開までを一つのパイプラインとして提供します。
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon / Intel
@@ -12,7 +12,7 @@ RAR4 / RAR5、LHA / LZH、ISO 9660、cpio、ar（.deb を含む）、xar（.pkg 
 >
 > KaitoKit is a pure-Swift archive reading framework for macOS. It handles tar, ZIP / ZIP64, 7z,
 > RAR4 / RAR5, LHA / LZH, ISO 9660, cpio, ar (including `.deb`), xar (including `.pkg`), CAB and RPM,
-> plus gzip, bzip2, xz, UNIX compress (`.Z`) and compressed tar.
+> plus gzip, bzip2, xz, zstd, UNIX compress (`.Z`) and compressed tar.
 > Detection, listing, streaming reads and extraction are provided as one pipeline.
 >
 > - Requires macOS 26 or later, Swift 6, Apple Silicon or Intel.
@@ -89,15 +89,16 @@ for entry in directories {
 | cpio | bin（両 byte order）、odc、newc、crc、hpbin、hpodc、stored | なし | 連結書庫、symlink、宣言サイズどおりの hard link |
 | xar / .pkg | TOC XML（部分集合 pull parser）、zlib / bzip2 / lzma / xz / stored の heap、入れ子ディレクトリ、symlink、hard link、`<name enctype="base64">`、macOS flat package | なし | なし。TOC checksum と `<extracted-checksum>` を検証、`<subdoc>` 内の `<file>` は entry にしない |
 | CAB | CFHEADER / CFFOLDER / CFFILE / CFDATA、None / MSZIP / LZX（15〜21 bit の辞書、CFDATA をまたぐ履歴）、予約領域、UTF-8 名 (attribs 0x80) | なし | 多分割フラグがあっても手元の cabinet の file は読み、実際にまたぐ file だけ拒否。Quantum は一覧のみ |
-| RPM | lead / signature header / main header、payload の cpio entry を直接公開、gzip / bzip2 / xz / lzma / stored payload | なし | codec は宣言 tag ではなく payload 先頭の magic で決定 |
+| RPM | lead / signature header / main header、payload の cpio entry を直接公開、gzip / bzip2 / xz / lzma / zstd / stored payload | なし | codec は宣言 tag ではなく payload 先頭の magic で決定 |
 | tar | POSIX/ustar、pax、GNU long name/link、stored member | なし | volume 分割なし |
 | gzip | RFC 1952、FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT、DEFLATE、CRC32/ISIZE | なし | concatenated member 対応 |
 | bzip2 | BZip2 block size 1〜9 | なし | concatenated stream 対応 |
 | xz | XZ container、Apple Compression の LZMA、footer/padding | なし | concatenated stream 対応 |
+| zstd | RFC 8878、`.zst` / `.tar.zst` / `.tzst`、RPM payload、ZIP method 93、XXH64 checksum。辞書は非対応 | なし | 連結 frame・skippable frame 対応 |
 | UNIX compress (`.Z`) | LZW、9〜16 bit、block mode | なし | なし |
 | LZMA_Alone (`.lzma`) | 13 byte header + raw LZMA。magic が無いため拡張子・properties・辞書サイズ・range coder 先頭 byte がすべて揃ったときだけ受理し、判定は最後に回す | なし | なし |
-| 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz2` / `.tar.bz2`、`.txz` / `.tar.xz`、`.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
-| ZIP / ZIP64 | stored (0)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、PPMd (98)、中央 directory、SFX | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001`（7-Zip `-v` のバイト分割）対応。`.z01` など multi-disk / spanned は非対応 |
+| 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz2` / `.tar.bz2`、`.txz` / `.tar.xz`、`.tar.zst` / `.tzst`、`.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
+| ZIP / ZIP64 | stored (0)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、Zstandard (93)、PPMd (98)、中央 directory、SFX | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001`（7-Zip `-v` のバイト分割）対応。`.z01` など multi-disk / spanned は非対応 |
 | 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、BZip2、Delta、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
 | RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
@@ -125,7 +126,7 @@ for entry in directories {
 >   flags are set, the files held in this cabinet are read normally and only a file that actually
 >   spans cabinets is rejected. Quantum can be listed only.
 > - **RPM**: the lead, the signature header and the main header; the cpio entries of the payload are
->   exposed directly; gzip, bzip2, xz, lzma and stored payloads. The codec is decided by the magic
+>   exposed directly; gzip, bzip2, xz, lzma, zstd and stored payloads. The codec is decided by the magic
 >   at the start of the payload rather than by the declared tag.
 > - **tar**: POSIX/ustar, pax, GNU long name and link, stored members. No volume splitting.
 > - **gzip**: RFC 1952 with FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT, DEFLATE, CRC32 and ISIZE.
@@ -133,12 +134,14 @@ for entry in directories {
 > - **bzip2, xz, UNIX compress (`.Z`)**: BZip2 block sizes 1 to 9; the XZ container with Apple
 >   Compression's LZMA, footer and padding; LZW 9 to 16 bit with block mode. No encryption. bzip2
 >   and xz support concatenated streams; `.Z` has none.
+> - **zstd**: RFC 8878 streams (`.zst`, `.tar.zst`, `.tzst`), RPM payloads and ZIP method 93,
+>   including concatenated/skippable frames and XXH64 checksum verification. Dictionaries are unsupported.
 > - **LZMA_Alone (`.lzma`)**: a 13-byte header plus raw LZMA. Because the format has no magic, it is
 >   accepted only when the extension, the properties, the dictionary size and the first byte of the
 >   range coder all agree, and detection is left until last.
 > - **Compressed tar**: `.tgz` / `.tar.gz`, `.tbz2` / `.tar.bz2`, `.txz` / `.tar.xz` and
->   `.tz` / `.tar.Z` are expanded and then listed with TarReader.
-> - **ZIP / ZIP64**: stored (0), Deflate (8), Deflate64 (9), BZip2 (12), LZMA (14), PPMd (98),
+>   `.tar.zst` / `.tzst` and `.tz` / `.tar.Z` are expanded and then listed with TarReader.
+> - **ZIP / ZIP64**: stored (0), Deflate (8), Deflate64 (9), BZip2 (12), LZMA (14), Zstandard (93), PPMd (98),
 >   the central directory, SFX and `.zip.001` byte splits made with 7-Zip `-v` are supported; multi-disk and spanned archives such as `.z01` are not.
 > - **7z**: the coder chain covers a folder in which a byte-consuming coder takes the output of
 >   another coder as its input; solid folders and a bounded Mach-O/PE SFX prefix are supported.
@@ -330,11 +333,12 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
   hard link の 0-byte placeholder は内容を補完しません。圧縮 cpio の自動連鎖は対象外です。
 - CAB は None / MSZIP / LZX を展開します。Quantum は一覧できますが、読み取り時に
   `unsupportedMethod` になります。複数 cabinet にまたがる file も同様です。
-- RPM は zstd payload、rpm 6 の簡略 cpio (`07070X`)、drpm、cpio でない payload を展開せず、
+- RPM は rpm 6 の簡略 cpio (`07070X`)、drpm、cpio でない payload を展開せず、
   圧縮済み payload を 1 entry として公開します。
-- ARJ、ACE、StuffIt/SIT、zstd stream は未対応です。
-- ZIP は multi-disk/spanned と method 93 (zstd)、95 (xz)、96 (JPEG) を扱いません。
-- 7z は RISC-V filter (method 0x0B) を扱いません。
+- ARJ、ACE、StuffIt/SIT は未対応です。
+- ZIP は multi-disk/spanned と method 95 (xz)、96 (JPEG) を扱いません。
+- zstd の外部辞書は非対応です。Dictionary_ID が非零なら `unsupportedMethod` になります。
+- 7z は zstd method と RISC-V filter (method 0x0B) を扱いません。
 - RAR4 は unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成、SFX と multi-volume の組合せを
   扱いません。RAR5 は compression version 1、file-copy redirection、SFX と multi-volume の組合せ、
   サイズ不明の暗号化 stored entry を扱いません。
@@ -373,12 +377,13 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 >   chaining of compressed cpio is out of scope.
 > - CAB extracts None, MSZIP and LZX. Quantum can be listed but fails with `unsupportedMethod`
 >   when read, as does a file that spans several cabinets.
-> - RPM does not expand a zstd payload, the simplified rpm 6 cpio (`07070X`), drpm, or a payload
+> - RPM does not expand the simplified rpm 6 cpio (`07070X`), drpm, or a payload
 >   that is not cpio; it exposes the compressed payload as a single entry instead.
-> - ARJ, ACE, StuffIt/SIT and zstd streams are unsupported.
-> - ZIP does not handle multi-disk or spanned archives, nor methods 93 (zstd), 95 (xz)
+> - ARJ, ACE and StuffIt/SIT are unsupported.
+> - ZIP does not handle multi-disk or spanned archives, nor methods 95 (xz)
 >   and 96 (JPEG).
-> - 7z does not handle the RISC-V filter (method 0x0B).
+> - External zstd dictionaries are unsupported; a nonzero Dictionary_ID produces `unsupportedMethod`.
+> - 7z does not handle the zstd method or the RISC-V filter (method 0x0B).
 > - RAR4 does not handle unpack versions 15, 20 and 26, the custom VM, solid configurations whose
 >   dictionary size changes, or SFX combined with multi-volume. RAR5 does not handle compression
 >   version 1, file-copy redirection, SFX combined with multi-volume, or an encrypted stored entry

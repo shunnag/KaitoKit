@@ -6,6 +6,22 @@
 
 ## [Unreleased]
 
+### 追加（2026-09-12、Zstandard）
+
+- RFC 8878 と xxHash 仕様に基づく純 Swift の Zstandard decoder を追加した（bd `cooViewer-c1vj.3`）。
+  `.zst` / `.tar.zst` / `.tzst`、RPM の cpio payload、ZIP method 93 を展開する。
+  FSE・Huffman、連結 frame・skippable frame、window 上限、XXH64 checksum を扱う。
+- zstd CLI 生成の固定 fixture 46 件、80 通りの生成 matrix、7zz による第二オラクル、
+  切断・反転・不正な entropy table と履歴参照の検証を追加した。
+  辞書と 7z 内の zstd method は非対応。詳細は [検証記録](Documentation/verification/2026-09-12-zstd.md)。
+
+> **Added (2026-09-12, Zstandard)**
+>
+> Added a pure Swift decoder derived from RFC 8878 and the xxHash specification (bd cooViewer-c1vj.3).
+> Supports standalone/compressed tar streams, RPM cpio payloads and ZIP method 93, with FSE/Huffman,
+> concatenated/skippable frames, bounded windows and XXH64 verification. Validation includes 46 fixed
+> fixtures, 80 generated cases, a 7zz oracle and malformed inputs. Dictionaries and zstd in 7z remain unsupported.
+
 ### 追加（2026-09-12、CAB LZX）
 
 - CAB の LZX（辞書 32 KiB〜2 MiB）を純 Swift で展開できるようにした（bd cooViewer-c1vj.5）。

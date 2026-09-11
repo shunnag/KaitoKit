@@ -1,0 +1,1239 @@
+[
+  {
+    "file": "text-l1.zst",
+    "format": "zstd",
+    "contentSize": 49152,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "text-l1",
+        "size": 49152,
+        "sha256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182"
+      }
+    ],
+    "decodedSize": 49152,
+    "decodedSHA256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182",
+    "options": [
+      "-1",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "text-l3.zst",
+    "format": "zstd",
+    "contentSize": 49152,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "text-l3",
+        "size": 49152,
+        "sha256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182"
+      }
+    ],
+    "decodedSize": 49152,
+    "decodedSHA256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182",
+    "options": [
+      "-3",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "text-l9.zst",
+    "format": "zstd",
+    "contentSize": 49152,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "text-l9",
+        "size": 49152,
+        "sha256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182"
+      }
+    ],
+    "decodedSize": 49152,
+    "decodedSHA256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182",
+    "options": [
+      "-9",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "text-l19.zst",
+    "format": "zstd",
+    "contentSize": 49152,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "text-l19",
+        "size": 49152,
+        "sha256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182"
+      }
+    ],
+    "decodedSize": 49152,
+    "decodedSHA256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182",
+    "options": [
+      "-19",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "text-l22.zst",
+    "format": "zstd",
+    "contentSize": 49152,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "text-l22",
+        "size": 49152,
+        "sha256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182"
+      }
+    ],
+    "decodedSize": 49152,
+    "decodedSHA256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182",
+    "options": [
+      "-22",
+      "--single-thread",
+      "-C",
+      "--ultra"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "binary-l1.zst",
+    "format": "zstd",
+    "contentSize": 32768,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "binary-l1",
+        "size": 32768,
+        "sha256": "1e07410cb94ce7d0e87585172999f78ffbb914f795b03e5f00069e4e3d85450f"
+      }
+    ],
+    "decodedSize": 32768,
+    "decodedSHA256": "1e07410cb94ce7d0e87585172999f78ffbb914f795b03e5f00069e4e3d85450f",
+    "options": [
+      "-1",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "binary-l3.zst",
+    "format": "zstd",
+    "contentSize": 32768,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "binary-l3",
+        "size": 32768,
+        "sha256": "1e07410cb94ce7d0e87585172999f78ffbb914f795b03e5f00069e4e3d85450f"
+      }
+    ],
+    "decodedSize": 32768,
+    "decodedSHA256": "1e07410cb94ce7d0e87585172999f78ffbb914f795b03e5f00069e4e3d85450f",
+    "options": [
+      "-3",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "binary-l9.zst",
+    "format": "zstd",
+    "contentSize": 32768,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "binary-l9",
+        "size": 32768,
+        "sha256": "1e07410cb94ce7d0e87585172999f78ffbb914f795b03e5f00069e4e3d85450f"
+      }
+    ],
+    "decodedSize": 32768,
+    "decodedSHA256": "1e07410cb94ce7d0e87585172999f78ffbb914f795b03e5f00069e4e3d85450f",
+    "options": [
+      "-9",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "binary-l19.zst",
+    "format": "zstd",
+    "contentSize": 32768,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "binary-l19",
+        "size": 32768,
+        "sha256": "1e07410cb94ce7d0e87585172999f78ffbb914f795b03e5f00069e4e3d85450f"
+      }
+    ],
+    "decodedSize": 32768,
+    "decodedSHA256": "1e07410cb94ce7d0e87585172999f78ffbb914f795b03e5f00069e4e3d85450f",
+    "options": [
+      "-19",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "binary-l22.zst",
+    "format": "zstd",
+    "contentSize": 32768,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "binary-l22",
+        "size": 32768,
+        "sha256": "1e07410cb94ce7d0e87585172999f78ffbb914f795b03e5f00069e4e3d85450f"
+      }
+    ],
+    "decodedSize": 32768,
+    "decodedSHA256": "1e07410cb94ce7d0e87585172999f78ffbb914f795b03e5f00069e4e3d85450f",
+    "options": [
+      "-22",
+      "--single-thread",
+      "-C",
+      "--ultra"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "random-l1.zst",
+    "format": "zstd",
+    "contentSize": 16384,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "random-l1",
+        "size": 16384,
+        "sha256": "a401c6ffab397ed121638ab5194852c507e21c463f4051357e0199f1b439461b"
+      }
+    ],
+    "decodedSize": 16384,
+    "decodedSHA256": "a401c6ffab397ed121638ab5194852c507e21c463f4051357e0199f1b439461b",
+    "options": [
+      "-1",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "random-l3.zst",
+    "format": "zstd",
+    "contentSize": 16384,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "random-l3",
+        "size": 16384,
+        "sha256": "a401c6ffab397ed121638ab5194852c507e21c463f4051357e0199f1b439461b"
+      }
+    ],
+    "decodedSize": 16384,
+    "decodedSHA256": "a401c6ffab397ed121638ab5194852c507e21c463f4051357e0199f1b439461b",
+    "options": [
+      "-3",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "random-l9.zst",
+    "format": "zstd",
+    "contentSize": 16384,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "random-l9",
+        "size": 16384,
+        "sha256": "a401c6ffab397ed121638ab5194852c507e21c463f4051357e0199f1b439461b"
+      }
+    ],
+    "decodedSize": 16384,
+    "decodedSHA256": "a401c6ffab397ed121638ab5194852c507e21c463f4051357e0199f1b439461b",
+    "options": [
+      "-9",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "random-l19.zst",
+    "format": "zstd",
+    "contentSize": 16384,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "random-l19",
+        "size": 16384,
+        "sha256": "a401c6ffab397ed121638ab5194852c507e21c463f4051357e0199f1b439461b"
+      }
+    ],
+    "decodedSize": 16384,
+    "decodedSHA256": "a401c6ffab397ed121638ab5194852c507e21c463f4051357e0199f1b439461b",
+    "options": [
+      "-19",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "random-l22.zst",
+    "format": "zstd",
+    "contentSize": 16384,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "random-l22",
+        "size": 16384,
+        "sha256": "a401c6ffab397ed121638ab5194852c507e21c463f4051357e0199f1b439461b"
+      }
+    ],
+    "decodedSize": 16384,
+    "decodedSHA256": "a401c6ffab397ed121638ab5194852c507e21c463f4051357e0199f1b439461b",
+    "options": [
+      "-22",
+      "--single-thread",
+      "-C",
+      "--ultra"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "repetitive-l1.zst",
+    "format": "zstd",
+    "contentSize": 1048576,
+    "features": [
+      "checksum",
+      "compressed",
+      "predefined-fse",
+      "raw-literals",
+      "window-524288",
+      "window-descriptor"
+    ],
+    "entries": [
+      {
+        "name": "repetitive-l1",
+        "size": 1048576,
+        "sha256": "6be33fefc04dbb4e740df0d7391a9d75cdc79c240f22c1792328cee62d5d84e9"
+      }
+    ],
+    "decodedSize": 1048576,
+    "decodedSHA256": "6be33fefc04dbb4e740df0d7391a9d75cdc79c240f22c1792328cee62d5d84e9",
+    "options": [
+      "-1",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "repetitive-l3.zst",
+    "format": "zstd",
+    "contentSize": 1048576,
+    "features": [
+      "checksum",
+      "compressed",
+      "predefined-fse",
+      "raw-literals",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "repetitive-l3",
+        "size": 1048576,
+        "sha256": "6be33fefc04dbb4e740df0d7391a9d75cdc79c240f22c1792328cee62d5d84e9"
+      }
+    ],
+    "decodedSize": 1048576,
+    "decodedSHA256": "6be33fefc04dbb4e740df0d7391a9d75cdc79c240f22c1792328cee62d5d84e9",
+    "options": [
+      "-3",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "repetitive-l9.zst",
+    "format": "zstd",
+    "contentSize": 1048576,
+    "features": [
+      "checksum",
+      "compressed",
+      "predefined-fse",
+      "raw-literals",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "repetitive-l9",
+        "size": 1048576,
+        "sha256": "6be33fefc04dbb4e740df0d7391a9d75cdc79c240f22c1792328cee62d5d84e9"
+      }
+    ],
+    "decodedSize": 1048576,
+    "decodedSHA256": "6be33fefc04dbb4e740df0d7391a9d75cdc79c240f22c1792328cee62d5d84e9",
+    "options": [
+      "-9",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "repetitive-l19.zst",
+    "format": "zstd",
+    "contentSize": 1048576,
+    "features": [
+      "checksum",
+      "compressed",
+      "predefined-fse",
+      "raw-literals",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "repetitive-l19",
+        "size": 1048576,
+        "sha256": "6be33fefc04dbb4e740df0d7391a9d75cdc79c240f22c1792328cee62d5d84e9"
+      }
+    ],
+    "decodedSize": 1048576,
+    "decodedSHA256": "6be33fefc04dbb4e740df0d7391a9d75cdc79c240f22c1792328cee62d5d84e9",
+    "options": [
+      "-19",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "repetitive-l22.zst",
+    "format": "zstd",
+    "contentSize": 1048576,
+    "features": [
+      "checksum",
+      "compressed",
+      "predefined-fse",
+      "raw-literals",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "repetitive-l22",
+        "size": 1048576,
+        "sha256": "6be33fefc04dbb4e740df0d7391a9d75cdc79c240f22c1792328cee62d5d84e9"
+      }
+    ],
+    "decodedSize": 1048576,
+    "decodedSHA256": "6be33fefc04dbb4e740df0d7391a9d75cdc79c240f22c1792328cee62d5d84e9",
+    "options": [
+      "-22",
+      "--single-thread",
+      "-C",
+      "--ultra"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "empty-l1.zst",
+    "format": "zstd",
+    "contentSize": 0,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "empty-l1",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "decodedSize": 0,
+    "decodedSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "options": [
+      "-1",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "empty-l3.zst",
+    "format": "zstd",
+    "contentSize": 0,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "empty-l3",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "decodedSize": 0,
+    "decodedSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "options": [
+      "-3",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "empty-l9.zst",
+    "format": "zstd",
+    "contentSize": 0,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "empty-l9",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "decodedSize": 0,
+    "decodedSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "options": [
+      "-9",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "empty-l19.zst",
+    "format": "zstd",
+    "contentSize": 0,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "empty-l19",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "decodedSize": 0,
+    "decodedSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "options": [
+      "-19",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "empty-l22.zst",
+    "format": "zstd",
+    "contentSize": 0,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "empty-l22",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "decodedSize": 0,
+    "decodedSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "options": [
+      "-22",
+      "--single-thread",
+      "-C",
+      "--ultra"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "one-l1.zst",
+    "format": "zstd",
+    "contentSize": 1,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "one-l1",
+        "size": 1,
+        "sha256": "bbeebd879e1dff6918546dc0c179fdde505f2a21591c9a9c96e36b054ec5af83"
+      }
+    ],
+    "decodedSize": 1,
+    "decodedSHA256": "bbeebd879e1dff6918546dc0c179fdde505f2a21591c9a9c96e36b054ec5af83",
+    "options": [
+      "-1",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "one-l3.zst",
+    "format": "zstd",
+    "contentSize": 1,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "one-l3",
+        "size": 1,
+        "sha256": "bbeebd879e1dff6918546dc0c179fdde505f2a21591c9a9c96e36b054ec5af83"
+      }
+    ],
+    "decodedSize": 1,
+    "decodedSHA256": "bbeebd879e1dff6918546dc0c179fdde505f2a21591c9a9c96e36b054ec5af83",
+    "options": [
+      "-3",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "one-l9.zst",
+    "format": "zstd",
+    "contentSize": 1,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "one-l9",
+        "size": 1,
+        "sha256": "bbeebd879e1dff6918546dc0c179fdde505f2a21591c9a9c96e36b054ec5af83"
+      }
+    ],
+    "decodedSize": 1,
+    "decodedSHA256": "bbeebd879e1dff6918546dc0c179fdde505f2a21591c9a9c96e36b054ec5af83",
+    "options": [
+      "-9",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "one-l19.zst",
+    "format": "zstd",
+    "contentSize": 1,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "one-l19",
+        "size": 1,
+        "sha256": "bbeebd879e1dff6918546dc0c179fdde505f2a21591c9a9c96e36b054ec5af83"
+      }
+    ],
+    "decodedSize": 1,
+    "decodedSHA256": "bbeebd879e1dff6918546dc0c179fdde505f2a21591c9a9c96e36b054ec5af83",
+    "options": [
+      "-19",
+      "--single-thread",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "one-l22.zst",
+    "format": "zstd",
+    "contentSize": 1,
+    "features": [
+      "checksum",
+      "raw",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "one-l22",
+        "size": 1,
+        "sha256": "bbeebd879e1dff6918546dc0c179fdde505f2a21591c9a9c96e36b054ec5af83"
+      }
+    ],
+    "decodedSize": 1,
+    "decodedSHA256": "bbeebd879e1dff6918546dc0c179fdde505f2a21591c9a9c96e36b054ec5af83",
+    "options": [
+      "-22",
+      "--single-thread",
+      "-C",
+      "--ultra"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "no-check.zst",
+    "format": "zstd",
+    "contentSize": 49152,
+    "features": [
+      "compressed",
+      "compressed-fse",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "no-check",
+        "size": 49152,
+        "sha256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182"
+      }
+    ],
+    "decodedSize": 49152,
+    "decodedSHA256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182",
+    "options": [
+      "-3",
+      "--no-check"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "unknown-size.zst",
+    "format": "zstd",
+    "contentSize": null,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "window-65536",
+      "window-descriptor"
+    ],
+    "entries": [
+      {
+        "name": "unknown-size",
+        "size": 49152,
+        "sha256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182"
+      }
+    ],
+    "decodedSize": 49152,
+    "decodedSHA256": "d0083a3d420c57353160ec4a65e7b7645b86331b3c79ce5c1b10612e3e70f182",
+    "options": [
+      "-3",
+      "-C",
+      "--no-content-size"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "threaded.zst",
+    "format": "zstd",
+    "contentSize": 4194304,
+    "features": [
+      "checksum",
+      "compressed",
+      "predefined-fse",
+      "raw-literals",
+      "window-2097152",
+      "window-descriptor"
+    ],
+    "entries": [
+      {
+        "name": "threaded",
+        "size": 4194304,
+        "sha256": "f23bff00f4ecdf91a4cec8c02e7190bb659dab364d82054b398a73cddbcd021e"
+      }
+    ],
+    "decodedSize": 4194304,
+    "decodedSHA256": "f23bff00f4ecdf91a4cec8c02e7190bb659dab364d82054b398a73cddbcd021e",
+    "options": [
+      "-3",
+      "-T4",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "rsyncable.zst",
+    "format": "zstd",
+    "contentSize": 4194304,
+    "features": [
+      "checksum",
+      "compressed",
+      "predefined-fse",
+      "raw-literals",
+      "window-2097152",
+      "window-descriptor"
+    ],
+    "entries": [
+      {
+        "name": "rsyncable",
+        "size": 4194304,
+        "sha256": "f23bff00f4ecdf91a4cec8c02e7190bb659dab364d82054b398a73cddbcd021e"
+      }
+    ],
+    "decodedSize": 4194304,
+    "decodedSHA256": "f23bff00f4ecdf91a4cec8c02e7190bb659dab364d82054b398a73cddbcd021e",
+    "options": [
+      "-3",
+      "-T4",
+      "--rsyncable",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "long-window.zst",
+    "format": "zstd",
+    "contentSize": null,
+    "features": [
+      "checksum",
+      "compressed",
+      "predefined-fse",
+      "raw-literals",
+      "window-1048576",
+      "window-descriptor"
+    ],
+    "entries": [
+      {
+        "name": "long-window",
+        "size": 2097152,
+        "sha256": "ebfb7117eef30a35ec90d8526b7fb5afdaed2c4220206ff32a6c140a2208c70d"
+      }
+    ],
+    "decodedSize": 2097152,
+    "decodedSHA256": "ebfb7117eef30a35ec90d8526b7fb5afdaed2c4220206ff32a6c140a2208c70d",
+    "options": [
+      "-3",
+      "--long=20",
+      "--no-content-size",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "zero-blocks.zst",
+    "format": "zstd",
+    "contentSize": 524288,
+    "features": [
+      "checksum",
+      "compressed",
+      "predefined-fse",
+      "raw-literals",
+      "rle",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "zero-blocks",
+        "size": 524288,
+        "sha256": "07854d2fef297a06ba81685e660c332de36d5d18d546927d30daad6d7fda1541"
+      }
+    ],
+    "decodedSize": 524288,
+    "decodedSHA256": "07854d2fef297a06ba81685e660c332de36d5d18d546927d30daad6d7fda1541",
+    "options": [
+      "-3",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "table-reuse.zst",
+    "format": "zstd",
+    "contentSize": 524288,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "direct-weights",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "repeat-fse",
+      "single-segment",
+      "treeless"
+    ],
+    "entries": [
+      {
+        "name": "table-reuse",
+        "size": 524288,
+        "sha256": "b8e0810ecbcdc0b99515aca0b05749b9100fa0506e25270c6cf5763de8d5f9f7"
+      }
+    ],
+    "decodedSize": 524288,
+    "decodedSHA256": "b8e0810ecbcdc0b99515aca0b05749b9100fa0506e25270c6cf5763de8d5f9f7",
+    "options": [
+      "-9",
+      "-C"
+    ],
+    "unsupported": false
+  },
+  {
+    "file": "concatenated.zst",
+    "format": "zstd",
+    "contentSize": 40960,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "concatenated",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "concatenated",
+        "size": 40960,
+        "sha256": "47d2eacc17692de5527366c88f5e6e3df65e4691111537fb30488d5ac30a7220"
+      }
+    ],
+    "decodedSize": 40960,
+    "decodedSHA256": "47d2eacc17692de5527366c88f5e6e3df65e4691111537fb30488d5ac30a7220",
+    "options": [],
+    "unsupported": false
+  },
+  {
+    "file": "concat-unknown.zst",
+    "format": "zstd",
+    "contentSize": null,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "concatenated",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment",
+      "window-16384",
+      "window-descriptor"
+    ],
+    "entries": [
+      {
+        "name": "concat-unknown",
+        "size": 40960,
+        "sha256": "47d2eacc17692de5527366c88f5e6e3df65e4691111537fb30488d5ac30a7220"
+      }
+    ],
+    "decodedSize": 40960,
+    "decodedSHA256": "47d2eacc17692de5527366c88f5e6e3df65e4691111537fb30488d5ac30a7220",
+    "options": [],
+    "unsupported": false
+  },
+  {
+    "file": "skippable.zst",
+    "format": "zstd",
+    "contentSize": 40960,
+    "features": [
+      "checksum",
+      "compressed",
+      "compressed-fse",
+      "concatenated",
+      "four-streams",
+      "fse-weights",
+      "huffman",
+      "single-segment",
+      "skippable"
+    ],
+    "entries": [
+      {
+        "name": "skippable",
+        "size": 40960,
+        "sha256": "47d2eacc17692de5527366c88f5e6e3df65e4691111537fb30488d5ac30a7220"
+      }
+    ],
+    "decodedSize": 40960,
+    "decodedSHA256": "47d2eacc17692de5527366c88f5e6e3df65e4691111537fb30488d5ac30a7220",
+    "options": [],
+    "unsupported": false
+  },
+  {
+    "file": "skippable-only.zst",
+    "format": "zstd",
+    "contentSize": 0,
+    "features": [
+      "skippable"
+    ],
+    "entries": [
+      {
+        "name": "skippable-only",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "decodedSize": 0,
+    "decodedSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "options": [],
+    "unsupported": false
+  },
+  {
+    "file": "dictionary.zst",
+    "format": "zstd",
+    "contentSize": 4096,
+    "features": [
+      "checksum",
+      "compressed",
+      "dictionary",
+      "one-stream",
+      "repeat-fse",
+      "single-segment",
+      "treeless"
+    ],
+    "entries": [
+      {
+        "name": "dictionary",
+        "size": 4096,
+        "sha256": "77ad6129657fde87cfce51e1cba6b31aae6a24de7709f537095fabadaf96b110"
+      }
+    ],
+    "decodedSize": 4096,
+    "decodedSHA256": "77ad6129657fde87cfce51e1cba6b31aae6a24de7709f537095fabadaf96b110",
+    "options": [],
+    "unsupported": true
+  },
+  {
+    "file": "bundle.tar.zst",
+    "format": "tar",
+    "contentSize": 10240,
+    "features": [
+      "checksum",
+      "compressed",
+      "predefined-fse",
+      "raw-literals",
+      "single-segment"
+    ],
+    "entries": [
+      {
+        "name": "hello.txt",
+        "size": 23,
+        "sha256": "c360378355a15142e48abb75371a8ab5eea79808468db3cee856b9e0eee870c4"
+      },
+      {
+        "name": "sub/data.bin",
+        "size": 1024,
+        "sha256": "785b0751fc2c53dc14a4ce3d800e69ef9ce1009eb327ccf458afe09c242c26c9"
+      }
+    ],
+    "decodedSize": 10240,
+    "decodedSHA256": "3a2e5a369003f35e7373c78dd9e8f57f195bb2a516e156e5453e26268c098002",
+    "options": [],
+    "unsupported": false
+  },
+  {
+    "file": "method93.zip",
+    "format": "zip",
+    "contentSize": null,
+    "features": [],
+    "entries": [
+      {
+        "name": "payload.bin",
+        "size": 24576,
+        "sha256": "0284b818713e7c725b754b952234b7b33bc6c77e782fee475778989fb80ae78d"
+      }
+    ],
+    "decodedSize": 24576,
+    "decodedSHA256": "0284b818713e7c725b754b952234b7b33bc6c77e782fee475778989fb80ae78d",
+    "options": [],
+    "unsupported": false
+  },
+  {
+    "file": "method93-concat.zip",
+    "format": "zip",
+    "contentSize": null,
+    "features": [],
+    "entries": [
+      {
+        "name": "payload.bin",
+        "size": 40960,
+        "sha256": "47d2eacc17692de5527366c88f5e6e3df65e4691111537fb30488d5ac30a7220"
+      }
+    ],
+    "decodedSize": 40960,
+    "decodedSHA256": "47d2eacc17692de5527366c88f5e6e3df65e4691111537fb30488d5ac30a7220",
+    "options": [],
+    "unsupported": false
+  },
+  {
+    "file": "payload.rpm",
+    "format": "rpm",
+    "contentSize": null,
+    "features": [],
+    "entries": [
+      {
+        "name": "./usr/share/kaitotest",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "./usr/share/kaitotest/a.txt",
+        "size": 10,
+        "sha256": "7ccc92b5adfd832a3f56064ad8304349e7b373a3b90c76de110a012251ed3455"
+      },
+      {
+        "name": "./usr/share/kaitotest/b.bin",
+        "size": 4096,
+        "sha256": "0d356260eaf09e3b3dc81a65b2ad2399aa7c4921c0274bd2cbb54c2a21c46e3b"
+      },
+      {
+        "name": "./usr/share/kaitotest/link.txt",
+        "size": 5,
+        "sha256": "18b7cb099a9ea3f50ba899b5ba81e0d377a5f3b16f8f6eeb8b3e58cd4692b993"
+      },
+      {
+        "name": "./usr/share/kaitotest/sub",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "./usr/share/kaitotest/sub/nested.txt",
+        "size": 20,
+        "sha256": "5d0e5bc93dbc8febbb6b3cea0503bfd7460284e544c2f689538fd55da59accb2"
+      }
+    ],
+    "decodedSize": 5100,
+    "decodedSHA256": "96e712dbdaa84dac6a8bd8349bbb235ad3ba2a31b4dd00198915d2cbb6041637",
+    "options": [],
+    "unsupported": false
+  }
+]

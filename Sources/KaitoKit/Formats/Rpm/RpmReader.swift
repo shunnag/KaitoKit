@@ -22,7 +22,7 @@ final class RpmReader: FormatReader {
         else if prefix.starts(with: [0x1f, 0x8b]) { detectedCompressor = "gzip" }
         else if prefix.starts(with: [0x42, 0x5a, 0x68]) { detectedCompressor = "bzip2" }
         else if prefix.starts(with: [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]) { detectedCompressor = "xz" }
-        else if prefix.starts(with: [0x28, 0xb5, 0x2f, 0xfd]) { detectedCompressor = "zstd" }
+        else if ZstdFrameHeader.hasMagic(prefix) { detectedCompressor = "zstd" }
         else { detectedCompressor = nil }
         let compressor = detectedCompressor ?? declaredCompressor
         var metadata = header.metadata
@@ -30,7 +30,7 @@ final class RpmReader: FormatReader {
             // 宣言値は診断用に保存し、相違がある場合だけ実体の判定を併記する。
             metadata["rpmPayloadCompressorDetected"] = detectedCompressor
         }
-        let codecs: [String: ArchiveFormat] = ["gzip": .gzip, "bzip2": .bzip2, "xz": .xz, "lzma": .lzma]
+        let codecs: [String: ArchiveFormat] = ["gzip": .gzip, "bzip2": .bzip2, "xz": .xz, "lzma": .lzma, "zstd": .zstd]
         let extensions = ["gzip": ".gz", "bzip2": ".bz2", "xz": ".xz", "lzma": ".lzma", "zstd": ".zst"]
         var inner: CpioReader?
         if header.values[.payloadFormat] == nil || header.values[.payloadFormat] == "cpio",

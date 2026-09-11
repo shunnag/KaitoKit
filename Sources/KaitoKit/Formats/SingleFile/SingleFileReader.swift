@@ -1,6 +1,6 @@
 import Foundation
 
-// gzip / bzip2 / XZ / UNIX compress / LZMA_Alone を単一 entry として公開する。
+// gzip / bzip2 / XZ / zstd / UNIX compress / LZMA_Alone を単一 entry として公開する。
 final class SingleFileReader: FormatReader {
     let format: ArchiveFormat
     let entries: [ArchiveEntry]
@@ -56,6 +56,11 @@ final class SingleFileReader: FormatReader {
         case .compress:
             // LZW の確保と shift の前に maxbits を検証する。
             _ = try LZWDecoder(source: source)
+            storedName = Self.fallbackName(fallbackFileName, format: format)
+            modificationDate = nil
+
+        case .zstd:
+            uncompressedSize = try ZstdDecompressor.contentSize(source: source, limits: options.limits)
             storedName = Self.fallbackName(fallbackFileName, format: format)
             modificationDate = nil
 
@@ -138,6 +143,8 @@ final class SingleFileReader: FormatReader {
             )
         case .xz:
             return try XZDecompressor(source: source)
+        case .zstd:
+            return try ZstdDecompressor(source: source, limits: limits)
         case .compress:
             return try LZWDecoder(source: source)
         case .lzma:
@@ -156,7 +163,7 @@ final class SingleFileReader: FormatReader {
     }
 
     static let supportedFormats: Set<ArchiveFormat> = [
-        .gzip, .bzip2, .xz, .compress, .lzma
+        .gzip, .bzip2, .xz, .zstd, .compress, .lzma
     ]
 
     private struct StoredName {
@@ -201,6 +208,8 @@ final class SingleFileReader: FormatReader {
             suffixes = [".tar.bz2", ".tbz2", ".tbz", ".bz2", ".bz"]
         case .xz:
             suffixes = [".tar.xz", ".txz", ".xz"]
+        case .zstd:
+            suffixes = [".tar.zst", ".tzst", ".zst"]
         case .compress:
             suffixes = [".tar.z", ".tz", ".z"]
         case .lzma:
@@ -215,7 +224,7 @@ final class SingleFileReader: FormatReader {
             if !resolved.isEmpty,
                suffix.hasPrefix(".tar.") || suffix == ".tgz" ||
                 suffix == ".tbz2" || suffix == ".tbz" ||
-                suffix == ".txz" || suffix == ".tz" {
+                suffix == ".txz" || suffix == ".tz" || suffix == ".tzst" {
                 resolved += ".tar"
             }
         }
@@ -251,6 +260,7 @@ final class SingleFileReader: FormatReader {
         case .gzip: "DEFLATE (gzip)"
         case .bzip2: "BZip2"
         case .xz: "LZMA (XZ)"
+        case .zstd: "Zstandard"
         case .compress: "LZW (compress)"
         case .lzma: "LZMA (Alone)"
         default: format.rawValue

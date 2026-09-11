@@ -562,7 +562,8 @@ prose ページであることを確認し、`source-archive` を含む URL は�
     暗号化 checksum の HashMAC、非最終 file part に存在する packed CRC32 / BLAKE2sp を検証する。
     サイズ不明の圧縮 entry は `uncompressedSize == nil` のまま終端まで streaming する。
     codec 辞書は stream 作成時に `ReadLimits.maxDictionarySize` (既定 1 GiB) で制限する。
-  - M3 の明示的な RAR5 非対応は file-copy redirection の展開、RAR5 SFX、
+  - 2026-09-11 (bd cooViewer-yd18): RAR5 の単独 SFX に対応し、上限 1 MiB 内の署名位置へ source を寄せて読む。
+  - M3 の明示的な RAR5 非対応は file-copy redirection の展開、RAR5 SFX と分割の併用、
     Data / 任意 `ByteSource` からの sibling volume 継続、サイズ不明の暗号化 stored entry である。
     redirection type 5 は一覧と 0-byte read / stream を行えるが、copy target の展開は行わない。
     compression method 1〜5 の algorithm version 1 は stream 作成時に拒否し、stored method 0 は

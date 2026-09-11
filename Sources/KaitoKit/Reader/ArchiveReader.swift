@@ -142,14 +142,19 @@ public final class ArchiveReader {
                 throw KaitoError.unsupportedFormat
             }
             if signature.version == .rar5 {
-                guard signature.offset == 0 else {
-                    throw KaitoError.unsupportedMethod("RAR5 SFX archive")
+                let rarSource: any ByteSource
+                if signature.offset > 0 {
+                    rarSource = try RebasedByteSource(source: source, baseOffset: signature.offset)
+                } else {
+                    rarSource = source
                 }
                 let rar = try RAR5Reader(
-                    source: source,
+                    source: rarSource,
                     options: options,
-                    sourceURL: rarSourceURL,
-                    sourceDirectoryAnchor: sourceDirectoryAnchor
+                    sourceURL: signature.offset == 0 ? rarSourceURL : nil,
+                    sourceDirectoryAnchor: signature.offset == 0
+                        ? sourceDirectoryAnchor
+                        : nil
                 )
                 reader = rar
                 entries = rar.entries

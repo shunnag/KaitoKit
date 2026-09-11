@@ -4,6 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
 バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従う。
 
+## [Unreleased]
+
+### 追加（RAR5 SFX）
+
+- RAR5 の上限付き SFX に対応した。SFX と multi-volume の組合せは引き続き非対応（bd cooViewer-yd18）。
+
+> **Added (RAR5 SFX)**
+>
+> - Added bounded RAR5 SFX support. SFX combined with multi-volume remains unsupported (bd cooViewer-yd18).
+
 ## [0.5.0] - 2026-09-11
 
 ### 追加（バイト分割書庫）

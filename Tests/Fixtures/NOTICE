@@ -515,6 +515,29 @@ Writer payload SHA-256 (filename, bytes, hash):
   o2.o 512 aeacbdb7d373f60cc34a23c5c570ff151291aed75cdfb8a9710a8e46bcda98ca
   control.tar.gz 29 e507c23a7f04d36333658090ee12ac44807169f9c432d909df4d5d5edd7d1639
   data.tar.gz 119 89a61e871bd91f64ef247ebc81b9aa055b580968582d2d7d81672db88bbdd407
+
+
+zip-ppmd/ (2026-09-11, cooViewer-th30)
+------------------------------------
+project-owned の決定的 payload（seed 0x50504D49）を 7zz の ZIP PPMd writer で圧縮した。
+再生成: python3 Scripts/fixtures/make-zip-ppmd.py
+元入力の SHA-256 / CRC32 / サイズ / 実際の parameter word は manifest.json とテスト定数に記録。
+text 3 本、構造化 binary 1 本、メモリ復元用の乱数反復 2 本、混在書庫 1 本。
+乱数 fixture は一様乱数 12 KiB を 2 回並べた後に反復 payload 32 KiB を追加する。
+Store への切替を避け、order 16 / 1 MiB のメモリ枯渇を起こすための構成である。
+mixed は同じ writer の PPMd stream と自作 stored entry を最小 ZIP ヘッダで包んだ。
+7zz は空 entry を stored にするため、empty-ppmd.bin は parameter 0x0007 と任意の
+4-byte stream を持つ空 entry として generator で合成した。各 .b64 は 40 KiB 以下。
+PPMd の符号化には 7zz バイナリだけを用い、外部実装 source は使用していない。
+
+The deterministic payloads are project-owned and compressed by the 7zz ZIP PPMd writer.
+The generator records input SHA-256, CRC32, sizes and actual PPMd parameters in manifest.json.
+The seven fixtures cover text, structured binary, restart/cut-off exhaustion and mixed entries.
+Random fixtures repeat a uniform 12 KiB block twice and append 32 KiB of repetitive data to
+force PPMd selection and model exhaustion. The mixed archive wraps writer-produced PPMd data
+and project-owned stored entries; its empty PPMd entry is synthetic because 7zz stores empty files.
+No external implementation source was used. The generator and payloads follow the project license.
+
 cab-lzx/（2026-09-12、bd cooViewer-c1vj.5）
   Project-owned payload を Scripts/fixtures/make-cab-lzx.py の自作 LZX encoder と
   CAB writer（Python 標準ライブラリのみ）で圧縮した標本 14 件。

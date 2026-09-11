@@ -33,6 +33,23 @@
 >
 > - Added bounded RAR5 SFX support. SFX combined with multi-volume remains unsupported (bd cooViewer-yd18).
 
+### 追加（ZIP PPMd、cooViewer-th30）
+
+- ZIP method 98 の PPMd var.I rev.1 decoder を追加した。公開ドメイン原典を、
+  範囲検証付きの固定 arena・ストリーミング入力・既知サイズでの停止として移植した。
+  order 2〜16、辞書 1〜256 MiB、restart / cut off / freeze を扱う。
+- 7zz 生成 fixture と 64 通りの生成 matrix、復元カウンタ、切断・破損入力を検証した。
+  freeze の正常な符号化書庫との一致は未検証。
+  詳細は [検証記録](Documentation/verification/2026-09-11-zip-ppmd.md) を参照。
+
+> **Added (ZIP PPMd, cooViewer-th30)**
+>
+> - Added a streaming ZIP method 98 decoder for PPMd var.I revision 1, ported from the public-domain
+>   reference with a checked fixed arena and termination at the declared output size. It supports
+>   orders 2–16, dictionaries of 1–256 MiB, and restart, cut off and freeze restoration.
+> - Added 7zz fixtures, a 64-case generation matrix, restoration counters and malformed-input tests.
+>   Valid freeze-encoded archives remain unverified; see the verification record.
+
 ## [0.5.0] - 2026-09-11
 
 ### 追加（バイト分割書庫）

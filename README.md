@@ -97,7 +97,7 @@ for entry in directories {
 | UNIX compress (`.Z`) | LZW、9〜16 bit、block mode | なし | なし |
 | LZMA_Alone (`.lzma`) | 13 byte header + raw LZMA。magic が無いため拡張子・properties・辞書サイズ・range coder 先頭 byte がすべて揃ったときだけ受理し、判定は最後に回す | なし | なし |
 | 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz2` / `.tar.bz2`、`.txz` / `.tar.xz`、`.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
-| ZIP / ZIP64 | stored (0)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、中央 directory、SFX | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001`（7-Zip `-v` のバイト分割）対応。`.z01` など multi-disk / spanned は非対応 |
+| ZIP / ZIP64 | stored (0)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、PPMd (98)、中央 directory、SFX | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001`（7-Zip `-v` のバイト分割）対応。`.z01` など multi-disk / spanned は非対応 |
 | 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、BZip2、Delta、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
 | RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
@@ -138,8 +138,8 @@ for entry in directories {
 >   range coder all agree, and detection is left until last.
 > - **Compressed tar**: `.tgz` / `.tar.gz`, `.tbz2` / `.tar.bz2`, `.txz` / `.tar.xz` and
 >   `.tz` / `.tar.Z` are expanded and then listed with TarReader.
-> - **ZIP / ZIP64**: the central directory, SFX and `.zip.001` byte splits made with 7-Zip `-v`
->   are supported; multi-disk and spanned archives such as `.z01` are not.
+> - **ZIP / ZIP64**: stored (0), Deflate (8), Deflate64 (9), BZip2 (12), LZMA (14), PPMd (98),
+>   the central directory, SFX and `.zip.001` byte splits made with 7-Zip `-v` are supported; multi-disk and spanned archives such as `.z01` are not.
 > - **7z**: the coder chain covers a folder in which a byte-consuming coder takes the output of
 >   another coder as its input; solid folders and a bounded Mach-O/PE SFX prefix are supported.
 >   `.001` byte splits made with 7-Zip `-v`, solid and block splits are supported.
@@ -333,7 +333,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 - RPM は zstd payload、rpm 6 の簡略 cpio (`07070X`)、drpm、cpio でない payload を展開せず、
   圧縮済み payload を 1 entry として公開します。
 - ARJ、ACE、StuffIt/SIT、zstd stream は未対応です。
-- ZIP は multi-disk/spanned と method 93 (zstd)、95 (xz)、96 (JPEG)、98 (PPMd) を扱いません。
+- ZIP は multi-disk/spanned と method 93 (zstd)、95 (xz)、96 (JPEG) を扱いません。
 - 7z は RISC-V filter (method 0x0B) を扱いません。
 - RAR4 は unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成、SFX と multi-volume の組合せを
   扱いません。RAR5 は compression version 1、file-copy redirection、SFX と multi-volume の組合せ、
@@ -376,8 +376,8 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 > - RPM does not expand a zstd payload, the simplified rpm 6 cpio (`07070X`), drpm, or a payload
 >   that is not cpio; it exposes the compressed payload as a single entry instead.
 > - ARJ, ACE, StuffIt/SIT and zstd streams are unsupported.
-> - ZIP does not handle multi-disk or spanned archives, nor methods 93 (zstd), 95 (xz), 96 (JPEG)
->   and 98 (PPMd).
+> - ZIP does not handle multi-disk or spanned archives, nor methods 93 (zstd), 95 (xz)
+>   and 96 (JPEG).
 > - 7z does not handle the RISC-V filter (method 0x0B).
 > - RAR4 does not handle unpack versions 15, 20 and 26, the custom VM, solid configurations whose
 >   dictionary size changes, or SFX combined with multi-volume. RAR5 does not handle compression

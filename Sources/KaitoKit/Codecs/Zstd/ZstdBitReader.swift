@@ -136,7 +136,7 @@ final class ZstdInput {
     func byte() throws -> UInt8 {
         if bufferOffset == buffer.count {
             guard position < end else { throw KaitoError.truncated }
-            let count = Int(min(64 * 1_024, remaining))
+            let count = Int(min(4 * 1_024, remaining))
             buffer = try readByteRange(source: source, offset: position, count: count)
             bufferOffset = 0
         }
@@ -158,7 +158,14 @@ final class ZstdInput {
         result.reserveCapacity(count)
         while result.count < count {
             if bufferOffset == buffer.count {
-                result.append(try byte())
+                let amount = count - result.count
+                if amount >= 4 * 1_024 {
+                    // 本文の大きな残り要求は先読みを挟まず、一括して取得する。
+                    result.append(contentsOf: try readByteRange(source: source, offset: position, count: amount))
+                    position += UInt64(amount)
+                } else {
+                    result.append(try byte())
+                }
             } else {
                 let amount = min(count - result.count, buffer.count - bufferOffset)
                 result.append(contentsOf: buffer[bufferOffset..<(bufferOffset + amount)])

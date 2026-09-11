@@ -605,8 +605,12 @@ prose ページであることを確認し、`source-archive` を含む URL は�
 
 - Zstandard（2026-09-12、bd `cooViewer-c1vj.3`）: `Codecs/Zstd/` の 6 ファイルに、FSE、
   Huffman、前向き byte / 逆向き bit reader、XXH64、frame / block / sequence、Decompressor を実装。
-  入力を 64 KiB 単位で読み、window 分のリングと最大 128 KiB の block / literals を保持する。
-  window は確保前に maxDictionarySize（既定 1 GiB）で検証する。
+  ヘッダの先読みは 4 KiB とし、本文は先読みの残りを消費後、残り要求が 4 KiB 以上なら直接まとめて読む。
+  履歴は空の配列から実出力に比例して伸ばし、保持上限に達したらリングとして更新する。
+  保持上限は content size が既知なら `min(windowSize, max(1, contentSize))`、不明なら宣言 window。
+  既知の全出力より古いバイトを参照できないという LZMA の retainedDictionarySize と同じ根拠である。
+  宣言 window は従来どおり maxDictionarySize（既定 1 GiB）で検証し、block 上限・match 距離にも使う。
+  block / literals の作業領域は各最大 128 KiB。skip の挙動を保ちつつ一覧の先読み破棄量を抑える。
   `.zst`・圧縮 tar・RPM cpio・ZIP method 93 と CLI / Compat の表示名を接続した。
   全 frame の宣言サイズがあれば合計を entry に公開し、欠落があれば nil とする。
   fixture 46 件は決定的 text / binary / random / repetitive / empty / one byte、level 1/3/9/19/22、
@@ -615,8 +619,11 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   件数・時間・コマンド・破損入力の受理範囲は [検証記録](verification/2026-09-12-zstd.md) に記録する。
 
 > Zstandard (2026-09-12, bd cooViewer-c1vj.3): six codec files implement bounded streaming decoding,
-> FSE/Huffman, frame/block/sequence processing and XXH64. Standalone and tar streams, RPM and ZIP 93
-> share the decoder. Known frame sizes are summed; any unknown size makes the entry size unknown.
+> FSE/Huffman, frame/block/sequence processing and XXH64. History grows with actual output up to a
+> retained size of min(windowSize, contentSize) when the content size is known and the declared window
+> otherwise, then updates as a ring; the declared window is still validated against maxDictionarySize and
+> still bounds block size and match distance. Header lookahead is 4 KiB and bodies above that are read
+> directly. Standalone and tar streams, RPM and ZIP 93 share the decoder. Known frame sizes are summed; any unknown size makes the entry size unknown.
 > The corpus has 46 fixed fixtures plus a 80-case runtime matrix and a 7zz oracle.
 > External dictionaries and zstd inside 7z remain unsupported; see the verification record for results.
 

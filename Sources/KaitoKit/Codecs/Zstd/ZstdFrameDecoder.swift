@@ -4,6 +4,9 @@ struct ZstdFrameHeader {
     let windowSize: Int
     let contentSize: UInt64?
     let checksum: Bool
+    // 出力全体より古いバイトは参照できないため、既知サイズなら宣言 window を全量保持しない。
+    // LZMADecoder の retainedDictionarySize と同じ根拠で保持量を制限する。
+    let retainedWindowSize: Int
     var maximumBlockSize: Int { min(128 * 1_024, windowSize) }
 
     static func isSkippable(_ magic: UInt64) -> Bool {
@@ -41,6 +44,7 @@ struct ZstdFrameHeader {
         try Checked.size(window, limit: limits.maxDictionarySize)
         windowSize = try Checked.toInt(window)
         if let contentSize { try Checked.size(contentSize, limit: limits.maxEntrySize) }
+        retainedWindowSize = try Checked.toInt(contentSize.map { min(window, max(1, $0)) } ?? window)
         checksum = descriptor & 4 != 0
     }
 
@@ -57,7 +61,7 @@ struct ZstdFrameHeader {
 
 final class ZstdFrameDecoder {
     let header: ZstdFrameHeader
-    private var window: [UInt8]
+    private var window: [UInt8] = []
     private var windowPosition = 0
     private var historyCount = 0
     private var produced: UInt64 = 0
@@ -68,10 +72,10 @@ final class ZstdFrameDecoder {
     private var matchTable: ZstdFSE?
     private var repeats = (1, 4, 8)
     private(set) var finished = false
+    var allocatedWindowBytes: Int { window.count }
 
     init(header: ZstdFrameHeader) {
         self.header = header
-        window = [UInt8](repeating: 0, count: header.windowSize)
     }
 
     func nextBlock(_ input: ZstdInput) throws -> [UInt8] {
@@ -97,15 +101,29 @@ final class ZstdFrameDecoder {
             }
             finished = true
         } else if !output.isEmpty {
-            // 最大ブロックは window 以下。リングに一度だけ追記して次ブロックへ引き継ぐ。
-            let first = min(output.count, window.count - windowPosition)
-            window.replaceSubrange(windowPosition..<(windowPosition + first), with: output[..<first])
-            if first < output.count {
-                window.replaceSubrange(0..<(output.count - first), with: output[first...])
+            let retained = header.retainedWindowSize
+            // 既知サイズでは上の produced <= contentSize 検査、不明なら
+            // maximumBlockSize <= windowSize == retained により output.count <= retained。
+            var rest = output[...]
+            if window.count < retained {
+                // 満杯になる前は windowPosition == window.count == historyCount で折り返さない。
+                let take = min(retained - window.count, rest.count)
+                window.append(contentsOf: rest.prefix(take))
+                rest = rest.dropFirst(take)
+                historyCount = window.count
+                windowPosition = window.count == retained ? 0 : window.count
             }
-            windowPosition += output.count
-            if windowPosition >= window.count { windowPosition -= window.count }
-            historyCount = min(window.count, historyCount + output.count)
+            if !rest.isEmpty {
+                // 残りは確保済みのリングに最大二つの連続コピーで追記する。
+                let first = min(rest.count, window.count - windowPosition)
+                window.replaceSubrange(windowPosition..<(windowPosition + first), with: rest.prefix(first))
+                if first < rest.count {
+                    window.replaceSubrange(0..<(rest.count - first), with: rest.dropFirst(first))
+                }
+                windowPosition += rest.count
+                if windowPosition >= window.count { windowPosition -= window.count }
+                historyCount = min(window.count, historyCount + rest.count)
+            }
         }
         return output
     }
@@ -199,7 +217,9 @@ final class ZstdFrameDecoder {
             output.append(contentsOf: literalBytes[literalPosition..<(literalPosition + literalLength)])
             literalPosition += literalLength
             let offset = try resolveOffset(offsetValue, literalLength: literalLength)
-            guard offset > 0, offset <= window.count, offset <= historyCount + output.count else {
+            // RFC 8878 §3.1.1.1.2 の宣言 window と、現在のブロックを含む到達可能な履歴を検査する。
+            // 既知サイズで保持量を減らしても、過去の出力は全て残るので従来と同じ距離を拒否する。
+            guard offset > 0, offset <= header.windowSize, offset <= historyCount + output.count else {
                 throw KaitoError.malformed("zstd match exceeds history")
             }
             // 重なる match も、直前に書いたバイトを順に参照する。
@@ -207,6 +227,7 @@ final class ZstdFrameDecoder {
                 let source = output.count - offset
                 if source >= 0 { output.append(output[source]) }
                 else {
+                    // -source <= historyCount <= window.count なので、実保持量で一度折り返せば範囲内。
                     let position = windowPosition + source
                     output.append(window[position < 0 ? position + window.count : position])
                 }

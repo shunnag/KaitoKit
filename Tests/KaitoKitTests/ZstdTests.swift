@@ -208,6 +208,154 @@ final class ZstdTests: XCTestCase {
         [UInt8(literals.count << 3)] + literals + [1, 0x54, ll, of, ml] + bits(extra)
     }
 
+    private func assertWindow(_ data: Data, retained: Int, blocks: [[UInt8]], allocations: [Int]) throws {
+        let input = try ZstdInput(source: DataByteSource(data), offset: 0, size: UInt64(data.count))
+        XCTAssertEqual(try input.integer(4), ZstdFrameHeader.magic)
+        let header = try ZstdFrameHeader(input: input, limits: ReadLimits())
+        XCTAssertEqual(header.retainedWindowSize, retained)
+        let decoder = ZstdFrameDecoder(header: header)
+        XCTAssertEqual(decoder.allocatedWindowBytes, 0)
+        XCTAssertEqual(blocks.count, allocations.count)
+        var produced = 0
+        for (expected, allocation) in zip(blocks, allocations) {
+            XCTAssertFalse(decoder.finished)
+            let output = try decoder.nextBlock(input)
+            XCTAssertEqual(output, expected)
+            produced += output.count
+            XCTAssertEqual(decoder.allocatedWindowBytes, allocation)
+            XCTAssertLessThanOrEqual(decoder.allocatedWindowBytes, max(1, produced))
+            XCTAssertLessThanOrEqual(decoder.allocatedWindowBytes, retained)
+        }
+        XCTAssertTrue(decoder.finished)
+        XCTAssertEqual(input.remaining, 0)
+        XCTAssertEqual(try decode(data), Data(blocks.flatMap { $0 }))
+    }
+
+    func testHugeWindowsAllocateOnlyProducedBytes() throws {
+        let empty = Data([0x28, 0xb5, 0x2f, 0xfd, 0, 0xa0, 1, 0, 0])
+        let concatenated = Data((0..<10_000).flatMap { _ in empty })
+        let input = try ZstdInput(source: DataByteSource(concatenated), offset: 0, size: UInt64(concatenated.count))
+        for _ in 0..<10_000 {
+            XCTAssertEqual(try input.integer(4), ZstdFrameHeader.magic)
+            let header = try ZstdFrameHeader(input: input, limits: ReadLimits())
+            XCTAssertNil(header.contentSize)
+            XCTAssertEqual(header.windowSize, 1 << 30)
+            XCTAssertEqual(header.retainedWindowSize, header.windowSize)
+            let decoder = ZstdFrameDecoder(header: header)
+            XCTAssertEqual(decoder.allocatedWindowBytes, 0)
+            let output = try decoder.nextBlock(input)
+            XCTAssertTrue(output.isEmpty)
+            XCTAssertTrue(decoder.finished)
+            XCTAssertEqual(decoder.allocatedWindowBytes, 0)
+            XCTAssertLessThanOrEqual(decoder.allocatedWindowBytes, max(1, output.count))
+        }
+        XCTAssertEqual(input.remaining, 0)
+        XCTAssertEqual(try decode(concatenated), Data())
+
+        // 8 バイトの既知サイズが 1 GiB でも、空の最終ブロックは確保せず従来のサイズ不一致で拒否する。
+        let declared = frame(block([], type: 0), contentSize: 1 << 30)
+        XCTAssertEqual(declared.count, 16)
+        let singleInput = try ZstdInput(source: DataByteSource(declared), offset: 0, size: UInt64(declared.count))
+        XCTAssertEqual(try singleInput.integer(4), ZstdFrameHeader.magic)
+        let header = try ZstdFrameHeader(input: singleInput, limits: ReadLimits())
+        XCTAssertEqual(header.retainedWindowSize, 1 << 30)
+        let decoder = ZstdFrameDecoder(header: header)
+        XCTAssertEqual(decoder.allocatedWindowBytes, 0)
+        XCTAssertThrowsError(try decoder.nextBlock(singleInput)) { error in
+            XCTAssertEqual(error as? KaitoError, .malformed("zstd frame content size mismatch"))
+        }
+        XCTAssertEqual(decoder.allocatedWindowBytes, 0)
+        XCTAssertLessThanOrEqual(decoder.allocatedWindowBytes, max(1, 0))
+        XCTAssertThrowsError(try decode(declared)) { error in
+            XCTAssertEqual(error as? KaitoError, .malformed("zstd frame content size mismatch"))
+        }
+        print("zstd 巨大 window: 空フレーム 10000 件と 16 バイト単一フレームの履歴確保は各 0 バイト")
+    }
+
+    func testRetainedWindowCapsKnownSizeAndPreservesDeclaredLimits() throws {
+        for size in [0, 1, 4, 4_097] {
+            let bytes = (0..<size).map { UInt8(truncatingIfNeeded: $0 * 7 + 3) }
+            let blocks = block(bytes, type: 0, last: false) + block([], type: 0)
+            let data = Data([0x28, 0xb5, 0x2f, 0xfd, 0xc0, 0xa0] + little(UInt64(size), 8) + blocks)
+            try assertWindow(data, retained: max(1, size), blocks: [bytes, []], allocations: [size, size])
+            let input = try ZstdInput(source: DataByteSource(data), offset: 4, size: UInt64(data.count - 4))
+            let header = try ZstdFrameHeader(input: input, limits: ReadLimits())
+            XCTAssertEqual(header.windowSize, 1 << 30)
+            XCTAssertEqual(header.maximumBlockSize, 128 * 1024)
+            let limits = ReadLimits(maxDictionarySize: (1 << 30) - 1)
+            XCTAssertThrowsError(try decode(data, limits: limits)) { error in
+                guard case .limitExceeded = error as? KaitoError else { return XCTFail("\(error)") }
+            }
+        }
+        try assertWindow(frame(block([], type: 0), contentSize: 0), retained: 0, blocks: [[]], allocations: [0])
+
+        // 圧縮ブロックの符号化サイズが保持上限を超えても、宣言 window 内なら受理する。
+        let encoded = rleSequence(literals: [97], ll: 1)
+        XCTAssertGreaterThan(encoded.count, 4)
+        let compressed = Data([0x28, 0xb5, 0x2f, 0xfd, 0xc0, 0xa0] + little(4, 8) + block(encoded))
+        try assertWindow(compressed, retained: 4, blocks: [Array("aaaa".utf8)], allocations: [0])
+
+        // 既知サイズを超えるブロックは、履歴を伸ばす前に拒否する。
+        let oversized = Data([0x28, 0xb5, 0x2f, 0xfd, 0xc0, 0xa0] + little(1, 8)
+                             + block([65, 66], type: 0, last: false) + block([], type: 0))
+        let input = try ZstdInput(source: DataByteSource(oversized), offset: 4, size: UInt64(oversized.count - 4))
+        let decoder = try ZstdFrameDecoder(header: ZstdFrameHeader(input: input, limits: ReadLimits()))
+        XCTAssertThrowsError(try decoder.nextBlock(input)) { error in
+            XCTAssertEqual(error as? KaitoError, .malformed("zstd frame output exceeds content size"))
+        }
+        XCTAssertEqual(decoder.allocatedWindowBytes, 0)
+    }
+
+    func testGrowingWindowMatchesAndRingTransitions() throws {
+        let prefix = Array("abcdefgh".utf8)
+        let first = block(prefix, type: 0, last: false)
+        // 実履歴 8 バイトを超える距離も、先行リテラルを含む 11 バイト以内なら参照できる。
+        let second = block(rleSequence(literals: Array("xyz".utf8), ll: 3, of: 3, extra: [(5, 3)]), last: false)
+        try assertWindow(frame(first + second + block([], type: 0), window: 0xa0), retained: 1 << 30,
+                         blocks: [prefix, Array("xyzbcd".utf8), []], allocations: [8, 14, 14])
+        let knownGrowing = Data([0x28, 0xb5, 0x2f, 0xfd, 0xc0, 0xa0] + little(14, 8)
+                                + first + second + block([], type: 0))
+        try assertWindow(knownGrowing, retained: 14, blocks: [prefix, Array("xyzbcd".utf8), []],
+                         allocations: [8, 14, 14])
+        let tooFar = block(rleSequence(literals: Array("xyz".utf8), ll: 3, of: 3, extra: [(7, 3)]))
+        XCTAssertThrowsError(try decode(frame(first + tooFar, window: 0xa0))) { error in
+            XCTAssertEqual(error as? KaitoError, .malformed("zstd match exceeds history"))
+        }
+        // 最初のブロック内の重なる参照は、空の履歴配列とは独立に成立する。
+        try assertWindow(frame(block(rleSequence(literals: [120], ll: 1), last: false) + block([], type: 0)),
+                         retained: 1_024, blocks: [Array("xxxx".utf8), []], allocations: [4, 4])
+
+        let bytes = (0..<5_000).map { UInt8(($0 * 7 + 3) % 251) }
+        // 上限直前・上限ちょうど・追記中に上限到達の各状態から、複数回の折り返しを通る。
+        for sizes in [[1_407, 1, 1_024, 1_024, 1_024], [1_024, 1_024, 1_024, 1_024]] {
+            var encoded: [UInt8] = []
+            var outputs: [[UInt8]] = []
+            var allocations: [Int] = []
+            var produced = 0
+            for size in sizes {
+                let output = Array(bytes[produced..<(produced + size)])
+                encoded += block(output, type: 0, last: false)
+                outputs.append(output)
+                produced += size
+                allocations.append(min(produced, 1_408))
+            }
+            let match = rleSequence(of: 10, extra: [(1_408 + 3 - 1_024, 10)])
+            encoded += block(match)
+            outputs.append(Array(bytes[(produced - 1_408)..<(produced - 1_405)]))
+            allocations.append(1_408)
+            try assertWindow(frame(encoded, window: 3), retained: 1_408, blocks: outputs, allocations: allocations)
+            let known = Data([0x28, 0xb5, 0x2f, 0xfd, 0xc0, 3] + little(UInt64(produced + 3), 8) + encoded)
+            try assertWindow(known, retained: 1_408, blocks: outputs, allocations: allocations)
+        }
+        // 直前の履歴とリテラルの合計は 1409 でも、宣言 window 1408 を超える距離を拒否する。
+        let full = block(Array(bytes[..<1_408]), type: 0, last: false)
+        let outsideWindow = block(rleSequence(literals: [97], ll: 1, of: 10,
+                                              extra: [(1_409 + 3 - 1_024, 10)]))
+        XCTAssertThrowsError(try decode(frame(full + outsideWindow, window: 3))) { error in
+            XCTAssertEqual(error as? KaitoError, .malformed("zstd match exceeds history"))
+        }
+    }
+
     func testReservedFieldsBlockBoundsSizesChecksumAndDictionary() throws {
         let raw = block(Array("abc".utf8), type: 0)
         var reserved = frame(raw)
@@ -377,6 +525,78 @@ final class ZstdTests: XCTestCase {
         hash.update(Array(plain)[...])
         let stored = encoded.suffix(4).enumerated().reduce(UInt64(0)) { $0 | UInt64($1.element) << ($1.offset * 8) }
         XCTAssertEqual(UInt64(UInt32(truncatingIfNeeded: hash.value)), stored)
+    }
+
+    private final class CountingSource: ByteSource, @unchecked Sendable {
+        private let source: DataByteSource
+        // 読取りの記録は同じロックで保護する。
+        private let lock = NSLock()
+        private var counts: [Int] = []
+        var length: UInt64 { source.length }
+        var readSizes: [Int] { lock.withLock { counts } }
+
+        init(_ data: Data) { source = DataByteSource(data) }
+
+        func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
+            let count = try source.read(into: buffer, at: offset)
+            lock.withLock { counts.append(count) }
+            return count
+        }
+    }
+
+    func testListingReadVolumeAndDirectBlockReads() throws {
+        let blockSize = 128 * 1024
+        let blockCount = 16
+        let body = (0..<blockSize).map { UInt8(truncatingIfNeeded: $0 * 7 + 3) }
+        let blocks = (0..<blockCount).flatMap { block(body, type: 0, last: $0 + 1 == blockCount) }
+        let encoded = frame(blocks, contentSize: UInt64(blockSize * blockCount))
+        let listingSource = CountingSource(encoded)
+        XCTAssertEqual(try ZstdDecompressor.contentSize(source: listingSource, limits: ReadLimits()),
+                       UInt64(blockSize * blockCount))
+        let listingReads = listingSource.readSizes
+        let listingBytes = listingReads.reduce(0, +)
+        print("zstd 一覧の読取り: 入力 \(encoded.count) バイト、読取り \(listingBytes) バイト、\(listingReads.count) 回")
+        XCTAssertEqual(listingReads.count, blockCount)
+        XCTAssertLessThanOrEqual(listingBytes, blockCount * 4 * 1024)
+
+        let decodeSource = CountingSource(encoded)
+        let decoder = try ZstdDecompressor(source: decodeSource)
+        let stream = try EntryStream(decompressor: decoder, length: nil, expectedCRC32: nil,
+                                     entryIndex: 0, limits: ReadLimits())
+        XCTAssertEqual(try stream.readAll(), Data((0..<blockCount).flatMap { _ in body }))
+        let decodeReads = decodeSource.readSizes
+        XCTAssertEqual(decodeReads.reduce(0, +), encoded.count)
+        XCTAssertLessThanOrEqual(decodeReads.count, (encoded.count + 64 * 1024 - 1) / (64 * 1024))
+        print("zstd 復号の読取り: \(decodeReads.reduce(0, +)) バイト、\(decodeReads.count) 回")
+    }
+
+    func testInputDirectReadThresholdAndSkipBoundaries() throws {
+        let bytes = Data((0..<32_768).map { UInt8(truncatingIfNeeded: $0) })
+        for request in [4_095, 4_096, 4_097] {
+            let source = CountingSource(bytes)
+            let input = try ZstdInput(source: source, offset: 0, size: source.length)
+            XCTAssertEqual(try input.byte(), bytes[0])
+            XCTAssertEqual(try input.read(4_095), Array(bytes[1..<4_096]))
+            XCTAssertEqual(source.readSizes, [4_096])
+            XCTAssertEqual(try input.read(request), Array(bytes[4_096..<(4_096 + request)]))
+            XCTAssertEqual(source.readSizes, [4_096, max(4_096, request)])
+            XCTAssertEqual(input.position, UInt64(4_096 + request))
+            XCTAssertEqual(try input.byte(), bytes[4_096 + request])
+        }
+        for skip in [0, 4_094, 4_095, 4_096, 8_192] {
+            let source = CountingSource(bytes)
+            let input = try ZstdInput(source: source, offset: 0, size: source.length)
+            XCTAssertEqual(try input.byte(), bytes[0])
+            try input.skip(UInt64(skip))
+            XCTAssertEqual(try input.read(4_096), Array(bytes[(1 + skip)..<(4_097 + skip)]))
+            XCTAssertEqual(input.position, UInt64(4_097 + skip))
+            XCTAssertEqual(try input.read(0), [])
+            assertKaitoError { _ = try input.read(-1) }
+            assertKaitoError { _ = try input.read(Int(input.remaining) + 1) }
+            try input.skip(input.remaining)
+            XCTAssertEqual(input.remaining, 0)
+            assertKaitoError { _ = try input.byte() }
+        }
     }
 
     private final class ShortSource: ByteSource {

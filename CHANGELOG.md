@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- zstd の宣言 window による即時確保 DoS を履歴の遅延確保で修正し、一覧取得の先読みを 64 KiB から 4 KiB に削減した。
+
 ### 追加（2026-09-12、Zstandard）
 
 - RFC 8878 と xxHash 仕様に基づく純 Swift の Zstandard decoder を追加した（bd `cooViewer-c1vj.3`）。

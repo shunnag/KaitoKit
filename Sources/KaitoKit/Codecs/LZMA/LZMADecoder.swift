@@ -1007,9 +1007,16 @@ private struct LZMAHotRangeState {
     @inline(__always)
     var overrun: Bool { inputPosition > inputCount }
 
+    // この本体を三項演算子や mask 形へ書き換えず、bit tree の最終段も先読みしない。
+    // code < bound は LLVM が既に csel 化するため手書き branchless は効かない。
+    // 設計検討の micro benchmark では 5〜6% 遅かった（2026-09-12、cooViewer-r897）。
+    // この値は採用形の A/B では再測していない。
     @inline(__always)
-    mutating func decodeBit(_ probabilityPointer: UnsafeMutablePointer<UInt16>) -> UInt32 {
-        var probability = UInt32(probabilityPointer.pointee)
+    mutating func decodeBit(
+        probability: UInt32,
+        store probabilityPointer: UnsafeMutablePointer<UInt16>
+    ) -> UInt32 {
+        var probability = probability
         let bound = (range >> 11) &* probability
         let bit: UInt32
         if code < bound {
@@ -1025,6 +1032,11 @@ private struct LZMAHotRangeState {
         probabilityPointer.pointee = UInt16(truncatingIfNeeded: probability)
         normalize()
         return bit
+    }
+
+    @inline(__always)
+    mutating func decodeBit(_ probabilityPointer: UnsafeMutablePointer<UInt16>) -> UInt32 {
+        decodeBit(probability: UInt32(probabilityPointer.pointee), store: probabilityPointer)
     }
 
     @inline(__always)
@@ -1441,39 +1453,34 @@ private func decodeLZMARepeatedMatchSymbol(
     )
 }
 
+// literal 木も深さ 8 の bit tree なので同じ先読みを使う。8 段を手展開しないこと。
+// 手展開すると本体が大きくなり、book-solid.7z が実測で退行する
+// (@inline(__always) のみで +31%、@_transparent を足しても +18%。2026-09-12、cooViewer-r897)。
 @inline(__always)
 private func decodeLZMAPlainLiteral(
     probabilities: UnsafeMutablePointer<UInt16>,
     base: Int,
     decoder: inout LZMAHotRangeState
 ) -> Int {
-    // literal 木は常に深さ 8。固定展開して loop branch を byte ごとに 8 回実行しない。
+    // 最終段だけは子を持たないので先読みしない。
+    let node = probabilities.advanced(by: base)
     var symbol = 1
-    symbol = (symbol << 1) | Int(
-        decoder.decodeBit(probabilities.advanced(by: base &+ symbol))
+    var probability = UInt32(node[1])
+    for _ in 0..<7 {
+        let childZero = UInt32(node[symbol << 1])
+        let childOne = UInt32(node[(symbol << 1) | 1])
+        let bit = decoder.decodeBit(
+            probability: probability,
+            store: node.advanced(by: symbol)
+        )
+        symbol = (symbol << 1) | Int(bit)
+        probability = bit == 0 ? childZero : childOne
+    }
+    let bit = decoder.decodeBit(
+        probability: probability,
+        store: node.advanced(by: symbol)
     )
-    symbol = (symbol << 1) | Int(
-        decoder.decodeBit(probabilities.advanced(by: base &+ symbol))
-    )
-    symbol = (symbol << 1) | Int(
-        decoder.decodeBit(probabilities.advanced(by: base &+ symbol))
-    )
-    symbol = (symbol << 1) | Int(
-        decoder.decodeBit(probabilities.advanced(by: base &+ symbol))
-    )
-    symbol = (symbol << 1) | Int(
-        decoder.decodeBit(probabilities.advanced(by: base &+ symbol))
-    )
-    symbol = (symbol << 1) | Int(
-        decoder.decodeBit(probabilities.advanced(by: base &+ symbol))
-    )
-    symbol = (symbol << 1) | Int(
-        decoder.decodeBit(probabilities.advanced(by: base &+ symbol))
-    )
-    symbol = (symbol << 1) | Int(
-        decoder.decodeBit(probabilities.advanced(by: base &+ symbol))
-    )
-    return symbol
+    return (symbol << 1) | Int(bit)
 }
 
 @_transparent
@@ -1511,6 +1518,12 @@ private func decodeLZMALength(
     )
 }
 
+// bit tree の子 node 2s / 2s+1 は bit 確定前に address が判る。両方先読みして
+// bit 確定後に選ぶと、probability の load latency が range/code の依存鎖から外れる。
+// 最終段は子を持たないので先読みしない。
+// 先読み段 k（0 起点）では symbol < 2^(k+1) ≤ 2^(bitCount-1) なので、
+// 子の最大 index は 2s+1 ≤ 2^bitCount − 1。元コードが最終段に書き込む
+// index 集合と同じ表の範囲に収まり、確率表の拡張は不要。
 @_transparent
 @inline(__always)
 private func decodeLZMABitTree(
@@ -1519,11 +1532,24 @@ private func decodeLZMABitTree(
     bitCount: Int,
     decoder: inout LZMAHotRangeState
 ) -> Int {
+    let node = probabilities.advanced(by: base)
     var symbol = 1
-    for _ in 0..<bitCount {
-        let bit = Int(decoder.decodeBit(probabilities.advanced(by: base &+ symbol)))
-        symbol = (symbol << 1) | bit
+    var probability = UInt32(node[1])
+    for _ in 0..<(bitCount &- 1) {
+        let childZero = UInt32(node[symbol << 1])
+        let childOne = UInt32(node[(symbol << 1) | 1])
+        let bit = decoder.decodeBit(
+            probability: probability,
+            store: node.advanced(by: symbol)
+        )
+        symbol = (symbol << 1) | Int(bit)
+        probability = bit == 0 ? childZero : childOne
     }
+    let bit = decoder.decodeBit(
+        probability: probability,
+        store: node.advanced(by: symbol)
+    )
+    symbol = (symbol << 1) | Int(bit)
     return symbol &- (1 << bitCount)
 }
 
@@ -1535,13 +1561,27 @@ private func decodeLZMAReverseBitTree(
     bitCount: Int,
     decoder: inout LZMAHotRangeState
 ) -> Int {
+    let node = probabilities.advanced(by: base)
     var symbol = 1
     var result = 0
-    for bitIndex in 0..<bitCount {
-        let bit = Int(decoder.decodeBit(probabilities.advanced(by: base &+ symbol)))
+    guard bitCount > 0 else { return 0 }
+    var probability = UInt32(node[1])
+    for bitIndex in 0..<(bitCount &- 1) {
+        let childZero = UInt32(node[symbol << 1])
+        let childOne = UInt32(node[(symbol << 1) | 1])
+        let bit = Int(decoder.decodeBit(
+            probability: probability,
+            store: node.advanced(by: symbol)
+        ))
         symbol = (symbol << 1) | bit
         result |= bit << bitIndex
+        probability = bit == 0 ? childZero : childOne
     }
+    let bit = Int(decoder.decodeBit(
+        probability: probability,
+        store: node.advanced(by: symbol)
+    ))
+    result |= bit << (bitCount &- 1)
     return result
 }
 

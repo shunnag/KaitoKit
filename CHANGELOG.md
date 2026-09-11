@@ -6,6 +6,7 @@
 
 ## [Unreleased]
 
+- LZMA / LZMA2 の bit tree で子の確率を先読みし、book-tiff.7z の展開を10.7%、book-solid.7z を14.3%短縮した（2026-09-12、bd cooViewer-r897）。
 - zstd の宣言 window による即時確保 DoS を履歴の遅延確保で修正し、一覧取得の先読みを 64 KiB から 4 KiB に削減した。
 
 ### 追加（2026-09-12、Zstandard）

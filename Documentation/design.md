@@ -588,6 +588,53 @@ prose ページであることを確認し、`source-archive` を含む URL は�
 
 ## 11. 実装記録(2026-09-06〜08)
 
+- LZMA / LZMA2 bit tree 先読み（2026-09-12、bd `cooViewer-r897`）:
+  `decodeBit(probability:store:)` と旧 signature の薄い wrapper を分け、通常木・逆順木・
+  plain literal 木で子二つの確率を先読みして復号 bit で選ぶ。子 node 2s / 2s+1 の address は
+  bit 確定の 1 段前に判るので、probability の load が range / code の loop-carried 依存鎖から外れる。
+  最終段は子を持たないので先読みせず、逆順木の深さ 0 は確率を load せず 0 を返す。
+  算術、`normalize()`、direct bits、確率表の確保・配置、matched literal、
+  literal-run の early exit、batch の呼出構造は変更していない。
+  **literal 木は loop のまま残す。** 深さ 8 を手展開すると本体が大きくなり、
+  book-solid.7z が実測で退行する（`@inline(__always)` のみで +31%、`@_transparent` を
+  足しても +18%）。採用形に `@_transparent` は付けない。
+  origin/main を A とした交互 5 巡（各 3 回）の各巡 B/A 比の中央値は次のとおり。
+
+  | 変種 | book-solid.7z | book-tiff.7z |
+  |---|---:|---:|
+  | 採用形（literal は loop） | **0.8573**（−14.3%） | **0.8931**（−10.7%） |
+  | literal 手展開 + `@_transparent` | 1.1791（+17.9%） | 0.8943（−10.6%） |
+  | literal loop + `@_transparent` | 0.8637（−13.6%） | 0.8965（−10.4%） |
+  | A/A ノイズ床 | 0.9982（0.9708〜1.0029） | 0.9999（0.9977〜1.0116） |
+
+  4 変種の binary はすべて SHA-256 が異なり、両書庫の total digest は一致する。
+  tiff は match symbol が約 97%、solid は literal が約 99% なので、
+  match 側 tree が tiff を、literal tree が solid を支配する。両方を直す必要がある。
+  先行の設計検討にあった「literal 木を loop に戻すと solid が +40% 遅くなる」という主張は、
+  この 4 変種 A/B で**否定された**（実際には loop 形が solid の最速形だった）。
+  同じ先行検討にある「手書き branchless 化 +5.4〜6.3%」「normalize の branchless 化
+  tiff +7% / solid +55%」は今回再測していないため、確定した根拠としては扱わない。
+  全値・digest・テスト件数は [検証記録](verification/2026-09-12-lzma-bit-tree.md) に記載した。
+
+> LZMA / LZMA2 bit-tree preloading (2026-09-12, bd cooViewer-r897): split
+> `decodeBit(probability:store:)` from a thin pointer wrapper and preload both children before
+> each nonfinal stage in the forward, reverse and plain-literal trees. A child's address at
+> 2s / 2s+1 is known one stage early, so the probability load leaves the loop-carried dependency
+> chain on range/code. Final stages have no children and are not preloaded; the reverse tree
+> still returns 0 at depth zero without loading. Arithmetic, normalization, direct bits, table
+> allocation/layout, matched literals, early exits and batch calls are unchanged.
+> **The literal tree stays a loop.** Unrolling its eight stages enlarges the body and regresses
+> book-solid.7z (+31% with `@inline(__always)` alone, +18% even with `@_transparent`); the adopted
+> form carries no `@_transparent`. Median paired B/A over five alternating rounds of three
+> repetitions, against origin/main: adopted 0.8573 solid / 0.8931 tiff; unrolled literal
+> 1.1791 / 0.8943; looped literal with `@_transparent` 0.8637 / 0.8965; A/A floor 0.9982 / 0.9999.
+> All four binaries differ by SHA-256 and both total digests match. Tiff is ~97% match symbols and
+> solid ~99% literals, so match-side trees dominate tiff and the literal tree dominates solid.
+> The earlier design claim that looping the literal tree costs +40% on solid is **refuted** by this
+> four-way A/B — the looped form is in fact the fastest on solid. The same earlier notes on
+> handwritten branchless decoding (+5.4–6.3%) and branchless normalization (tiff +7%, solid +55%)
+> were not re-measured here and are not treated as settled.
+
 - ZIP PPMd（2026-09-11、bd `cooViewer-th30`）: var.I allocator / model / range decoder /
   Decompressor の 4 ファイルを追加し、ZIP method 98 を接続した。二バイトの little-endian
   parameter word を検証し、辞書上限を確保前に確認する。指定サイズで停止して arena を解放する。

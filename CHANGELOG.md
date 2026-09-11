@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- LZMA / LZMA2 の bit tree で子の確率を先読みし、book-tiff.7z の展開を10.7%、book-solid.7z を14.3%短縮した（2026-09-12、bd cooViewer-r897）。
+
 ### 追加（2026-09-12、CAB LZX）
 
 - CAB の LZX（辞書 32 KiB〜2 MiB）を純 Swift で展開できるようにした（bd cooViewer-c1vj.5）。

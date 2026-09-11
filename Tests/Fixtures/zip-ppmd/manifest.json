@@ -1,0 +1,110 @@
+{
+  "text-o8-default": [
+    {
+      "name": "payload.bin",
+      "size": 32768,
+      "crc32": "7d64299a",
+      "sha256": "2ff68d77335ddd5b329c258fd9d49904a79e473515f7b115b2103b395bc64fde",
+      "method": 98,
+      "order": 8,
+      "memMB": 1,
+      "restore": 0
+    }
+  ],
+  "text-o2-mem1m": [
+    {
+      "name": "payload.bin",
+      "size": 32768,
+      "crc32": "7d64299a",
+      "sha256": "2ff68d77335ddd5b329c258fd9d49904a79e473515f7b115b2103b395bc64fde",
+      "method": 98,
+      "order": 2,
+      "memMB": 1,
+      "restore": 0
+    }
+  ],
+  "text-o16-mem1m": [
+    {
+      "name": "payload.bin",
+      "size": 32768,
+      "crc32": "7d64299a",
+      "sha256": "2ff68d77335ddd5b329c258fd9d49904a79e473515f7b115b2103b395bc64fde",
+      "method": 98,
+      "order": 16,
+      "memMB": 1,
+      "restore": 0
+    }
+  ],
+  "binary-o6-mem4m": [
+    {
+      "name": "payload.bin",
+      "size": 262144,
+      "crc32": "979bcff3",
+      "sha256": "d7ea2086df6d45c818b770d33f2965ce3f2fa95ed58da61f1f1763088e0fd434",
+      "method": 98,
+      "order": 6,
+      "memMB": 4,
+      "restore": 0
+    }
+  ],
+  "random-o16-mem1m-restart": [
+    {
+      "name": "payload.bin",
+      "size": 57344,
+      "crc32": "e1d7c1a4",
+      "sha256": "a3eb3985f9fb59fd87e620c87adbc05b8cacc59e8567963f8932b0b0b3932ebe",
+      "method": 98,
+      "order": 16,
+      "memMB": 1,
+      "restore": 0
+    }
+  ],
+  "random-o16-mem1m-cutoff": [
+    {
+      "name": "payload.bin",
+      "size": 57344,
+      "crc32": "e1d7c1a4",
+      "sha256": "a3eb3985f9fb59fd87e620c87adbc05b8cacc59e8567963f8932b0b0b3932ebe",
+      "method": 98,
+      "order": 16,
+      "memMB": 1,
+      "restore": 1
+    }
+  ],
+  "mixed": [
+    {
+      "name": "stored.txt",
+      "size": 22,
+      "crc32": "ca86f7b4",
+      "sha256": "66df510e772aceb93b856a9cb41f8666474dab2268a93f9bc2c6604e88a2005d",
+      "method": 0
+    },
+    {
+      "name": "text.txt",
+      "size": 32768,
+      "crc32": "7d64299a",
+      "sha256": "2ff68d77335ddd5b329c258fd9d49904a79e473515f7b115b2103b395bc64fde",
+      "method": 98,
+      "order": 8,
+      "memMB": 1,
+      "restore": 0
+    },
+    {
+      "name": "empty-stored.bin",
+      "size": 0,
+      "crc32": "00000000",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "method": 0
+    },
+    {
+      "name": "empty-ppmd.bin",
+      "size": 0,
+      "crc32": "00000000",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "method": 98,
+      "order": 8,
+      "memMB": 1,
+      "restore": 0
+    }
+  ]
+}

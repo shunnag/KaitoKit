@@ -176,6 +176,29 @@ streaming 検証契約:
 
 ## 10. 出自(プロベナンス)と参照の規則
 
+ZIP method 98（`cooViewer-th30`、2026-09-11）の実装入力は、利用者提供の
+Dmitry Shkarin **PPMd var.I rev.1（2002-04-28）** 原典 `inbox/ppmdi1/` と
+同梱 `APPNOTE-5.10-method98.txt`（PKWARE APPNOTE §5.10）だけである。
+原典の取得元は [ppmdi1.rar](http://www.compression.ru/ds/ppmdi1.rar)、取得物の SHA-256 は
+`5a559300c26949fc5dd015983bfe680fd9a32c2b4afb85320dc9b38f90f8c5d6`。
+`SHA256SUMS` の全 7 件を照合した。`Model.cpp` の SHA-256 は
+`6548d0be2c4b88f07a75f774f2990ffcbb45e72ed091b3a14389cc76bb4cee9e`。
+ヘッダの **“Written and distributed to public domain by Dmitry Shkarin”** 宣言を確認した。
+carryless range coder は同梱 `Coder.hpp` にある Dmitry Subbotin の公開ドメイン実装に基づく。
+32-bit pointer を UInt32 offset に置換し、12-byte context / unit、6-byte state、
+free-list の Stamp と順序、復元判断に使う GetUsedMemory を保つ。
+既存 KaitoKit の PPMd7 / RARPPMdRangeDecoder は安全な offset と入力処理の設計例としてのみ使用し、
+PPMd7 側のファイルは変更していない。この作業で Web を閲覧せず、7-Zip / p7zip、
+XADMaster、The Unarchiver、libarchive、pyppmd、その他の実装 source は開いていない。
+method 98 の検証に使う 7zz は project-owned payload の **black-box writer としてのみ**使用した。
+
+> The ZIP method 98 port uses only the supplied Shkarin var.I revision 1 public-domain reference
+> and APPNOTE §5.10. The source archive and Model.cpp hashes are recorded above, and all seven
+> supplied checksums matched. Subbotin's carryless coder comes from the same distribution.
+> Existing KaitoKit code supplied arena and streaming design patterns; PPMd7 files are unchanged.
+> No Web browsing or 7-Zip/p7zip, XADMaster, The Unarchiver, libarchive, pyppmd or other implementation
+> source was consulted. For method 98 verification, 7zz was used only as a black-box writer.
+
 RPM reader の形式入力は、利用者が rpmbuild 6.1.0 の project-owned package から
 実測して提供した lead / header / index / payload の byte 表と固定 fixture、
 および利用者による payload magic 優先の訂正仕様である。
@@ -491,6 +514,26 @@ source を実装入力にしていない。是正として、以後 The Unarchiv
 prose ページであることを確認し、`source-archive` を含む URL は取得しない。
 
 ## 11. 実装記録(2026-09-06〜08)
+
+- ZIP PPMd（2026-09-11、bd `cooViewer-th30`）: var.I allocator / model / range decoder /
+  Decompressor の 4 ファイルを追加し、ZIP method 98 を接続した。二バイトの little-endian
+  parameter word を検証し、辞書上限を確保前に確認する。指定サイズで停止して arena を解放する。
+  fixture は text（order 8 既定、2、16）、構造化 binary（order 6 / 4 MiB）、同一乱数入力の
+  restart / cut off、stored・PPMd・空 entry が混在する書庫の計 7 本、10 entry。
+  各 base64 は 40 KiB 以下で、seed から再生成した全ファイルも byte 一致した。
+  新設 16 tests は一覧・CRC・SHA-256・reopen・小分け stream、64 通りの writer matrix、
+  復元カウンタ、不正パラメータと切断・反転を扱う。restart fixture で restart 1 回、
+  cut off fixture で cut off 2 回と restart 1 回を確認した。freeze は parameter と破損入力の
+  分岐到達だけを検証し、正常な freeze 書庫との一致は未検証（7zz が `a=2` を拒否）。
+  全 bundle の件数・コマンド・制限は [検証記録](verification/2026-09-11-zip-ppmd.md) を参照。
+
+> ZIP PPMd (2026-09-11, bd cooViewer-th30): four var.I codec files add method 98 with checked
+> properties, dictionary limits before allocation, exact-size decoding and arena release.
+> Seven fixtures contain ten entries; all base64 files fit within 40 KiB and regenerate identically.
+> Sixteen new tests cover metadata, CRC/SHA-256, reopen, streaming, a 64-case writer matrix,
+> restoration counters and malformed inputs. Restart ran once; cut off ran twice plus one restart.
+> Freeze parameters and the restoration branch are exercised, but valid freeze streams remain
+> unverified because 7zz rejects `a=2`. Full-suite counts and commands are in the verification record.
 
 - M0(コミット da98a9f, 16d27f8): 骨格・コア・tar・互換層・CLI・fuzz 基盤。CI は macos-26 / macos-26-intel。
 - M1(592b230, d05da82): ZIP 一式。名前の文字コード判定は **書庫単位**(XADMaster と同じ契約)に変更し、

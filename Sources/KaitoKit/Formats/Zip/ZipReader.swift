@@ -581,7 +581,23 @@ final class ZipReader: FormatReader {
                 expectedSize: flags & 0x0002 != 0 ? nil : uncompressedSize,
                 dictionarySizeLimit: limits.maxDictionarySize
             )
-        case 93, 95, 96, 98:
+        case 98:
+            guard compressedSize >= 2 else { throw KaitoError.truncated }
+            guard let uncompressedSize else {
+                throw KaitoError.malformed("ZIP PPMd requires a known uncompressed size")
+            }
+            let prefix = try Self.readExactly(source: source, offset: offset, count: 2)
+            var cursor = ZipByteCursor(prefix)
+            let parameterWord = try cursor.readUInt16LE()
+            return try PPMdVarIDecoder(
+                source: source,
+                offset: Checked.add(offset, 2),
+                compressedSize: compressedSize - 2,
+                parameterWord: parameterWord,
+                expectedSize: uncompressedSize,
+                memorySizeLimit: limits.maxDictionarySize
+            )
+        case 93, 95, 96:
             throw KaitoError.unsupportedMethod(String(method))
         default:
             throw KaitoError.unsupportedMethod(String(method))

@@ -778,7 +778,7 @@ final class ZipHardeningTests: XCTestCase {
     }
 
     func testKnownUnsupportedZIPMethodsReportTheirNumbers() throws {
-        for method: UInt16 in [93, 95, 96, 98] {
+        for method: UInt16 in [93, 95, 96] {
             let archive = try ZipTestSupport.makeArchive(entries: [
                 HandZipEntry(name: "unsupported-\(method)", method: method),
             ])

@@ -6,6 +6,25 @@
 
 ## [Unreleased]
 
+### 追加（2026-09-12、CAB LZX）
+
+- CAB の LZX（辞書 32 KiB〜2 MiB）を純 Swift で展開できるようにした（bd cooViewer-c1vj.5）。
+  verbatim / aligned / uncompressed block、フレームを跨ぐ辞書と木、反復 offset、E8 変換に対応。
+  後方ファイルの先読みと再オープン、消費した CFDATA だけの checksum 検証を維持する。
+- Microsoft の仕様から Python 標準ライブラリだけで fixture encoder を作成。
+  固定標本 14 件と実行時生成 20 書庫を cabextract の展開結果で検証する。
+  Quantum と複数 cabinet にまたがるファイルは引き続き非対応。
+  出自・破損入力・実 CAB との比較は [検証記録](Documentation/verification/2026-09-12-cab-lzx.md) を参照。
+
+> **Added (2026-09-12, CAB LZX)**
+>
+> - Added a pure Swift CAB LZX decoder with 32 KiB–2 MiB dictionaries, all three block types,
+>   persistent frame state, repeated offsets and E8 translation (bd cooViewer-c1vj.5).
+>   Backward access, reopening and checksums limited to consumed CFDATA blocks retain their existing behavior.
+> - Added a specification-derived Python fixture encoder, fourteen fixed fixtures and twenty generated
+>   differential archives, all checked using cabextract as a black-box extraction oracle.
+>   Quantum and files spanning cabinets remain unsupported.
+
 ### 追加（RAR5 SFX）
 
 - RAR5 の上限付き SFX に対応した。SFX と multi-volume の組合せは引き続き非対応（bd cooViewer-yd18）。

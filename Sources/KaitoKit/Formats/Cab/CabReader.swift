@@ -11,6 +11,7 @@ final class CabReader: FormatReader {
     private let files: [CabFile]
     private let blocks: [[CabDataBlock]]
     private let folderSizes: [UInt64]
+    private let hasNextCabinet: Bool
     private var folderCoordinators: [Int: SolidCoordinator] = [:]
     private var activeFolderIndex: Int?
 
@@ -145,6 +146,7 @@ final class CabReader: FormatReader {
         }
         self.entries = entries; self.folders = folders; self.files = files
         self.blocks = blocks; self.folderSizes = folderSizes; nameEncoding = encoding
+        hasNextCabinet = header.flags & 2 != 0
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
@@ -154,9 +156,13 @@ final class CabReader: FormatReader {
         let file = files[entry.index]
         guard file.continued == nil else { throw KaitoError.unsupportedMethod("cab multi-cabinet set") }
         let index = Int(file.folderIndex), folder = folders[Int(file.folderIndex)]
-        guard folder.method <= 1 else { throw KaitoError.unsupportedMethod("cab \(folder.methodName)") }
+        guard folder.method <= 1 || folder.method == 3 else { throw KaitoError.unsupportedMethod("cab \(folder.methodName)") }
         try Checked.size(folderSizes[index], limit: limits.maxTotalUncompressedSize)
         if folder.method == 1 { try Checked.size(32768, limit: limits.maxDictionarySize) }
+        if folder.method == 3 {
+            guard (15...21).contains(folder.windowBits) else { throw KaitoError.malformed("cab LZX window bits") }
+            try Checked.size(UInt64(1 << folder.windowBits), limit: limits.maxDictionarySize)
+        }
         // 短いフォルダーを多数並べた入力でも復号バッファが累積しないよう、保持する復号器を一つに制限する。
         if let activeFolderIndex, activeFolderIndex != index {
             try folderCoordinators[activeFolderIndex]?.invalidateAndRelease()
@@ -166,7 +172,11 @@ final class CabReader: FormatReader {
         if let cached = folderCoordinators[index] {
             coordinator = cached
         } else {
-            coordinator = SolidCoordinator(source: source, blocks: blocks[index], stored: folder.method == 0)
+            let folderContinues = blocks[index].last?.uncompressedSize == 0
+                || (hasNextCabinet && index == folders.count - 1)
+            coordinator = SolidCoordinator(source: source, blocks: blocks[index], folder: folder,
+                outputSize: folderSizes[index], dictionarySizeLimit: limits.maxDictionarySize,
+                folderContinues: folderContinues)
             folderCoordinators[index] = coordinator
         }
         let decoder = try coordinator.stream(offset: file.folderOffset, length: file.size, entryIndex: entry.index)
@@ -177,12 +187,17 @@ final class CabReader: FormatReader {
     private final class SolidCoordinator {
         private let source: any ByteSource
         private let blocks: [CabDataBlock]
-        private let stored: Bool
-        private var decoder: MSZIPDecompressor?
+        private let folder: CabFolder
+        private let outputSize, dictionarySizeLimit: UInt64
+        private let folderContinues: Bool
+        private var decoder: (any CabFolderDecoder)?
         private var generation: UInt64 = 0
 
-        init(source: any ByteSource, blocks: [CabDataBlock], stored: Bool) {
-            self.source = source; self.blocks = blocks; self.stored = stored
+        init(source: any ByteSource, blocks: [CabDataBlock], folder: CabFolder,
+             outputSize: UInt64, dictionarySizeLimit: UInt64, folderContinues: Bool) {
+            self.source = source; self.blocks = blocks; self.folder = folder
+            self.outputSize = outputSize; self.dictionarySizeLimit = dictionarySizeLimit
+            self.folderContinues = folderContinues
         }
 
         func invalidateAndRelease() throws {
@@ -195,7 +210,14 @@ final class CabReader: FormatReader {
             generation = try Checked.add(generation, 1)
             // 空ファイルは履歴再構築も不要。開始位置が後退するときだけ先頭からやり直す。
             if length > 0, decoder == nil || offset < decoder!.position {
-                decoder = MSZIPDecompressor(source: source, blocks: blocks, stored: stored)
+                // 新しい辞書の確保前に旧辞書を解放する。初期化が失敗すればこの呼出しも失敗し、次回は再構築する。
+                decoder = nil
+                if folder.method == 3 {
+                    decoder = try LZXFolderDecompressor(source: source, blocks: blocks, windowBits: folder.windowBits,
+                        outputSize: outputSize, dictionarySizeLimit: dictionarySizeLimit, folderContinues: folderContinues)
+                } else {
+                    decoder = MSZIPDecompressor(source: source, blocks: blocks, stored: folder.method == 0)
+                }
             }
             return SolidRangeDecompressor(coordinator: self, generation: generation,
                 offset: offset, end: end, entryIndex: entryIndex)

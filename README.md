@@ -88,7 +88,7 @@ for entry in directories {
 | ar / .deb | BSD 長名、SysV/GNU 文字列表、stored | なし | symbol table を公開、長名表 `//` のみ非公開、thin archive は明示的に拒否 |
 | cpio | bin（両 byte order）、odc、newc、crc、hpbin、hpodc、stored | なし | 連結書庫、symlink、宣言サイズどおりの hard link |
 | xar / .pkg | TOC XML（部分集合 pull parser）、zlib / bzip2 / lzma / xz / stored の heap、入れ子ディレクトリ、symlink、hard link、`<name enctype="base64">`、macOS flat package | なし | なし。TOC checksum と `<extracted-checksum>` を検証、`<subdoc>` 内の `<file>` は entry にしない |
-| CAB | CFHEADER / CFFOLDER / CFFILE / CFDATA、None と MSZIP（CFDATA をまたぐ LZ77 履歴）、予約領域、UTF-8 名 (attribs 0x80) | なし | 多分割フラグがあっても手元の cabinet の file は読み、実際にまたぐ file だけ拒否。Quantum / LZX は一覧のみ |
+| CAB | CFHEADER / CFFOLDER / CFFILE / CFDATA、None / MSZIP / LZX（15〜21 bit の辞書、CFDATA をまたぐ履歴）、予約領域、UTF-8 名 (attribs 0x80) | なし | 多分割フラグがあっても手元の cabinet の file は読み、実際にまたぐ file だけ拒否。Quantum は一覧のみ |
 | RPM | lead / signature header / main header、payload の cpio entry を直接公開、gzip / bzip2 / xz / lzma / stored payload | なし | codec は宣言 tag ではなく payload 先頭の magic で決定 |
 | tar | POSIX/ustar、pax、GNU long name/link、stored member | なし | volume 分割なし |
 | gzip | RFC 1952、FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT、DEFLATE、CRC32/ISIZE | なし | concatenated member 対応 |
@@ -120,10 +120,10 @@ for entry in directories {
 >   nested directories; symbolic links; hard links; `<name enctype="base64">`; the macOS flat
 >   package. No multi-volume. The TOC checksum and `<extracted-checksum>` are verified, and a
 >   `<file>` inside a `<subdoc>` never becomes an entry.
-> - **CAB**: CFHEADER / CFFOLDER / CFFILE / CFDATA, None and MSZIP (whose LZ77 history crosses
->   CFDATA blocks), the reserved areas, and UTF-8 names (attribs 0x80). Even when the multi-cabinet
+> - **CAB**: CFHEADER / CFFOLDER / CFFILE / CFDATA, None, MSZIP and LZX (15–21 bit windows and
+>   history across CFDATA blocks), the reserved areas, and UTF-8 names (attribs 0x80). Even when the multi-cabinet
 >   flags are set, the files held in this cabinet are read normally and only a file that actually
->   spans cabinets is rejected. Quantum and LZX can be listed only.
+>   spans cabinets is rejected. Quantum can be listed only.
 > - **RPM**: the lead, the signature header and the main header; the cpio entries of the payload are
 >   exposed directly; gzip, bzip2, xz, lzma and stored payloads. The codec is decided by the magic
 >   at the start of the payload rather than by the declared tag.
@@ -328,7 +328,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
   後続 session、interleaved / sparse / zisofs の内容展開は未対応です。
 - cpio は PWB / newcx、HP-UX device number の解釈、device node の再作成に対応しません。
   hard link の 0-byte placeholder は内容を補完しません。圧縮 cpio の自動連鎖は対象外です。
-- CAB は None と MSZIP を展開します。Quantum と LZX は一覧できますが、読み取り時に
+- CAB は None / MSZIP / LZX を展開します。Quantum は一覧できますが、読み取り時に
   `unsupportedMethod` になります。複数 cabinet にまたがる file も同様です。
 - RPM は zstd payload、rpm 6 の簡略 cpio (`07070X`)、drpm、cpio でない payload を展開せず、
   圧縮済み payload を 1 entry として公開します。
@@ -371,7 +371,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 > - cpio does not support PWB or newcx, HP-UX device number interpretation, or recreating device
 >   nodes. A 0-byte hard-link placeholder is not filled in with its target's content. Automatic
 >   chaining of compressed cpio is out of scope.
-> - CAB extracts None and MSZIP. Quantum and LZX can be listed but fail with `unsupportedMethod`
+> - CAB extracts None, MSZIP and LZX. Quantum can be listed but fails with `unsupportedMethod`
 >   when read, as does a file that spans several cabinets.
 > - RPM does not expand a zstd payload, the simplified rpm 6 cpio (`07070X`), drpm, or a payload
 >   that is not cpio; it exposes the compressed payload as a single entry instead.

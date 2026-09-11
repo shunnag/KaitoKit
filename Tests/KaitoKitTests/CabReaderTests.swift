@@ -329,7 +329,7 @@ final class CabReaderTests: XCTestCase {
 
     func testUnsupportedMethodsAndContinuedFilesStillList() throws {
         let original = try fixture("mszip"), files = le(try fixture("mszip"), 16)
-        for (method, name) in [(2, "Quantum"), (0x1503, "LZX")] {
+        for (method, name) in [(2, "Quantum"), (4, "method 4")] {
             var bytes = original; write(method, &bytes, 42, 2)
             let reader = try ArchiveReader.open(data: bytes)
             XCTAssertEqual(reader.entries.map(\.name), classic.map(\.name))

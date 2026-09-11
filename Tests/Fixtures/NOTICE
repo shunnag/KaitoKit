@@ -515,3 +515,17 @@ Writer payload SHA-256 (filename, bytes, hash):
   o2.o 512 aeacbdb7d373f60cc34a23c5c570ff151291aed75cdfb8a9710a8e46bcda98ca
   control.tar.gz 29 e507c23a7f04d36333658090ee12ac44807169f9c432d909df4d5d5edd7d1639
   data.tar.gz 119 89a61e871bd91f64ef247ebc81b9aa055b580968582d2d7d81672db88bbdd407
+cab-lzx/（2026-09-12、bd cooViewer-c1vj.5）
+  Project-owned payload を Scripts/fixtures/make-cab-lzx.py の自作 LZX encoder と
+  CAB writer（Python 標準ライブラリのみ）で圧縮した標本 14 件。
+  出力は cabextract 1.11 を black-box 展開 oracle として元入力との完全一致を確認してから保存した。
+  各 .cab.b64 は 40 KB 以下。manifest.json に CAB / 元入力の SHA-256、window bits、
+  block 構成、frame サイズ、実際に使用した slot / length / pretree / aligned symbol を記録する。
+  大きな raw block と seed 固定のランダム 20 書庫は test 時生成し、保存標本には含めない。
+  参照資料は Microsoft [MS-PATCH] v20160613 と [MS-CAB] v20110304、および利用者指定の
+  CAB/LZXD 読み替え。第三者の LZX 実装 source は参照・引用・流用していない。
+  詳細は Documentation/verification/2026-09-12-cab-lzx.md と Documentation/design.md §10。
+
+  Fourteen project-owned CAB/LZX fixtures, encoded by our specification-derived Python encoder and
+  verified byte-for-byte with the cabextract binary before publication. No third-party LZX source
+  was consulted or incorporated. Large and randomized archives are generated during tests.

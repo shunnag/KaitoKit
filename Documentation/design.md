@@ -117,7 +117,7 @@ streaming 検証契約:
 4. LHA/LZH(lh0, lh4〜lh7, lh1, lz4/lz5/lzs, ヘッダ level 0/1/2, SJIS 名, 0x46 コードページ)
 5. tar 系(ustar/pax/GNU)+ gz/bz2/xz(xz は Compression framework)
 6. ISO 9660（PVD / Joliet / Rock Ridge、multi-extent、stored）
-7. 後段候補: CAB(MSZIP/LZX), zstd, StuffIt/SIT(要検討), ARJ, ACE
+7. 後段候補: CAB(Quantum), zstd, StuffIt/SIT(要検討), ARJ, ACE
 
 ## 6. 実装方式の比較(調査 2026-09-06)
 
@@ -347,8 +347,8 @@ folder 内の CFDATA をまたいで引き継がれる**。zlib では block ご
 予約領域(flags 0x0004)があると CFFOLDER と CFDATA のレコード長が伸びる。
 多分割キャビネットは、フラグが立っていても手元のキャビネットのファイルは通常どおり読み、
 実際にまたぐファイルだけを個別に拒否する(XADMaster の挙動を実測して合わせた)。
-Quantum と LZX は一覧のみ対応し、展開時に具体的な unsupportedMethod を返す
-(`cooViewer-c1vj.5` / `c1vj.6`)。
+Quantum は一覧のみ対応し、展開時に具体的な unsupportedMethod を返す
+(`cooViewer-c1vj.6`)。LZX は 2026-09-12 の追補で展開に対応した。
 ZIP の DOS 日時変換は `Core/DOSTimestamp.swift` へ移して両 reader で共有する。
 CAB では不正な日時を nil とし、書庫を失敗させない。
 検証値・再実行手順は [CAB 検証記録](verification/2026-09-09-cab.md)。
@@ -370,6 +370,79 @@ solid coordinator と同じで、世代番号によって古い `EntryStream` �
 やり直す経路を通じて (a) の folder 全滅が再発し、かつ結果が読み出し順に依存する。
 残余 risk の実測は
 [新規 6 形式の検証記録](verification/2026-09-09-new-format-performance.md) §8.5。
+
+**CAB LZX の出自と読み替え（2026-09-12、bd cooViewer-c1vj.5）。**
+実装資料はローカルの Microsoft [MS-PATCH] “LZX DELTA Compression and Decompression”
+v20160613、[MS-CAB] “Cabinet File Format” v20110304、および既存 KaitoKit の CAB / MSZIP /
+canonical Huffman 実装に限定した。PDF の SHA-256 は次の通りで、`inbox/lzx/SHA256SUMS`
+と実ファイルを照合した。
+
+| 資料 | PDF SHA-256 |
+|---|---|
+| MS-PATCH v20160613 | `490dda636f9d750e0d00717f3621498d7cdb6a8970ad5f695cbca5cf2194983a` |
+| MS-CAB v20110304 | `09f796a493547697ed7d4bc36222ac132bf3ca1bd6b1da76fbdc3b38b5307709` |
+
+全文テキストの SHA-256 はそれぞれ
+`65ec0347256ccbfa155e017ee602e1558ce6928a5026bb5a31ef32ba89b6c625` と
+`ffcb2e44a2c061252ec934894f1ac23a13c83fc6d506b8635867a0842b5e0860`。
+LZXD から CAB LZX への相違は利用者が提示した十一項目を適用し、疑義は自作 encoder と
+cabextract 1.11 の展開結果で確定した。ネットワークや他実装の source は参照していない。
+libmspack / cabextract、7-Zip / p7zip、XADMaster、The Unarchiver、Wine cabinet.dll、
+ms-compress、libfwnt、その他の LZX 実装 source は開かず、検索・引用・流用していない。
+cabextract バイナリは生成器の入力と展開後のバイト列を照合する black-box oracle に限って使用した。
+実 corpus 内の実行ファイルは展開データとして比較し、実行や source の閲覧はしていない。
+
+1. LZXD の chunk-size prefix は置かない。CFDATA の `cbData` / `cbUncomp` を frame の境界とし、
+   最終以外の frame は 32,768 byte とする。
+2. Extra Length field は読まない。match length は 2〜257 で、257 でも追加ビットはない。
+3. window bits は `typeCompress` の bit 8〜12 から 15〜21 のみを受理する。
+   slot 数は 30 / 32 / 34 / 36 / 38 / 42 / 50、footer bits は最大 17。
+   確保前に `ReadLimits.maxDictionarySize` と照合する。
+4. reference data はない。R0/R1/R2 は 1/1/1 から開始し、実際に使う offset は既出力の履歴内に制限する。
+5. frame ごとにビット列の残りを 16-bit word 境界まで捨てる。block type / 残量、path length、
+   R0〜R2、ring window は持ち越し、木の構築は block 単位に留める。
+6. E8 header は folder 先頭の 1 bit と任意の 16+16 bit。
+   復号後の frame にだけ逆変換を施し、辞書には変換前のバイトを保持する。
+   `chunk_offset < 0x40000000`、`chunk_size > 10`、`i < chunk_size - 10` の範囲を守る。
+7. match が frame の残量を超える場合は malformed とし、出力範囲を越えてコピーしない。
+8. uncompressed header の直後には 1〜16 bit のゼロ padding、little-endian の R0/R1/R2、
+   raw bytes、奇数サイズなら 1 byte の padding を読む。raw bytes は CFDATA を跨いで読み継ぐ。
+9. aligned tree を使うのは footer bits が 3 以上の slot のみ。それ未満は verbatim bits だけを読む。
+10. main tree は `256 + 8 * slots`、length tree は 249、aligned は 8、pretree は 20 要素。
+    main の前半 256 と後半は別 pretree で読む。最大 path length は 16、同長なら小さい symbol を先に置く。
+    Kraft 違反と単一要素・長さ 1 の木は拒否する。cabextract はこの単一要素 main tree を拒否し、
+    未使用の全ゼロ length tree は受理したため、length tree に限って空を許可する（使用すると malformed）。
+    全ゼロ aligned tree は未使用でも cabextract が拒否したため受理しない。
+11. block size 0、folder 残量を超える宣言、block サイズ総和との不一致、途中で尽きた入力、
+    frame 終端に余る完全な圧縮 word は truncated / malformed とする。
+
+`CabFolderDecoder` が既存 MSZIP と `LZXFolderDecompressor` の interface を共通化する。
+LZX は先行 frame を復号して辞書を再構築するが、checksum の検査範囲は従来どおり
+当該 entry が消費する CFDATA のみ。空 entry は復号を起動せず、folder の切替時は直前の辞書を解放する。
+
+> **CAB LZX provenance.** Implementation inputs were the two Microsoft specifications above,
+> the user-supplied eleven CAB/LZXD adaptations, and existing KaitoKit code. No external LZX
+> implementation source or web material was consulted. A project-owned Python encoder creates
+> payloads that cabextract 1.11 independently extracts and verifies before they become fixtures.
+> Singleton main trees and empty aligned trees were rejected by the oracle; an unused empty length
+> tree was accepted. Decoder state persists across frames, while checksums cover only consumed CFDATA.
+
+**敵対レビュー追補（2026-09-12）。** 利用者からの 5 レンズのレビューで確定した minor 2 件を修正した。
+同一 folder の後方 seek では旧 decoder を nil にして辞書を解放してから再構築する。
+最後の CFDATA が `cbUncomp == 0`、または NEXT_CABINET がある最後の folder は継続と判定し、
+その場合に限り cabinet 内の総展開量による block 宣言上限と folder 完了検査を省く。
+継続中の全 frame は 32,768 byte を要求し、split CFDATA 自体と continued file は引き続き展開しない。
+cabextract より厳格な四点（pretree run の overshoot、継続しない folder の末尾 block の過大宣言、
+folder 末尾の奇数 raw block の pad 欠落、最終 frame 末尾の余剰 16-bit word）は仕様準拠として据え置いた。
+回帰テストと cabinet 1 単体での oracle 比較は [検証追補](verification/2026-09-12-cab-lzx.md#敵対レビュー追補) に記録した。
+
+> **Adversarial review follow-up (2026-09-12).** Fixed the two confirmed minor findings from the
+> user-provided five-lens review: release the old dictionary before rebuilding on backward seeks,
+> and distinguish continuing folders when checking block declarations and folder completion.
+> Continuing frames must still be full-sized; split CFDATA and continued files remain unsupported.
+> Four stricter-than-cabextract checks remain specification-compliant: pretree run overshoot,
+> oversized final blocks in non-continuing folders, missing odd raw-block padding at folder end,
+> and an extra 16-bit word after the final frame.
 
 
 - XADMaster のコードは実装資料として**参照・流用しない**。比較する場合もブラックボックスの展開オラクルに限る。ユーザー指示。
@@ -491,6 +564,23 @@ source を実装入力にしていない。是正として、以後 The Unarchiv
 prose ページであることを確認し、`source-archive` を含む URL は取得しない。
 
 ## 11. 実装記録(2026-09-06〜08)
+
+- 2026-09-12、bd cooViewer-c1vj.5: CAB LZX を追加。固定 14 書庫（window bits 15 / 16 / 17 / 21、
+  三 block type、frame を跨ぐ block、境界ちょうどの block、奇数 raw、長さ 1 の block、
+  slot 0〜49、反復 R0/R1/R2、length 2 / 8 / 9 / 257、E8 有効/無効、空 length tree、
+  長さ 16 の Huffman 符号と encoder の長さ制限、raw header の全 1〜16 bit padding、
+  異なるデータを参照する反復 offset、複数 file / folder）を自作 encoder で生成した。
+  全標本は cabextract の展開が入力と一致してから採用。大きな raw block は test 時生成する。
+  新規 `CabLZXTests` 15 件と既存 `CabReaderTests` 13 件が成功し、seed 固定の 20 書庫、
+  利用者提供 LZX:21 corpus の 106 ファイルも cabextract と一致した。
+  未検証は E8 の 1 GiB 到達境界、全ての商用 CAB writer、Intel 実機。
+  Quantum / CAB 分割ファイルは対象外。全 bundle・性能・再現手順は
+  [CAB LZX 検証記録](verification/2026-09-12-cab-lzx.md) を参照。
+
+> **2026-09-12, bd cooViewer-c1vj.5:** Added CAB LZX with fourteen oracle-verified fixed fixtures,
+> twenty seeded differential archives, fifteen new tests and thirteen existing CAB tests.
+> The supplied LZX:21 cabinet also matches cabextract for all 106 files. The E8 1 GiB cutoff,
+> all commercial writers and Intel hardware remain unverified; Quantum and split CAB files are out of scope.
 
 - M0(コミット da98a9f, 16d27f8): 骨格・コア・tar・互換層・CLI・fuzz 基盤。CI は macos-26 / macos-26-intel。
 - M1(592b230, d05da82): ZIP 一式。名前の文字コード判定は **書庫単位**(XADMaster と同じ契約)に変更し、

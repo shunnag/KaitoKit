@@ -3,7 +3,7 @@
 import Foundation
 private import zlib
 
-final class MSZIPDecompressor {
+final class MSZIPDecompressor: CabFolderDecoder {
     private let source: any ByteSource
     private let blocks: [CabDataBlock]
     private let stored: Bool

@@ -1,0 +1,1822 @@
+{
+  "seed": 20260912,
+  "oracle": "cabextract version 1.11",
+  "fixtures": [
+    {
+      "name": "empty-unused-length",
+      "archive": "empty-unused-length.cab.b64",
+      "cab_sha256": "a29a47ef4554c9e585943dd31c06fceb3457c8cd1d0549dee15dc548c50b76aa",
+      "cab_bytes": 134,
+      "folders": [
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 2,
+              "size": 32,
+              "literal_only": true
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": []
+          },
+          "frame_sizes": [
+            32
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "payload.bin",
+          "size": 32,
+          "sha256": "843355d4a7728fd77dbe6d23c80cf8a436f5215e398be2914b143c38abc06673",
+          "folder": 0
+        }
+      ]
+    },
+    {
+      "name": "repeated-offsets",
+      "archive": "repeated-offsets.cab.b64",
+      "cab_sha256": "1d97be0690eae11b9c249f54139508db814d957f1c5133ffa3fd2e0124d5f941",
+      "cab_bytes": 412,
+      "folders": [
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 3,
+              "size": 256
+            },
+            {
+              "type": 2,
+              "size": 554
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [
+              0,
+              1,
+              2,
+              8,
+              11,
+              13
+            ],
+            "lengths": [
+              2,
+              8,
+              9,
+              257
+            ],
+            "pretree": [
+              0,
+              13,
+              14,
+              16,
+              17,
+              18
+            ],
+            "aligned": [
+              1,
+              3,
+              7
+            ],
+            "main_tree_bits": [
+              0,
+              3,
+              4
+            ],
+            "raw_header_padding": [
+              4
+            ]
+          },
+          "frame_sizes": [
+            810
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "payload.bin",
+          "size": 810,
+          "sha256": "d0dd5cef8544d91daf6d6c95eef8f291822e0b6c91050bedca706e72977d1023",
+          "folder": 0
+        }
+      ]
+    },
+    {
+      "name": "raw-alignment",
+      "archive": "raw-alignment.cab.b64",
+      "cab_sha256": "87b134a4ed467fdb236adaf835500384d693d398a4f1363410baf3867b19a1d6",
+      "cab_bytes": 1866,
+      "folders": [
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 2,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              1
+            ]
+          },
+          "frame_sizes": [
+            5
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 3,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              16
+            ]
+          },
+          "frame_sizes": [
+            6
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 4,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              15
+            ]
+          },
+          "frame_sizes": [
+            7
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 5,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              14
+            ]
+          },
+          "frame_sizes": [
+            8
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 6,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              13
+            ]
+          },
+          "frame_sizes": [
+            9
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 7,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              12
+            ]
+          },
+          "frame_sizes": [
+            10
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 8,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              11
+            ]
+          },
+          "frame_sizes": [
+            11
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 9,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              10
+            ]
+          },
+          "frame_sizes": [
+            12
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 10,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              9
+            ]
+          },
+          "frame_sizes": [
+            13
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 11,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              8
+            ]
+          },
+          "frame_sizes": [
+            14
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 12,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              7
+            ]
+          },
+          "frame_sizes": [
+            15
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 13,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              6
+            ]
+          },
+          "frame_sizes": [
+            16
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 14,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              5
+            ]
+          },
+          "frame_sizes": [
+            17
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 15,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              4
+            ]
+          },
+          "frame_sizes": [
+            18
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 16,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              3
+            ]
+          },
+          "frame_sizes": [
+            19
+          ]
+        },
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 17,
+              "literal_only": true
+            },
+            {
+              "type": 3,
+              "size": 3
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              2
+            ]
+          },
+          "frame_sizes": [
+            20
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "padding-2.bin",
+          "size": 5,
+          "sha256": "a177f2b8dcea228b2ed7369247b4e527fff459165da69044a96e3e2ca5dd8f0c",
+          "folder": 0
+        },
+        {
+          "name": "padding-3.bin",
+          "size": 6,
+          "sha256": "3ce4bb902bf1774d54178d64bcbef12e7daa55da4423e66d1745c02be54ba378",
+          "folder": 1
+        },
+        {
+          "name": "padding-4.bin",
+          "size": 7,
+          "sha256": "9c0ac34cc5358da4aa99349125e1cb8b01b2cb6da0bd7d2e98445daa7874c1ea",
+          "folder": 2
+        },
+        {
+          "name": "padding-5.bin",
+          "size": 8,
+          "sha256": "8193c0a67e1a75669716c937c5db1a484017f6882901fa12840ac868abdd42fc",
+          "folder": 3
+        },
+        {
+          "name": "padding-6.bin",
+          "size": 9,
+          "sha256": "de7dfe65c7d2bc20696468b28c634ccff429f9d5e1113cc88634fccc01bdc4a5",
+          "folder": 4
+        },
+        {
+          "name": "padding-7.bin",
+          "size": 10,
+          "sha256": "1daf1e87470e81fa99347fce43a320dc27e5745ae0db0b12f0da35aee70a60bd",
+          "folder": 5
+        },
+        {
+          "name": "padding-8.bin",
+          "size": 11,
+          "sha256": "24d73653f2281194c0a6936e0c667479ed6db9fc92dcf35397e2bcf5c5bec072",
+          "folder": 6
+        },
+        {
+          "name": "padding-9.bin",
+          "size": 12,
+          "sha256": "f33ea4d5b7d4d9513ce411b8bee9ff0e2961e55200368d6f7d51f84d477bff27",
+          "folder": 7
+        },
+        {
+          "name": "padding-10.bin",
+          "size": 13,
+          "sha256": "8fa0928e98f354cf0bb0fbf287e233d5d67324c438a7e5e27db04b6ea4ed1b4c",
+          "folder": 8
+        },
+        {
+          "name": "padding-11.bin",
+          "size": 14,
+          "sha256": "7381199146338f5d1443631d842a947a85aa897252a8b5c9b496505026478193",
+          "folder": 9
+        },
+        {
+          "name": "padding-12.bin",
+          "size": 15,
+          "sha256": "470092cfb14a10034afcc0cb724de3630299a25a5c4838a1bb29387fe36b0b82",
+          "folder": 10
+        },
+        {
+          "name": "padding-13.bin",
+          "size": 16,
+          "sha256": "19c931ed53c4298bcb6806c0dc87b80d8d931f842913557c8fe6f1dbd0bda6f0",
+          "folder": 11
+        },
+        {
+          "name": "padding-14.bin",
+          "size": 17,
+          "sha256": "217b1003139a329ddbe93e171e6128c802a839b00e9521e5250d799197e289ac",
+          "folder": 12
+        },
+        {
+          "name": "padding-15.bin",
+          "size": 18,
+          "sha256": "dbde083443016393228d711074366beb010996f7f0ea15356531f45f954a126c",
+          "folder": 13
+        },
+        {
+          "name": "padding-16.bin",
+          "size": 19,
+          "sha256": "9af5a776b5bd6d6a093038189b2acd857fd8e464712a8d51e3308d2ef1947dcd",
+          "folder": 14
+        },
+        {
+          "name": "padding-17.bin",
+          "size": 20,
+          "sha256": "caaecf7b0804af46113506c54b5af2cb7e692fa5dacb2f8c53f8a93528bc8039",
+          "folder": 15
+        }
+      ]
+    },
+    {
+      "name": "verbatim-w15",
+      "archive": "verbatim-w15.cab.b64",
+      "cab_sha256": "1fd94ab8d573c81b4149bc05d0308fcffab90b3eb4d3e380d996338ebccbe5fb",
+      "cab_bytes": 756,
+      "folders": [
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 40000
+            },
+            {
+              "type": 1,
+              "size": 66920
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [
+              0,
+              5,
+              8,
+              13,
+              16
+            ],
+            "lengths": [
+              2,
+              36,
+              89,
+              93,
+              129,
+              135,
+              257
+            ],
+            "pretree": [
+              0,
+              1,
+              8,
+              9,
+              10,
+              11,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1,
+              2,
+              6,
+              7,
+              8,
+              9
+            ],
+            "raw_header_padding": []
+          },
+          "frame_sizes": [
+            32768,
+            32768,
+            32768,
+            8616
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "first.txt",
+          "size": 12000,
+          "sha256": "e2a770b9cb8d65afdd348e777e6507924200b95db7590b7e501160d8224d3872",
+          "folder": 0
+        },
+        {
+          "name": "empty",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "folder": 0
+        },
+        {
+          "name": "sub/middle.bin",
+          "size": 58000,
+          "sha256": "094eecf608411ddd1fe6506da1694d0a0871fe3aad140e2f0c85589b2086f27f",
+          "folder": 0
+        },
+        {
+          "name": "last.bin",
+          "size": 36920,
+          "sha256": "a4bfb7d80aea7e7348e88b70a0afd49261663972697357a5e92e1f9540741e5f",
+          "folder": 0
+        }
+      ]
+    },
+    {
+      "name": "aligned-w16",
+      "archive": "aligned-w16.cab.b64",
+      "cab_sha256": "8aeb1dc308d0cf6782f9207af4f55ecb3867dfcef1fe5ece7c738b822668dffd",
+      "cab_bytes": 648,
+      "folders": [
+        {
+          "window_bits": 16,
+          "blocks": [
+            {
+              "type": 2,
+              "size": 32768
+            },
+            {
+              "type": 2,
+              "size": 98304
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [
+              0,
+              16
+            ],
+            "lengths": [
+              129,
+              130,
+              257
+            ],
+            "pretree": [
+              0,
+              1,
+              8,
+              9,
+              15,
+              16,
+              17,
+              18,
+              19
+            ],
+            "aligned": [
+              2
+            ],
+            "main_tree_bits": [
+              0,
+              1,
+              2,
+              8,
+              9
+            ],
+            "raw_header_padding": []
+          },
+          "frame_sizes": [
+            32768,
+            32768,
+            32768,
+            32768
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "payload.bin",
+          "size": 131072,
+          "sha256": "59f410ae5e17962412e2aed4f815918f634932f2abf084f00bb638c4db017850",
+          "folder": 0
+        }
+      ]
+    },
+    {
+      "name": "raw-w17",
+      "archive": "raw-w17.cab.b64",
+      "cab_sha256": "3a895c57114a2486ebfdb775f3045b6380757d35eb97f58e11829e53dbafd659",
+      "cab_bytes": 8399,
+      "folders": [
+        {
+          "window_bits": 17,
+          "blocks": [
+            {
+              "type": 3,
+              "size": 8193
+            },
+            {
+              "type": 1,
+              "size": 1
+            },
+            {
+              "type": 3,
+              "size": 1
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              4,
+              14
+            ]
+          },
+          "frame_sizes": [
+            8195
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "raw.bin",
+          "size": 8193,
+          "sha256": "66926e1aaf00d987ea35c263a04c7286e923af1882e17230a8df15d21aa13dcc",
+          "folder": 0
+        },
+        {
+          "name": "tail.bin",
+          "size": 2,
+          "sha256": "5f3ff264061a0e921b183f7e25c5d2a4df1ce7bb810228e43d0f149df5a40d97",
+          "folder": 0
+        },
+        {
+          "name": "empty",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "folder": 0
+        }
+      ]
+    },
+    {
+      "name": "mixed-blocks",
+      "archive": "mixed-blocks.cab.b64",
+      "cab_sha256": "9e68eed8762f202dcd64e2763e8db624e4f7779b7797166345b8c9a32ed05ad2",
+      "cab_bytes": 610,
+      "folders": [
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 1
+            },
+            {
+              "type": 3,
+              "size": 5
+            },
+            {
+              "type": 2,
+              "size": 32762
+            },
+            {
+              "type": 3,
+              "size": 256
+            },
+            {
+              "type": 1,
+              "size": 41976
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [
+              0,
+              5
+            ],
+            "lengths": [
+              123,
+              130,
+              212,
+              257
+            ],
+            "pretree": [
+              0,
+              15,
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": [
+              2,
+              5
+            ]
+          },
+          "frame_sizes": [
+            32768,
+            32768,
+            9464
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "payload.bin",
+          "size": 75000,
+          "sha256": "c55d6228076426e82284e440b100821bfe558891ad2af973016cb954ebfaf009",
+          "folder": 0
+        }
+      ]
+    },
+    {
+      "name": "slots-w21",
+      "archive": "slots-w21.cab.b64",
+      "cab_sha256": "202a1f8282079733b265846c83b1bf4a470dc1342d65599cff5f657e9b48b84c",
+      "cab_bytes": 3006,
+      "folders": [
+        {
+          "window_bits": 21,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 2097152
+            },
+            {
+              "type": 2,
+              "size": 3397
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30,
+              31,
+              32,
+              33,
+              34,
+              35,
+              36,
+              37,
+              38,
+              39,
+              40,
+              41,
+              42,
+              43,
+              44,
+              45,
+              46,
+              47,
+              48,
+              49
+            ],
+            "lengths": [
+              2,
+              6,
+              8,
+              9,
+              128,
+              129,
+              257
+            ],
+            "pretree": [
+              0,
+              11,
+              12,
+              14,
+              15,
+              16,
+              17,
+              18
+            ],
+            "aligned": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7
+            ],
+            "main_tree_bits": [
+              0,
+              1,
+              3,
+              5,
+              6
+            ],
+            "raw_header_padding": []
+          },
+          "frame_sizes": [
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            32768,
+            3397
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "payload.bin",
+          "size": 2100549,
+          "sha256": "c9b90f29455d035271e9bbbe708006092fca702875c09ccdfeda4b4075995598",
+          "folder": 0
+        }
+      ]
+    },
+    {
+      "name": "e8-00000001",
+      "archive": "e8-00000001.cab.b64",
+      "cab_sha256": "9c5b91e32e2d5e969db55ecf242ba9fbcfe704b0fd8a4275940dd8709198d6cd",
+      "cab_bytes": 330,
+      "folders": [
+        {
+          "window_bits": 17,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 32769
+            },
+            {
+              "type": 2,
+              "size": 32804
+            }
+          ],
+          "e8": 1,
+          "coverage": {
+            "slots": [
+              0,
+              1,
+              2,
+              3,
+              6,
+              7,
+              8,
+              9,
+              10,
+              12,
+              29,
+              30
+            ],
+            "lengths": [
+              2,
+              3,
+              4,
+              5,
+              7,
+              8,
+              10,
+              11,
+              12,
+              23,
+              30,
+              70,
+              257
+            ],
+            "pretree": [
+              0,
+              1,
+              2,
+              3,
+              11,
+              12,
+              13,
+              14,
+              16,
+              17,
+              18
+            ],
+            "aligned": [
+              2,
+              4
+            ],
+            "main_tree_bits": [
+              0,
+              1,
+              3,
+              4,
+              5,
+              6
+            ],
+            "raw_header_padding": []
+          },
+          "frame_sizes": [
+            32768,
+            32768,
+            37
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "payload.bin",
+          "size": 65573,
+          "sha256": "ead70c60233ebc3c2832300c1e6e0bd1a738202c4226fd9f1cb5cafbb0f6baa4",
+          "folder": 0
+        }
+      ]
+    },
+    {
+      "name": "e8-00010000",
+      "archive": "e8-00010000.cab.b64",
+      "cab_sha256": "b8bb290d0c51d6291b8940b226d7cadf74aa65a589124460a5d1804bff31510b",
+      "cab_bytes": 356,
+      "folders": [
+        {
+          "window_bits": 17,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 32769
+            },
+            {
+              "type": 2,
+              "size": 32804
+            }
+          ],
+          "e8": 65536,
+          "coverage": {
+            "slots": [
+              0,
+              2,
+              3,
+              6,
+              7,
+              8,
+              9,
+              10,
+              12,
+              29,
+              30,
+              32
+            ],
+            "lengths": [
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              10,
+              12,
+              13,
+              23,
+              29,
+              30,
+              70,
+              257
+            ],
+            "pretree": [
+              0,
+              6,
+              11,
+              12,
+              14,
+              15,
+              16,
+              17,
+              18
+            ],
+            "aligned": [
+              0,
+              2,
+              3,
+              4,
+              5
+            ],
+            "main_tree_bits": [
+              0,
+              1,
+              3,
+              4,
+              5,
+              6
+            ],
+            "raw_header_padding": []
+          },
+          "frame_sizes": [
+            32768,
+            32768,
+            37
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "payload.bin",
+          "size": 65573,
+          "sha256": "67f3fc652bd0afeb5590a7d8e285e791e891391b5f16d0a5b0bb7fa395f2528f",
+          "folder": 0
+        }
+      ]
+    },
+    {
+      "name": "e8-12345678",
+      "archive": "e8-12345678.cab.b64",
+      "cab_sha256": "1a629adaad72ef43574dc9beb3bc78b11305da96dc3fb9fdc90818c54e5f379f",
+      "cab_bytes": 354,
+      "folders": [
+        {
+          "window_bits": 17,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 32769
+            },
+            {
+              "type": 2,
+              "size": 32804
+            }
+          ],
+          "e8": 305419896,
+          "coverage": {
+            "slots": [
+              0,
+              1,
+              2,
+              3,
+              6,
+              7,
+              8,
+              9,
+              10,
+              12,
+              29,
+              30,
+              32
+            ],
+            "lengths": [
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              10,
+              12,
+              23,
+              29,
+              30,
+              70,
+              257
+            ],
+            "pretree": [
+              0,
+              3,
+              6,
+              11,
+              12,
+              14,
+              15,
+              16,
+              17,
+              18
+            ],
+            "aligned": [
+              1,
+              2,
+              3
+            ],
+            "main_tree_bits": [
+              0,
+              1,
+              3,
+              5,
+              6
+            ],
+            "raw_header_padding": []
+          },
+          "frame_sizes": [
+            32768,
+            32768,
+            37
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "payload.bin",
+          "size": 65573,
+          "sha256": "12488fc8713214d2b50d659a5dd30211e89cdefe8538fa9c7039302993fc8ab6",
+          "folder": 0
+        }
+      ]
+    },
+    {
+      "name": "multi-folder",
+      "archive": "multi-folder.cab.b64",
+      "cab_sha256": "55c467a3464278de18d6c5b5db55a200829f153425f8bac19b5239cd8478c254",
+      "cab_bytes": 398,
+      "folders": [
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 3,
+              "size": 6
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [],
+            "aligned": [],
+            "main_tree_bits": [],
+            "raw_header_padding": [
+              4
+            ]
+          },
+          "frame_sizes": [
+            6
+          ]
+        },
+        {
+          "window_bits": 21,
+          "blocks": [
+            {
+              "type": 2,
+              "size": 70000
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [
+              0
+            ],
+            "lengths": [
+              95,
+              128,
+              129,
+              257
+            ],
+            "pretree": [
+              14,
+              15,
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1
+            ],
+            "raw_header_padding": []
+          },
+          "frame_sizes": [
+            32768,
+            32768,
+            4464
+          ]
+        },
+        {
+          "window_bits": 16,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 85
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [
+              0,
+              5
+            ],
+            "lengths": [
+              3,
+              80
+            ],
+            "pretree": [
+              0,
+              15,
+              16,
+              17,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              2
+            ],
+            "raw_header_padding": []
+          },
+          "frame_sizes": [
+            85
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "a.txt",
+          "size": 6,
+          "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f",
+          "folder": 0
+        },
+        {
+          "name": "b.bin",
+          "size": 70000,
+          "sha256": "fe83d2c176d81302c7eec64a3d8554b95bea35bd4566fa3ef5a5170ec23fdcdf",
+          "folder": 1
+        },
+        {
+          "name": "empty",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "folder": 1
+        },
+        {
+          "name": "e8-disabled.bin",
+          "size": 85,
+          "sha256": "b8d94ecf0cd525af95142d9feb73ac615d7b867dc4bcb0115b76c95c2570b584",
+          "folder": 2
+        }
+      ]
+    },
+    {
+      "name": "huffman-17",
+      "archive": "huffman-17.cab.b64",
+      "cab_sha256": "e4df721d5b1594307e4cd6cc1f4be02f423ee20e4db6370c137cf47e6003dd33",
+      "cab_bytes": 1502,
+      "folders": [
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 4180,
+              "literal_only": true
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              18
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "raw_header_padding": []
+          },
+          "frame_sizes": [
+            4180
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "payload.bin",
+          "size": 4180,
+          "sha256": "c16f0fbce7bf65ca48ec01fa41b4c9343446a8a633884563af6dc8cfa848441d",
+          "folder": 0
+        }
+      ]
+    },
+    {
+      "name": "huffman-20",
+      "archive": "huffman-20.cab.b64",
+      "cab_sha256": "e88d4f6d44637ecc6b47cb05aa09daa29fade06196c570e0d5c738ab667f5ed6",
+      "cab_bytes": 8992,
+      "folders": [
+        {
+          "window_bits": 15,
+          "blocks": [
+            {
+              "type": 1,
+              "size": 17710,
+              "literal_only": true
+            }
+          ],
+          "e8": 0,
+          "coverage": {
+            "slots": [],
+            "lengths": [],
+            "pretree": [
+              12,
+              13,
+              16,
+              18,
+              19
+            ],
+            "aligned": [],
+            "main_tree_bits": [
+              0,
+              4,
+              5
+            ],
+            "raw_header_padding": []
+          },
+          "frame_sizes": [
+            17710
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "payload.bin",
+          "size": 17710,
+          "sha256": "31851eef216e783faba90aa87893c912bbc85a575e6651b130affed09bc0ba45",
+          "folder": 0
+        }
+      ]
+    }
+  ],
+  "probes": {
+    "singleton-main-length1": "rejected",
+    "empty-unused-length": "accepted",
+    "empty-unused-aligned": "rejected"
+  }
+}

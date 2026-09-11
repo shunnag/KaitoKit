@@ -26,6 +26,7 @@ struct CabFolder {
     let blockCount: Int
     let typeCompress: UInt16
     var method: UInt16 { typeCompress & 0x000f }
+    var windowBits: Int { Int((typeCompress >> 8) & 0x1f) }
     var methodName: String {
         switch method {
         case 0: "stored"

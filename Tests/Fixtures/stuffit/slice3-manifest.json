@@ -1,0 +1,52 @@
+[
+  {
+    "file": "testfile.stuffit7_dlx.mac9.sitx",
+    "size": 2074,
+    "sha256": "f557d88b0ebde7b85f230e36ff6ae16247d2a623eedae721a8a96532e6cec963"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.mac9.comment.sitx",
+    "size": 2108,
+    "sha256": "f8e463419d5b967494c159c43affb9deda8a73596fefbd46aa25478f6389d611"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.mac9.sitx.bin",
+    "size": 2304,
+    "sha256": "b4dfab346a82930cb35e63f56bc65a63cf9e6cd2d2a98ff7ddc159550f99c27d"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.mac9.sitx.as",
+    "size": 2208,
+    "sha256": "4dd4a224c2594bf746a69cd21a37818bbe2a8e911f396aab1ad3a7e2b919d303"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.mac9.sitx.hqx",
+    "size": 2913,
+    "sha256": "86ecf77ba437c825db8a3edb274fc634723e45a99c49230e2171e6f9ae048912"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.mac9.password.sitx",
+    "size": 2214,
+    "sha256": "a12732f39caae0226de686fb9e30b6892939caa90222b6a490f81b18ffeb19f5"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.mac9.recoverability.sitx.hqx",
+    "size": 12208,
+    "sha256": "5ac171552666f018eeb69ebfa84b6bdf5016d40524fb087c7407300db0ddd4d0"
+  },
+  {
+    "file": "testfile.stuffit_deluxe_2009.win.backcompat.sitx",
+    "size": 534,
+    "sha256": "2bc3979525d3eff1f11acc4bde0bb3bce7f3d2526627b3152cafc070a2e8ea64"
+  },
+  {
+    "file": "testfile.stuffit_deluxe_2009.win.sitx",
+    "size": 1239,
+    "sha256": "01c7eb29403d65573b1aaf996a27808a6c96a033a9f091c77525ff0f8b7018b8"
+  },
+  {
+    "file": "testfile.stuffit_deluxe_2010.win.basic.sitx",
+    "size": 161,
+    "sha256": "8137ac21563bef4645da7554e986023cbf0361d322270058ea011e589d6b957c"
+  }
+]

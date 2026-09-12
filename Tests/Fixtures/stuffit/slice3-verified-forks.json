@@ -1,0 +1,479 @@
+[
+  {
+    "file": "testfile.stuffit7_dlx.mac9.sitx",
+    "forks": [
+      {
+        "owner": 7,
+        "stream": 8,
+        "slot": 0,
+        "length": 12,
+        "kind": 0,
+        "offset": 0,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f"
+      },
+      {
+        "owner": 3,
+        "stream": 8,
+        "slot": 1,
+        "length": 11,
+        "kind": 0,
+        "offset": 12,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25"
+      },
+      {
+        "owner": 4,
+        "stream": 9,
+        "slot": 0,
+        "length": 220,
+        "kind": 0,
+        "offset": 0,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1"
+      },
+      {
+        "owner": 5,
+        "stream": 10,
+        "slot": 0,
+        "length": 2694,
+        "kind": 0,
+        "offset": 0,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e"
+      },
+      {
+        "owner": 6,
+        "stream": 11,
+        "slot": 0,
+        "length": 87,
+        "kind": 0,
+        "offset": 0,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a"
+      },
+      {
+        "owner": 7,
+        "stream": 12,
+        "slot": 0,
+        "length": 332,
+        "kind": 1,
+        "offset": 0,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a"
+      },
+      {
+        "owner": 3,
+        "stream": 12,
+        "slot": 1,
+        "length": 332,
+        "kind": 1,
+        "offset": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315"
+      },
+      {
+        "owner": 2,
+        "stream": 13,
+        "slot": 0,
+        "length": 9134,
+        "kind": 1,
+        "offset": 0,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0"
+      },
+      {
+        "owner": 5,
+        "stream": 14,
+        "slot": 0,
+        "length": 44549,
+        "kind": 1,
+        "offset": 0,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e"
+      }
+    ],
+    "streams": [
+      {
+        "id": 8,
+        "output": 23,
+        "sha256": "d77b72327cff97a8a495f865a745a9851b2bc16bfde3f062256365b26996078e",
+        "algorithms": {
+          "2": 0,
+          "1": 0
+        }
+      },
+      {
+        "id": 9,
+        "output": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "algorithms": {
+          "2": 0,
+          "1": 1
+        }
+      },
+      {
+        "id": 10,
+        "output": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "algorithms": {
+          "2": 0,
+          "1": 1
+        }
+      },
+      {
+        "id": 11,
+        "output": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "algorithms": {
+          "2": 0,
+          "1": 1
+        }
+      },
+      {
+        "id": 12,
+        "output": 664,
+        "sha256": "fd169c9782a0291bbea9fd9bc75d2a01f2613ef78a8a1f7529dbcfb98cf85198",
+        "algorithms": {
+          "2": 0,
+          "1": 0
+        }
+      },
+      {
+        "id": 13,
+        "output": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "algorithms": {
+          "2": 0,
+          "1": 1
+        }
+      },
+      {
+        "id": 14,
+        "output": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "algorithms": {
+          "2": 0,
+          "1": 1
+        }
+      }
+    ]
+  },
+  {
+    "file": "testfile.stuffit7_dlx.mac9.comment.sitx",
+    "forks": [
+      {
+        "owner": 7,
+        "stream": 8,
+        "slot": 0,
+        "length": 12,
+        "kind": 0,
+        "offset": 0,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f"
+      },
+      {
+        "owner": 3,
+        "stream": 8,
+        "slot": 1,
+        "length": 11,
+        "kind": 0,
+        "offset": 12,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25"
+      },
+      {
+        "owner": 4,
+        "stream": 9,
+        "slot": 0,
+        "length": 220,
+        "kind": 0,
+        "offset": 0,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1"
+      },
+      {
+        "owner": 5,
+        "stream": 10,
+        "slot": 0,
+        "length": 2694,
+        "kind": 0,
+        "offset": 0,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e"
+      },
+      {
+        "owner": 6,
+        "stream": 11,
+        "slot": 0,
+        "length": 87,
+        "kind": 0,
+        "offset": 0,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a"
+      },
+      {
+        "owner": 7,
+        "stream": 12,
+        "slot": 0,
+        "length": 332,
+        "kind": 1,
+        "offset": 0,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a"
+      },
+      {
+        "owner": 3,
+        "stream": 12,
+        "slot": 1,
+        "length": 332,
+        "kind": 1,
+        "offset": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315"
+      },
+      {
+        "owner": 2,
+        "stream": 13,
+        "slot": 0,
+        "length": 9134,
+        "kind": 1,
+        "offset": 0,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0"
+      },
+      {
+        "owner": 5,
+        "stream": 14,
+        "slot": 0,
+        "length": 44549,
+        "kind": 1,
+        "offset": 0,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e"
+      }
+    ],
+    "streams": [
+      {
+        "id": 8,
+        "output": 23,
+        "sha256": "d77b72327cff97a8a495f865a745a9851b2bc16bfde3f062256365b26996078e",
+        "algorithms": {
+          "2": 0,
+          "1": 0
+        }
+      },
+      {
+        "id": 9,
+        "output": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "algorithms": {
+          "2": 0,
+          "1": 1
+        }
+      },
+      {
+        "id": 10,
+        "output": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "algorithms": {
+          "2": 0,
+          "1": 1
+        }
+      },
+      {
+        "id": 11,
+        "output": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "algorithms": {
+          "2": 0,
+          "1": 1
+        }
+      },
+      {
+        "id": 12,
+        "output": 664,
+        "sha256": "fd169c9782a0291bbea9fd9bc75d2a01f2613ef78a8a1f7529dbcfb98cf85198",
+        "algorithms": {
+          "2": 0,
+          "1": 0
+        }
+      },
+      {
+        "id": 13,
+        "output": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "algorithms": {
+          "2": 0,
+          "1": 1
+        }
+      },
+      {
+        "id": 14,
+        "output": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "algorithms": {
+          "2": 0,
+          "1": 1
+        }
+      }
+    ]
+  },
+  {
+    "file": "testfile.stuffit_deluxe_2009.win.sitx",
+    "forks": [
+      {
+        "owner": 5,
+        "stream": 6,
+        "slot": 0,
+        "length": 12,
+        "kind": 0,
+        "offset": 0,
+        "sha256": "b2f51cd17b3cbe77f091f887d91110164a2cb5a5a9ebe828c44d655c83dca8eb"
+      },
+      {
+        "owner": 4,
+        "stream": 7,
+        "slot": 0,
+        "length": 87,
+        "kind": 0,
+        "offset": 0,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a"
+      },
+      {
+        "owner": 3,
+        "stream": 8,
+        "slot": 0,
+        "length": 220,
+        "kind": 0
+      },
+      {
+        "owner": 3,
+        "stream": 9,
+        "slot": 0,
+        "length": 220,
+        "kind": 3
+      }
+    ],
+    "streams": [
+      {
+        "id": 6,
+        "output": 12,
+        "sha256": "b2f51cd17b3cbe77f091f887d91110164a2cb5a5a9ebe828c44d655c83dca8eb",
+        "algorithms": {
+          "2": 0,
+          "1": 6
+        }
+      },
+      {
+        "id": 8,
+        "output": 220,
+        "algorithms": {
+          "1": 7,
+          "6": 0
+        },
+        "status": "unsupported JPEG payload; framing checked"
+      },
+      {
+        "id": 7,
+        "output": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "algorithms": {
+          "2": 0,
+          "1": 6
+        }
+      },
+      {
+        "id": 9,
+        "output": 661,
+        "sha256": "02fedbd0a0a7379500fe15bd70a95aea90f79537e0dfe4031ce4e25ffbc8e4d0",
+        "algorithms": {
+          "2": 0,
+          "1": 5
+        }
+      }
+    ]
+  },
+  {
+    "file": "testfile.stuffit_deluxe_2009.win.basic.sitx",
+    "forks": [
+      {
+        "owner": 2,
+        "stream": 3,
+        "slot": 0,
+        "length": 12,
+        "kind": 0,
+        "offset": 0,
+        "sha256": "b2f51cd17b3cbe77f091f887d91110164a2cb5a5a9ebe828c44d655c83dca8eb"
+      }
+    ],
+    "streams": [
+      {
+        "id": 3,
+        "output": 12,
+        "sha256": "b2f51cd17b3cbe77f091f887d91110164a2cb5a5a9ebe828c44d655c83dca8eb",
+        "algorithms": {
+          "2": 0,
+          "1": 6
+        }
+      }
+    ]
+  },
+  {
+    "file": "testfile.stuffit_deluxe_2010.win.sitx",
+    "forks": [
+      {
+        "owner": 5,
+        "stream": 6,
+        "slot": 0,
+        "length": 12,
+        "kind": 0,
+        "offset": 0,
+        "sha256": "b2f51cd17b3cbe77f091f887d91110164a2cb5a5a9ebe828c44d655c83dca8eb"
+      },
+      {
+        "owner": 4,
+        "stream": 7,
+        "slot": 0,
+        "length": 87,
+        "kind": 0,
+        "offset": 0,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a"
+      },
+      {
+        "owner": 3,
+        "stream": 8,
+        "slot": 0,
+        "length": 220,
+        "kind": 0
+      },
+      {
+        "owner": 3,
+        "stream": 9,
+        "slot": 0,
+        "length": 220,
+        "kind": 3
+      }
+    ],
+    "streams": [
+      {
+        "id": 6,
+        "output": 12,
+        "sha256": "b2f51cd17b3cbe77f091f887d91110164a2cb5a5a9ebe828c44d655c83dca8eb",
+        "algorithms": {
+          "2": 0,
+          "1": 6
+        }
+      },
+      {
+        "id": 8,
+        "output": 220,
+        "algorithms": {
+          "1": 7,
+          "6": 0
+        },
+        "status": "unsupported JPEG payload; framing checked"
+      },
+      {
+        "id": 7,
+        "output": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "algorithms": {
+          "2": 0,
+          "1": 6
+        }
+      },
+      {
+        "id": 9,
+        "output": 661,
+        "sha256": "02fedbd0a0a7379500fe15bd70a95aea90f79537e0dfe4031ce4e25ffbc8e4d0",
+        "algorithms": {
+          "2": 0,
+          "1": 5
+        }
+      }
+    ]
+  }
+]

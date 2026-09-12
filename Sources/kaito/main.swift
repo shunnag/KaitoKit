@@ -31,6 +31,7 @@ private func formatName(_ format: ArchiveFormat) -> String {
     case .sevenZip: return "7z"
     case .lha: return "lha"
     case .stuffIt: return "sit"
+    case .stuffItX: return "sitx"
     case .tar: return "tar"
     case .iso: return "iso"
     case .xar: return "xar"
@@ -142,9 +143,10 @@ private func runList(_ arguments: [String]) throws {
            let headerLevel = entry.formatSpecific["headerLevel"] {
             fields.append("level=\(headerLevel)")
         }
-        if reader.format == .stuffIt, let fork = entry.formatSpecific["fork"] {
+        if [.stuffIt, .stuffItX].contains(reader.format), let fork = entry.formatSpecific["fork"] {
             fields.append("fork=\(fork)")
         }
+        if reader.format == .stuffItX { fields.append("solid=\(entry.solidGroup)") }
         if printRaw {
             fields.append(hexadecimal(entry.rawName.bytes))
         }
@@ -315,31 +317,32 @@ private func runSHA(_ arguments: [String]) throws {
 
     var failures = 0
     var rows = 0
+    let stuffItFamily = [.stuffIt, .stuffItX].contains(reader.format)
+    let dataForkPaths = Set(reader.entries.compactMap { entry in
+        stuffItFamily && entry.formatSpecific["fork"] == "data" ? entry.pathComponents : nil
+    })
     for entry in reader.entries {
         do {
-            let resourceView = reader.format == .stuffIt && !allForks && entry.formatSpecific["fork"] == "resource"
+            let resourceView = stuffItFamily && !allForks && entry.formatSpecific["fork"] == "resource"
             let result = resourceView ? (byteCount: UInt64(0), digest: SHA256.hash(data: Data()))
                 : try entrySHA256(entry, reader: reader, buffer: &buffer)
             var name = entry.name
-            if reader.format == .stuffIt {
+            if stuffItFamily {
                 name = entry.pathComponents.joined(separator: "/")
                 if resourceView {
                     // オラクル互換の既定表示・検証は data fork。--forks では resource も検証する。
                     let components = Array(entry.pathComponents.dropLast(2))
-                    let following = entry.index + 1
-                    if following < reader.entries.count,
-                       reader.entries[following].formatSpecific["fork"] == "data",
-                       reader.entries[following].pathComponents == components { continue }
+                    if dataForkPaths.contains(components) { continue }
                     name = components.joined(separator: "/")
                 }
             }
             let digestText = hexadecimal(result.digest)
             total.update(data: Data(digestText.utf8))
-            print("\(reader.format == .stuffIt ? rows : entry.index)\t\(result.byteCount)\t\(digestText)\t\(oneLine(name))")
+            print("\(stuffItFamily ? rows : entry.index)\t\(result.byteCount)\t\(digestText)\t\(oneLine(name))")
             rows += 1
         } catch {
             failures += 1
-            if reader.format != .stuffIt {
+            if !stuffItFamily {
                 print("\(entry.index)\tERROR\tfailed entry \(entry.index): \(entryFailureReason(error))\t\(oneLine(entry.name))")
             }
             reportEntryFailure(error, entry: entry)

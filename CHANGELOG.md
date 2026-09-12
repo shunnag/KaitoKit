@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+- StuffIt X slice 4（2026-09-13、bd `cooViewer-gu28.4`）: Brimstone（0、Blend 3）と意味論に従う 12 バイト arena、Iron（6、BWT/ST4・MTF/adaptive ranking）、English（組み込み辞書）・native x86 前処理を追加した。中間出力長を最終 fork 長から分離し、前処理後に checksum を検証する。CC0 対象 20 書庫と SMSSenderPro3osx.sitx 全 95 entry の支給 SHA が一致。native profile と旧 vector、比較スクリプトのオラクル範囲の差は [検証記録](Documentation/verification/2026-09-13-stuffit-slice4.md) に記載。
+
+- StuffIt X slice 3 の容器、solid coordinator、未圧縮・Cyanide・Darkhorse・Deflate（window 10〜25）・Blend 0/1/2・RC4-stored、CRC-32/MD5、wrapper/CLI/Compat 接続を追加した（2026-09-13、bd `cooViewer-gu28.3`）。Cyanide は依頼仕様の是正に従い n=0〜255 を受理し、rank 256 以上だけを拒否する。実書庫の Brimstone catalog は後続 slice の範囲。詳細は [検証記録](Documentation/verification/2026-09-13-stuffit-slice3.md)。
+
 - StuffIt の method 5/6/8/14、StuffIt 5 RC4・classic 改変 DES の復号、書庫コメントを追加した（2026-09-13、bd `cooViewer-gu28.2`）。
 - StuffIt classic / StuffIt 5、MacBinary / AppleSingle / BinHex wrapper、method 0/1/2/3/13/15 と data/resource fork の読み取りを追加した（2026-09-13、bd `cooViewer-gu28.1`）。
 

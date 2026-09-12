@@ -138,11 +138,19 @@ public enum FormatDetector {
         )
     }
 
+    static func stuffItFormat(_ source: any ByteSource) throws -> ArchiveFormat {
+        let prefix = try readByteRange(source: source, offset: 0, count: Int(min(8, source.length)))
+        return prefix == Array("StuffIt!".utf8) ? .stuffItX : .stuffIt
+    }
+
     // wrapper は一段だけ剥がす。内側の他形式へは再帰的に dispatch しない。
     static func stuffItInput(source: any ByteSource, prefix: [UInt8]? = nil, limits: ReadLimits) throws -> StuffItEnvelope? {
         let bytes = try prefix ?? readByteRange(source: source, offset: 0, count: Int(min(source.length, 512)))
         if TarReader.isPlausibleMemberHeader(bytes) { return nil }
-        if StuffItHeader.signature(bytes) != nil { return StuffItEnvelope(data: source, resource: nil) }
+        if bytes.starts(with: "StuffIt?".utf8) { throw KaitoError.unsupportedFormat }
+        if StuffItHeader.signature(bytes) != nil || bytes.starts(with: "StuffIt!".utf8) {
+            return StuffItEnvelope(data: source, resource: nil)
+        }
         // 強い先頭署名を持つ既存形式の payload を BinHex の説明文として探索しない。
         let nativePrefixes: [[UInt8]] = [
             [0x50, 0x4b, 3, 4], [0x50, 0x4b, 5, 6], [0x50, 0x4b, 7, 8],
@@ -156,7 +164,7 @@ public enum FormatDetector {
         if try isLHAHeader(bytes, sourceLength: source.length) { return nil }
         guard let envelope = try StuffItWrapper.unwrap(source: source, prefix: bytes, limits: limits) else { return nil }
         let inner = try readByteRange(source: envelope.data, offset: 0, count: Int(min(envelope.data.length, 100)))
-        guard StuffItHeader.signature(inner) != nil else { throw KaitoError.unsupportedFormat }
+        guard StuffItHeader.signature(inner) != nil || inner.starts(with: "StuffIt!".utf8) else { throw KaitoError.unsupportedFormat }
         return envelope
     }
 
@@ -176,7 +184,9 @@ public enum FormatDetector {
             return .tar
         }
 
-        if !skipStuffIt, try stuffItInput(source: source, prefix: prefix, limits: limits) != nil { return .stuffIt }
+        if !skipStuffIt, let envelope = try stuffItInput(source: source, prefix: prefix, limits: limits) {
+            return try stuffItFormat(envelope.data)
+        }
 
         if hasPrefix(prefix, [0x50, 0x4B, 0x03, 0x04])
             || hasPrefix(prefix, [0x50, 0x4B, 0x05, 0x06])

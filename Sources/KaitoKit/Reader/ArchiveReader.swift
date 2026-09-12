@@ -107,7 +107,7 @@ public final class ArchiveReader {
             sourceURL: sourceURL,
             options: options,
             skipStuffIt: true
-        ) : .stuffIt
+        ) : FormatDetector.stuffItFormat(stuffItInput!.data)
 
         switch detected {
         case .tar:
@@ -210,6 +210,12 @@ public final class ArchiveReader {
             reader = lha
             entries = lha.entries
             format = .lha
+        case .stuffItX:
+            let stuffItX = try StuffItXReader(source: stuffItInput?.data ?? source,
+                                             resourceFork: stuffItInput?.resource, options: options)
+            reader = stuffItX
+            entries = stuffItX.entries
+            format = .stuffItX
         case .stuffIt:
             let stuffIt = try StuffItReader(source: stuffItInput?.data ?? source,
                                               resourceFork: stuffItInput?.resource, options: options)
@@ -500,6 +506,7 @@ public final class ArchiveReader {
     private func preparePassword(for entry: ArchiveEntry) throws {
         // 復号に必須の resource / hash がなければ、password provider より先に診断する。
         if let stuffIt = reader as? StuffItReader { try stuffIt.validateEncryptionSupport(for: entry) }
+        if let stuffItX = reader as? StuffItXReader { try stuffItX.validateEncryptionSupport(for: entry) }
         if entry.isEncrypted, password == nil, let provider = options.passwordProvider {
             password = try provider.password(for: format)
         }

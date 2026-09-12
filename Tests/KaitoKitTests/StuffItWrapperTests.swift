@@ -5,7 +5,7 @@ import Foundation
 import XCTest
 
 final class StuffItWrapperTests: XCTestCase {
-    static func macBinary(_ data: Data, resource: Data = Data([1, 2, 3]), version: Int = 2, usb: Bool = false) -> Data {
+    static func macBinary(_ data: Data, resource: Data = StuffItSlice2CryptoTests.resources(), version: Int = 2, usb: Bool = false) -> Data {
         var h = [UInt8](repeating: 0, count: 256)
         h[1] = 1; h[2] = 65
         StuffItContainerTests.put(UInt64(data.count), 4, 83, &h)
@@ -21,24 +21,26 @@ final class StuffItWrapperTests: XCTestCase {
         return Data(h) + data + Data(repeating: 0, count: (128 - data.count % 128) % 128) + resource
     }
     static func appleSingle(_ data: Data, little: Bool = false, double: Bool = false) -> Data {
+        let resource = StuffItSlice2CryptoTests.resources()
         var h = [UInt8](repeating: 0, count: 50)
         func put(_ value: UInt64, _ n: Int, _ p: Int) {
             for i in 0..<n { h[p + i] = UInt8(truncatingIfNeeded: value >> (8 * (little ? i : n - i - 1))) }
         }
         put(double ? 0x00051607 : 0x00051600, 4, 0); put(0x00020000, 4, 4); put(2, 2, 24)
-        put(1, 4, 26); put(53, 4, 30); put(UInt64(data.count), 4, 34)
-        put(2, 4, 38); put(50, 4, 42); put(3, 4, 46)
-        return Data(h + [1, 2, 3]) + data
+        put(1, 4, 26); put(UInt64(50 + resource.count), 4, 30); put(UInt64(data.count), 4, 34)
+        put(2, 4, 38); put(50, 4, 42); put(UInt64(resource.count), 4, 46)
+        return Data(h) + resource + data
     }
     static func binHex(_ data: Data, corruptFork: Bool = false) -> Data {
+        let resource = StuffItSlice2CryptoTests.resources()
         var h = [UInt8](repeating: 0, count: 23)
         h[0] = 1; h[1] = 65
         StuffItContainerTests.put(UInt64(data.count), 4, 13, &h)
-        StuffItContainerTests.put(3, 4, 17, &h)
+        StuffItContainerTests.put(UInt64(resource.count), 4, 17, &h)
         StuffItContainerTests.put(UInt64(StuffItWrapper.xmodem(h[..<21])), 2, 21, &h)
-        var decoded = h + data + [0, 0, 1, 2, 3, 0, 0]
+        var decoded = h + data + [0, 0] + resource + [0, 0]
         StuffItContainerTests.put(UInt64(StuffItWrapper.xmodem(data)) ^ (corruptFork ? 1 : 0), 2, 23 + data.count, &decoded)
-        StuffItContainerTests.put(UInt64(StuffItWrapper.xmodem([1, 2, 3])), 2, decoded.count - 2, &decoded)
+        StuffItContainerTests.put(UInt64(StuffItWrapper.xmodem(resource)), 2, decoded.count - 2, &decoded)
         let escaped = decoded.flatMap { $0 == 0x90 ? [UInt8(0x90), 0] : [$0] }
         let alphabet = Array("!\"#$%&'()*+,-012345689@ABCDEFGHIJKLMNPQRSTUVXYZ[`abcdefhijklmpqr".utf8)
         var result = Array("(This file must be converted with BinHex 4.0)\r\n\r\n:".utf8)
@@ -59,13 +61,14 @@ final class StuffItWrapperTests: XCTestCase {
             let source = DataByteSource(data: wrapped)
             let envelope = try XCTUnwrap(FormatDetector.stuffItInput(source: source, limits: ReadLimits()))
             XCTAssertEqual(envelope.data.length, UInt64(inner.count))
-            XCTAssertEqual(envelope.resource?.length, 3)
+            XCTAssertEqual(envelope.resource?.length, UInt64(Self.emptyResourceSize))
             let reader = try StuffItReader(source: envelope.data, resourceFork: envelope.resource, options: ReaderOptions())
             XCTAssertNotNil(reader.archiveResourceFork)
             XCTAssertEqual(try ArchiveReader.open(data: wrapped).format, .stuffIt)
             XCTAssertEqual(try reader.stream(for: reader.entries[0], limits: ReadLimits()).readAll(), Data([65, 66]))
         }
     }
+    private static var emptyResourceSize: Int { StuffItSlice2CryptoTests.resources().count }
     func testRejectedWrappersAndMemoryLimit() throws {
         let inner = StuffItContainerTests.classic()
         for bad in [Self.appleSingle(inner, double: true), Self.macBinary(Data([1, 2, 3])),

@@ -41,6 +41,9 @@ struct StuffItRecord {
     var directory = false
     var resource = false
     var encrypted = false
+    var encryptionFlags: UInt8 = 0
+    var entryKey: [UInt8] = []
+    var padding: UInt64 = 0
     var method = 0
     var offset: UInt64 = 0
     var stored: UInt64 = 0
@@ -56,6 +59,8 @@ struct StuffItParser {
     var records: [StuffItRecord] = []
     var metadataSize: UInt64 = 0
     var totalSize: UInt64 = 0
+    var archiveHash: [UInt8]?
+    var archiveCommentBytes: [UInt8]?
 
     func bytes(_ offset: UInt64, _ count: Int, end: UInt64) throws -> [UInt8] {
         guard try Checked.add(offset, UInt64(count)) <= end else { throw KaitoError.truncated }
@@ -121,13 +126,17 @@ struct StuffItParser {
             guard next <= end else { throw KaitoError.malformed("StuffIt fork exceeds archive extent") }
             if ur > 0 {
                 var fork = record
-                fork.resource = true; fork.method = Int(b[0] & 15); fork.encrypted = b[0] & 0x80 != 0
+                fork.resource = true; fork.method = Int(b[0] & 15); fork.encryptionFlags = b[0] & 0x90
+                fork.encrypted = fork.encryptionFlags != 0
                 fork.offset = position; fork.stored = cr; fork.size = ur; fork.crc = StuffItHeader.be16(b, 100)
+                fork.padding = UInt64(b[104])
                 try append(fork)
             }
             if ud > 0 || ur == 0 {
-                record.method = Int(b[1] & 15); record.encrypted = b[1] & 0x80 != 0
+                record.method = Int(b[1] & 15); record.encryptionFlags = b[1] & 0x90
+                record.encrypted = record.encryptionFlags != 0
                 record.offset = position + cr; record.stored = cd; record.size = ud; record.crc = StuffItHeader.be16(b, 102)
+                record.padding = UInt64(b[105])
                 try append(record)
             }
             position = next

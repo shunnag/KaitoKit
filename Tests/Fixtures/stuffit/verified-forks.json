@@ -280,5 +280,89 @@
         "sha256": "aeb04b8fda7d65d641aee30f050983f725c79bd1711249ac6e0349b68931b6a0"
       }
     ]
+  },
+  {
+    "file": "testfile.stuffit651_dlx.mac9.password.sit",
+    "sha256": "8a89b86415e69a17b33303e4899f708640ee8796e6cf4b66df7768fd2df06f15",
+    "forks": [
+      {
+        "name": "Test Image",
+        "fork": "resource",
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0"
+      },
+      {
+        "name": "Test Text",
+        "fork": "resource",
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315"
+      },
+      {
+        "name": "Test Text",
+        "fork": "data",
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25"
+      },
+      {
+        "name": "testfile.jpg",
+        "fork": "data",
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1"
+      },
+      {
+        "name": "testfile.PICT",
+        "fork": "resource",
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e"
+      },
+      {
+        "name": "testfile.PICT",
+        "fork": "data",
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e"
+      },
+      {
+        "name": "testfile.png",
+        "fork": "data",
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a"
+      },
+      {
+        "name": "testfile.txt",
+        "fork": "resource",
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a"
+      },
+      {
+        "name": "testfile.txt",
+        "fork": "data",
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f"
+      }
+    ]
+  },
+  {
+    "file": "v1-fhf-faster.sit",
+    "sha256": "d3f14868f8742a13d8d2cc914b59b173789c7c2f8a7bb293e8d4a3cc17d7211d",
+    "forks": [
+      {
+        "name": "About System 7.5",
+        "fork": "resource",
+        "size": 2336,
+        "sha256": "828a2d431f43b6d0d01ea3307972a75e24a8e27683a505c69d6c9448b6b384e7"
+      },
+      {
+        "name": "About System 7.5",
+        "fork": "data",
+        "size": 19696,
+        "sha256": "d78c0b5547fc230e734ce2fc05ae7fada9f075e601a819a9d4d0f2b33b883bef"
+      },
+      {
+        "name": "SimpleText",
+        "fork": "resource",
+        "size": 58768,
+        "sha256": "e723b7dba9c45f352e366898dc3b9d377f6b7531a7a365c6e51b40368af79ced"
+      }
+    ]
   }
 ]

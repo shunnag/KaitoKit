@@ -33,7 +33,7 @@ final class StuffItPrefixTree {
         }
     }
     func insert(symbol: Int, code: UInt64, length: Int, lowBitFirst: Bool = false) throws {
-        guard (1...32).contains(length), code < (UInt64(1) << length) else { throw KaitoError.malformed("StuffIt Huffman code") }
+        guard (1...38).contains(length), code < (UInt64(1) << length) else { throw KaitoError.malformed("StuffIt Huffman code") }
         var node = 0
         for i in 0..<length {
             guard symbols[node] < 0 else { throw KaitoError.malformed("StuffIt Huffman prefix collision") }

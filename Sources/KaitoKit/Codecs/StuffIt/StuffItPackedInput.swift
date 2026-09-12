@@ -22,6 +22,9 @@ final class StuffItPackedInput {
     deinit { storage.deallocate() }
     var isAtEnd: Bool { cursor == available && position == end }
 
+    // tree / block の境界では、既に読んだ octet の残りだけを捨てる。
+    func alignToByte() { reservoir = 0; bitCount = 0 }
+
     @inline(__always) func byte() throws -> UInt8 {
         if cursor == available { try refill() }
         let result = storage[cursor]

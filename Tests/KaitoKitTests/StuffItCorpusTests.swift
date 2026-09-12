@@ -51,7 +51,9 @@ final class StuffItCorpusTests: XCTestCase {
                 XCTAssertEqual(entry.kind == .directory ? "directory" : entry.formatSpecific["fork"] ?? "", expected.fork)
                 if spec.encrypted {
                     if entry.isEncrypted {
-                        XCTAssertThrowsError(try reader.stream(entry)) { XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("StuffIt encryption")) }
+                        let expected: KaitoError = entry.formatSpecific["container"] == "classic" && !spec.file.hasSuffix(".bin")
+                            ? .unsupportedMethod("StuffIt encryption without archive resource fork") : .passwordRequired
+                        XCTAssertThrowsError(try reader.stream(entry)) { XCTAssertEqual($0 as? KaitoError, expected) }
                     }
                 } else {
                     XCTAssertEqual(sha(try reader.read(entry)), expected.sha256, "\(spec.file): \(expected.name)")
@@ -64,7 +66,7 @@ final class StuffItCorpusTests: XCTestCase {
         for spec in specs where spec.file.hasPrefix("testfile.") {
             let bytes = try fixture(spec.file)
             XCTAssertEqual(sha(bytes), spec.sha256)
-            try verify(try ArchiveReader.open(data: bytes), rows: spec.forks)
+            try verify(try ArchiveReader.open(data: bytes, options: ReaderOptions(password: "password")), rows: spec.forks)
         }
     }
     private func verify(_ reader: ArchiveReader, rows: [Row]) throws {
@@ -77,19 +79,22 @@ final class StuffItCorpusTests: XCTestCase {
         }
     }
     func testExternalReportVerifiedGoForks() throws {
-        let source = root.appendingPathComponent("inbox/stuffit-corpus/go/v5-comment.sit")
-        guard FileManager.default.fileExists(atPath: source.path) else { throw XCTSkip("外部の go 標本は fixture に収録しない") }
         let specs = try JSONDecoder().decode([Verified].self, from: Data(contentsOf: fixtureRoot.appendingPathComponent("verified-forks.json")))
-        let spec = try XCTUnwrap(specs.first { $0.file == "v5-comment.sit" })
-        let bytes = try Data(contentsOf: source)
-        XCTAssertEqual(sha(bytes), spec.sha256)
-        try verify(try ArchiveReader.open(data: bytes), rows: spec.forks)
+        for name in ["v5-comment.sit", "v1-fhf-faster.sit"] {
+            let source = root.appendingPathComponent("inbox/stuffit-corpus/go/\(name)")
+            guard FileManager.default.fileExists(atPath: source.path) else { throw XCTSkip("外部の go 標本は fixture に収録しない") }
+            let spec = try XCTUnwrap(specs.first { $0.file == name })
+            let bytes = try Data(contentsOf: source)
+            XCTAssertEqual(sha(bytes), spec.sha256)
+            try verify(try ArchiveReader.open(data: bytes), rows: spec.forks)
+        }
     }
     func testExternalGoDataForkOracles() throws {
         let corpus = root.appendingPathComponent("inbox/stuffit-corpus")
         guard FileManager.default.fileExists(atPath: corpus.appendingPathComponent("go").path) else { throw XCTSkip("外部オラクル入力は fixture に収録しない") }
         let names = ["SITv1-13.sit", "v1-huffman.sit", "v1-lzw.sit", "v1-lzw+huffman.sit", "v1-nocompression.sit",
-                     "v1.5-lzw-comment.sit", "v1-lzw-fast.sit", "v5-comment.sit", "v5-selfextractor.sea"]
+                     "v1.5-lzw-comment.sit", "v1-lzw-fast.sit", "v5-comment.sit", "v5-selfextractor.sea",
+                     "v1-lzw+h-better.sit", "v1-optimal-with-comment.sit", "v1-huffman-optimal.sit"]
         for name in names {
             let reader = try ArchiveReader.open(url: corpus.appendingPathComponent("go/\(name)"))
             let oracle = try String(contentsOf: corpus.appendingPathComponent("oracle/go/\(name).sha"), encoding: .utf8)
@@ -104,6 +109,28 @@ final class StuffItCorpusTests: XCTestCase {
                 actual.append("\(data.count)\t\(sha(data))\t\(entry.pathComponents.joined(separator: "/"))")
             }
             XCTAssertEqual(actual.sorted(), expected.sorted(), name)
+        }
+    }
+    func testExternalGoWrapperOraclesAndMissingArchiveResource() throws {
+        let corpus = root.appendingPathComponent("inbox/stuffit-corpus")
+        guard FileManager.default.fileExists(atPath: corpus.appendingPathComponent("go").path) else { throw XCTSkip("外部オラクル入力は fixture に収録しない") }
+        for name in ["SITv1-2.sit", "doom-i-101.hqx"] {
+            let source = try FileByteSource(url: corpus.appendingPathComponent("go/\(name)"))
+            let envelope = try XCTUnwrap(FormatDetector.stuffItInput(source: source, limits: ReadLimits()))
+            let oracle = try String(contentsOf: corpus.appendingPathComponent("oracle/go/\(name).sha"), encoding: .utf8)
+            let row = try XCTUnwrap(oracle.split(separator: "\n").first).split(separator: "\t")
+            // この 2 本の支給オラクルは、内側の書庫を展開せず wrapper の data を返す。
+            let data = Data(try readByteRange(source: envelope.data, offset: 0, count: Int(envelope.data.length)))
+            XCTAssertEqual(String(data.count), String(row[1])); XCTAssertEqual(sha(data), String(row[2]))
+            let reader = try ArchiveReader.open(source: source)
+            for entry in reader.entries { _ = try reader.read(entry) }
+        }
+        for name in ["v1-lzm-des-password123.sit", "v1-lzm-newde-password123.sit"] {
+            let reader = try ArchiveReader.open(url: corpus.appendingPathComponent("go/\(name)"), options: ReaderOptions(password: "password123"))
+            let entry = try XCTUnwrap(reader.entries.first(where: \.isEncrypted))
+            XCTAssertThrowsError(try reader.read(entry)) {
+                XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("StuffIt encryption without archive resource fork"))
+            }
         }
     }
     func testExternalHuffmanDuplicateLeafAndDamagedResource() throws {

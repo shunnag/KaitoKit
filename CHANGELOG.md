@@ -6,6 +6,7 @@
 
 ## [Unreleased]
 
+- StuffIt の method 5/6/8/14、StuffIt 5 RC4・classic 改変 DES の復号、書庫コメントを追加した（2026-09-13、bd `cooViewer-gu28.2`）。
 - StuffIt classic / StuffIt 5、MacBinary / AppleSingle / BinHex wrapper、method 0/1/2/3/13/15 と data/resource fork の読み取りを追加した（2026-09-13、bd `cooViewer-gu28.1`）。
 
 - ZIP PPMd var.I の固定長バッファ化・局所スタック化・範囲検査の集約で、展開時間を 35.6%（Swift source 3.77 MB、order 8）／74.9%（PNG 3.00 MB、order 16）短縮した（2026-09-12、bd `cooViewer-2weq`）。

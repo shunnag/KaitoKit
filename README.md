@@ -1,7 +1,7 @@
 # KaitoKit (解凍Kit)
 
 KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。tar、ZIP / ZIP64、7z、
-RAR4 / RAR5、LHA / LZH、ISO 9660、cpio、ar（.deb を含む）、xar（.pkg を含む）、CAB、RPM に加え、gzip、bzip2、xz、zstd、UNIX compress (`.Z`) と圧縮 tar を扱います。
+RAR4 / RAR5、LHA / LZH、StuffIt classic / StuffIt 5、ISO 9660、cpio、ar（.deb を含む）、xar（.pkg を含む）、CAB、RPM に加え、gzip、bzip2、xz、zstd、UNIX compress (`.Z`) と圧縮 tar を扱います。
 書庫の検出から列挙、ストリーミング読み取り、展開までを一つのパイプラインとして提供します。
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon / Intel
@@ -11,7 +11,7 @@ RAR4 / RAR5、LHA / LZH、ISO 9660、cpio、ar（.deb を含む）、xar（.pkg 
 > **KaitoKit (解凍Kit)**
 >
 > KaitoKit is a pure-Swift archive reading framework for macOS. It handles tar, ZIP / ZIP64, 7z,
-> RAR4 / RAR5, LHA / LZH, ISO 9660, cpio, ar (including `.deb`), xar (including `.pkg`), CAB and RPM,
+> RAR4 / RAR5, LHA / LZH, StuffIt classic / StuffIt 5, ISO 9660, cpio, ar (including `.deb`), xar (including `.pkg`), CAB and RPM,
 > plus gzip, bzip2, xz, zstd, UNIX compress (`.Z`) and compressed tar.
 > Detection, listing, streaming reads and extraction are provided as one pipeline.
 >
@@ -103,6 +103,7 @@ for entry in directories {
 | RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
 | LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
+| StuffIt / `.sit` | classic・StuffIt 5、stored (0) / RLE90 (1) / LZW (2) / Huffman (3) / LZ+Huffman (13) / Arsenic (15)、MacBinary / AppleSingle / BinHex 4 の一段 unwrap | 暗号化 entry は列挙のみ | data/resource fork は別 entry。`.sea` は先頭署名で判定。`.sitx`・`.exe`・AppleDouble sidecar は非対応 |
 
 > **Supported formats**
 >
@@ -151,6 +152,12 @@ for entry in directories {
 >   RAR5.
 > - **LHA / LZH**: header levels 0 to 3, the listed methods, the LHArk `-lh7-`, and a bounded SFX
 >   prefix. No multi-volume; every member is independent (`solidGroup == -1`).
+
+StuffIt の `ArchiveFormat` は classic / StuffIt 5 とも `.stuffIt` (`"sit"`) です。
+`formatSpecific["container"]` が `classic` / `stuffit5` を示し、`macType`・`macCreator`・
+`finderFlags`・`fork` を保持します。resource fork は `<名前>/..namedfork/rsrc` として公開します。
+wrapper 自身の resource fork も reader が保持します。名前は `EncodingPolicy` に従い、
+未宣言の旧 Mac 名には MacRoman を既定候補として使います。
 
 名前は ZIP/RAR4/LHA/tar/gzip FNAME の undecorated bytes に対して archive-wide の UTF-8、CP932、
 EUC-JP 判定を行い、format が宣言する Unicode 名を優先します。単一 file 形式の FNAME がない場合は
@@ -335,7 +342,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
   `unsupportedMethod` になります。複数 cabinet にまたがる file も同様です。
 - RPM は rpm 6 の簡略 cpio (`07070X`)、drpm、cpio でない payload を展開せず、
   圧縮済み payload を 1 entry として公開します。
-- ARJ、ACE、StuffIt/SIT は未対応です。
+- ARJ、ACE、StuffIt X (`.sitx`) は未対応です。StuffIt の method 4〜12・14 と暗号化 fork は一覧取得後、読み取り時に `unsupportedMethod` を返します。
 - ZIP は multi-disk/spanned と method 95 (xz)、96 (JPEG) を扱いません。
 - zstd の外部辞書は非対応です。Dictionary_ID が非零なら `unsupportedMethod` になります。
 - 7z は zstd method と RISC-V filter (method 0x0B) を扱いません。
@@ -379,7 +386,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 >   when read, as does a file that spans several cabinets.
 > - RPM does not expand the simplified rpm 6 cpio (`07070X`), drpm, or a payload
 >   that is not cpio; it exposes the compressed payload as a single entry instead.
-> - ARJ, ACE and StuffIt/SIT are unsupported.
+> - ARJ, ACE and StuffIt X (`.sitx`) are unsupported. StuffIt methods 4–12 and 14, and encrypted forks, can be listed but throw `unsupportedMethod` when read.
 > - ZIP does not handle multi-disk or spanned archives, nor methods 95 (xz)
 >   and 96 (JPEG).
 > - External zstd dictionaries are unsupported; a nonzero Dictionary_ID produces `unsupportedMethod`.
@@ -491,6 +498,12 @@ filename は一つの path に組み立て、0xFF directory 区切りは `/` に
 固定 seed で選んだ最大 20 件の非ディレクトリエントリをランダム順に読み、solid 書庫の
 後方シークを含むアクセスを再現可能な条件で計測します。表示する `bytes` は選択した
 エントリの合計です。
+
+StuffIt の `list` は末尾に `fork=data` / `fork=resource` を追加します。
+`sha` は支給 XADMaster オラクルに合わせ、既定では data fork のみを検証・表示します。
+resource だけのファイルは空 data fork の行を表示します。`sha --forks` は公開 entry の
+全 fork を検証・表示します。StuffIt の失敗詳細は stderr にだけ出し、stdout の行は数値サイズを保ちます。
+これにより支給 `compare.py` を変更せず利用できます。暗号はこの段階では未実装です。
 
 `bench` の時間は process 内の open / extract だけを複数回計測した median で、process 起動、
 SHA-256、標準出力は含みません。`swift run` には SwiftPM の planning / build も含まれるため、

@@ -1,0 +1,2526 @@
+[
+  {
+    "file": "testfile.stuffit45_dlx.mac9.sit",
+    "sha256": "a0ef9c2f0a1f34be4cfd60da3b54af7fa16357544c009eb8241554670ec74755",
+    "size": 2804,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit45_dlx.mac9.sit.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit45_dlx.mac9.sea",
+    "sha256": "a0ef9c2f0a1f34be4cfd60da3b54af7fa16357544c009eb8241554670ec74755",
+    "size": 2804,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit45_dlx.mac9.sea.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit651_dlx.mac9.sit",
+    "sha256": "238f1e460cd7aa71fa21e31d06e741265df2cafb8151614488baee9af2e4990a",
+    "size": 2776,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit651_dlx.mac9.sit.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit651_dlx.mac9.sea",
+    "sha256": "238f1e460cd7aa71fa21e31d06e741265df2cafb8151614488baee9af2e4990a",
+    "size": 2776,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit651_dlx.mac9.sea.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit651_dlx.macx1.sit",
+    "sha256": "01b2203847a94c707bf78f2711c2c1fbdb19d34284f23cf7d12b6fc096fdcdf4",
+    "size": 2776,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      },
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit651_dlx.macx1.sit.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit651_dlx.macx1.sea",
+    "sha256": "01b2203847a94c707bf78f2711c2c1fbdb19d34284f23cf7d12b6fc096fdcdf4",
+    "size": 2776,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      },
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit651_dlx.macx1.sea.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.mac9.sit",
+    "sha256": "50bcd3577eda5c5b6a26243ddc6ba17e3cd6b28857c6a5f27044f82987eff59d",
+    "size": 2514,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit7_dlx.mac9.sit.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.mac9.sea",
+    "sha256": "50bcd3577eda5c5b6a26243ddc6ba17e3cd6b28857c6a5f27044f82987eff59d",
+    "size": 2514,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit7_dlx.mac9.sea.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.macx1.sit",
+    "sha256": "ec9a5fc260a7049e19ebadf114956f1c9a94619b4d8a96d4dcb74b0ac85b51e7",
+    "size": 2514,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit7_dlx.macx1.sit.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.macx1.sea",
+    "sha256": "ec9a5fc260a7049e19ebadf114956f1c9a94619b4d8a96d4dcb74b0ac85b51e7",
+    "size": 2514,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit7_dlx.macx1.sea.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit7.win.sit",
+    "sha256": "e58699b487bf3b7ce9b17f48ff59e426b050d64a82f98f23951d5101fa36b659",
+    "size": 795,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "sources",
+        "path": [
+          "sources"
+        ],
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "fork": "directory"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "sources",
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "sources",
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "sources",
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b2f51cd17b3cbe77f091f887d91110164a2cb5a5a9ebe828c44d655c83dca8eb",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit7.win.sit.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit45_dlx.mac9.comment.sit",
+    "sha256": "a0ef9c2f0a1f34be4cfd60da3b54af7fa16357544c009eb8241554670ec74755",
+    "size": 2804,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit45_dlx.mac9.comment.sit.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit651_dlx.mac9.comment.sit",
+    "sha256": "44edd5e71291c9d699a36569e794e577db75889370cfc78c8a8d60e8ad67c599",
+    "size": 2814,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit651_dlx.mac9.comment.sit.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit45_dlx.mac9.sit.bin",
+    "sha256": "e4a1dcc98b37c4ca66e5815b69be3915f12e7fc702e98106e1259e6e40c7a91d",
+    "size": 3456,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/unwrapped/testfile.stuffit45_dlx.mac9.sit.bin.data.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit45_dlx.mac9.sit.AS",
+    "sha256": "e63aaa05f0f7a556f157eacfa3733899780dd7fab7cacf488f0c476515d2b74f",
+    "size": 3437,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/unwrapped/testfile.stuffit45_dlx.mac9.sit.AS.data.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit45_dlx.mac9.sit.hqx",
+    "sha256": "e373a26436225c5fac35f4b259270df7e7121b6233f6b2f00ebee6904a9e5746",
+    "size": 3766,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/unwrapped/testfile.stuffit45_dlx.mac9.sit.hqx.data.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit651_dlx.mac9.sit.bin",
+    "sha256": "7af435b494ebff351e77785d294f7d4d71acb5610f1a8a88541938baa96efd0a",
+    "size": 3328,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/unwrapped/testfile.stuffit651_dlx.mac9.sit.bin.data.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit651_dlx.mac9.sit.as",
+    "sha256": "29dc4f8457d4e3a1194f3a9bbd56bbaeab5fc93a76fb8e91aad8fb26e2e9225e",
+    "size": 3307,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/unwrapped/testfile.stuffit651_dlx.mac9.sit.as.data.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit651_dlx.mac9.sit.hqx",
+    "sha256": "08aaca722720f8e998e76e6e0c544419149adabf83503f850cc232af76acffb9",
+    "size": 3821,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/unwrapped/testfile.stuffit651_dlx.mac9.sit.hqx.data.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.macx1.comment.sit.bin",
+    "sha256": "d8014d5972077c8b9495ffcbb296b41d466bc941064f8d70c2559bcc6fe92c23",
+    "size": 2688,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/unwrapped/testfile.stuffit7_dlx.macx1.comment.sit.bin.data.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.macx1.comment.sit.as",
+    "sha256": "ba508c32ad68013d8c2879c909a63a818f639fc5e7a857ff887c5a3f069dd40c",
+    "size": 2655,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/unwrapped/testfile.stuffit7_dlx.macx1.comment.sit.as.data.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.macx1.comment.sit.hqx",
+    "sha256": "fe7a8f84349584411441c900724a7c78a76e9b36feb312c8fa17dc23248a2ac7",
+    "size": 3311,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/unwrapped/testfile.stuffit7_dlx.macx1.comment.sit.hqx.data.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit45_dlx.mac9.password.sit",
+    "sha256": "f70a103ee337e6103a30c2b4c0f1f69183d1584ccf9673a7471a0ffe9ea7d0e9",
+    "size": 2990,
+    "encrypted": true,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit45_dlx.mac9.sit.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit651_dlx.mac9.password.sit",
+    "sha256": "8a89b86415e69a17b33303e4899f708640ee8796e6cf4b66df7768fd2df06f15",
+    "size": 2827,
+    "encrypted": true,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/cc0/testfile.stuffit651_dlx.mac9.sit.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit7_dlx.mac9.sit.hqx",
+    "sha256": "e47b3ccfaa9ad78c1e027dc0a415fb0d7daa00751abde58b737b786def6549c4",
+    "size": 3303,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/unwrapped/testfile.stuffit7_dlx.mac9.sit.hqx.data.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  },
+  {
+    "file": "testfile.stuffit45_dlx.mac9.sea.bin",
+    "sha256": "018918602c7b3b8dfc7a5bcaf56f696d42a6e6d3040ca8c25ece2eb0a906e8a2",
+    "size": 28160,
+    "encrypted": false,
+    "entries": [
+      {
+        "name": "Test Image/..namedfork/rsrc",
+        "path": [
+          "Test Image",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text/..namedfork/rsrc",
+        "path": [
+          "Test Text",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315",
+        "fork": "resource"
+      },
+      {
+        "name": "Test Text",
+        "path": [
+          "Test Text"
+        ],
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.jpg",
+        "path": [
+          "testfile.jpg"
+        ],
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.PICT/..namedfork/rsrc",
+        "path": [
+          "testfile.PICT",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.PICT",
+        "path": [
+          "testfile.PICT"
+        ],
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.png",
+        "path": [
+          "testfile.png"
+        ],
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a",
+        "fork": "data"
+      },
+      {
+        "name": "testfile.txt/..namedfork/rsrc",
+        "path": [
+          "testfile.txt",
+          "..namedfork",
+          "rsrc"
+        ],
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a",
+        "fork": "resource"
+      },
+      {
+        "name": "testfile.txt",
+        "path": [
+          "testfile.txt"
+        ],
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f",
+        "fork": "data"
+      }
+    ],
+    "expectedData": "oracle/unwrapped/testfile.stuffit45_dlx.mac9.sea.bin.data.sha",
+    "expectedResource": "research/archive-verification.json: testfile.stuffit45_dlx.mac9.sit"
+  }
+]

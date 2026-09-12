@@ -1,0 +1,284 @@
+[
+  {
+    "file": "testfile.stuffit45_dlx.mac9.sit",
+    "sha256": "a0ef9c2f0a1f34be4cfd60da3b54af7fa16357544c009eb8241554670ec74755",
+    "forks": [
+      {
+        "name": "Test Image",
+        "fork": "resource",
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0"
+      },
+      {
+        "name": "Test Text",
+        "fork": "resource",
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315"
+      },
+      {
+        "name": "Test Text",
+        "fork": "data",
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25"
+      },
+      {
+        "name": "testfile.jpg",
+        "fork": "data",
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1"
+      },
+      {
+        "name": "testfile.PICT",
+        "fork": "resource",
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e"
+      },
+      {
+        "name": "testfile.PICT",
+        "fork": "data",
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e"
+      },
+      {
+        "name": "testfile.png",
+        "fork": "data",
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a"
+      },
+      {
+        "name": "testfile.txt",
+        "fork": "resource",
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a"
+      },
+      {
+        "name": "testfile.txt",
+        "fork": "data",
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f"
+      }
+    ]
+  },
+  {
+    "file": "testfile.stuffit651_dlx.mac9.sit",
+    "sha256": "238f1e460cd7aa71fa21e31d06e741265df2cafb8151614488baee9af2e4990a",
+    "forks": [
+      {
+        "name": "Test Image",
+        "fork": "resource",
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0"
+      },
+      {
+        "name": "Test Text",
+        "fork": "resource",
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315"
+      },
+      {
+        "name": "Test Text",
+        "fork": "data",
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25"
+      },
+      {
+        "name": "testfile.jpg",
+        "fork": "data",
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1"
+      },
+      {
+        "name": "testfile.PICT",
+        "fork": "resource",
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e"
+      },
+      {
+        "name": "testfile.PICT",
+        "fork": "data",
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e"
+      },
+      {
+        "name": "testfile.png",
+        "fork": "data",
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a"
+      },
+      {
+        "name": "testfile.txt",
+        "fork": "resource",
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a"
+      },
+      {
+        "name": "testfile.txt",
+        "fork": "data",
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f"
+      }
+    ]
+  },
+  {
+    "file": "testfile.stuffit651_dlx.mac9.comment.sit",
+    "sha256": "44edd5e71291c9d699a36569e794e577db75889370cfc78c8a8d60e8ad67c599",
+    "forks": [
+      {
+        "name": "Test Image",
+        "fork": "resource",
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0"
+      },
+      {
+        "name": "Test Text",
+        "fork": "resource",
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315"
+      },
+      {
+        "name": "Test Text",
+        "fork": "data",
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25"
+      },
+      {
+        "name": "testfile.jpg",
+        "fork": "data",
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1"
+      },
+      {
+        "name": "testfile.PICT",
+        "fork": "resource",
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e"
+      },
+      {
+        "name": "testfile.PICT",
+        "fork": "data",
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e"
+      },
+      {
+        "name": "testfile.png",
+        "fork": "data",
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a"
+      },
+      {
+        "name": "testfile.txt",
+        "fork": "resource",
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a"
+      },
+      {
+        "name": "testfile.txt",
+        "fork": "data",
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f"
+      }
+    ]
+  },
+  {
+    "file": "testfile.stuffit7_dlx.mac9.sit",
+    "sha256": "50bcd3577eda5c5b6a26243ddc6ba17e3cd6b28857c6a5f27044f82987eff59d",
+    "forks": [
+      {
+        "name": "Test Image",
+        "fork": "resource",
+        "size": 9134,
+        "sha256": "4b8175653903645616d9e07627957ae0dba4c7ac3b3e9aa6afc8e07144dcfbb0"
+      },
+      {
+        "name": "Test Text",
+        "fork": "resource",
+        "size": 332,
+        "sha256": "5f0c7e77ac2430be40532730665ea27f0cf1088ac049e0c06851d62085b87315"
+      },
+      {
+        "name": "Test Text",
+        "fork": "data",
+        "size": 11,
+        "sha256": "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25"
+      },
+      {
+        "name": "testfile.jpg",
+        "fork": "data",
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1"
+      },
+      {
+        "name": "testfile.PICT",
+        "fork": "resource",
+        "size": 44549,
+        "sha256": "011604ad448ef4451081d04bd395c2a974cab637877fb64b45e62ebe39bc452e"
+      },
+      {
+        "name": "testfile.PICT",
+        "fork": "data",
+        "size": 2694,
+        "sha256": "318d71cd4d027c6bec6917af3ddc3b7df0ec8b07031045a9cdd9052b94c7782e"
+      },
+      {
+        "name": "testfile.png",
+        "fork": "data",
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a"
+      },
+      {
+        "name": "testfile.txt",
+        "fork": "resource",
+        "size": 332,
+        "sha256": "f788dcd5313a531a27fc62a9b4c951a6653ef11b49f2262ee0796f72c5564b0a"
+      },
+      {
+        "name": "testfile.txt",
+        "fork": "data",
+        "size": 12,
+        "sha256": "b645efee0ed710034959eae942277a750d08687c30bcf0e9ec6ea7641527462f"
+      }
+    ]
+  },
+  {
+    "file": "testfile.stuffit7.win.sit",
+    "sha256": "e58699b487bf3b7ce9b17f48ff59e426b050d64a82f98f23951d5101fa36b659",
+    "forks": [
+      {
+        "name": "sources/testfile.jpg",
+        "fork": "data",
+        "size": 220,
+        "sha256": "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1"
+      },
+      {
+        "name": "sources/testfile.png",
+        "fork": "data",
+        "size": 87,
+        "sha256": "fdda20984cc1591419ec4583e24e72e4dba39d0b96608253f853a2dfb238ad1a"
+      },
+      {
+        "name": "sources/testfile.txt",
+        "fork": "data",
+        "size": 12,
+        "sha256": "b2f51cd17b3cbe77f091f887d91110164a2cb5a5a9ebe828c44d655c83dca8eb"
+      }
+    ]
+  },
+  {
+    "file": "v5-comment.sit",
+    "sha256": "37c243c3e2cf63fbac092d59a05a5cf1ac4d365362520fb9e2cd4b9bd0b2d728",
+    "forks": [
+      {
+        "name": "Read Me!",
+        "fork": "resource",
+        "size": 10962,
+        "sha256": "fd4d35dd71c40b3341b25fae17ca7e8e10ad1e1f93653233f37ef58b2e051207"
+      },
+      {
+        "name": "Read Me!",
+        "fork": "data",
+        "size": 3177,
+        "sha256": "aeb04b8fda7d65d641aee30f050983f725c79bd1711249ac6e0349b68931b6a0"
+      }
+    ]
+  }
+]

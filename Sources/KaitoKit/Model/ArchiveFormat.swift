@@ -12,6 +12,9 @@ public enum ArchiveFormat: String, Sendable, CaseIterable {
     /// LHA/LZH containers.
     case lha
 
+    /// classic StuffIt と StuffIt 5 の容器。
+    case stuffIt = "sit"
+
     /// POSIX, pax, or GNU tar containers.
     case tar
 

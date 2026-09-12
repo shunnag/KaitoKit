@@ -582,3 +582,27 @@ Zstandard (2026-09-12, bd cooViewer-c1vj.3)
   were checked with 7zz 26.03, and .zst files also with zstd, exclusively as black-box oracles.
   Only RFC 8878, the supplied xxHash specification and existing KaitoKit sources were consulted;
   no web pages or third-party implementation sources were accessed. Runtime tests add 80 cases.
+
+StuffIt slice 1（2026-09-13、bd cooViewer-gu28.1）
+  stuffit/*.b64 は ssokolow/stuffit-test-files の CC0 コーパスから選んだ 26 書庫。
+  元リポジトリ: https://github.com/ssokolow/stuffit-test-files
+  固定コミット: b523c64337867aee5cc07ad3a6bbfc8e06e4b3c0
+  Stephan Sokolow は自分が権利を持つ内容を CC0 1.0 でパブリックドメインへ提供している。
+  cc0/LICENSE.md は、内包する self-extractor stub の著作権は同氏に属さないが
+  自由に再配布できると説明している。stub まで同氏の CC0 著作物とは主張しない。
+  各元ファイル名・SHA-256・entry の名前・サイズ・fork・期待 SHA-256 は manifest.json。
+  data の期待値は支給された oracle、resource の期待値は archive-verification.json に基づく。
+  暗号化標本は列挙のみ検査し、名前とサイズは対応する平文標本の期待値を用いる。
+  core-vectors.json の独立作成 vector は XCTest に hex で固定した。
+  LGPL リポジトリ stuffit-go の標本実体は収録していない。
+
+  English: 26 base64 archives from ssokolow/stuffit-test-files, pinned to commit
+  b523c64337867aee5cc07ad3a6bbfc8e06e4b3c0. Stephan Sokolow dedicates the material
+  he owns to the public domain under CC0 1.0. The supplied LICENSE.md separately
+  states that third-party self-extractor stubs may be freely redistributed;
+  we do not claim those stubs are his CC0-authored works. Original names, hashes,
+  sizes and per-fork expectations are in manifest.json. Expected data-fork hashes
+  come from the supplied black-box oracles, and resource-fork hashes from the
+  supplied archive-verification report. Encrypted fixtures test enumeration only,
+  using their plaintext counterparts' names and sizes. Independent core vectors
+  are fixed as hex in XCTest. No stuffit-go sample archive is redistributed.

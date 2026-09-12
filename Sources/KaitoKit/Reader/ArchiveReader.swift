@@ -101,11 +101,13 @@ public final class ArchiveReader {
         self.options = options
         self.password = options.password
 
-        let detected = try FormatDetector.detect(
+        let stuffItInput = try FormatDetector.stuffItInput(source: source, limits: options.limits)
+        let detected = try stuffItInput == nil ? FormatDetector.detect(
             source: source,
             sourceURL: sourceURL,
-            options: options
-        )
+            options: options,
+            skipStuffIt: true
+        ) : .stuffIt
 
         switch detected {
         case .tar:
@@ -208,6 +210,12 @@ public final class ArchiveReader {
             reader = lha
             entries = lha.entries
             format = .lha
+        case .stuffIt:
+            let stuffIt = try StuffItReader(source: stuffItInput?.data ?? source,
+                                              resourceFork: stuffItInput?.resource, options: options)
+            reader = stuffIt
+            entries = stuffIt.entries
+            format = .stuffIt
         case .ar:
             let ar = try ArReader(source: source, options: options)
             reader = ar
@@ -490,6 +498,8 @@ public final class ArchiveReader {
     }
 
     private func preparePassword(for entry: ArchiveEntry) throws {
+        // slice 1 の StuffIt 暗号は provider を呼ばず、reader が unsupportedMethod を返す。
+        if format == .stuffIt { return }
         if entry.isEncrypted, password == nil, let provider = options.passwordProvider {
             password = try provider.password(for: format)
         }

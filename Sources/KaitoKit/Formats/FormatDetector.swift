@@ -123,7 +123,8 @@ public enum FormatDetector {
     static func detect(
         source: any ByteSource,
         sourceURL: URL?,
-        options: ReaderOptions
+        options: ReaderOptions,
+        skipStuffIt: Bool = false
     ) throws -> ArchiveFormat {
         try detect(
             source: source,
@@ -132,8 +133,31 @@ public enum FormatDetector {
                 ? options.maximumSFXScanSize
                 : (options.scanForSFXInData ? options.maximumSFXScanSize : 0),
             limits: options.limits,
-            recoverDamagedArchives: options.recoverDamagedArchives
+            recoverDamagedArchives: options.recoverDamagedArchives,
+            skipStuffIt: skipStuffIt
         )
+    }
+
+    // wrapper は一段だけ剥がす。内側の他形式へは再帰的に dispatch しない。
+    static func stuffItInput(source: any ByteSource, prefix: [UInt8]? = nil, limits: ReadLimits) throws -> StuffItEnvelope? {
+        let bytes = try prefix ?? readByteRange(source: source, offset: 0, count: Int(min(source.length, 512)))
+        if TarReader.isPlausibleMemberHeader(bytes) { return nil }
+        if StuffItHeader.signature(bytes) != nil { return StuffItEnvelope(data: source, resource: nil) }
+        // 強い先頭署名を持つ既存形式の payload を BinHex の説明文として探索しない。
+        let nativePrefixes: [[UInt8]] = [
+            [0x50, 0x4b, 3, 4], [0x50, 0x4b, 5, 6], [0x50, 0x4b, 7, 8],
+            [0x52, 0x61, 0x72, 0x21, 0x1a, 7], [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c],
+            [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0], [0x1f, 0x8b], [0x1f, 0x9d],
+            [0xed, 0xab, 0xee, 0xdb], [0x4d, 0x53, 0x43, 0x46]
+        ]
+        if nativePrefixes.contains(where: { hasPrefix(bytes, $0) }) || XarHeader.probe(bytes)
+            || ZstdFrameHeader.hasMagic(bytes) || isBzip2Header(bytes)
+            || ArReader.isPlausibleArchive(bytes, sourceLength: source.length) { return nil }
+        if try isLHAHeader(bytes, sourceLength: source.length) { return nil }
+        guard let envelope = try StuffItWrapper.unwrap(source: source, prefix: bytes, limits: limits) else { return nil }
+        let inner = try readByteRange(source: envelope.data, offset: 0, count: Int(min(envelope.data.length, 100)))
+        guard StuffItHeader.signature(inner) != nil else { throw KaitoError.unsupportedFormat }
+        return envelope
     }
 
     private static func detect(
@@ -141,7 +165,8 @@ public enum FormatDetector {
         fileName: String?,
         sfxScanSize: UInt64,
         limits: ReadLimits,
-        recoverDamagedArchives: Bool
+        recoverDamagedArchives: Bool,
+        skipStuffIt: Bool = false
     ) throws -> ArchiveFormat {
         let prefixLength = try Checked.toInt(min(source.length, UInt64(tarBlockSize)))
         let prefix = try read(source: source, at: 0, count: prefixLength)
@@ -150,6 +175,8 @@ public enum FormatDetector {
         if TarReader.isPlausibleMemberHeader(prefix) {
             return .tar
         }
+
+        if !skipStuffIt, try stuffItInput(source: source, prefix: prefix, limits: limits) != nil { return .stuffIt }
 
         if hasPrefix(prefix, [0x50, 0x4B, 0x03, 0x04])
             || hasPrefix(prefix, [0x50, 0x4B, 0x05, 0x06])

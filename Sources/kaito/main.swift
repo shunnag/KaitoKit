@@ -20,7 +20,7 @@ usage:
   kaito detect <archive>
   kaito list <archive> [--raw] [-p <password>]
   kaito extract <archive> -o <directory> [-p <password>]
-  kaito sha <archive> [-p <password>]
+  kaito sha <archive> [--forks] [-p <password>]
   kaito bench [--data] [--random] <archive> [reps] [-p <password>]
 """
 
@@ -30,6 +30,7 @@ private func formatName(_ format: ArchiveFormat) -> String {
     case .rar: return "rar"
     case .sevenZip: return "7z"
     case .lha: return "lha"
+    case .stuffIt: return "sit"
     case .tar: return "tar"
     case .iso: return "iso"
     case .xar: return "xar"
@@ -140,6 +141,9 @@ private func runList(_ arguments: [String]) throws {
         if reader.format == ArchiveFormat.lha,
            let headerLevel = entry.formatSpecific["headerLevel"] {
             fields.append("level=\(headerLevel)")
+        }
+        if reader.format == .stuffIt, let fork = entry.formatSpecific["fork"] {
+            fields.append("fork=\(fork)")
         }
         if printRaw {
             fields.append(hexadecimal(entry.rawName.bytes))
@@ -282,11 +286,14 @@ private func entrySHA256(
 private func runSHA(_ arguments: [String]) throws {
     var path: String?
     var password: String?
+    var allForks = false
     var index = arguments.startIndex
     while index != arguments.endIndex {
         let argument = arguments[index]
         arguments.formIndex(after: &index)
-        if argument == "-p" {
+        if argument == "--forks" {
+            allForks = true
+        } else if argument == "-p" {
             guard password == nil, index != arguments.endIndex else {
                 throw CLIError.usage(usage)
             }
@@ -307,15 +314,34 @@ private func runSHA(_ arguments: [String]) throws {
     var buffer = [UInt8](repeating: 0, count: 4 * 1_024 * 1_024)
 
     var failures = 0
+    var rows = 0
     for entry in reader.entries {
         do {
-            let result = try entrySHA256(entry, reader: reader, buffer: &buffer)
+            let resourceView = reader.format == .stuffIt && !allForks && entry.formatSpecific["fork"] == "resource"
+            let result = resourceView ? (byteCount: UInt64(0), digest: SHA256.hash(data: Data()))
+                : try entrySHA256(entry, reader: reader, buffer: &buffer)
+            var name = entry.name
+            if reader.format == .stuffIt {
+                name = entry.pathComponents.joined(separator: "/")
+                if resourceView {
+                    // オラクル互換の既定表示・検証は data fork。--forks では resource も検証する。
+                    let components = Array(entry.pathComponents.dropLast(2))
+                    let following = entry.index + 1
+                    if following < reader.entries.count,
+                       reader.entries[following].formatSpecific["fork"] == "data",
+                       reader.entries[following].pathComponents == components { continue }
+                    name = components.joined(separator: "/")
+                }
+            }
             let digestText = hexadecimal(result.digest)
             total.update(data: Data(digestText.utf8))
-            print("\(entry.index)\t\(result.byteCount)\t\(digestText)\t\(oneLine(entry.name))")
+            print("\(reader.format == .stuffIt ? rows : entry.index)\t\(result.byteCount)\t\(digestText)\t\(oneLine(name))")
+            rows += 1
         } catch {
             failures += 1
-            print("\(entry.index)\tERROR\tfailed entry \(entry.index): \(entryFailureReason(error))\t\(oneLine(entry.name))")
+            if reader.format != .stuffIt {
+                print("\(entry.index)\tERROR\tfailed entry \(entry.index): \(entryFailureReason(error))\t\(oneLine(entry.name))")
+            }
             reportEntryFailure(error, entry: entry)
         }
     }
@@ -323,10 +349,10 @@ private func runSHA(_ arguments: [String]) throws {
     // 欠落した member がある場合、完全な archive digest と誤認させない。
     let totalText = hexadecimal(total.finalize())
     if failures > 0 {
-        print("partial\t\(reader.entries.count - failures)\t\(totalText)\t")
+        print("partial\t\(rows)\t\(totalText)\t")
         throw EntryFailures(count: failures)
     }
-    print("total\t\(reader.entries.count)\t\(totalText)\t")
+    print("total\t\(rows)\t\(totalText)\t")
 }
 
 private func median(_ values: [Double]) -> Double {

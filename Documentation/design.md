@@ -176,6 +176,29 @@ streaming 検証契約:
 
 ## 10. 出自(プロベナンス)と参照の規則
 
+StuffIt slice 1（2026-09-13、bd `cooViewer-gu28.1`）は、`inbox/stuffit/` の形式再構築
+レポート Ch.00・01・02・04（method 0/1/2/3/13/15）・06・11 と指定された表・検証値だけを
+入力にした。使用 11 ファイルを `SHA256SUMS` と照合した。`method13.json` と
+`arsenic-randomization.json` は形式定数であり、`research/THIRD_PARTY_DATA.md` は
+XADMaster から転記した数値である旨を記録している。独自に作成した数値表とは主張しない。
+XADMaster / The Unarchiver / stuffit-go / libxad / macutils 等の実装ソースは一切開かず、
+検索・参照していない。Web も使っていない。XADMaster は `xadsha` 黒箱オラクルの
+支給済み出力だけを用いた。利用者は 2026-09-13 に他実装解析を許可したが、
+この実装は散文からの clean-room に留めた。fixture は CC0 コーパスだけを収録し、
+stuffit-go の標本は外部オラクル入力に限定した。曖昧点と有限な検証の範囲は
+[検証記録](verification/2026-09-13-stuffit-slice1.md) に示す。
+
+> StuffIt slice 1 uses only the supplied prose, format constants and verification data under
+> inbox/stuffit, checked against SHA256SUMS. method13.json and arsenic-randomization.json contain
+> wire-format constants transcribed from XADMaster, as recorded in THIRD_PARTY_DATA.md; they are
+> not claimed as independently authored numerical data. No XADMaster, The Unarchiver, stuffit-go,
+> libxad, macutils or other StuffIt implementation source was opened, searched or consulted.
+> No web access was used. XADMaster was used only through supplied xadsha black-box oracle output.
+> Although the user authorized analysis of other implementations on 2026-09-13, this implementation
+> remained a clean-room reconstruction from prose. Only CC0 corpus fixtures are included;
+> stuffit-go archives remain external oracle inputs.
+
+
 Zstandard（2026-09-12、bd `cooViewer-c1vj.3`）はローカルの
 `inbox/zstd/rfc8878.txt`（RFC 8878）と `inbox/zstd/xxhash_spec.md` の XXH64 algorithm
 description、および既存 KaitoKit の reader / codec / fixture 生成構造だけを実装入力とした。
@@ -601,7 +624,29 @@ XADMaster の source は KaitoKit の実装入力にしない。
 source を実装入力にしていない。是正として、以後 The Unarchiver 関連の URL を取得する際は
 prose ページであることを確認し、`source-archive` を含む URL は取得しない。
 
-## 11. 実装記録(2026-09-06〜12)
+## 11. 実装記録(2026-09-06〜13)
+
+- StuffIt slice 1（2026-09-13、bd `cooViewer-gu28.1`）: classic / StuffIt 5 の容器と
+  method 0/1/2/3/13/15 を追加した。ヘッダ CRC・fork 範囲・directory 関係を検証し、
+  data/resource を独立 entry として公開する。MacBinary / AppleSingle は data fork を
+  rebased・bounded source で提示し、BinHex は上限付きメモリに復号する。
+  書庫自身の resource fork は後続 slice 用に保持する。LHA の MacBinary 検査は変更しない。
+  LZW・Huffman 木・method 13 history・Arsenic の arithmetic / MTF / BWT は固定ポインタで
+  処理し、出力は呼出し元へ逐次書き込む。BWT の last column と置換表だけ block ごとに保持する。
+  固定 vector は対象 method の実数に合わせて 11 本、CC0 fixture は 26 本。
+  全 956 tests（38 skip）が成功、build の警告 0。CC0 は 110 match、既知非対応 106、
+  mismatch / name_diff は 0。全 fork 1,014 行と ASan の 30 tests も成功した。
+  詳細・オラクルとの比較・CRC 不一致の外部標本は [検証記録](verification/2026-09-13-stuffit-slice1.md)。
+
+> StuffIt slice 1 adds classic and StuffIt 5 containers, methods 0/1/2/3/13/15, and independent
+> data/resource entries with header CRC, extent and directory validation. MacBinary and AppleSingle
+> expose bounded rebased data forks; BinHex decodes within the memory limit. The archive's own
+> resource fork is retained for the next slice, without changing LHA's MacBinary handling.
+> LZW, Huffman, method 13 history and Arsenic arithmetic/MTF/BWT use pointer storage in hot loops;
+> output goes directly to the caller, with only BWT work retained per block. Tests fix all eleven
+> applicable vectors and twenty-six CC0 archives. See the verification record for observations,
+> oracle comparisons and the external sample with a damaged resource-fork CRC.
+
 
 - ZIP PPMd var.I 復号ループ（2026-09-12、bd `cooViewer-2weq`）: mask・確率表・非マスク状態を
   model 所有の固定長ポインタにし、再初期化は既存領域への更新、最大 16 要素の pending は

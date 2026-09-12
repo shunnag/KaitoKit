@@ -176,6 +176,18 @@ streaming 検証契約:
 
 ## 10. 出自(プロベナンス)と参照の規則
 
+StuffIt X slice 3（2026-09-13、bd `cooViewer-gu28.3`）は、指定された Ch.03 全体、
+Ch.07 §1〜7、Ch.37、Ch.11 の限界、および二つの検証 JSON だけを入力とした。
+6 入力の SHA256SUMS を照合した。外部 StuffIt 実装のソース、リンク先、Web は参照していない。
+既存 KaitoKit の ByteSource・CRC32・StuffItRC4・SevenZipFolderCoordinator の契約を共有する。
+Deflate は新規 canonical lookup table を含む独立実装で、既存 DeflateDecompressor と
+その Huffman helper は呼んでいない。range decoder と Darkhorse の重みは固定長ポインタ、
+Cyanide は block ごとに N×6 の予算を検査する。新規コメントは日本語で記載した。
+追加 fixture は既存と同じ CC0 コーパスから 10 本、各元ファイル 40 KiB 以下。
+元データを base64 と SHA-256 で固定し、research vector は該当 10 本だけを転記した。
+支給 archive-verification の期待値を runtime の名前や復元内容の代用品には使わない。
+[検証記録](verification/2026-09-13-stuffit-slice3.md) に仕様と実コーパスの不整合を記す。
+
 StuffIt slice 2（2026-09-13、bd `cooViewer-gu28.2`）は、指定の Ch.04（method 5/8/14）・
 Ch.12（method 6）・Ch.02「Password verification and RC4」・Ch.05・
 Ch.06「Finding MKey and SitC」と指定 vector / 検証 JSON を用いた。
@@ -637,6 +649,23 @@ source を実装入力にしていない。是正として、以後 The Unarchiv
 prose ページであることを確認し、`source-archive` を含む URL は取得しない。
 
 ## 11. 実装記録(2026-09-06〜13)
+
+- StuffIt X slice 3（2026-09-13、bd `cooViewer-gu28.3`）: 全要素の索引後に catalog・親 ID・
+  fork slot・同一区間の複数 owner を解決する。二列の framed block は区間索引で連結し、
+  codec の状態は frame を跨いで継続する。catalog と stream 終端で CRC-32/MD5 を照合する。
+  UTF-8 名、key 10 の整列、type 9 の comment catalog、非公開 kind 3 の実長を扱う。
+  未圧縮と codec 1/2/3/4/5、Deflate window 10〜25・50 距離 symbol を実装した。
+  未対応 payload は entry の読み取りで失敗する。未対応 catalog は名前を復元できないため
+  open 自体が unsupportedMethod となる。支給実書庫は全て Brimstone catalog または
+  Root recovery を持つため、通常 open/list の互換性は後続 slice の範囲。
+  Cyanide は依頼仕様の是正に従い n=0〜255 を受理する。n=255 の群分割は
+  `2,4,8,16,32,64,129`、M1FFN の list は 256 entry のままとし、実際の rank が
+  256 以上の場合だけ `malformed("StuffIt X Cyanide rank")` を返す。
+  perf 5 本で以前拒否した Cyanide 31 + 53 + 2 + 1 + 1 = 88 fork を復元し、stream CRC が一致した。
+  支給 SHA がある Cyanide 70 fork も一致。resource 16 fork と MacBinary 包み内の展開内容 2 fork は
+  展開後 SHA が未収録のため CRC 検証までとする。Darkhorse 1 fork を加えた SHA 一致は 71、mismatch 0。
+  Brimstone catalog の未対応は維持し、根拠とコマンドを
+  [検証記録](verification/2026-09-13-stuffit-slice3.md) に記載した。
 
 - StuffIt slice 2（2026-09-13、bd `cooViewer-gu28.2`）: LZAH（5）、fixed Huffman + PackBits（6）、
   MW（8）、installer（14）を追加した。履歴と辞書は fork ごとの固定ポインタとし、出力は逐次返す。

@@ -60,11 +60,10 @@ CC0 コーパス（ssokolow/stuffit-test-files、216 書庫）に対し、パス
   `classic-key-substitution.json`（改変 DES の置換表）は形式が定める **定数** であり、
   XADMaster から転記された旨を `research/THIRD_PARTY_DATA.md` が記録している。これらは
   形式仕様の一部として実装に取り込み、出自を source header と design.md §10 に記す。
-- **English 辞書（100,366 語、881,863 バイト）は同梱しない。** XADMaster 内蔵資産の展開物で
-  LGPL 由来の編集物と見なしうる。English 前処理は辞書を `ReaderOptions` 経由で外部注入できる形で
-  実装し、未注入なら `unsupportedMethod` を投げる。画像書庫には無関係なので cooViewer への実害は
-  ない。同梱の可否（LGPL 由来資産を MIT の KaitoKit に置けるか、あるいは cooViewer 側に LGPL 表記つきで
-  置くか）は**利用者の判断を要する点として報告する。**
+- **English 辞書（100,366 語、881,863 バイト）は KaitoKit に組み込む**（利用者決定 2026-09-13）。
+  XADMaster 内蔵資産の展開物であり LGPL 由来と見なしうる点は `Tests/Fixtures/NOTICE` と design.md §10 に
+  出自として明記する。圧縮した辞書を文字列リテラルで埋め込み、初回使用時に KaitoKit 自身のデコーダで
+  展開して SHA-256 を照合する（SwiftPM の resource bundle は cooViewer の framework 組み立てと相性が悪い）。
 - fixture: `stuffit-test-files` は CC0 → `Tests/Fixtures/stuffit/` に代表的な部分集合を base64 で
   収録し `NOTICE` に記す。stuffit-go の `samples/*.sit` は LGPL リポジトリ内の資料なので
   オラクル入力にのみ使い、収録しない。
@@ -100,7 +99,7 @@ CC0 コーパス（ssokolow/stuffit-test-files、216 書庫）に対し、パス
    MacBinary / AppleSingle 経由でのみ到達できる）。
 3. SITX 容器 + range coder + Deflate（window 10〜25）+ Blend + RC4-stored + Darkhorse + Cyanide。
    key-10 整列・type-9 comment catalog・kind-3 auxiliary 長の fixture 由来の修正を含む。
-4. Brimstone + Iron（BWT / ST4）+ x86 + English（辞書は外部注入）。
+4. Brimstone + Iron（BWT / ST4）+ x86 + English（辞書は組み込み）。
 5. 性能ラウンド（XADMaster との A/B）。
 6. SITX 暗号（RC4 / AES-CFB は CryptoKit、Blowfish / DES-CFB は自前実装）+ `.exe` SFX stub。
 7. SITX JPEG 再圧縮（method 7）を利用者の Python 参照実装から移植。

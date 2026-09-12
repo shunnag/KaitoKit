@@ -103,7 +103,8 @@ for entry in directories {
 | RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
 | LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
-| StuffIt / `.sit` | classic・StuffIt 5、method 0/1/2/3/5/6/8/13/14/15、MacBinary / AppleSingle / BinHex 4 の一段 unwrap | StuffIt 5 RC4、classic 改変 DES（wrapper の MKey が必要） | data/resource fork は別 entry。`.sea` は先頭署名で判定。`.sitx`・`.exe`・AppleDouble sidecar は非対応 |
+| StuffIt / `.sit` | classic・StuffIt 5、method 0/1/2/3/5/6/8/13/14/15、MacBinary / AppleSingle / BinHex 4 の一段 unwrap | StuffIt 5 RC4、classic 改変 DES（wrapper の MKey が必要） | data/resource fork は別 entry。`.sea` は先頭署名で判定。`.exe`・AppleDouble sidecar は非対応 |
+| StuffIt X / `.sitx` | `StuffIt!`、未圧縮、Cyanide、Darkhorse、Deflate（window 10〜25）、Blend（submethod 0/1/2）、RC4-stored | 非対応 | solid・data/resource fork。Brimstone catalog は未対応のため、今回の実コーパスは開けない。下記の制約を参照 |
 
 > **Supported formats**
 >
@@ -168,6 +169,20 @@ resource fork のない素の `.sit` / `.sea` は
 classic の 8 バイト password は資料の 2 block 派生を優先し、CC0 の 4.5 書庫で確認した
 1 block 派生も MKey 検証付きで扱います。詳細は
 [slice 2 検証記録](Documentation/verification/2026-09-13-stuffit-slice2.md) を参照してください。
+
+StuffIt X は `.stuffItX` (`"sitx"`) として署名で判別し、同じ wrapper を一段だけ剥がします。
+名前は `EncodingPolicy` に従い、有効な UTF-8 を既定候補とします。catalog の key 10 の整列、
+type 9 に続く書庫コメント、kind 3 の補助 stream の実長を扱います。
+solid stream は前方を読み捨て、後方 seek で再起動し、全体の終端で CRC-32 または MD5 を検証します。
+途中の fork の読み取りだけでは stream 全体の checksum は確定しません。
+
+**StuffIt X slice 3 は実書庫の互換性基準が未達です。** 支給された CC0 48 本と perf 5 本は、
+Root recovery を除きすべて未対応の Brimstone (0) を catalog に使っています。
+このため通常の open/list は `unsupportedMethod` になります。
+Cyanide の tail-model byte は n=0〜255 を受理し、実際に復号した rank が 256 以上のときだけ `malformed` とします。
+Brimstone (0)、Iron (6)、JPEG (7)、全前処理、暗号、recovery、segment、base-N transport は後続対応です。
+単一の最終出力 digest を検証し、反復・複数 digest scope は `unsupportedMethod` とします。
+詳細と実行結果は [slice 3 検証記録](Documentation/verification/2026-09-13-stuffit-slice3.md) を参照してください。
 
 名前は ZIP/RAR4/LHA/tar/gzip FNAME の undecorated bytes に対して archive-wide の UTF-8、CP932、
 EUC-JP 判定を行い、format が宣言する Unicode 名を優先します。単一 file 形式の FNAME がない場合は
@@ -352,7 +367,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
   `unsupportedMethod` になります。複数 cabinet にまたがる file も同様です。
 - RPM は rpm 6 の簡略 cpio (`07070X`)、drpm、cpio でない payload を展開せず、
   圧縮済み payload を 1 entry として公開します。
-- ARJ、ACE、StuffIt X (`.sitx`) は未対応です。StuffIt の method 4/7/9〜12、classic の未記述の暗号 flag `0x10` は読み取り時に `unsupportedMethod` を返します。
+- ARJ、ACE は未対応です。StuffIt X (`.sitx`) は上記の codec と catalog の制約があります。StuffIt の method 4/7/9〜12、classic の未記述の暗号 flag `0x10` は読み取り時に `unsupportedMethod` を返します。
 - ZIP は multi-disk/spanned と method 95 (xz)、96 (JPEG) を扱いません。
 - zstd の外部辞書は非対応です。Dictionary_ID が非零なら `unsupportedMethod` になります。
 - 7z は zstd method と RISC-V filter (method 0x0B) を扱いません。
@@ -396,7 +411,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 >   when read, as does a file that spans several cabinets.
 > - RPM does not expand the simplified rpm 6 cpio (`07070X`), drpm, or a payload
 >   that is not cpio; it exposes the compressed payload as a single entry instead.
-> - ARJ、ACE、StuffIt X (`.sitx`)、StuffIt method 4/7/9〜12、classic 暗号 flag `0x10` は非対応です。
+> - ARJ、ACE、StuffIt X の Brimstone catalog・範囲外 codec、StuffIt method 4/7/9〜12、classic 暗号 flag `0x10` は非対応です。
 > - ZIP does not handle multi-disk or spanned archives, nor methods 95 (xz)
 >   and 96 (JPEG).
 > - External zstd dictionaries are unsupported; a nonzero Dictionary_ID produces `unsupportedMethod`.
@@ -509,11 +524,12 @@ filename は一つの path に組み立て、0xFF directory 区切りは `/` に
 後方シークを含むアクセスを再現可能な条件で計測します。表示する `bytes` は選択した
 エントリの合計です。
 
-StuffIt の `list` は末尾に `fork=data` / `fork=resource` を追加します。
+StuffIt / StuffIt X の `list` は末尾に `fork=data` / `fork=resource` を追加します。
+StuffIt X は `solid=<stream ID>`（独立 fork は `-1`）も表示します。
 `sha` は支給 XADMaster オラクルに合わせ、既定では data fork のみを検証・表示します。
 resource だけのファイルは空 data fork の行を表示します。`sha --forks` は公開 entry の
 全 fork を検証・表示します。StuffIt の失敗詳細は stderr にだけ出し、stdout の行は数値サイズを保ちます。
-これにより支給 `compare.py` を変更せず利用できます。暗号はこの段階では未実装です。
+これにより支給 `compare.py` を変更せず利用できます。StuffIt X の暗号は未実装です。
 
 `bench` の時間は process 内の open / extract だけを複数回計測した median で、process 起動、
 SHA-256、標準出力は含みません。`swift run` には SwiftPM の planning / build も含まれるため、

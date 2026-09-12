@@ -583,6 +583,20 @@ Zstandard (2026-09-12, bd cooViewer-c1vj.3)
   Only RFC 8878, the supplied xxHash specification and existing KaitoKit sources were consulted;
   no web pages or third-party implementation sources were accessed. Runtime tests add 80 cases.
 
+StuffIt X slice 3（2026-09-13、bd cooViewer-gu28.3）
+  同じ CC0 コーパスから .sitx と wrapper 10 本を追加した。元ファイルは各 40 KiB 以下で、
+  slice3-manifest.json に名前・サイズ・SHA-256 を記録する。recovery の BinHex は
+  元 transport が 12,208 バイトで、unwrap 後の長さはこの収録上限とは区別する。
+  slice3-vectors.json は支給 stuffitx-vectors.json の routing 101〜105 の 10 vector。
+  routing は on-disk 圧縮番号とは異なり、Darkhorse/Deflate は外側の指数を補って検証する。
+  Blend は submethod 3 の前までの 31 バイトだけを一致範囲とする。
+  slice3-verified-forks.json は支給 archive-verification.json の StuffIt X 5 書庫の
+  fork/stream 期待値をそのまま固定した。これらは runtime 復元の代用品にしない。
+  実書庫の Brimstone catalog は本 slice の範囲外。Cyanide は n=254/255 も受理し、
+  固定した Mac 標本の 10 stream と auxiliary 1 stream の SHA-256 を照合する。
+  verify_slice3_inventory.py は外部 XCTest の perf データ層出力を支給オラクルと照合する。
+  resource と MacBinary 内側の展開後 SHA の未収録分は、CRC 一致と区別して数える。
+
 StuffIt slice 2（2026-09-13、bd cooViewer-gu28.2）
   同じ CC0 コーパスから classic の password.sit.bin / comment.sit.bin と
   StuffIt 7 の password.sit を追加し、収録書庫は 29 本になった。

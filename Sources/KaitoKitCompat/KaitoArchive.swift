@@ -481,6 +481,7 @@ public final class KaitoArchive {
         case "7z": "7-Zip"
         case "lha": "LHA"
         case "sit": "StuffIt"
+        case "sitx": "StuffIt X"
         case "tar": "Tar"
         case "ar": "AR"
         case "cpio": "Cpio"

@@ -15,6 +15,9 @@ public enum ArchiveFormat: String, Sendable, CaseIterable {
     /// classic StuffIt と StuffIt 5 の容器。
     case stuffIt = "sit"
 
+    /// StuffIt X のバイナリ容器。
+    case stuffItX = "sitx"
+
     /// POSIX, pax, or GNU tar containers.
     case tar
 

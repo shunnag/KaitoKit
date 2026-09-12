@@ -176,6 +176,18 @@ streaming 検証契約:
 
 ## 10. 出自(プロベナンス)と参照の規則
 
+StuffIt slice 2（2026-09-13、bd `cooViewer-gu28.2`）は、指定の Ch.04（method 5/8/14）・
+Ch.12（method 6）・Ch.02「Password verification and RC4」・Ch.05・
+Ch.06「Finding MKey and SitC」と指定 vector / 検証 JSON を用いた。
+`classic-key-substitution.json` の 8 × 64 個の数値を `StuffItCrypto.swift` に同順で転記した。
+`research/THIRD_PARTY_DATA.md` による出自は MacPaw/XADMaster の
+`137728c1d7e1ae8cd45234c4a8e5e540051bb6db` における `XADStuffItDESHandle.m` の
+置換・順列表である。数値の出自を独立作成とは主張しない。同資料は原ファイルの
+Copyright (c) 2017-present, MacPaw Inc. と LGPL 2.1 以降を記載している。
+実装ソースや Web は参照せず、MD5 は CryptoKit、RC4 と改変 DES は指定散文から実装した。
+入力 9 ファイルの SHA256SUMS と転記表を照合した。仕様と実コーパスの差は
+[slice 2 検証記録](verification/2026-09-13-stuffit-slice2.md) に記す。
+
 StuffIt slice 1（2026-09-13、bd `cooViewer-gu28.1`）は、`inbox/stuffit/` の形式再構築
 レポート Ch.00・01・02・04（method 0/1/2/3/13/15）・06・11 と指定された表・検証値だけを
 入力にした。使用 11 ファイルを `SHA256SUMS` と照合した。`method13.json` と
@@ -625,6 +637,22 @@ source を実装入力にしていない。是正として、以後 The Unarchiv
 prose ページであることを確認し、`source-archive` を含む URL は取得しない。
 
 ## 11. 実装記録(2026-09-06〜13)
+
+- StuffIt slice 2（2026-09-13、bd `cooViewer-gu28.2`）: LZAH（5）、fixed Huffman + PackBits（6）、
+  MW（8）、installer（14）を追加した。履歴と辞書は fork ごとの固定ポインタとし、出力は逐次返す。
+  LZAH の葉順・等重み交換・rescale、MW の pair 展開と幅上限、installer の不安定 partition と
+  木記述の 16 段上限、method 6 の部分翻訳表の fork 単位寿命を検証する。
+  書庫自身の resource map は宣言された type-list offset に従い、`MKey` / `SitC` の ID 0 を読む。
+  StuffIt 5 の archive hash と fork 鍵、classic の padding を保持し、password 設定後に
+  復号 source → codec → 従来の CRC の順で読む。復号 source は Mutex 内の cursor を使い、
+  任意位置への巻戻しでは初期鍵から再生する。password の文字コードは UTF-8 bytes。
+  書庫コメントは reader の `archiveComment` と最初の entry の metadata に公開する。
+  長さ 8 の classic password の 1 block 互換経路と、StuffIt 7 の空 fork に鍵があるケースは
+  実コーパスから確認した。未記述の classic flag `0x10` は平文 codec に渡さない。
+  全 977 tests（38 skip、失敗 0）、StuffIt 51 tests、コンパイラ警告 0。
+  CC0 は 145 match / 71 既知非対応 / mismatch 0、暗号化 35 書庫の全 fork が平文版と一致した。
+  検証件数、全 CC0 比較、go オラクルの制約、指定コマンドは
+  [検証記録](verification/2026-09-13-stuffit-slice2.md) にまとめる。
 
 - StuffIt slice 1（2026-09-13、bd `cooViewer-gu28.1`）: classic / StuffIt 5 の容器と
   method 0/1/2/3/13/15 を追加した。ヘッダ CRC・fork 範囲・directory 関係を検証し、

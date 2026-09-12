@@ -65,7 +65,7 @@ final class StuffItHardeningTests: XCTestCase {
         }
         let encrypted = try ArchiveReader.open(data: StuffItContainerTests.classic(method: 0x80),
                                               options: ReaderOptions(passwordProvider: RefusingPassword()))
-        XCTAssertThrowsError(try encrypted.stream(encrypted.entries[0])) { XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("StuffIt encryption")) }
+        XCTAssertThrowsError(try encrypted.stream(encrypted.entries[0])) { XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("StuffIt encryption without archive resource fork")) }
     }
     func testCodecErrorsAreBoundedAndTyped() throws {
         for packed in [Data([0x90]), Data()] {

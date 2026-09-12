@@ -103,7 +103,7 @@ for entry in directories {
 | RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
 | LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
-| StuffIt / `.sit` | classic・StuffIt 5、stored (0) / RLE90 (1) / LZW (2) / Huffman (3) / LZ+Huffman (13) / Arsenic (15)、MacBinary / AppleSingle / BinHex 4 の一段 unwrap | 暗号化 entry は列挙のみ | data/resource fork は別 entry。`.sea` は先頭署名で判定。`.sitx`・`.exe`・AppleDouble sidecar は非対応 |
+| StuffIt / `.sit` | classic・StuffIt 5、method 0/1/2/3/5/6/8/13/14/15、MacBinary / AppleSingle / BinHex 4 の一段 unwrap | StuffIt 5 RC4、classic 改変 DES（wrapper の MKey が必要） | data/resource fork は別 entry。`.sea` は先頭署名で判定。`.sitx`・`.exe`・AppleDouble sidecar は非対応 |
 
 > **Supported formats**
 >
@@ -156,8 +156,18 @@ for entry in directories {
 StuffIt の `ArchiveFormat` は classic / StuffIt 5 とも `.stuffIt` (`"sit"`) です。
 `formatSpecific["container"]` が `classic` / `stuffit5` を示し、`macType`・`macCreator`・
 `finderFlags`・`fork` を保持します。resource fork は `<名前>/..namedfork/rsrc` として公開します。
-wrapper 自身の resource fork も reader が保持します。名前は `EncodingPolicy` に従い、
+wrapper 自身の resource fork も reader が保持し、`SitC` または StuffIt 5 の書庫コメントを
+最初の entry の `formatSpecific["comment"]` に公開します。名前は `EncodingPolicy` に従い、
 未宣言の旧 Mac 名には MacRoman を既定候補として使います。
+
+password は UTF-8 bytes を使います。classic の暗号化 fork は wrapper 自身の `MKey` が必要で、
+resource fork のない素の `.sit` / `.sea` は
+`unsupportedMethod("StuffIt encryption without archive resource fork")` を返します。
+復号に必要な情報があれば、password 未設定は `passwordRequired`、検証値の不一致は
+`wrongPassword` です。復号後も `isEncrypted` は変わらず、展開後の CRC を検証します。
+classic の 8 バイト password は資料の 2 block 派生を優先し、CC0 の 4.5 書庫で確認した
+1 block 派生も MKey 検証付きで扱います。詳細は
+[slice 2 検証記録](Documentation/verification/2026-09-13-stuffit-slice2.md) を参照してください。
 
 名前は ZIP/RAR4/LHA/tar/gzip FNAME の undecorated bytes に対して archive-wide の UTF-8、CP932、
 EUC-JP 判定を行い、format が宣言する Unicode 名を優先します。単一 file 形式の FNAME がない場合は
@@ -342,7 +352,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
   `unsupportedMethod` になります。複数 cabinet にまたがる file も同様です。
 - RPM は rpm 6 の簡略 cpio (`07070X`)、drpm、cpio でない payload を展開せず、
   圧縮済み payload を 1 entry として公開します。
-- ARJ、ACE、StuffIt X (`.sitx`) は未対応です。StuffIt の method 4〜12・14 と暗号化 fork は一覧取得後、読み取り時に `unsupportedMethod` を返します。
+- ARJ、ACE、StuffIt X (`.sitx`) は未対応です。StuffIt の method 4/7/9〜12、classic の未記述の暗号 flag `0x10` は読み取り時に `unsupportedMethod` を返します。
 - ZIP は multi-disk/spanned と method 95 (xz)、96 (JPEG) を扱いません。
 - zstd の外部辞書は非対応です。Dictionary_ID が非零なら `unsupportedMethod` になります。
 - 7z は zstd method と RISC-V filter (method 0x0B) を扱いません。
@@ -386,7 +396,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 >   when read, as does a file that spans several cabinets.
 > - RPM does not expand the simplified rpm 6 cpio (`07070X`), drpm, or a payload
 >   that is not cpio; it exposes the compressed payload as a single entry instead.
-> - ARJ, ACE and StuffIt X (`.sitx`) are unsupported. StuffIt methods 4–12 and 14, and encrypted forks, can be listed but throw `unsupportedMethod` when read.
+> - ARJ、ACE、StuffIt X (`.sitx`)、StuffIt method 4/7/9〜12、classic 暗号 flag `0x10` は非対応です。
 > - ZIP does not handle multi-disk or spanned archives, nor methods 95 (xz)
 >   and 96 (JPEG).
 > - External zstd dictionaries are unsupported; a nonzero Dictionary_ID produces `unsupportedMethod`.

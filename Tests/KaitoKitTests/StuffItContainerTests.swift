@@ -61,13 +61,13 @@ final class StuffItContainerTests: XCTestCase {
         XCTAssertThrowsError(try ArchiveReader.open(data: bad))
     }
     func testUnsupportedAndEncryptedListBeforeReading() throws {
-        for method: UInt8 in [4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 0x80] {
+        for method: UInt8 in [4, 7, 9, 10, 11, 12, 0x80] {
             let reader = try ArchiveReader.open(data: Self.classic(method: method))
             XCTAssertEqual(reader.entries.count, 1)
             XCTAssertEqual(reader.entries[0].isEncrypted, method == 0x80)
             XCTAssertThrowsError(try reader.stream(reader.entries[0])) { error in
                 guard case KaitoError.unsupportedMethod(let name) = error else { return XCTFail("\(error)") }
-                XCTAssertEqual(name, method == 0x80 ? "StuffIt encryption" : "StuffIt method \(method)")
+                XCTAssertEqual(name, method == 0x80 ? "StuffIt encryption without archive resource fork" : "StuffIt method \(method)")
             }
         }
     }

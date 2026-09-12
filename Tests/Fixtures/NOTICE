@@ -583,6 +583,16 @@ Zstandard (2026-09-12, bd cooViewer-c1vj.3)
   Only RFC 8878, the supplied xxHash specification and existing KaitoKit sources were consulted;
   no web pages or third-party implementation sources were accessed. Runtime tests add 80 cases.
 
+StuffIt slice 2（2026-09-13、bd cooViewer-gu28.2）
+  同じ CC0 コーパスから classic の password.sit.bin / comment.sit.bin と
+  StuffIt 7 の password.sit を追加し、収録書庫は 29 本になった。
+  名前・サイズ・SHA-256 は stuffit/manifest.json。既存の暗号化 fixture も復号検証する。
+  slice2-vectors.json は支給 core-vectors.json の method 5/8/14 の独立作成 6 vector をそのまま固定した。
+  slice2-key-vectors.json は core-verification.json の fixture 由来 4 ケースと人工 10 ケースの
+  入力・鍵導出期待値だけを収録する。元の暗号化 fixture 本体は収録していない。
+  verified-forks.json に method 6 の 3 fork と StuffIt 5 暗号化 9 fork の支給期待値を追加した。
+  go の実書庫は引き続き外部入力に限定する。置換表の出自は Documentation/design.md §10。
+
 StuffIt slice 1（2026-09-13、bd cooViewer-gu28.1）
   stuffit/*.b64 は ssokolow/stuffit-test-files の CC0 コーパスから選んだ 26 書庫。
   元リポジトリ: https://github.com/ssokolow/stuffit-test-files

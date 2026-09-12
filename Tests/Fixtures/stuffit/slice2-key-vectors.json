@@ -1,0 +1,96 @@
+[
+  {
+    "password_hex": "31323334353637",
+    "entry_key_hex": "5af322ed859e39c0f93924bc222e8aaa",
+    "mkey_hex": "6df8cce522e3ea5d",
+    "expected_key_and_iv_hex": "0a041b0c31091189353e7ab8b6280401"
+  },
+  {
+    "password_hex": "31323334353637",
+    "entry_key_hex": "07942b571060908237ff1e960a931bad",
+    "mkey_hex": "6df8cce522e3ea5d",
+    "expected_key_and_iv_hex": "a350f1a317a7cf44c41612d4f53ad57c"
+  },
+  {
+    "password_hex": "313233343536373839303132",
+    "entry_key_hex": "b8b24defbb480022cfb6b85826783a13",
+    "mkey_hex": "faf5d09c191999d7",
+    "expected_key_and_iv_hex": "cea9c59f8919b56a7eddd903a5495df4"
+  },
+  {
+    "password_hex": "313233343536373839303132",
+    "entry_key_hex": "bd91e700f74b8b5d9812859daafc4b7b",
+    "mkey_hex": "faf5d09c191999d7",
+    "expected_key_and_iv_hex": "590ba36595eabd2728e7fad13ffad1ed"
+  },
+  {
+    "password_hex": "",
+    "entry_key_hex": "1e72c39293f114bc0bbd6d01785c0f5d",
+    "mkey_hex": "34ff814006f49abd",
+    "password_length": 0,
+    "expected_key_and_iv_hex": "000102030405060708090a0b0c0d0e0f"
+  },
+  {
+    "password_hex": "21",
+    "entry_key_hex": "f4d27448e60a39240bbd6d01785c0f5d",
+    "mkey_hex": "1cd1ffb2784ba722",
+    "password_length": 1,
+    "expected_key_and_iv_hex": "000102030405060708090a0b0c0d0e0f"
+  },
+  {
+    "password_hex": "21222324252627",
+    "entry_key_hex": "8a756a78f53d9b730bbd6d01785c0f5d",
+    "mkey_hex": "7b9a792a8f0e0a72",
+    "password_length": 7,
+    "expected_key_and_iv_hex": "000102030405060708090a0b0c0d0e0f"
+  },
+  {
+    "password_hex": "2122232425262728",
+    "entry_key_hex": "f5aa4af37c4d34530bbd6d01785c0f5d",
+    "mkey_hex": "9902f005801b7760",
+    "password_length": 8,
+    "expected_key_and_iv_hex": "000102030405060708090a0b0c0d0e0f"
+  },
+  {
+    "password_hex": "212223242526272829",
+    "entry_key_hex": "c9df107b8a0d92230bbd6d01785c0f5d",
+    "mkey_hex": "91b5322bea0f4ebe",
+    "password_length": 9,
+    "expected_key_and_iv_hex": "000102030405060708090a0b0c0d0e0f"
+  },
+  {
+    "password_hex": "2122232425262728292a2b2c2d2e2f",
+    "entry_key_hex": "7093b5de7c1734d10bbd6d01785c0f5d",
+    "mkey_hex": "0bd163b1551f7e05",
+    "password_length": 15,
+    "expected_key_and_iv_hex": "000102030405060708090a0b0c0d0e0f"
+  },
+  {
+    "password_hex": "2122232425262728292a2b2c2d2e2f30",
+    "entry_key_hex": "ff83504e2daca7f70bbd6d01785c0f5d",
+    "mkey_hex": "6849f0e869c0419a",
+    "password_length": 16,
+    "expected_key_and_iv_hex": "000102030405060708090a0b0c0d0e0f"
+  },
+  {
+    "password_hex": "2122232425262728292a2b2c2d2e2f3031",
+    "entry_key_hex": "ff83504e2daca7f70bbd6d01785c0f5d",
+    "mkey_hex": "6849f0e869c0419a",
+    "password_length": 17,
+    "expected_key_and_iv_hex": "000102030405060708090a0b0c0d0e0f"
+  },
+  {
+    "password_hex": "2122232425262728292a2b2c2d2e2f303132333435363738",
+    "entry_key_hex": "ff83504e2daca7f70bbd6d01785c0f5d",
+    "mkey_hex": "6849f0e869c0419a",
+    "password_length": 24,
+    "expected_key_and_iv_hex": "000102030405060708090a0b0c0d0e0f"
+  },
+  {
+    "password_hex": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+    "entry_key_hex": "ff83504e2daca7f70bbd6d01785c0f5d",
+    "mkey_hex": "6849f0e869c0419a",
+    "password_length": 32,
+    "expected_key_and_iv_hex": "000102030405060708090a0b0c0d0e0f"
+  }
+]

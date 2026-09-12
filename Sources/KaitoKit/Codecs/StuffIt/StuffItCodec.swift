@@ -1,4 +1,4 @@
-// Clean-room format inputs: 指定レポート Ch.04 の method 0・1・2・3・13・15 と圧縮 method 名前空間に基づく。
+// 指定レポート Ch.04・12 の圧縮 method 名前空間に基づく。
 // XADMaster / The Unarchiver / stuffit-go 等の実装ソースは参照していない。
 import Foundation
 
@@ -16,8 +16,16 @@ enum StuffItCodec {
             return try StuffItLZW(input: StuffItPackedInput(source: source, offset: offset, size: stored), size: size, limits: limits)
         case 3:
             return try StuffItHuffman(input: StuffItPackedInput(source: source, offset: offset, size: stored), size: size, limits: limits)
+        case 5:
+            return try StuffItLZAH(input: StuffItPackedInput(source: source, offset: offset, size: stored), size: size, limits: limits)
+        case 6:
+            return try StuffItMethod6(source: source, offset: offset, stored: stored, size: size, limits: limits)
+        case 8:
+            return try StuffItMW(input: StuffItPackedInput(source: source, offset: offset, size: stored), size: size, limits: limits)
         case 13:
             return try StuffItMethod13(input: StuffItPackedInput(source: source, offset: offset, size: stored), size: size, limits: limits)
+        case 14:
+            return try StuffItInstaller(input: StuffItPackedInput(source: source, offset: offset, size: stored), size: size, limits: limits)
         case 15:
             return try StuffItArsenic(input: StuffItPackedInput(source: source, offset: offset, size: stored), size: size, limits: limits)
         default:

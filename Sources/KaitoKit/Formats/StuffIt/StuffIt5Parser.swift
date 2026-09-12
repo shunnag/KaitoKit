@@ -1,4 +1,4 @@
-// Clean-room format inputs: 指定レポート Ch.00・02 の散文に基づく。RC4 は未実装。
+// 指定レポート Ch.00・02 の散文に基づく。archive hash と fork 固有の鍵を保持する。
 // XADMaster / The Unarchiver / stuffit-go 等の実装ソースは参照していない。
 import Foundation
 
@@ -31,6 +31,7 @@ extension StuffItParser {
             try advance(1)
             guard header[cursor - 1] == 5 else { throw KaitoError.malformed("StuffIt 5 password hash length") }
             try advance(5)
+            archiveHash = Array(header[cursor - 5..<cursor])
         }
         if flags & 0x40 != 0 {
             try advance(2)
@@ -38,7 +39,9 @@ extension StuffItParser {
             guard count <= limits.maxMetadataRecordCount else { throw KaitoError.limitExceeded("StuffIt 5 metadata records") }
             try advance(20 * count)
         }
+        let commentStart = cursor
         try advance(comment + auxiliary)
+        if flags & 0x20 != 0 { archiveCommentBytes = Array(header[commentStart..<commentStart + comment]) }
         var position = first
         var remaining = UInt64(StuffItHeader.be16(fixed, 92))
         var directories: [UInt64: (index: Int, children: Int)] = [:]
@@ -61,7 +64,10 @@ extension StuffItParser {
             let ud = directory ? 0 : StuffItHeader.be32(h, 34)
             let cd = directory ? 0 : StuffItHeader.be32(h, 38)
             let kd = directory ? 0 : Int(h[47])
-            guard directory || kd == (encrypted && ud > 0 ? 5 : 0) else { throw KaitoError.malformed("StuffIt 5 data key length") }
+            // StuffIt 7 は空の data fork にも 5 バイトの鍵を持つ。非空 fork の鍵は必須。
+            guard directory || (encrypted ? (kd == 5 || (ud == 0 && kd == 0)) : kd == 0) else {
+                throw KaitoError.malformed("StuffIt 5 data key length")
+            }
             let n = Int(StuffItHeader.be16(h, 30))
             let t = 48 + kd + n
             guard t <= length else { throw KaitoError.malformed("StuffIt 5 filename extent") }
@@ -83,6 +89,7 @@ extension StuffItParser {
             }
             var record = StuffItRecord(rawName: Array(primary[48 + kd..<t]), parent: parent)
             record.directory = directory; record.encrypted = encrypted
+            record.entryKey = Array(primary[48..<48 + kd])
             record.modified = StuffItHeader.be32(h, 14)
             let q = h[4] == 1 ? 36 : 32
             var payload = position + UInt64(length + q)
@@ -93,13 +100,16 @@ extension StuffItParser {
             if length > t { record.metadata["commentBytes"] = StuffItHeader.hex(primary[t + 4..<length]) }
             let hasResource = secondary[1] & 1 != 0
             var ur: UInt64 = 0, cr: UInt64 = 0, resourceMethod = 0, resourceCRC: UInt16 = 0
+            var resourceKey: [UInt8] = []
             if hasResource {
                 let descriptor = try bytes(payload, 14, end: end)
                 ur = StuffItHeader.be32(descriptor, 0); cr = StuffItHeader.be32(descriptor, 4)
                 resourceCRC = StuffItHeader.be16(descriptor, 8); resourceMethod = Int(descriptor[12] & 15)
                 let kr = Int(descriptor[13])
-                guard kr == (encrypted && ur > 0 ? 5 : 0) else { throw KaitoError.malformed("StuffIt 5 resource key length") }
-                _ = try bytes(payload + 14, kr, end: end)
+                guard encrypted ? (kr == 5 || (ur == 0 && kr == 0)) : kr == 0 else {
+                    throw KaitoError.malformed("StuffIt 5 resource key length")
+                }
+                resourceKey = try bytes(payload + 14, kr, end: end)
                 payload += UInt64(14 + kr)
             }
             remaining -= 1
@@ -117,6 +127,7 @@ extension StuffItParser {
                     var fork = record
                     fork.resource = true; fork.method = resourceMethod; fork.crc = resourceCRC
                     fork.offset = payload; fork.size = ur; fork.stored = cr
+                    fork.entryKey = resourceKey
                     try append(fork)
                 }
                 if ud > 0 || !hasResource {

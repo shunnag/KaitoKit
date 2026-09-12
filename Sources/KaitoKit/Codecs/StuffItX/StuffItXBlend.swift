@@ -5,12 +5,13 @@ final class StuffItXBlend: Decompressor {
     private let input: StuffItXBitReader
     private let limits: ReadLimits
     private var remaining: UInt64
+    private let knownLength: Bool
     private var blockRemaining: UInt64 = 0
     private var decoder: (any Decompressor)?
     private(set) var isFinished = false
 
-    init(input: StuffItXBitReader, size: UInt64, limits: ReadLimits) {
-        self.input = input; remaining = size; self.limits = limits
+    init(input: StuffItXBitReader, size: UInt64?, limits: ReadLimits) {
+        self.input = input; remaining = size ?? limits.maxTotalUncompressedSize; knownLength = size != nil; self.limits = limits
     }
     static func acceptsHeader(_ bytes: [UInt8]) -> Bool {
         guard bytes.count == 6, bytes[0] == 0x77, bytes[1] <= 3 else { return false }
@@ -20,10 +21,17 @@ final class StuffItXBlend: Decompressor {
     }
     private func nextBlock() throws {
         // 入力を subdecoder と共有し、pread の先読み位置ではなく消費済み octet の位置を使う。
-        guard input.source.length - input.offset >= 6 else { throw KaitoError.truncated }
+        guard input.source.length - input.offset >= 6 else {
+            guard !knownLength else { throw KaitoError.truncated }
+            while !input.isAtEnd { _ = try input.byte() }
+            isFinished = true; return
+        }
         var header: [UInt8] = []
         for _ in 0..<6 { header.append(try input.byte()) }
-        while !Self.acceptsHeader(header) { header.removeFirst(); header.append(try input.byte()) }
+        while !Self.acceptsHeader(header) {
+            if input.isAtEnd && !knownLength { isFinished = true; return }
+            header.removeFirst(); header.append(try input.byte())
+        }
         let size = header[2...5].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
         guard size <= remaining else { throw KaitoError.malformed("StuffIt X Blend block length") }
         blockRemaining = size
@@ -32,13 +40,17 @@ final class StuffItXBlend: Decompressor {
         case 0: decoder = nil
         case 1: decoder = try StuffItXDarkhorse(input: input, exponent: Int(input.byte()), size: size, limits: limits)
         case 2: decoder = try StuffItXCyanide(input: input, size: size, limits: limits)
-        default: throw KaitoError.unsupportedMethod("StuffIt X Blend submethod 3 (Brimstone)")
+        default: decoder = try StuffItXBrimstoneDecoder(input: input, size: size, limits: limits)
         }
     }
     func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
         if isFinished || buffer.isEmpty { return 0 }
-        if remaining == 0 { isFinished = true; return 0 }
-        while blockRemaining == 0 { try nextBlock() }
+        if knownLength && remaining == 0 { isFinished = true; return 0 }
+        while blockRemaining == 0 {
+            if !knownLength && input.isAtEnd { isFinished = true; return 0 }
+            try nextBlock()
+            if isFinished { return 0 }
+        }
         let count = Int(min(UInt64(buffer.count), blockRemaining)), actual: Int
         if let decoder {
             actual = try decoder.read(into: UnsafeMutableRawBufferPointer(rebasing: buffer[..<count]))

@@ -5,10 +5,11 @@ final class StuffItXRC4Stored: Decompressor {
     private let input: StuffItXBitReader
     private let rc4: StuffItRC4
     private var remaining: UInt64
-    init(input: StuffItXBitReader, size: UInt64) throws {
-        self.input = input; remaining = size
+    init(input: StuffItXBitReader, size: UInt64?) throws {
+        self.input = input
         _ = try input.byte(); _ = try input.byte(); rc4 = try StuffItRC4(key: [input.byte()])
-        guard input.source.length - input.offset == size else { throw KaitoError.malformed("StuffIt X RC4-stored length") }
+        remaining = input.source.length - input.offset
+        guard size == nil || remaining == size else { throw KaitoError.malformed("StuffIt X RC4-stored length") }
     }
     var isFinished: Bool { remaining == 0 }
     func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {

@@ -176,6 +176,26 @@ streaming 検証契約:
 
 ## 10. 出自(プロベナンス)と参照の規則
 
+StuffIt X slice 4（2026-09-13、bd `cooViewer-gu28.4`）は指定の Ch.09 / Ch.08 / Ch.42 /
+Ch.10 / Ch.38、Ch.07 §2、stuffitx-vectors.json と English 語リストを実装入力とした。
+これら 8 ファイルの SHA256SUMS を照合した。既存 KaitoKit の slice 3 の range decoder と coordinator を共有する。
+外部実装のソース、資料のリンク先、Web、既存 PPMd のアルゴリズムは参照していない。
+Iron の native 用 fixture writer も指定の数式から独立に作成し、production に declared decoder は設けない。
+
+English 辞書の出自は「XADMaster 内蔵の StuffItXEnglishDictionary.c を展開した語リスト
+(`research/THIRD_PARTY_DATA.md`)。利用者が 2026-09-13 に組み込みを決定」。
+100,366 語、881,863 バイト、SHA-256 は
+`6095ebdbadd794ac50fe5b53b12a744b5833e046658777ee37dcb6da82512a31`。
+`Scripts/fixtures/make-stuffit-english-dictionary.py` が Python 標準 zlib の raw Deflate で圧縮し、
+`StuffItXEnglishDictionary.swift` に単一の base64 文字列リテラルを生成する。
+KaitoKit の DeflateDecompressor で初回だけ展開し、SHA-256 の照合後に `[Substring]` を作る。
+`static let` が成功・失敗を保持し、SwiftPM resource bundle は使用しない。
+語列から再生成する XCTest は inbox の有無に依存しない。fixture と辞書の出自は NOTICE にも記載する。
+
+元の 22 vector は変更せず保存する。旧 Iron 4 本の宣言頻度上限と旧 x86 2 本の末尾期待値は
+採用する native profile と異なるため、別の native 期待値・fixture で区別して検証する。
+[検証記録](verification/2026-09-13-stuffit-slice4.md) に根拠と全コマンドの結果を残す。
+
 StuffIt X slice 3（2026-09-13、bd `cooViewer-gu28.3`）は、指定された Ch.03 全体、
 Ch.07 §1〜7、Ch.37、Ch.11 の限界、および二つの検証 JSON だけを入力とした。
 6 入力の SHA256SUMS を照合した。外部 StuffIt 実装のソース、リンク先、Web は参照していない。
@@ -649,6 +669,21 @@ source を実装入力にしていない。是正として、以後 The Unarchiv
 prose ページであることを確認し、`source-archive` を含む URL は取得しない。
 
 ## 11. 実装記録(2026-09-06〜13)
+
+- StuffIt X slice 4（2026-09-13、bd `cooViewer-gu28.4`）: Brimstone の A / D / F と placeholder、
+  binary / escape estimator、exclusion、rescale、promotion、allocator 枯渇時の restart を実装した。
+  arena は 12 バイト unit・38 クラス・gap の両端・LIFO と split / grow / shrink を再現する。
+  model restart は range coder を初期化しない。9 vector の出力と記録されたモデルイベント数が一致した。
+  Iron は宣言指数を読み捨て、Ch.42 の native 固定上限 `(64,64,256)` を使用する。
+  二重 binary weight は別々に更新し、ST4 の alias は direct entry の可変 cursor を共有する。
+  空 raw block の継続、N×6 と ST4 の 23 bit 制限、確率 shift 1〜31 を検査する。
+  English と x86 は要素全体に適用する。English の中間長が未知の場合、各 codec の終端まで復号する。
+  x86 は六バイト lookahead と、Ch.38 の `2×入力長+16` の補正作業上限を採用する。
+  catalog を含む CC0 対象 20 書庫、JPEG を含む 2 書庫の対応 fork、SMSSender の全 95 entry が一致した。
+  perf 5 本の全 fork は stream CRC が一致。展開後 SHA 不在の 18 fork は CRC 検証と区別する。
+  残る暗号・recovery・JPEG・Iron version 1・その他の前処理は未対応。
+  [検証記録](verification/2026-09-13-stuffit-slice4.md) に native と旧 vector の相違、支給 compare.py の
+  圧縮書庫 SHA / 展開後 SHA の不整合、全体テストと実書庫の検証結果を記載する。
 
 - StuffIt X slice 3（2026-09-13、bd `cooViewer-gu28.3`）: 全要素の索引後に catalog・親 ID・
   fork slot・同一区間の複数 owner を解決する。二列の framed block は区間索引で連結し、

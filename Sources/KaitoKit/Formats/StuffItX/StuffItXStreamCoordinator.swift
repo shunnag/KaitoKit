@@ -21,12 +21,14 @@ final class StuffItXStreamCoordinator {
     }
     static func validateAlgorithms(_ algorithms: [StuffItXAlgorithm]) throws {
         guard algorithms.filter({ $0.key == 1 }).count <= 1 else { throw KaitoError.unsupportedMethod("StuffIt X repeated compression") }
+        guard algorithms.filter({ $0.key == 3 }).count <= 1 else { throw KaitoError.unsupportedMethod("StuffIt X repeated preprocessing") }
         for algorithm in algorithms {
             switch algorithm.key {
             case 1: break
             case 2, 6:
                 guard algorithm.value <= 1 else { throw KaitoError.unsupportedMethod("StuffIt X digest \(algorithm.value)") }
-            case 3: throw KaitoError.unsupportedMethod("StuffIt X preprocessing \(algorithm.value)")
+            case 3:
+                guard algorithm.value == 0 || algorithm.value == 2 else { throw KaitoError.unsupportedMethod("StuffIt X preprocessing \(algorithm.value)") }
             case 4: throw KaitoError.unsupportedMethod("StuffIt X encryption \(algorithm.value)")
             case 5: throw KaitoError.unsupportedMethod("StuffIt X recovery \(algorithm.value)")
             default: throw KaitoError.unsupportedMethod("StuffIt X algorithm \(algorithm.key):\(algorithm.value)")
@@ -55,7 +57,11 @@ final class StuffItXStreamCoordinator {
             }
             expected.append((digests[0].value, bytes))
         }
-        let decoder = try StuffItXCodec.make(method: element.compression, source: input, size: size, limits: limits)
+        let preprocessing = element.algorithms.first { $0.key == 3 }?.value
+        // English の中間長には marker と縮約 token が含まれ、最終 fork 長とは一致しない。
+        var decoder = try StuffItXCodec.make(method: element.compression, source: input, size: preprocessing == 0 ? nil : size, limits: limits)
+        if preprocessing == 0 { decoder = try StuffItXEnglish(decoder: decoder, size: size) }
+        if preprocessing == 2 { decoder = StuffItXX86(decoder: decoder, size: size) }
         self.decoder = decoder; self.expected = expected
         position = 0; crc = CRC32(); md5 = Insecure.MD5(); verified = false
     }

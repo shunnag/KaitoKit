@@ -36,6 +36,7 @@ final class StuffItXDeflate: Decompressor {
     private let history: UnsafeMutablePointer<UInt8>
     private let mask: Int
     private var remaining: UInt64
+    private let knownLength: Bool
     private var position: UInt64 = 0
     private var needHeader = true
     private var finalBlock = false
@@ -47,11 +48,11 @@ final class StuffItXDeflate: Decompressor {
     private var distances: Huffman?
     private(set) var isFinished = false
 
-    init(input: StuffItXBitReader, exponent: Int, size: UInt64, limits: ReadLimits) throws {
+    init(input: StuffItXBitReader, exponent: Int, size: UInt64?, limits: ReadLimits) throws {
         guard (10...25).contains(exponent) else { throw KaitoError.malformed("StuffIt X Deflate window exponent") }
         let capacity = 1 << exponent
         try Checked.size(UInt64(capacity), limit: limits.maxDictionarySize)
-        self.input = input; remaining = size; mask = capacity - 1
+        self.input = input; remaining = size ?? limits.maxTotalUncompressedSize; knownLength = size != nil; mask = capacity - 1
         history = .allocate(capacity: capacity)
     }
     deinit { history.deallocate() }
@@ -99,7 +100,7 @@ final class StuffItXDeflate: Decompressor {
     }
     private func endBlock() throws {
         if finalBlock {
-            guard remaining == 0 else { throw KaitoError.truncated }
+            guard !knownLength || remaining == 0 else { throw KaitoError.truncated }
             input.align()
             guard input.isAtEnd else { throw KaitoError.malformed("StuffIt X Deflate trailing bytes") }
             isFinished = true

@@ -35,20 +35,11 @@ final class StuffItXCodecTests: XCTestCase {
             }
         }
     }
-    func testBlendSupportedPrefix() throws {
+    func testBlendAllFourSubmethods() throws {
         let vector = try XCTUnwrap(Self.vectors().first { $0.method == 104 })
-        let expected = StuffItCodecTests.hex(vector.output_hex), source = DataByteSource(StuffItCodecTests.hex(vector.input_hex))
+        let expected = StuffItCodecTests.hex(vector.output_hex)
         for chunk in [1, 7, 4096] {
-            let decoder = StuffItXBlend(input: try StuffItXBitReader(source: source), size: UInt64(expected.count), limits: ReadLimits())
-            var bytes = [UInt8](repeating: 0, count: chunk), output = Data()
-            XCTAssertThrowsError(try {
-                while true {
-                    let n = try bytes.withUnsafeMutableBytes { try decoder.read(into: $0) }
-                    if n == 0 { break }; output.append(contentsOf: bytes[..<n])
-                }
-            }()) { guard case KaitoError.unsupportedMethod = $0 else { return XCTFail("\($0)") } }
-            XCTAssertEqual(output, expected.prefix(output.count))
-            XCTAssertEqual(output.count, 31)
+            XCTAssertEqual(try Self.decode(StuffItCodecTests.hex(vector.input_hex), method: 4, size: expected.count, chunk: chunk), expected)
         }
     }
     func testCyanideAcceptsAllTailCounts() throws {
@@ -101,7 +92,7 @@ final class StuffItXCodecTests: XCTestCase {
     func testDictionaryBoundsAndStoredAbsence() throws {
         XCTAssertEqual(try Self.decode(Data([65]), method: nil, size: 1), Data([65]))
         XCTAssertThrowsError(try Self.decode(Data([65]), method: 0, size: 1)) {
-            guard case KaitoError.unsupportedMethod = $0 else { return XCTFail("\($0)") }
+            XCTAssertEqual($0 as? KaitoError, .truncated)
         }
         for e: UInt8 in [31,255] {
             XCTAssertThrowsError(try Self.decode(Data([e,0,0,0,0,0]), method: 2, size: 1)) {

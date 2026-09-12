@@ -16,6 +16,16 @@ final class StuffItXCorpusTests: XCTestCase {
                 do {
                     let source = try FileByteSource(url: url)
                     let envelope = try XCTUnwrap(FormatDetector.stuffItInput(source: source, limits: ReadLimits()))
+                    var wrapperHash = SHA256(), wrapperPosition: UInt64 = 0
+                    try withUnsafeTemporaryAllocation(byteCount: 65_536, alignment: 16) { buffer in
+                        while wrapperPosition < envelope.data.length {
+                            let n = try envelope.data.read(into: buffer, at: wrapperPosition)
+                            guard n > 0 else { throw KaitoError.truncated }
+                            wrapperHash.update(bufferPointer: UnsafeRawBufferPointer(rebasing: buffer[..<n])); wrapperPosition += UInt64(n)
+                        }
+                    }
+                    item["unwrappedLength"] = wrapperPosition
+                    item["unwrappedSHA256"] = wrapperHash.finalize().map { String(format: "%02x", $0) }.joined()
                     let elements = try StuffItXElementParser(source: envelope.data, limits: ReadLimits()).parse()
                     item["elements"] = elements.map { e -> [String: Any] in
                         var row: [String: Any] = ["type": e.type, "offset": e.offset,
@@ -66,7 +76,7 @@ final class StuffItXCorpusTests: XCTestCase {
             }
         }
         let output = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent(".build/slice3-inventory.json")
+            .deletingLastPathComponent().appendingPathComponent(".build/" + (ProcessInfo.processInfo.environment["STUFFITX_INVENTORY"] ?? "slice3-inventory.json"))
         try JSONSerialization.data(withJSONObject: inventory, options: [.prettyPrinted, .sortedKeys]).write(to: output)
         try StuffItXReaderTests.archive().write(to: output.deletingLastPathComponent().appendingPathComponent("slice3-container.sitx"))
     }

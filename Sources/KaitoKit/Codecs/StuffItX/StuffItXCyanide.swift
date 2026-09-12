@@ -40,6 +40,7 @@ final class StuffItXCyanide: Decompressor {
     let input: StuffItXBitReader
     private let limits: ReadLimits
     private var remaining: UInt64
+    private let knownLength: Bool
     private var column: UnsafeMutablePointer<UInt8>?
     private var permutation: UnsafeMutablePointer<UInt32>?
     private var blockRemaining = 0
@@ -47,12 +48,14 @@ final class StuffItXCyanide: Decompressor {
     private(set) var isFinished = false
     private static let groups = [0,1,2,3,4,5,6,7,8,3,9,10,3,4,5,11,11,8,6,2,5,6,7,8,12,12,13]
 
-    init(input: StuffItXBitReader, size: UInt64, limits: ReadLimits) throws {
-        self.input = input; remaining = size; self.limits = limits; _ = try input.byte()
+    init(input: StuffItXBitReader, size: UInt64?, limits: ReadLimits) throws {
+        self.input = input; remaining = size ?? limits.maxTotalUncompressedSize; knownLength = size != nil; self.limits = limits; _ = try input.byte()
     }
     deinit { column?.deallocate(); permutation?.deallocate() }
     private func block() throws {
-        guard try input.byte() == 0x77 else { throw KaitoError.malformed("StuffIt X Cyanide block marker") }
+        let marker = try input.byte()
+        if marker == 0xff && !knownLength { isFinished = true; return }
+        guard marker == 0x77 else { throw KaitoError.malformed("StuffIt X Cyanide block marker") }
         let count = try Checked.toInt(input.packedBE(4)), primary = try Checked.toInt(input.packedBE(4))
         // n は全 byte 値を受け入れ、実際に復号した rank が 256 以上のときだけ拒否する。
         let n = Int(try input.byte())
@@ -142,6 +145,7 @@ final class StuffItXCyanide: Decompressor {
             isFinished = true; return 0
         }
         if blockRemaining == 0 { try block() }
+        if isFinished { return 0 }
         let n = min(buffer.count, blockRemaining), output = buffer.bindMemory(to: UInt8.self)
         for i in 0..<n {
             bwtIndex = Int(permutation![bwtIndex]); output[i] = column![bwtIndex]

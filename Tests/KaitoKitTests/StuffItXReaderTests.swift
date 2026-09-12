@@ -77,7 +77,7 @@ final class StuffItXReaderTests: XCTestCase {
         }
     }
     func testUnsupportedPayloadIsAnEntryFailure() throws {
-        for method: UInt64 in [0,6,7] {
+        for method: UInt64 in [7,33,255] {
             let reader = try ArchiveReader.open(data: Self.archive(method: method))
             XCTAssertEqual(reader.entries.count, 5)
             XCTAssertThrowsError(try reader.read(reader.entries[0])) {

@@ -1,4 +1,4 @@
-// CC0 実書庫と支給 SHA-256。Brimstone catalog と対応済みデータ層の結果を区別する。
+// CC0 実書庫の catalog と fork を支給 SHA-256 で検証する。
 import CryptoKit
 import Foundation
 @testable import KaitoKit
@@ -10,7 +10,7 @@ final class StuffItXFixtureTests: XCTestCase {
     private func fixture(_ name: String) throws -> Data {
         try XCTUnwrap(Data(base64Encoded: Data(contentsOf: root.appendingPathComponent(name + ".b64")), options: .ignoreUnknownCharacters))
     }
-    func testTenHistoricalFixturesAndCatalogDependency() throws {
+    func testTenHistoricalFixturesAndCatalogs() throws {
         struct Item: Decodable { let file: String; let size: Int; let sha256: String }
         let manifest = try JSONDecoder().decode([Item].self, from: Data(contentsOf: root.appendingPathComponent("slice3-manifest.json")))
         XCTAssertEqual(manifest.count, 10)
@@ -19,9 +19,14 @@ final class StuffItXFixtureTests: XCTestCase {
             XCTAssertEqual(data.count, item.size); XCTAssertLessThanOrEqual(data.count, 40 * 1024)
             XCTAssertEqual(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), item.sha256)
             XCTAssertEqual(try FormatDetector.detect(data: data), .stuffItX)
-            XCTAssertThrowsError(try ArchiveReader.open(data: data)) {
-                guard case KaitoError.unsupportedMethod(let detail) = $0 else { return XCTFail("\(item.file): \($0)") }
-                XCTAssertEqual(detail, item.file.contains("recoverability") ? "StuffIt X Root algorithms 5:0" : "StuffIt X compression 0")
+            if item.file.contains("recoverability") {
+                XCTAssertThrowsError(try ArchiveReader.open(data: data)) {
+                    XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("StuffIt X Root algorithms 5:0"))
+                }
+            } else {
+                let reader = try ArchiveReader.open(data: data)
+                XCTAssertFalse(reader.entries.isEmpty)
+                if item.file.contains("comment") { XCTAssertNotNil(reader.entries[0].formatSpecific["archiveComment"]) }
             }
         }
     }

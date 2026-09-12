@@ -8,6 +8,7 @@ final class StuffItXDarkhorse: Decompressor {
     private let history: UnsafeMutablePointer<UInt8>
     private let mask: Int
     private var remaining: UInt64
+    private let knownLength: Bool
     private var position: UInt64 = 0
     private var cache = (0, 0, 0, 0)
     private var prediction: UInt8?
@@ -15,11 +16,11 @@ final class StuffItXDarkhorse: Decompressor {
     private var distance = 0
     private(set) var isFinished = false
 
-    init(input: StuffItXBitReader, exponent: Int, size: UInt64, limits: ReadLimits) throws {
+    init(input: StuffItXBitReader, exponent: Int, size: UInt64?, limits: ReadLimits) throws {
         guard exponent >= 0, exponent < 31 else { throw KaitoError.malformed("StuffIt X Darkhorse window exponent") }
         let capacity = max(1 << exponent, 1 << 20)
         try Checked.size(UInt64(capacity), limit: limits.maxDictionarySize)
-        self.input = input; remaining = size; mask = capacity - 1
+        self.input = input; remaining = size ?? limits.maxTotalUncompressedSize; knownLength = size != nil; mask = capacity - 1
         _ = try input.byte(); range = try StuffItXRangeDecoder(input: input, explicitLower: false)
         history = .allocate(capacity: capacity); history.initialize(repeating: 0, count: capacity)
         weights = .allocate(capacity: 13_017)
@@ -83,13 +84,21 @@ final class StuffItXDarkhorse: Decompressor {
     }
     func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
         if buffer.isEmpty || isFinished { return 0 }
-        if remaining == 0 { isFinished = true; return 0 }
+        if remaining == 0 {
+            if !knownLength {
+                guard pending == 0, try bit(Int(position & 3)) != 0, try !match() else { throw KaitoError.limitExceeded("StuffIt X Darkhorse output") }
+            }
+            isFinished = true; return 0
+        }
         let count = Int(min(UInt64(buffer.count), remaining))
         let destination = buffer.bindMemory(to: UInt8.self)
         var written = 0
         while written < count {
             if pending == 0, try bit(Int(position & 3)) != 0 {
-                guard try match() else { throw KaitoError.truncated }
+                if try !match() {
+                    guard !knownLength else { throw KaitoError.truncated }
+                    isFinished = true; break
+                }
             }
             let value: UInt8
             if pending > 0 { value = history[(Int(truncatingIfNeeded: position) - distance) & mask]; pending -= 1 }

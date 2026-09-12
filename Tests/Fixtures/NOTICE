@@ -583,6 +583,24 @@ Zstandard (2026-09-12, bd cooViewer-c1vj.3)
   Only RFC 8878, the supplied xxHash specification and existing KaitoKit sources were consulted;
   no web pages or third-party implementation sources were accessed. Runtime tests add 80 cases.
 
+StuffIt X slice 4（2026-09-13、bd cooViewer-gu28.4）
+  English 辞書の出自: XADMaster 内蔵の StuffItXEnglishDictionary.c を展開した語リスト
+  (research/THIRD_PARTY_DATA.md)。利用者が 2026-09-13 に組み込みを決定。
+  100,366 語、881,863 バイト、SHA-256
+  6095ebdbadd794ac50fe5b53b12a744b5833e046658777ee37dcb6da82512a31。
+  Python 標準 zlib で raw Deflate に圧縮し、StuffItXEnglishDictionary.swift の単一 base64
+  リテラルとして配布する。初回に KaitoKit の DeflateDecompressor と SHA-256 で検査する。
+  生成手順は Scripts/fixtures/make-stuffit-english-dictionary.py。
+  slice4-vectors.json は支給 JSON の routing 100×9、106×4、200×5、202×4 をそのまま保存したもの。
+  Iron の旧 4 本は declared 頻度上限、x86 の旧 2 本は五バイト末尾変換を期待しており、native と区別する。
+  slice4-iron-native-vectors.json の 8 本は Ch.08 / Ch.42 の数式から独立に作成した fixture。
+  先頭 4 本は旧 vector と同じ平文を native 上限で符号化し、後半は seed 9406 の run 履歴と
+  反復 context・空 raw・複数 block を含む。生成手順は Scripts/fixtures/make-stuffit-iron-vectors.py。
+  他実装のソースや Web は参照していない。slice 3 の Blend vector は全 4 submethod の出力一致へ更新した。
+  verify_slice4_corpus.py は支給 SHA / archive-verification.json と通常 CLI の出力を照合する。
+  Mac 7 の同じ CC0 ファイル集合の 16 書庫・包みを、Mac 9 レコードの名前付き全 fork と照合する。
+  圧縮書庫自体の SHA は wrapper の検証として数え、展開後の一致件数に加算しない。
+
 StuffIt X slice 3（2026-09-13、bd cooViewer-gu28.3）
   同じ CC0 コーパスから .sitx と wrapper 10 本を追加した。元ファイルは各 40 KiB 以下で、
   slice3-manifest.json に名前・サイズ・SHA-256 を記録する。recovery の BinHex は

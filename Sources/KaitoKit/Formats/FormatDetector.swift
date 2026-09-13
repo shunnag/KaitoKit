@@ -144,12 +144,17 @@ public enum FormatDetector {
     }
 
     // wrapper は一段だけ剥がす。内側の他形式へは再帰的に dispatch しない。
-    static func stuffItInput(source: any ByteSource, prefix: [UInt8]? = nil, limits: ReadLimits) throws -> StuffItEnvelope? {
+    static func stuffItInput(source: any ByteSource, prefix: [UInt8]? = nil, limits: ReadLimits,
+                             maximumSFXScanSize: UInt64 = 0) throws -> StuffItEnvelope? {
         let bytes = try prefix ?? readByteRange(source: source, offset: 0, count: Int(min(source.length, 512)))
         if TarReader.isPlausibleMemberHeader(bytes) { return nil }
         if bytes.starts(with: "StuffIt?".utf8) { throw KaitoError.unsupportedFormat }
         if StuffItHeader.signature(bytes) != nil || bytes.starts(with: "StuffIt!".utf8) {
             return StuffItEnvelope(data: source, resource: nil)
+        }
+        if bytes.starts(with: [0x4d, 0x5a]) {
+            guard let offset = try StuffItSFX.find(source: source, maximumScanSize: maximumSFXScanSize, limits: limits) else { return nil }
+            return StuffItEnvelope(data: try RebasedByteSource(source: source, baseOffset: offset), resource: nil)
         }
         // 強い先頭署名を持つ既存形式の payload を BinHex の説明文として探索しない。
         let nativePrefixes: [[UInt8]] = [
@@ -184,7 +189,7 @@ public enum FormatDetector {
             return .tar
         }
 
-        if !skipStuffIt, let envelope = try stuffItInput(source: source, prefix: prefix, limits: limits) {
+        if !skipStuffIt, let envelope = try stuffItInput(source: source, prefix: prefix, limits: limits, maximumSFXScanSize: sfxScanSize) {
             return try stuffItFormat(envelope.data)
         }
 

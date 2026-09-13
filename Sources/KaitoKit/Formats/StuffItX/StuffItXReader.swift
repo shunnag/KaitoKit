@@ -13,6 +13,9 @@ final class StuffItXReader: FormatReader {
     private let unavailableStreams: Set<UInt64>
     private var coordinators: [UInt64: StuffItXStreamCoordinator] = [:]
     private var coordinatorLimits: ReadLimits?
+    private(set) var resolvedPassword: String?
+    private let encryptedAuxiliaries: [UInt64: [UInt64]]
+    private var verifiedAuxiliaries = Set<UInt64>()
 
     private struct Fork {
         let owner: UInt64
@@ -25,6 +28,7 @@ final class StuffItXReader: FormatReader {
     init(source: any ByteSource, resourceFork: (any ByteSource)? = nil, options: ReaderOptions) throws {
         self.source = source; archiveResourceFork = resourceFork
         let limits = options.limits
+        var password = options.password
         let elements = try StuffItXElementParser(source: source, limits: limits).parse()
         var objects: [StuffItXElement] = [], objectIndex: [UInt64: Int] = [:]
         var forks: [Fork] = [], streams: [UInt64: StuffItXElement] = [:], streamOrder: [UInt64] = []
@@ -55,7 +59,11 @@ final class StuffItXReader: FormatReader {
             try Checked.size(size, limit: limits.maxMetadataSize)
             metadataSize = try Checked.add(metadataSize, size)
             try Checked.size(metadataSize, limit: limits.maxTotalMetadataSize)
-            let coordinator = StuffItXStreamCoordinator(source: source, element: element, size: size, limits: limits)
+            if element.algorithms.contains(where: { $0.key == 4 }), password == nil {
+                password = try options.passwordProvider?.password(for: .stuffItX)
+                guard password != nil else { throw KaitoError.passwordRequired }
+            }
+            let coordinator = StuffItXStreamCoordinator(source: source, element: element, size: size, limits: limits, password: password)
             let decoder = try coordinator.stream(offset: 0, length: size)
             let decoded = try Self.collect(decoder, size: size)
             let previous = index > 0 ? elements[index - 1] : nil
@@ -100,12 +108,16 @@ final class StuffItXReader: FormatReader {
             }
         }
         var byStream: [UInt64: [Fork]] = [:], auxiliaries: [UInt64: [String]] = [:]
+        var encryptedAuxiliaries: [UInt64: [UInt64]] = [:]
         for fork in forks {
             guard objectIndex[fork.owner] != nil else { throw KaitoError.malformed("StuffIt X missing fork owner") }
             guard streams[fork.stream] != nil else { throw KaitoError.unsupportedMethod("StuffIt X missing or segmented stream \(fork.stream)") }
             byStream[fork.stream, default: []].append(fork)
             if fork.kind > 1 {
                 auxiliaries[fork.owner, default: []].append("kind=\(fork.kind),stream=\(fork.stream),slot=\(fork.slot),forkLength=\(fork.length),streamLength=\(streams[fork.stream]?.attributes[5] ?? 0)")
+                if fork.kind == 3, streams[fork.stream]!.algorithms.contains(where: { $0.key == 4 }) {
+                    encryptedAuxiliaries[fork.owner, default: []].append(fork.stream)
+                }
             }
         }
         var descriptors: [UInt64: (StuffItXElement, UInt64)] = [:], unavailableStreams = Set<UInt64>()
@@ -142,7 +154,8 @@ final class StuffItXReader: FormatReader {
                 name: components.joined(separator: "/"), pathComponents: components,
                 kind: object.type == 4 ? .directory : (record.link && !resource ? .symlink : .file),
                 uncompressedSize: size, compressedSize: compressed, modificationDate: record.modified,
-                posixPermissions: record.permissions, isEncrypted: stream?.algorithms.contains { $0.key == 4 } ?? false,
+                posixPermissions: record.permissions,
+                isEncrypted: (stream?.algorithms.contains { $0.key == 4 } ?? false) || encryptedAuxiliaries[owner] != nil,
                 solidGroup: group, crc32: nil, methodDescription: object.type == 4 ? "Directory" : StuffItXCodec.name(stream?.compression),
                 formatSpecific: metadata))
             intervals.append((fork?.stream, offset, size)); referenced.insert(owner)
@@ -174,14 +187,17 @@ final class StuffItXReader: FormatReader {
                 total = try Checked.add(total, sum)
                 try Checked.size(total, limit: limits.maxTotalUncompressedSize)
                 // 非公開の補助 stream も実長の終端まで検証し、prefix を通常 fork と誤認させない。
-                do {
-                    let coordinator = StuffItXStreamCoordinator(source: source, element: element, size: sum, limits: limits)
-                    let decoder = try coordinator.stream(offset: 0, length: sum)
-                    try withUnsafeTemporaryAllocation(byteCount: 65_536, alignment: 16) { buffer in
-                        while try decoder.read(into: buffer) > 0 {}
+                // 暗号化補助 stream は列挙を妨げず、所有 entry の取得時に検証する。
+                if !element.algorithms.contains(where: { $0.key == 4 }) {
+                    do {
+                        let coordinator = StuffItXStreamCoordinator(source: source, element: element, size: sum, limits: limits)
+                        let decoder = try coordinator.stream(offset: 0, length: sum)
+                        try withUnsafeTemporaryAllocation(byteCount: 65_536, alignment: 16) { buffer in
+                            while try decoder.read(into: buffer) > 0 {}
+                        }
+                    } catch KaitoError.unsupportedMethod(let detail) {
+                        for fork in streamForks { auxiliaries[fork.owner, default: []].append("unsupportedMethod=\(detail)") }
                     }
-                } catch KaitoError.unsupportedMethod(let detail) {
-                    for fork in streamForks { auxiliaries[fork.owner, default: []].append("unsupportedMethod=\(detail)") }
                 }
             }
             for fork in streamForks.sorted(by: { $0.slot < $1.slot }) where fork.kind <= 1 {
@@ -193,6 +209,7 @@ final class StuffItXReader: FormatReader {
             if !referenced.contains(id) { try append(owner: id, fork: nil) }
         }
         entries = result; self.intervals = intervals; self.descriptors = descriptors; self.unavailableStreams = unavailableStreams
+        self.encryptedAuxiliaries = encryptedAuxiliaries; resolvedPassword = password
     }
 
     private static func collect(_ decoder: any Decompressor, size: UInt64) throws -> Data {
@@ -206,16 +223,41 @@ final class StuffItXReader: FormatReader {
         return data
     }
     func validateEncryptionSupport(for entry: ArchiveEntry) throws {
-        if entry.isEncrypted { throw KaitoError.unsupportedMethod("StuffIt X encryption") }
+        if let id = intervals[entry.index].stream, let (element, _) = descriptors[id] {
+            try StuffItXCrypto.validate(element.algorithms)
+        }
+    }
+    func setPassword(_ password: String?) {
+        guard resolvedPassword.map({ Array($0.utf8) }) != password.map({ Array($0.utf8) }) else { return }
+        resolvedPassword = password; verifiedAuxiliaries.removeAll()
+        for coordinator in coordinators.values { coordinator.setPassword(password) }
     }
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
         guard entries.indices.contains(entry.index), entries[entry.index] == entry else { throw KaitoError.notFound("StuffIt X entry") }
         let interval = intervals[entry.index]
+        if coordinatorLimits != limits {
+            coordinators.removeAll(); verifiedAuxiliaries.removeAll(); coordinatorLimits = limits
+        }
+        if let owner = entry.formatSpecific["objectID"].flatMap(UInt64.init) {
+            for id in encryptedAuxiliaries[owner] ?? [] where !verifiedAuxiliaries.contains(id) {
+                guard !unavailableStreams.contains(id), let (element, size) = descriptors[id] else {
+                    throw KaitoError.unsupportedMethod("StuffIt X mixed auxiliary slots")
+                }
+                let coordinator = coordinators[id] ?? StuffItXStreamCoordinator(source: source, element: element, size: size,
+                                                                                limits: limits, password: resolvedPassword)
+                coordinators[id] = coordinator
+                let auxiliary = try coordinator.stream(offset: 0, length: size)
+                try withUnsafeTemporaryAllocation(byteCount: 65_536, alignment: 16) { buffer in
+                    while try auxiliary.read(into: buffer) > 0 {}
+                }
+                verifiedAuxiliaries.insert(id)
+            }
+        }
         let decoder: any Decompressor
         if let id = interval.stream, let (element, size) = descriptors[id] {
             if unavailableStreams.contains(id) { throw KaitoError.unsupportedMethod("StuffIt X mixed auxiliary slots") }
-            if coordinatorLimits != limits { coordinators.removeAll(); coordinatorLimits = limits }
-            let coordinator = coordinators[id] ?? StuffItXStreamCoordinator(source: source, element: element, size: size, limits: limits)
+            let coordinator = coordinators[id] ?? StuffItXStreamCoordinator(source: source, element: element, size: size,
+                                                                            limits: limits, password: resolvedPassword)
             coordinators[id] = coordinator
             decoder = try coordinator.stream(offset: interval.offset, length: interval.length)
         } else { decoder = try CopyDecompressor(source: source, offset: 0, compressedSize: 0) }

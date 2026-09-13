@@ -14,11 +14,8 @@ public struct ReaderOptions: Sendable {
     /// clamped to one MiB, and zero disables executable-prefix scanning.
     public var maximumSFXScanSize: UInt64
 
-    /// Whether `Data` and arbitrary `ByteSource` opens inspect executable
-    /// prefixes for embedded ZIP, RAR, and 7-Zip markers.
-    ///
-    /// This is off by default because these inputs do not carry file-system
-    /// provenance. It does not affect the established LHA prefix recognition.
+    /// Data と任意 ByteSource で、実行形式 prefix 内の ZIP・RAR・7z・StuffIt 署名を探索する。
+    /// 既定は無効。既存の LHA prefix 認識には影響しない。
     public var scanForSFXInData: Bool
 
     /// The policy used to decode entry names.

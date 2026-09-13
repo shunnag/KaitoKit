@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- StuffIt slice 6（2026-09-13、bd `cooViewer-gu28.6`）: StuffIt X の continuing-MD5 派生、AES / Blowfish / DES の CFB、RC4、層状暗号、暗号化 catalog と PasswordProvider を追加した。MZ `.exe` 内の classic / StuffIt 5 / StuffIt X を header 検証付き署名走査で開く。[検証記録](Documentation/verification/2026-09-13-stuffit-slice6.md)。
+
 - StuffIt slice 5（2026-09-13、bd `cooViewer-gu28.5`）: Huffman の 10 bit 表引きと method 13 の ARC 除去、Arsenic の正規化、Cyanide の slot 判定を高速化した。250 書庫の全 10,679 行と敵対的入力 7,086 件の新旧結果が一致。採用・撤回した変更の A/B と XADMaster 比較は [検証記録](Documentation/verification/2026-09-13-stuffit-slice5.md) に記載。
 
 - StuffIt X slice 4（2026-09-13、bd `cooViewer-gu28.4`）: Brimstone（0、Blend 3）と意味論に従う 12 バイト arena、Iron（6、BWT/ST4・MTF/adaptive ranking）、English（組み込み辞書）・native x86 前処理を追加した。中間出力長を最終 fork 長から分離し、前処理後に checksum を検証する。CC0 対象 20 書庫と SMSSenderPro3osx.sitx 全 95 entry の支給 SHA が一致。native profile と旧 vector、比較スクリプトのオラクル範囲の差は [検証記録](Documentation/verification/2026-09-13-stuffit-slice4.md) に記載。

@@ -202,6 +202,18 @@ KaitoKit のどの部分に効くかを併記する。
 > on public specifications (RFC 1740, MacBinary, RFC 1951, NIST SP 800-38A, RFC 1321), on the CC0
 > ssokolow test corpus, and on Apple's CommonCrypto / CryptoKit for standard primitives.
 
+StuffIt slice 6（2026-09-13、bd `cooViewer-gu28.6`）は Ch.13 全体、Ch.03 の順序付き
+algorithm record、Ch.02 の Windows self-extracting wrapper 節、支給 RFC 1321 を参照した。
+4 入力の SHA256SUMS は一致。`MD5Transform.swift` は RFC 1321 の圧縮関数を自前で実装し、
+snapshot の byte count・buffer 継続は Ch.13 の数式から `StuffItXCrypto.swift` に実装した。
+AES / DES / Blowfish は CommonCrypto の `CCCrypt`（ECB、padding なし）の一 block 暗号化のみ。
+CFB は自前、RC4 は既存 `StuffItRC4` を使い、CommonCrypto の利用方法は既存 RAR / 7z を参照した。
+CommonCrypto の Blowfish 最小鍵長は 8 のため、5〜7 バイトは周期を保って 2 回並べる。
+KDF・verifier・鍵スライスは元の長さで計算する。password bytes は Ch.13 に記載された
+Mac SDK 境界の結論に従い UTF-8 とし、正規化も NUL 終端処理もしない。
+外部実装ソース・リンク先・Web・vendor binary は開いていない。
+詳細な入力ハッシュ、受理 profile と照合結果は [slice 6 検証記録](verification/2026-09-13-stuffit-slice6.md) に記載する。
+
 StuffIt X slice 4（2026-09-13、bd `cooViewer-gu28.4`）は指定の Ch.09 / Ch.08 / Ch.42 /
 Ch.10 / Ch.38、Ch.07 §2、stuffitx-vectors.json と English 語リストを実装入力とした。
 これら 8 ファイルの SHA256SUMS を照合した。既存 KaitoKit の slice 3 の range decoder と coordinator を共有する。
@@ -695,6 +707,16 @@ source を実装入力にしていない。是正として、以後 The Unarchiv
 prose ページであることを確認し、`source-archive` を含む URL は取得しない。
 
 ## 11. 実装記録(2026-09-06〜13)
+
+- StuffIt slice 6（2026-09-13、bd `cooViewer-gu28.6`）: continuing-MD5（256 round）、
+  2 バイト verifier、CFB / RC4 と複数 key-4 の逆順復号を framed 入力の直後に追加した。
+  coordinator は鍵を保持し、password 変更時だけ破棄する。catalog は open 時に password を解決し、
+  データ・暗号化補助 stream は列挙後の取得時に復号する。MZ `.exe` は classic の初回 entry CRC、
+  StuffIt 5 の archive header CRC、StuffIt X の Root header 走査に通る最初の候補へ rebase する。
+  全 1,034 tests（40 skip、失敗 0）、build / test / release の警告 0。
+  `.exe` 21 本は全 fork 一致、暗号 `.sitx` は 15 本完全一致・DES 2009 の JPEG 一つだけ未対応。
+  40 暗号要素は 38 CRC・catalog 圧縮入力・JPEG 圧縮入力の照合で検証した。
+  受理鍵長・SFX 上限・試験結果は [検証記録](verification/2026-09-13-stuffit-slice6.md) を参照。
 
 - StuffIt slice 5（2026-09-13、bd `cooViewer-gu28.5`）: 共通 Huffman 木に MSB/LSB 各 10 bit の
   固定長一次表と元の木への fallback を追加した。既存の符号割当・不安定 partition・明示木を保ち、

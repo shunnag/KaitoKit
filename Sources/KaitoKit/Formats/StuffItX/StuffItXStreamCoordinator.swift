@@ -7,6 +7,8 @@ final class StuffItXStreamCoordinator {
     let element: StuffItXElement
     let size: UInt64
     private let limits: ReadLimits
+    private var password: String?
+    private(set) var crypto: StuffItXCrypto?
     private var decoder: (any Decompressor)?
     private var position: UInt64 = 0
     private var generation: UInt64 = 0
@@ -16,8 +18,15 @@ final class StuffItXStreamCoordinator {
     private var expected: [(UInt64, [UInt8])] = []
     var hasRetainedDecoderState: Bool { decoder != nil }
 
-    init(source: any ByteSource, element: StuffItXElement, size: UInt64, limits: ReadLimits) {
+    init(source: any ByteSource, element: StuffItXElement, size: UInt64, limits: ReadLimits, password: String? = nil) {
         self.source = source; self.element = element; self.size = size; self.limits = limits
+        self.password = password
+    }
+    func setPassword(_ password: String?) {
+        // String の正準等価比較では、異なる UTF-8 password の鍵を再利用してしまう。
+        guard self.password.map({ Array($0.utf8) }) != password.map({ Array($0.utf8) }) else { return }
+        self.password = password; crypto = nil; decoder = nil; verified = false; position = 0
+        generation &+= 1
     }
     static func validateAlgorithms(_ algorithms: [StuffItXAlgorithm]) throws {
         guard algorithms.filter({ $0.key == 1 }).count <= 1 else { throw KaitoError.unsupportedMethod("StuffIt X repeated compression") }
@@ -29,15 +38,21 @@ final class StuffItXStreamCoordinator {
                 guard algorithm.value <= 1 else { throw KaitoError.unsupportedMethod("StuffIt X digest \(algorithm.value)") }
             case 3:
                 guard algorithm.value == 0 || algorithm.value == 2 else { throw KaitoError.unsupportedMethod("StuffIt X preprocessing \(algorithm.value)") }
-            case 4: throw KaitoError.unsupportedMethod("StuffIt X encryption \(algorithm.value)")
+            case 4: break
             case 5: throw KaitoError.unsupportedMethod("StuffIt X recovery \(algorithm.value)")
             default: throw KaitoError.unsupportedMethod("StuffIt X algorithm \(algorithm.key):\(algorithm.value)")
             }
         }
+        try StuffItXCrypto.validate(algorithms)
     }
     private func restart() throws {
         try Self.validateAlgorithms(element.algorithms)
-        let input = try StuffItXFramedInput(source: source, ranges: element.data)
+        var input: any ByteSource = try StuffItXFramedInput(source: source, ranges: element.data)
+        if element.algorithms.contains(where: { $0.key == 4 }) {
+            guard let password else { throw KaitoError.passwordRequired }
+            if crypto == nil { crypto = try StuffItXCrypto(password: password, algorithms: element.algorithms) }
+            input = try crypto!.decrypt(input)
+        }
         var expected: [(UInt64, [UInt8])] = []
         let digests = element.algorithms.filter { $0.key == 2 || $0.key == 6 }
         if !digests.isEmpty {

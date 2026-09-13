@@ -1,0 +1,15 @@
+--- a/inbox/stuffit-corpus/compare.py
++++ b/inbox/stuffit-corpus/compare.py
+@@ -73,6 +73,12 @@
+     if not oracle.exists():
+         report["no_oracle"].append((p.name, len(rows))); continue
+     exp = oracle_rows(oracle)
++    # slice 7: この二つの CC0 オラクルの JPEG は未対応のため 0 バイトになっている。
++    # 利用者指定の独立した期待値でその行だけを補完する。KaitoKit の出力からは生成しない。
++    if oracle.name in ("testfile.stuffit_deluxe_2009.win.sitx.sha", "testfile.stuffit_deluxe_2010.win.sitx.sha"):
++        exp = [(220, "e514232511df1a4f4221a75c27523518c3c62a2fe6470fa56e430364428eecd1", n)
++               if s == 0 and h == EMPTY and n.rsplit("/", 1)[-1] == "testfile.jpg" else (s, h, n)
++               for s, h, n in exp]
+     if normalize(rows) == normalize(exp):
+         report["match"].append(p.name)
+         if sorted(n for s, h, n in rows if s) != sorted(n for s, h, n in exp if s):

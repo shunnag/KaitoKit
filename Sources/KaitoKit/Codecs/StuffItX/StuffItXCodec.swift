@@ -21,6 +21,7 @@ enum StuffItXCodec {
             try Checked.size(source.length - 3, limit: limits.maxTotalUncompressedSize)
             return decoder
         case 6: return try StuffItXIron(input: input, size: size, limits: limits)
+        case 7: return try StuffItXJPEGDecoder(source: source, size: size, limits: limits)
         default: throw KaitoError.unsupportedMethod("StuffIt X compression \(method)")
         }
     }

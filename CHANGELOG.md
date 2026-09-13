@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- StuffIt slice 7（2026-09-13、bd `cooViewer-gu28.7`）: JPEG 再圧縮（compression 7、mode 0/1/2）のバイト完全復元を追加した。利用者の独立 Python 実装を関数単位で移植し、固定長モデルと行／scan 出力、`maxJPEGBlocks`（既定 2,097,152）、JPEG の key-6 CRC 範囲を接続した。入力不足・破損・未対応 profile を分類し、敵対的テストの seed／回数を環境変数で指定できるようにした。292 ストリームは 280 一致・参照と同じ 12 拒否・差分 0。詳細・歴史的 recovery 例の制約は [検証記録](Documentation/verification/2026-09-13-stuffit-slice7.md)。
+
 - StuffIt slice 6（2026-09-13、bd `cooViewer-gu28.6`）: StuffIt X の continuing-MD5 派生、AES / Blowfish / DES の CFB、RC4、層状暗号、暗号化 catalog と PasswordProvider を追加した。MZ `.exe` 内の classic / StuffIt 5 / StuffIt X を header 検証付き署名走査で開く。[検証記録](Documentation/verification/2026-09-13-stuffit-slice6.md)。
 
 - StuffIt slice 5（2026-09-13、bd `cooViewer-gu28.5`）: Huffman の 10 bit 表引きと method 13 の ARC 除去、Arsenic の正規化、Cyanide の slot 判定を高速化した。250 書庫の全 10,679 行と敵対的入力 7,086 件の新旧結果が一致。採用・撤回した変更の A/B と XADMaster 比較は [検証記録](Documentation/verification/2026-09-13-stuffit-slice5.md) に記載。

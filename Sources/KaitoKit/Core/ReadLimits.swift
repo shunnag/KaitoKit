@@ -33,6 +33,10 @@ public struct ReadLimits: Sendable, Equatable {
     /// Maximum dictionary allocation accepted from compressed metadata.
     public var maxDictionarySize: UInt64
 
+    /// StuffIt X JPEG の係数ブロック数上限。既定は 2,097,152。
+    /// 24 MP の 4:4:4 と 48 MP の 4:2:0 を含み、progressive の係数 plane は最大 512 MiB。
+    public var maxJPEGBlocks: Int
+
     /// RAR 多巻書庫と `.001` バイト分割セットで受理する最大巻数。既定は 128。
     /// 分割探索できる先頭巻では 0 以下を拒否し、1 なら兄弟が実在する場合だけ上限超過。
     public var maxVolumeCount: Int
@@ -60,6 +64,7 @@ public struct ReadLimits: Sendable, Equatable {
     ///   - maxPathComponentCount: Maximum components in one path. The default is 1,024.
     ///   - maxTotalMetadataSize: Maximum aggregate retained metadata. The default is 256 MiB.
     ///   - maxDictionarySize: Maximum codec dictionary size. The default is 1 GiB.
+    ///   - maxJPEGBlocks: StuffIt X JPEG の係数ブロック数上限。既定は 2,097,152（係数 plane は最大 512 MiB）。
     ///   - maxVolumeCount: RAR 多巻・`.001` バイト分割セットの最大巻数。既定は 128。
     ///   - maxRAR5HeaderKDFWork: Maximum aggregate RAR5 encrypted-header KDF
     ///     work. The default permits four derivations at the maximum accepted
@@ -75,6 +80,7 @@ public struct ReadLimits: Sendable, Equatable {
         maxPathComponentCount: Int = 1_024,
         maxTotalMetadataSize: UInt64 = 256 * 1_024 * 1_024,
         maxDictionarySize: UInt64 = 1 * 1_024 * 1_024 * 1_024,
+        maxJPEGBlocks: Int = 2_097_152,
         maxVolumeCount: Int = 128,
         maxRAR5HeaderKDFWork: UInt64 = 4 * ((UInt64(1) << 24) + 32)
     ) {
@@ -88,6 +94,7 @@ public struct ReadLimits: Sendable, Equatable {
         self.maxPathComponentCount = max(0, maxPathComponentCount)
         self.maxTotalMetadataSize = maxTotalMetadataSize
         self.maxDictionarySize = maxDictionarySize
+        self.maxJPEGBlocks = max(0, maxJPEGBlocks)
         self.maxVolumeCount = max(0, maxVolumeCount)
         self.maxRAR5HeaderKDFWork = maxRAR5HeaderKDFWork
     }

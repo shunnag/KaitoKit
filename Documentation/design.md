@@ -719,6 +719,22 @@ prose ページであることを確認し、`source-archive` を含む URL は�
 
 ## 11. 実装記録(2026-09-06〜13)
 
+- StuffIt slice 8（2026-09-13、bd `cooViewer-gu28.8`）: `.file` で末尾 2 成分が
+  `..namedfork/rsrc` の entry は data ファイルの resource fork に streaming で書く。
+  parent dirfd と `fstatat(AT_SYMLINK_NOFOLLOW)` で対象を検査し、未存在時だけ
+  `openat(O_CREAT|O_EXCL|O_NOFOLLOW)` で空 data ファイルを作る。symlink / directory は拒否し、
+  上書き禁止時は `O_TRUNC` 前に fork の `fstat.st_size` を検査する。属性と抽出 provenance は
+  data inode に帰属させ、通常ファイルの検証後 `renameat` は変更しない。
+  CLI は data / hardlink → resource → 深い directory の順に展開する。
+  classic / SIT5 の `name` は reader で `pathComponents` を結合した完全な相対パスとし、
+  一覧・Compat・展開へ同じ親階層を渡す。Extractor に書庫形式ごとの path 分岐は持たせない。
+  書庫の判定が Shift_JIS で CP932 から単名 fallback へ落ちた名だけ CoreFoundation の
+  MacJapanese decode を試す。厳密 UTF-8 と CP932 の成功結果、SITX の名前処理は維持する。
+  0xFF の U+2026 に付く round-trip 私用タグ U+F87F は除く。公開 API・codec・容器 parser・暗号は変更しない。
+  全 1,046 tests（41 skip、失敗 0）、警告 0。指定 3 書庫は抽出失敗 0、90 data / 84 resource の SHA が一致し、
+  `compare.py` は変更前と同じ mismatch 0。検証結果と実装入力は
+  [slice 8 検証記録](verification/2026-09-13-stuffit-slice8.md) に記載する。
+
 - StuffIt slice 7（2026-09-13、bd `cooViewer-gu28.7`）: compression 7 の mode 0 / 色 baseline mode 1 /
   baseline・progressive mode 2 を追加した。整数分布の重複アドレス、更新順、i16、符号付き切捨て、
   SCALE、MCU hint、component slot、scan ごとの Huffman snapshot と最終 byte を保持する。
@@ -731,7 +747,6 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   JPEG の key-6 digest は圧縮入力、単層暗号では verifier・IV/salt を除く暗号文で検証する。
   コーパス 292 本は 280 一致・参照と同じ 12 拒否・差分 0。歴史的 Root recovery 例の制約、
   性能・ASan・関数別固定値は [slice 7 検証記録](verification/2026-09-13-stuffit-slice7.md)。
-
 
 - StuffIt slice 6（2026-09-13、bd `cooViewer-gu28.6`）: continuing-MD5（256 round）、
   2 バイト verifier、CFB / RC4 と複数 key-4 の逆順復号を framed 入力の直後に追加した。

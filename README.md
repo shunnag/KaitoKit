@@ -35,7 +35,25 @@ for entry in archive.entries {
 }
 
 let destination = URL(fileURLWithPath: "/tmp/unpacked", isDirectory: true)
+func isResourceFork(_ entry: ArchiveEntry) -> Bool {
+    entry.kind == .file && entry.pathComponents.suffix(2).elementsEqual(["..namedfork", "rsrc"])
+}
+var deferred: [ArchiveEntry] = []
 for entry in archive.entries where entry.kind != .directory {
+    if isResourceFork(entry) {
+        deferred.append(entry)
+    } else if entry.kind == .hardlink,
+              let target = entry.formatSpecific["hardLinkTargetIndex"].flatMap(Int.init),
+              target > entry.index {
+        deferred.append(entry)
+    } else {
+        _ = try archive.extract(entry, to: destination)
+    }
+}
+for entry in deferred where !isResourceFork(entry) {
+    _ = try archive.extract(entry, to: destination)
+}
+for entry in deferred where isResourceFork(entry) {
     _ = try archive.extract(entry, to: destination)
 }
 let directories = archive.entries.filter { $0.kind == .directory }.sorted {
@@ -53,7 +71,11 @@ for entry in directories {
 更新日時を保持できます。`kaito extract` もこの順序を使用します。
 本文を持たない hard link は、同じ `ArchiveReader` で同じ出力ルートへ参照先を先に
 展開した場合だけ作成されます。この provenance は出力ルートを切り替えるか `reopen()`
-するとリセットされるため、上のように書庫順で展開してください。
+するとリセットされます。書庫順を保ち、前方参照だけ参照先の展開後まで遅らせてください。
+resource fork（`.file` かつ末尾が `..namedfork/rsrc`）は、data fork と hard link の後、
+directory の前に展開します。data fork の不可分置換は既存 resource fork も失うため、この順序が必要です。
+単発の `extract` は対象 data ファイルがなければ空の通常ファイルを作り、resource fork を付けます。
+`overwriteExisting: false` は既存の非空 resource fork に `EEXIST` を返します。
 展開中の出力ルートは呼出側が排他的に所有し、別スレッドや別プロセスから変更しないでください。
 
 `ArchiveReader` はスレッドセーフではありません。並列展開では `reopen()` で同じ
@@ -69,7 +91,11 @@ for entry in directories {
 > modification dates recorded in the archive. `kaito extract` uses the same order.
 > A hard link with no body of its own is created only when the same `ArchiveReader` has already
 > extracted its target into the same output root. That provenance is reset when you switch output
-> roots or call `reopen()`, so extract in archive order as shown above.
+> roots or call `reopen()`. Keep archive order, deferring forward links until their targets exist.
+> Extract resource forks (`.file` with the final components `..namedfork/rsrc`) after data and hard
+> links, before directories. Atomic data-file replacement discards any existing resource fork.
+> A single resource extraction creates an empty regular data file if missing. With
+> `overwriteExisting: false`, an existing nonempty resource fork fails with `EEXIST`.
 > The caller owns the output root exclusively during extraction; do not modify it from another
 > thread or process.
 >
@@ -157,6 +183,9 @@ for entry in directories {
 StuffIt の `ArchiveFormat` は classic / StuffIt 5 とも `.stuffIt` (`"sit"`) です。
 `formatSpecific["container"]` が `classic` / `stuffit5` を示し、`macType`・`macCreator`・
 `finderFlags`・`fork` を保持します。resource fork は `<名前>/..namedfork/rsrc` として公開します。
+classic / StuffIt 5 も `ArchiveEntry.name` は親フォルダを含む完全な相対パスです。
+classic / StuffIt 5 で書庫の名前判定が Shift_JIS の場合、CP932 で読めない個別名だけ
+MacJapanese で再試行します。`nameEncoding` は `.shiftJIS` のままです。
 wrapper 自身の resource fork も reader が保持し、`SitC` または StuffIt 5 の書庫コメントを
 最初の entry の `formatSpecific["comment"]` に公開します。名前は `EncodingPolicy` に従い、
 未宣言の旧 Mac 名には MacRoman を既定候補として使います。
@@ -552,6 +581,8 @@ StuffIt X は `solid=<stream ID>`（独立 fork は `-1`）も表示します。
 `sha` は支給 XADMaster オラクルに合わせ、既定では data fork のみを検証・表示します。
 resource だけのファイルは空 data fork の行を表示します。`sha --forks` は公開 entry の
 全 fork を検証・表示します。StuffIt の失敗詳細は stderr にだけ出し、stdout の行は数値サイズを保ちます。
+`extract` は data / hardlink → resource fork → directory の順に処理し、resource-only entry は
+空の通常ファイルに `com.apple.ResourceFork` を付けます。[展開・日本語名の検証記録](Documentation/verification/2026-09-13-stuffit-slice8.md)。
 支給 `compare.py`、password 付き StuffIt X・`.exe` は [slice 6 検証記録](Documentation/verification/2026-09-13-stuffit-slice6.md)、
 JPEG の 292 ストリームと Windows 2009 DES の追加照合は [slice 7 検証記録](Documentation/verification/2026-09-13-stuffit-slice7.md) に記載しています。
 

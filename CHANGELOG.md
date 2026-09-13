@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- StuffIt slice 8（2026-09-13、bd `cooViewer-gu28.8`）: resource fork を data ファイルの実 fork に展開し、CLI は data / hardlink の後に書き込む。resource-only は空の通常ファイルを作成し、非空 fork の上書き禁止と symlink 拒否を追加した。classic / SIT5 の `ArchiveEntry.name` を親フォルダ付きの完全な相対パスへ修正し、一覧・Compat・展開で同じ階層を保持する。Shift_JIS 名で CP932 decode に失敗した場合は MacJapanese を再試行する。[検証記録](Documentation/verification/2026-09-13-stuffit-slice8.md)。
+
 - StuffIt slice 7（2026-09-13、bd `cooViewer-gu28.7`）: JPEG 再圧縮（compression 7、mode 0/1/2）のバイト完全復元を追加した。利用者の独立 Python 実装を関数単位で移植し、固定長モデルと行／scan 出力、`maxJPEGBlocks`（既定 2,097,152）、JPEG の key-6 CRC 範囲を接続した。入力不足・破損・未対応 profile を分類し、敵対的テストの seed／回数を環境変数で指定できるようにした。292 ストリームは 280 一致・参照と同じ 12 拒否・差分 0。詳細・歴史的 recovery 例の制約は [検証記録](Documentation/verification/2026-09-13-stuffit-slice7.md)。
 
 - StuffIt slice 6（2026-09-13、bd `cooViewer-gu28.6`）: StuffIt X の continuing-MD5 派生、AES / Blowfish / DES の CFB、RC4、層状暗号、暗号化 catalog と PasswordProvider を追加した。MZ `.exe` 内の classic / StuffIt 5 / StuffIt X を header 検証付き署名走査で開く。[検証記録](Documentation/verification/2026-09-13-stuffit-slice6.md)。

@@ -43,8 +43,16 @@ final class StuffItReader: FormatReader {
         var pathBytes = UInt64(archiveComment?.utf8.count ?? 0)
         try Checked.size(Checked.add(pathBytes, parser.metadataSize), limit: options.limits.maxTotalMetadataSize)
         for record in records {
-            let resolved = EncodingDetector.resolveUndeclaredName(bytes: record.rawName, policy: options.encodingPolicy,
-                                                                  archiveEncoding: encoding).string
+            let detection = EncodingDetector.resolveUndeclaredName(bytes: record.rawName, policy: options.encodingPolicy,
+                                                                   archiveEncoding: encoding)
+            var resolved = detection.string
+            // CP932 に成功した名と自動判定の厳密 UTF-8 は維持し、単名 fallback だけ再試行する。
+            let decodedAsCP932 = detection.encoding == .shiftJIS && detection.confidence > 0
+            let strictUTF8 = detection.encoding == .utf8 && detection.confidence == 1
+            if encoding == .shiftJIS, !decodedAsCP932, !strictUTF8,
+               let macJapanese = EncodingDetector.decodeMacJapanese(bytes: record.rawName) {
+                resolved = macJapanese
+            }
             let suffix = record.resource ? [resolved, "..namedfork", "rsrc"] : [resolved]
             let parent = record.parent.map { result[$0].pathComponents } ?? []
             guard parent.count + suffix.count <= options.limits.maxPathComponentCount else { throw KaitoError.limitExceeded("StuffIt path components") }
@@ -55,7 +63,7 @@ final class StuffItReader: FormatReader {
             if result.isEmpty, let archiveComment { metadata["comment"] = archiveComment }
             if !record.directory { metadata["fork"] = record.resource ? "resource" : "data" }
             result.append(ArchiveEntry(index: result.count, rawName: RawName(bytes: record.rawName, isDirectoryHint: record.directory),
-                name: suffix.joined(separator: "/"), pathComponents: path, kind: record.directory ? .directory : .file,
+                name: path.joined(separator: "/"), pathComponents: path, kind: record.directory ? .directory : .file,
                 uncompressedSize: record.size, compressedSize: record.stored,
                 modificationDate: Date(timeIntervalSince1970: Double(record.modified) - 2_082_844_800),
                 posixPermissions: nil, isEncrypted: record.encrypted, solidGroup: -1, crc32: nil,

@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 /// The result of resolving encoded name bytes.
@@ -151,6 +152,17 @@ public enum EncodingDetector {
     /// Strictly decodes bytes using a caller-selected encoding.
     public static func decode(bytes: [UInt8], as encoding: String.Encoding) -> String? {
         String(data: Data(bytes), encoding: encoding)
+    }
+
+    // StuffIt の Shift_JIS 名だけに用いる、旧 Mac 固有バイトの再試行。
+    static func decodeMacJapanese(bytes: [UInt8]) -> String? {
+        let encoding = CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.macJapanese.rawValue)
+        )
+        // CoreFoundation は 0xFF を U+2026 + round-trip 用の私用タグ U+F87F にする。
+        // ファイル名には表示文字の ellipsis だけを保持する。
+        return decode(bytes: bytes, as: String.Encoding(rawValue: encoding))?
+            .replacingOccurrences(of: "\u{2026}\u{F87F}", with: "\u{2026}")
     }
 
     // 各入力と同じ並びを保ちながら、書庫名をまとめて変換する。

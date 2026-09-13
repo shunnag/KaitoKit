@@ -47,7 +47,7 @@ final class StuffItCorpusTests: XCTestCase {
             }
             for expected in spec.entries {
                 let entry = try XCTUnwrap(reader.entries.first { $0.pathComponents == expected.path }, "\(spec.file): \(expected.name)")
-                XCTAssertEqual(entry.name, expected.name); XCTAssertEqual(entry.uncompressedSize, expected.size)
+                XCTAssertEqual(entry.name, expected.path?.joined(separator: "/")); XCTAssertEqual(entry.uncompressedSize, expected.size)
                 XCTAssertEqual(entry.kind == .directory ? "directory" : entry.formatSpecific["fork"] ?? "", expected.fork)
                 if spec.encrypted {
                     if entry.isEncrypted {
@@ -74,6 +74,7 @@ final class StuffItCorpusTests: XCTestCase {
         for row in rows {
             let name = row.name + (row.fork == "resource" ? "/..namedfork/rsrc" : "")
             let entry = try XCTUnwrap(reader.entries.first { $0.pathComponents.joined(separator: "/") == name && $0.formatSpecific["fork"] == row.fork })
+            XCTAssertEqual(entry.name, name)
             XCTAssertEqual(entry.uncompressedSize, row.size)
             XCTAssertEqual(sha(try reader.read(entry)), row.sha256, name)
         }
@@ -106,7 +107,7 @@ final class StuffItCorpusTests: XCTestCase {
             var actual: [String] = []
             for entry in reader.entries where entry.formatSpecific["fork"] == "data" && entry.uncompressedSize != 0 {
                 let data = try reader.read(entry)
-                actual.append("\(data.count)\t\(sha(data))\t\(entry.pathComponents.joined(separator: "/"))")
+                actual.append("\(data.count)\t\(sha(data))\t\(entry.name)")
             }
             XCTAssertEqual(actual.sorted(), expected.sorted(), name)
         }

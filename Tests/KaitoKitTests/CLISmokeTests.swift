@@ -4,6 +4,52 @@ import KaitoKit
 import XCTest
 
 final class CLISmokeTests: XCTestCase {
+    func testStuffItExtractionDefersResourcesAndPreservesParentPaths() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let fixtureRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Fixtures/stuffit")
+        let executable = try findKaitoExecutable()
+        for fixture in ["jp-sjis.sit", "jp-macjp.sit", "jp-euc.sit"] {
+            let source = fixtureRoot.appendingPathComponent(fixture)
+            let reader = try ArchiveReader.open(url: source)
+            let listing = try runKaito(executable, arguments: ["list", source.path])
+            XCTAssertTrue(listing.contains("\t第１巻/ページ０１.jpg\t"), listing)
+            let output = temporary.appendingPathComponent(fixture)
+            _ = try runKaito(executable, arguments: ["extract", source.path, "-o", output.path])
+            for entry in reader.entries where entry.kind == .file {
+                let path = output.appendingPathComponent(entry.pathComponents.joined(separator: "/"))
+                XCTAssertEqual(try Data(contentsOf: path), try reader.read(entry), entry.name)
+            }
+        }
+    }
+
+    func testResourceForkRunsAfterHardLinksAndBeforeDirectoryMetadata() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        let output = temporary.appendingPathComponent("out")
+        let folder = output.appendingPathComponent("folder")
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+            try? FileManager.default.removeItem(at: temporary)
+        }
+        let archive = temporary.appendingPathComponent("fork-and-link.tar")
+        try TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "folder/", type: 0x35, mode: 0o500),
+            HandTarEntry(name: "folder/alias/..namedfork/rsrc", contents: Data([3, 4])),
+            HandTarEntry(name: "folder/image", contents: Data([1, 2])),
+            HandTarEntry(name: "folder/alias", type: 0x31, linkName: "folder/image"),
+        ]).write(to: archive)
+        _ = try runKaito(findKaitoExecutable(), arguments: ["extract", archive.path, "-o", output.path])
+        for name in ["image", "alias"] {
+            let file = folder.appendingPathComponent(name)
+            XCTAssertEqual(try Data(contentsOf: file), Data([1, 2]))
+            XCTAssertEqual(try Data(contentsOf: file.appendingPathComponent("..namedfork/rsrc")), Data([3, 4]))
+        }
+        let attributes = try FileManager.default.attributesOfItem(atPath: folder.path)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o500)
+        XCTAssertEqual((attributes[.modificationDate] as? Date)?.timeIntervalSince1970, 1_700_000_000)
+    }
+
     func testSplitSevenZipListAndSHAMatchWholeArchive() throws {
         let bytes = try ZipTestSupport.checkedInFixture("sevenzip/chain-lzma-lzma-lzma2-bcj2.7z")
         let directory = try ZipTestSupport.temporaryDirectory(label: "cli-split-7z")

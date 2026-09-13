@@ -224,15 +224,22 @@ private func runExtract(_ arguments: [String]) throws {
         }
     }
     var deferred: [ArchiveEntry] = []
+    func isResourceFork(_ entry: ArchiveEntry) -> Bool {
+        entry.kind == .file && entry.pathComponents.suffix(2).elementsEqual(["..namedfork", "rsrc"])
+    }
     for entry in reader.entries where entry.kind != .directory {
         // 前方参照は実体の展開後まで待ち、既存の後方参照の順序を保つ。
-        if entry.kind == .hardlink,
+        if isResourceFork(entry) {
+            deferred.append(entry)
+        } else if entry.kind == .hardlink,
            let targetText = entry.formatSpecific["hardLinkTargetIndex"],
            let targetIndex = Int(targetText), targetIndex > entry.index {
             deferred.append(entry)
         } else { extract(entry) }
     }
-    for entry in deferred { extract(entry) }
+    for entry in deferred where !isResourceFork(entry) { extract(entry) }
+    // data fork の renameat は inode を置換するため、全 data/hardlink の後に書く。
+    for entry in deferred where isResourceFork(entry) { extract(entry) }
     // 部分的な失敗後も子の作成を終え、ディレクトリの最終 mode/mtime を復元する。
     let directories = reader.entries
         .filter { $0.kind == .directory }

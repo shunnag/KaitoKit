@@ -32,6 +32,7 @@ final class StuffItHardeningTests: XCTestCase {
         let reader = try ArchiveReader.open(data: data)
         XCTAssertEqual(reader.entries[0].kind, .directory)
         XCTAssertEqual(reader.entries[1].pathComponents, ["A", "A"])
+        XCTAssertEqual(reader.entries[1].name, "A/A")
         XCTAssertEqual(try reader.read(reader.entries[1]), Data([65, 66]))
     }
     func testSIT5CommentParentAndMarkerBoundaries() throws {

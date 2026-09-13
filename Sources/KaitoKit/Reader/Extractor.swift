@@ -329,13 +329,23 @@ enum Extractor {
             }
 
         case .file:
-            extractedIdentity = try extractRegularFile(
-                entry,
-                components: components,
-                below: rootDescriptor,
-                from: reader,
-                options: options
-            )
+            if entry.pathComponents.suffix(2).elementsEqual(["..namedfork", "rsrc"]) {
+                extractedIdentity = try extractResourceFork(
+                    entry,
+                    components: Array(components.dropLast(2)),
+                    below: rootDescriptor,
+                    from: reader,
+                    options: options
+                )
+            } else {
+                extractedIdentity = try extractRegularFile(
+                    entry,
+                    components: components,
+                    below: rootDescriptor,
+                    from: reader,
+                    options: options
+                )
+            }
 
         case .symlink:
             guard options.createSymbolicLinks else {
@@ -470,6 +480,69 @@ enum Extractor {
         }
         try rootDirectory.restoreMode()
         return ExtractionResult(url: destination, fileIdentity: extractedIdentity)
+    }
+
+    private static func extractResourceFork(
+        _ entry: ArchiveEntry,
+        components: [String],
+        below rootDescriptor: Int32,
+        from reader: ArchiveReader,
+        options: ExtractionOptions
+    ) throws -> ExtractedFileIdentity {
+        guard let leaf = components.last else {
+            throw KaitoError.malformed("resource fork has no data file")
+        }
+        let parent = try ExtractionDirectoryAccess.open(
+            Array(components.dropLast()),
+            below: rootDescriptor,
+            create: true
+        )
+        defer { parent.close() }
+
+        var information = stat()
+        var dataFlags = O_WRONLY | O_NOFOLLOW | O_CLOEXEC
+        if Darwin.fstatat(parent.descriptor, leaf, &information, AT_SYMLINK_NOFOLLOW) != 0 {
+            guard errno == ENOENT else { throw KaitoError.io(errno) }
+            // resource-only entry の受け皿。既存 data fork は置換・切り詰めしない。
+            dataFlags |= O_CREAT | O_EXCL
+        } else if (information.st_mode & S_IFMT) != S_IFREG {
+            throw KaitoError.io((information.st_mode & S_IFMT) == S_IFLNK ? ELOOP : EISDIR)
+        }
+        let dataDescriptor = Darwin.openat(parent.descriptor, leaf, dataFlags, mode_t(0o666))
+        guard dataDescriptor >= 0 else { throw KaitoError.io(errno) }
+        defer { _ = Darwin.close(dataDescriptor) }
+        let extractedIdentity = try regularIdentity(descriptor: dataDescriptor)
+        // leaf は検査済みの通常ファイル。呼出側は展開ルートを排他的に所有する。
+        let forkPath = "\(leaf)/..namedfork/rsrc"
+        if !options.overwriteExisting {
+            let existing = Darwin.openat(
+                parent.descriptor, forkPath, O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+            )
+            if existing >= 0 {
+                defer { _ = Darwin.close(existing) }
+                var forkInformation = stat()
+                guard Darwin.fstat(existing, &forkInformation) == 0 else {
+                    throw KaitoError.io(errno)
+                }
+                // O_TRUNC の前に検査する。空 fork への初回書き込みは許す。
+                guard forkInformation.st_size == 0 else { throw KaitoError.io(EEXIST) }
+            } else if errno != ENOENT {
+                throw KaitoError.io(errno)
+            }
+        }
+        let descriptor = Darwin.openat(
+            parent.descriptor, forkPath,
+            O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC,
+            mode_t(0o666)
+        )
+        guard descriptor >= 0 else { throw KaitoError.io(errno) }
+        defer { _ = Darwin.close(descriptor) }
+        try write(reader.stream(entry), to: descriptor)
+        // fork descriptor の fchmod/futimens は EPERM。共有する data inode に復元する。
+        try restoreMetadata(entry, descriptor: dataDescriptor, options: options)
+        try parent.restoreMode()
+        // resource fork も data ファイルと同じ inode の provenance を返す。
+        return extractedIdentity
     }
 
     private static func extractRegularFile(

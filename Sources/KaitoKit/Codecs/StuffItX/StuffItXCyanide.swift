@@ -16,8 +16,22 @@ final class StuffItXCyanide: Decompressor {
         deinit { frequencies.deallocate(); meanings.deallocate() }
         func decode(_ range: StuffItXRangeDecoder) throws -> (Int, Int) {
             let count = try range.count(total: total)
-            var start: UInt32 = 0
-            for i in 0..<size {
+            var start: UInt32 = 0, slot = 0
+            // 四区間ずつ上端を調べ、該当する組の中を二分する。頻度の和は total 以下。
+            if size >= 16 {
+                while slot + 4 <= size {
+                    let middle = start &+ frequencies[slot] &+ frequencies[slot + 1]
+                    let end = middle &+ frequencies[slot + 2] &+ frequencies[slot + 3]
+                    if count < end {
+                        if count >= middle { slot += 2; start = middle }
+                        let next = start &+ frequencies[slot]
+                        if count >= next { slot += 1; start = next }
+                        try range.select(start: start, frequency: frequencies[slot]); return (meanings[slot], slot)
+                    }
+                    start = end; slot += 4
+                }
+            }
+            for i in slot..<size {
                 if count < start + frequencies[i] {
                     try range.select(start: start, frequency: frequencies[i]); return (meanings[i], i)
                 }

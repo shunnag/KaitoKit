@@ -4,17 +4,20 @@ import Foundation
 
 // 復号中の木は固定領域とし、各枝の値は構築時に検証する。
 final class StuffItPrefixTree {
-    private let children: UnsafeMutablePointer<Int>
-    private let symbols: UnsafeMutablePointer<Int>
+    private static let width = 10
+    private let table: UnsafeMutablePointer<UInt32>
+    private let children: UnsafeMutablePointer<Int32>
+    private let symbols: UnsafeMutablePointer<Int32>
     private let capacity: Int
     private var count = 1
 
     init(capacity: Int) {
         self.capacity = capacity
+        table = .allocate(capacity: 2 << Self.width); table.initialize(repeating: 0, count: 2 << Self.width)
         children = .allocate(capacity: capacity * 2); children.initialize(repeating: -1, count: capacity * 2)
         symbols = .allocate(capacity: capacity); symbols.initialize(repeating: -1, count: capacity)
     }
-    deinit { children.deallocate(); symbols.deallocate() }
+    deinit { table.deallocate(); children.deallocate(); symbols.deallocate() }
     private func newNode() throws -> Int {
         guard count < capacity else { throw KaitoError.malformed("StuffIt Huffman node limit") }
         let result = count; count += 1; return result
@@ -24,11 +27,23 @@ final class StuffItPrefixTree {
         while let item = stack.popLast() {
             guard item.depth <= 256 else { throw KaitoError.malformed("StuffIt Huffman depth") }
             if try input.bits(1, lsb: false) == 1 {
-                symbols[item.node] = try input.bits(8, lsb: false)
+                symbols[item.node] = Int32(try input.bits(8, lsb: false))
             } else {
                 let zero = try newNode(), one = try newNode()
-                children[item.node * 2] = zero; children[item.node * 2 + 1] = one
+                children[item.node * 2] = Int32(zero); children[item.node * 2 + 1] = Int32(one)
                 stack.append((one, item.depth + 1)); stack.append((zero, item.depth + 1))
+            }
+        }
+        // 明示木は長さゼロの単一葉も受理する。一次表より深い枝は元の木へ戻す。
+        var prefixes = [(node: 0, code: 0, length: 0)]
+        while let item = prefixes.popLast() {
+            if symbols[item.node] >= 0 {
+                install(symbol: Int(symbols[item.node]), code: item.code, length: item.length)
+            } else if item.length < Self.width {
+                for bit in 0...1 {
+                    let node = Int(children[item.node * 2 + bit])
+                    if node >= 0 { prefixes.append((node, item.code * 2 + bit, item.length + 1)) }
+                }
             }
         }
     }
@@ -39,13 +54,30 @@ final class StuffItPrefixTree {
             guard symbols[node] < 0 else { throw KaitoError.malformed("StuffIt Huffman prefix collision") }
             let bit = Int((code >> (lowBitFirst ? i : length - 1 - i)) & 1)
             let slot = node * 2 + bit
-            if children[slot] < 0 { children[slot] = try newNode() }
-            node = children[slot]
+            if children[slot] < 0 { children[slot] = Int32(try newNode()) }
+            node = Int(children[slot])
         }
         guard symbols[node] < 0, children[node * 2] < 0, children[node * 2 + 1] < 0 else {
             throw KaitoError.malformed("StuffIt Huffman duplicate code")
         }
-        symbols[node] = symbol
+        symbols[node] = Int32(symbol)
+        if length <= Self.width {
+            var word = Int(code)
+            if lowBitFirst {
+                word = 0
+                for bit in 0..<length { word = (word << 1) | Int((code >> bit) & 1) }
+            }
+            install(symbol: symbol, code: word, length: length)
+        }
+    }
+    private func install(symbol: Int, code: Int, length: Int) {
+        // 上位側は MSB、下位側は LSB の先読み値を添字にする。ゼロは木への fallback。
+        let record = (UInt32(symbol + 1) << 6) | UInt32(length)
+        let start = (1 << Self.width) + (code << (Self.width - length))
+        (table + start).update(repeating: record, count: 1 << (Self.width - length))
+        var reversed = 0
+        for bit in 0..<length { reversed = (reversed << 1) | ((code >> bit) & 1) }
+        for slot in stride(from: reversed, to: 1 << Self.width, by: 1 << length) { table[slot] = record }
     }
     static func canonical(_ lengths: [Int]) throws -> StuffItPrefixTree {
         let tree = StuffItPrefixTree(capacity: 1 + lengths.count * 32)
@@ -59,13 +91,30 @@ final class StuffItPrefixTree {
         }
         return tree
     }
-    @inline(__always) func decode(_ input: StuffItPackedInput, lsb: Bool) throws -> Int {
-        var node = 0
-        while symbols[node] < 0 {
-            node = children[node * 2 + (try input.bits(1, lsb: lsb))]
-            guard node >= 0 else { throw KaitoError.malformed("StuffIt Huffman absent branch") }
+    // 所有者が生存する read の間だけ使う値。木の選択に ARC を持ち込まない。
+    struct Decoder {
+        fileprivate let table: UnsafePointer<UInt32>
+        fileprivate let children: UnsafePointer<Int32>
+        fileprivate let symbols: UnsafePointer<Int32>
+
+        @inline(__always) func decode(_ input: StuffItPackedInput, lsb: Bool) throws -> Int {
+            let record = table[input.peek(StuffItPrefixTree.width, lsb: lsb) + (lsb ? 0 : 1 << StuffItPrefixTree.width)]
+            if record != 0 {
+                guard input.consume(Int(record & 63)) else { throw input.exhaustionError }
+                return Int(record >> 6) - 1
+            }
+            // 未定義の枝は、実際の bit を消費してから従来と同じ順序で拒否する。
+            var node = 0
+            while symbols[node] < 0 {
+                node = Int(children[node * 2 + (try input.bits(1, lsb: lsb))])
+                guard node >= 0 else { throw KaitoError.malformed("StuffIt Huffman absent branch") }
+            }
+            return Int(symbols[node])
         }
-        return symbols[node]
+    }
+    var decoder: Decoder { Decoder(table: UnsafePointer(table), children: UnsafePointer(children), symbols: UnsafePointer(symbols)) }
+    @inline(__always) func decode(_ input: StuffItPackedInput, lsb: Bool) throws -> Int {
+        try decoder.decode(input, lsb: lsb)
     }
 }
 

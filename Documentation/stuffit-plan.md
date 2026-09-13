@@ -37,14 +37,20 @@ Swift へ移植する slice 7 として計画に含める（出自は clean-room
 | 4 | Brimstone + Iron + x86 + English（辞書組み込み） | 完了（PR #14） | [slice 4](verification/2026-09-13-stuffit-slice4.md) |
 | 5 | 性能ラウンド（method 13 の table Huffman、Arsenic、XADMaster との A/B） | 完了（PR #15） | [slice 5](verification/2026-09-13-stuffit-slice5.md) |
 | 6 | SITX 暗号（AES / Blowfish / DES-CFB、RC4、continuing-MD5 KDF、層状）+ `.exe` SFX | 完了（PR #16） | [slice 6](verification/2026-09-13-stuffit-slice6.md) |
-| 7 | SITX JPEG 再圧縮（method 7、mode 0/1/2） | 完了 | [slice 7](verification/2026-09-13-stuffit-slice7.md) |
-| 8 | resource fork の展開（`<name>/..namedfork/rsrc`）+ MacJapanese 名の再試行（bd `cooViewer-gu28.8`） | 計画 | — |
+| 7 | SITX JPEG 再圧縮（method 7、mode 0/1/2） | 完了（PR #17） | [slice 7](verification/2026-09-13-stuffit-slice7.md) |
+| 8 | resource fork の展開（`<name>/..namedfork/rsrc` を実 fork へ）+ classic / SIT5 の `name` を完全パスに + MacJapanese 名の再試行（bd `cooViewer-gu28.8`） | 完了（PR #18） | [slice 8](verification/2026-09-13-stuffit-slice8.md) |
 
 **XADMaster を上回る点（実測）:** (1) wrapper（`.bin` / `.as` / `.hqx`）の内側へ降りる、(2) classic method 6、
 (3) 8 文字パスワードの classic（StuffIt 4.5 実書庫）、(4) StuffIt 7 Mac の `.sitx`（catalog key-10 整列）、
 (5) MacBinary で包まれた実 `.sitx`、(6) SITX パスワード暗号（4 cipher + 層状 + 暗号化 catalog）、(7) `.exe` SFX、
 (8) JPEG method 7（XADMaster はサイズ 0）、(9) 速度: method 13 が 2.55 倍、SMSSenderPro3osx.sitx が 1.6 倍、
 Arsenic +12.5%、Cyanide 同等（A/A 床の範囲）。
+
+**利用側で決めたこと（cooViewer-40b6、2026-09-13）:** cooViewer は `.sit` に加えて `.sitx` / `.sea` / `.hqx` を宣言し、
+KaitoKit main（slice 1〜8）の framework を取り込んだ。スナップショット CLI で classic / StuffIt X（JPEG method 7）/
+BinHex 内 StuffIt X / 日本語名フォルダ付き classic が表示される。header 暗号化書庫（SITX 暗号化 catalog、RAR5 `-hp`）は
+両エンジンでパスワードを求めずに開けない既存の欠陥があり（`KaitoArchive(file:)` が `passwordRequired` を nil に潰す）、
+cooViewer 側の bd `cooViewer-p2r1` で扱う。
 
 **既知の未対応（見送りのまま）:** SITX recovery / redundancy（Root algorithm 5、CC0 の `recoverability` / `redundancy` 10 本）、
 segment、base-N transport、画像・数値系 codec、JPEG の「単一成分に 1×1 以外の sampling」（参照 Python と同じ拒否、

@@ -103,8 +103,8 @@ for entry in directories {
 | RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
 | LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
-| StuffIt / `.sit` | classic・StuffIt 5、method 0/1/2/3/5/6/8/13/14/15、MacBinary / AppleSingle / BinHex 4 の一段 unwrap | StuffIt 5 RC4、classic 改変 DES（wrapper の MKey が必要） | data/resource fork は別 entry。`.sea` は先頭署名で判定。`.exe`・AppleDouble sidecar は非対応 |
-| StuffIt X / `.sitx` | `StuffIt!`、未圧縮、Brimstone、Cyanide、Darkhorse、Deflate（window 10〜25）、Blend（全 4 submethod）、RC4-stored、Iron（BWT/ST4） | 非対応 | solid・data/resource fork。English（辞書組み込み）と x86 前処理。下記の制約を参照 |
+| StuffIt / `.sit` | classic・StuffIt 5、method 0/1/2/3/5/6/8/13/14/15、MacBinary / AppleSingle / BinHex 4 の一段 unwrap | StuffIt 5 RC4、classic 改変 DES（wrapper の MKey が必要） | data/resource fork は別 entry。`.sea` は先頭署名、MZ `.exe` は header 検証付き走査。AppleDouble sidecar は非対応 |
+| StuffIt X / `.sitx` | `StuffIt!`、未圧縮、Brimstone、Cyanide、Darkhorse、Deflate（window 10〜25）、Blend（全 4 submethod）、RC4-stored、Iron（BWT/ST4） | AES / Blowfish / DES の CFB、RC4、複数暗号層、暗号化 catalog | solid・data/resource fork、MZ `.exe`。English（辞書組み込み）と x86 前処理。下記の制約を参照 |
 
 > **Supported formats**
 >
@@ -176,12 +176,25 @@ type 9 に続く書庫コメント、kind 3 の補助 stream の実長を扱い�
 solid stream は前方を読み捨て、後方 seek で再起動し、全体の終端で CRC-32 または MD5 を検証します。
 途中の fork の読み取りだけでは stream 全体の checksum は確定しません。
 
+StuffIt X の password は正規化しない UTF-8 bytes です。AES（16/24/32 バイト鍵）、
+Blowfish（5〜56）、DES（8）、RC4（1〜1,024）を扱い、複数層は合計鍵長（最大 65,536）で
+一度派生して記録順に分割し、逆順に復号します。鍵は後方 seek 時も再利用します。
+データ暗号化は password なしで列挙でき、stream 取得時に `passwordRequired`、
+verifier 不一致は `wrongPassword` です。catalog が暗号化されている場合は open 時に
+password が必要で、未設定なら `PasswordProvider` を呼びます。
+
+MZ `.exe` は `maximumSFXScanSize`（既定・上限 1 MiB）内の候補を位置順に検証し、
+最初に header 検証を通る classic / StuffIt 5 / StuffIt X を開きます。
+ファイル URL では自動、Data / 任意 ByteSource では `scanForSFXInData: true` で有効です。
+classic の暗号化 `.exe` は書庫 resource fork がないため `unsupportedMethod` です。
+実行形式 stub 自体を実行することはありません。
+
 Brimstone (0) の catalog と data、Iron (6)、English (0) / x86 (2) 前処理を扱います。
 English 辞書は本体に組み込み、初回展開時に SHA-256 を検査します。resource bundle や追加ダウンロードは不要です。
 前処理は解凍後の要素全体に適用し、checksum 検証と fork 分割へ渡します。
 Iron は native の固定頻度上限 `(64,64,256)`、x86 は候補に 6 バイトを要求する native 末尾規則を採用します。
 Cyanide の tail-model byte は n=0〜255 を受理し、実際に復号した rank が 256 以上のときだけ `malformed` とします。
-JPEG (7)、Iron version 1 (33)、その他の前処理、暗号、recovery、segment、base-N transport は後続対応です。
+JPEG (7)、Iron version 1 (33)、その他の前処理、Root 暗号、recovery、segment、base-N transport は後続対応です。
 単一の最終出力 digest を検証し、反復 compression / preprocessing・複数 digest scope は `unsupportedMethod` とします。
 CC0 の対象 20 書庫と、SMSSenderPro3osx.sitx の全 95 entry の名前・長さ・SHA-256 が支給期待値と一致しました。
 旧 vector と native 規則の差、支給比較スクリプトのオラクル範囲の差は
@@ -532,7 +545,7 @@ StuffIt X は `solid=<stream ID>`（独立 fork は `-1`）も表示します。
 `sha` は支給 XADMaster オラクルに合わせ、既定では data fork のみを検証・表示します。
 resource だけのファイルは空 data fork の行を表示します。`sha --forks` は公開 entry の
 全 fork を検証・表示します。StuffIt の失敗詳細は stderr にだけ出し、stdout の行は数値サイズを保ちます。
-支給 `compare.py` の実行結果と、圧縮書庫・展開後 fork のオラクルを分けた追加照合は slice 4 検証記録に記載しています。StuffIt X の暗号は未実装です。
+支給 `compare.py` の実行結果と、password 付き StuffIt X・`.exe` の個別照合は [slice 6 検証記録](Documentation/verification/2026-09-13-stuffit-slice6.md) に記載しています。
 
 `bench` の時間は process 内の open / extract だけを複数回計測した median で、process 起動、
 SHA-256、標準出力は含みません。`swift run` には SwiftPM の planning / build も含まれるため、

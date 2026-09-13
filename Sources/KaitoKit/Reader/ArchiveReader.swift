@@ -101,7 +101,8 @@ public final class ArchiveReader {
         self.options = options
         self.password = options.password
 
-        let stuffItInput = try FormatDetector.stuffItInput(source: source, limits: options.limits)
+        let stuffItInput = try FormatDetector.stuffItInput(source: source, limits: options.limits,
+            maximumSFXScanSize: sourceURL != nil || options.scanForSFXInData ? options.maximumSFXScanSize : 0)
         let detected = try stuffItInput == nil ? FormatDetector.detect(
             source: source,
             sourceURL: sourceURL,
@@ -216,6 +217,7 @@ public final class ArchiveReader {
             reader = stuffItX
             entries = stuffItX.entries
             format = .stuffItX
+            password = stuffItX.resolvedPassword
         case .stuffIt:
             let stuffIt = try StuffItReader(source: stuffItInput?.data ?? source,
                                               resourceFork: stuffItInput?.resource, options: options)

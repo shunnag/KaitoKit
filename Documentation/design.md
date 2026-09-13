@@ -176,6 +176,32 @@ streaming 検証契約:
 
 ## 10. 出自(プロベナンス)と参照の規則
 
+**StuffIt 対応の出自一覧（2026-09-13、bd `cooViewer-gu28`）。** StuffIt の実装入力は
+利用者所有の形式再構築レポート（`inbox/stuffit/`、SHA256SUMS）の**散文と形式定数のみ**で、
+どの出自からもコードは転記していない。レポートの各章が依拠する元資料は次のとおりで、
+KaitoKit のどの部分に効くかを併記する。
+
+| 元資料 | 性質 | レポートの章 | KaitoKit での帰結 |
+|---|---|---|---|
+| XADMaster（MacPaw 本家と shunnag fork） | LGPL 2.1 | Ch.1–11（容器・classic / SITX codec・wrapper・前処理） | 散文からの実装。形式定数 3 表（`method13.json`、`arsenic-randomization.json`、`classic-key-substitution.json`）は XADMaster から転記した数値で、`THIRD_PARTY_DATA.md` に転記元を記録。`StuffItTables.swift` / `StuffItCrypto.swift` に埋め込み |
+| XADMaster 内蔵の English 辞書（原資産は Aladdin） | LGPL 経由の展開物 | Ch.10 | 利用者決定（2026-09-13）により `StuffItXEnglishDictionary.swift` に圧縮して組み込み。`Tests/Fixtures/NOTICE` に出自 |
+| StuffIt Deluxe 16.0.5 の `sitx` プラグイン（Smith Micro） | proprietary。レポートは静的解析と隔離呼び出しによる**測定値**のみを含み、コード・逆アセンブルは含まない | Ch.13（暗号 KDF）、Ch.37（Deflate window 10–25）、Ch.38（x86 の tail 規則）、Ch.42（Iron の native 固定上限）、Ch.25–34（JPEG、数値表）、Ch.47–55 | Deflate window、x86、Iron の native profile（slice 3–4）。SITX 暗号（slice 6）と JPEG（slice 7）はこの経路 |
+| stuffit-go（ObsoleteMadness） | LGPL 2.1 | Ch.12（classic method 6） | `StuffItMethod6.swift` は散文から実装。`samples/*.sit` は black-box オラクル入力にのみ使用し、fixture に収録しない |
+| The Unarchiver wiki、Russotto の Arsenic 解説、vendor FAQ | 公開 Web 資料 | 照合・訂正のための引用 | 直接の入力なし |
+| RFC 1740、MacBinary I/II/III、RFC 1951、NIST SP 800-38A、RFC 1321 | 公開仕様 | Ch.6、Ch.7 §5、Ch.13 | wrapper、Deflate の基準、CFB、MD5 圧縮関数（slice 6） |
+| ssokolow/stuffit-test-files | CC0 | Ch.3・11 の fixture 検証 | `Tests/Fixtures/stuffit/` の 26 本と差分コーパス |
+| Apple CommonCrypto / CryptoKit | システム framework | — | SIT5 の MD5、slice 6 の AES / DES / Blowfish ブロック暗号化 |
+
+> **StuffIt provenance map (2026-09-13, bd cooViewer-gu28).** StuffIt support is implemented solely
+> from the prose and wire-format constants of the user-owned format reconstruction under inbox/stuffit;
+> no code was transcribed from any origin. The reconstruction itself draws on XADMaster (LGPL 2.1:
+> chapters 1–11, plus three constant tables and the English dictionary asset, both transcribed with
+> recorded provenance), on measurements of the proprietary StuffIt Deluxe 16.0.5 `sitx` plug-in
+> (chapters 13, 37, 38, 42, 25–34 and 47–55; measured values only, no code or disassembly), on
+> StuffIt-Go (LGPL 2.1: chapter 12 prose only; its samples are oracle inputs and are not bundled),
+> on public specifications (RFC 1740, MacBinary, RFC 1951, NIST SP 800-38A, RFC 1321), on the CC0
+> ssokolow test corpus, and on Apple's CommonCrypto / CryptoKit for standard primitives.
+
 StuffIt X slice 4（2026-09-13、bd `cooViewer-gu28.4`）は指定の Ch.09 / Ch.08 / Ch.42 /
 Ch.10 / Ch.38、Ch.07 §2、stuffitx-vectors.json と English 語リストを実装入力とした。
 これら 8 ファイルの SHA256SUMS を照合した。既存 KaitoKit の slice 3 の range decoder と coordinator を共有する。
@@ -669,6 +695,18 @@ source を実装入力にしていない。是正として、以後 The Unarchiv
 prose ページであることを確認し、`source-archive` を含む URL は取得しない。
 
 ## 11. 実装記録(2026-09-06〜13)
+
+- StuffIt slice 5（2026-09-13、bd `cooViewer-gu28.5`）: 共通 Huffman 木に MSB/LSB 各 10 bit の
+  固定長一次表と元の木への fallback を追加した。既存の符号割当・不安定 partition・明示木を保ち、
+  節点の 32 bit 化で既存のメモリ予算に収めた。method 13 は所有者が保持する木のポインタだけを
+  値として選択する。bit reader はゼロ詰め先読みと実消費を分離し、入力切れ・未定義の枝・I/O
+  エラーの優先順、byte 境界を維持する。Arsenic は商と頻度更新を保って正規化の bit 読み出しを
+  まとめ、Cyanide は大きい model を 4 slot ずつ判定する。Arsenic の累積表・SIMD 二分探索、
+  Cyanide の累積表・逆向き走査は実測で退行したため撤回した。MTF は旧ループも既に 1 回の
+  memmove へ変換されており、効果のない書換えを残していない。250 書庫の 10,679 行、敵対的入力
+  7,086 件を変更前 release・変更後 release・変更後 ASan で照合し相違 0。
+  A/A 床・変更ごとの A/B・最終性能・profile は
+  [検証記録](verification/2026-09-13-stuffit-slice5.md) に記載。
 
 - StuffIt X slice 4（2026-09-13、bd `cooViewer-gu28.4`）: Brimstone の A / D / F と placeholder、
   binary / escape estimator、exclusion、rescale、promotion、allocator 枯渇時の restart を実装した。

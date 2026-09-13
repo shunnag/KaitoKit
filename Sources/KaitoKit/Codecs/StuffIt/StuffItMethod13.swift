@@ -66,6 +66,7 @@ final class StuffItMethod13: Decompressor {
         let count = Int(min(UInt64(buffer.count), remaining))
         guard count > 0, let base = buffer.baseAddress else { return 0 }
         let destination = base.assumingMemoryBound(to: UInt8.self)
+        let first = self.first.decoder, second = self.second.decoder, distance = self.distance.decoder
         var written = 0
         while written < count {
             if pending == 0 {

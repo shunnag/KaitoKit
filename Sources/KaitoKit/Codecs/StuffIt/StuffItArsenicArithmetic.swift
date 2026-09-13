@@ -58,10 +58,20 @@ final class StuffItArsenicArithmetic {
         let removed = q * low
         code -= removed
         range = symbol == model.count - 1 ? range - removed : q * table[symbol]
-        while range <= 1 << 24 {
-            range <<= 1
-            guard code <= UInt64.max >> 1 else { throw KaitoError.malformed("StuffIt Arsenic arithmetic overflow") }
-            code = (code << 1) | UInt64(try input.bits(1, lsb: false))
+        if range <= 1 << 24 {
+            // 切り上げた対数を 25 に揃え、range が境界より大きくなる最小幅を求める。
+            let shift = (range - 1).leadingZeroBitCount - 39
+            if code <= UInt64.max >> shift {
+                range <<= shift
+                code = (code << shift) | UInt64(try input.bits(shift, lsb: false))
+            } else {
+                // 異常な code の桁あふれと入力切れの順序は、一 bit ずつの旧経路で保つ。
+                while range <= 1 << 24 {
+                    range <<= 1
+                    guard code <= UInt64.max >> 1 else { throw KaitoError.malformed("StuffIt Arsenic arithmetic overflow") }
+                    code = (code << 1) | UInt64(try input.bits(1, lsb: false))
+                }
+            }
         }
         table[symbol] += model.increment; model.total += model.increment
         if model.total > model.limit {

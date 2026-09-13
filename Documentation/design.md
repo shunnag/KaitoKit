@@ -177,8 +177,9 @@ streaming 検証契約:
 ## 10. 出自(プロベナンス)と参照の規則
 
 **StuffIt 対応の出自一覧（2026-09-13、bd `cooViewer-gu28`）。** StuffIt の実装入力は
-利用者所有の形式再構築レポート（`inbox/stuffit/`、SHA256SUMS）の**散文と形式定数のみ**で、
-どの出自からもコードは転記していない。レポートの各章が依拠する元資料は次のとおりで、
+利用者所有の形式再構築レポート（`inbox/stuffit/`、SHA256SUMS）の**散文と形式定数**を基本とする。
+slice 7 の JPEG だけは、利用者が明示的に許可した独立実装 `stuffitx_jpeg*.py` 6 ファイルを
+関数単位で Swift へ移植した。第三者実装のソースは参照していない。各章が依拠する元資料は次のとおりで、
 KaitoKit のどの部分に効くかを併記する。
 
 | 元資料 | 性質 | レポートの章 | KaitoKit での帰結 |
@@ -187,20 +188,30 @@ KaitoKit のどの部分に効くかを併記する。
 | XADMaster 内蔵の English 辞書（原資産は Aladdin） | LGPL 経由の展開物 | Ch.10 | 利用者決定（2026-09-13）により `StuffItXEnglishDictionary.swift` に圧縮して組み込み。`Tests/Fixtures/NOTICE` に出自 |
 | StuffIt Deluxe 16.0.5 の `sitx` プラグイン（Smith Micro） | proprietary。レポートは静的解析と隔離呼び出しによる**測定値**のみを含み、コード・逆アセンブルは含まない | Ch.13（暗号 KDF）、Ch.37（Deflate window 10–25）、Ch.38（x86 の tail 規則）、Ch.42（Iron の native 固定上限）、Ch.25–34（JPEG、数値表）、Ch.47–55 | Deflate window、x86、Iron の native profile（slice 3–4）。SITX 暗号（slice 6）と JPEG（slice 7）はこの経路 |
 | stuffit-go（ObsoleteMadness） | LGPL 2.1 | Ch.12（classic method 6） | `StuffItMethod6.swift` は散文から実装。`samples/*.sit` は black-box オラクル入力にのみ使用し、fixture に収録しない |
+| 利用者の独立 Python JPEG 実装 | Python 標準ライブラリのみ。利用者の明示許可による移植元 | Ch.25–34、`tools/stuffitx_jpeg*.py` 6 本 | `StuffItXJPEG{Envelope,Models,Baseline,Mode1,Tables,Decoder}.swift`。数値表は vendor バイナリの測定値で、vendor コードの転記ではない |
 | The Unarchiver wiki、Russotto の Arsenic 解説、vendor FAQ | 公開 Web 資料 | 照合・訂正のための引用 | 直接の入力なし |
 | RFC 1740、MacBinary I/II/III、RFC 1951、NIST SP 800-38A、RFC 1321 | 公開仕様 | Ch.6、Ch.7 §5、Ch.13 | wrapper、Deflate の基準、CFB、MD5 圧縮関数（slice 6） |
 | ssokolow/stuffit-test-files | CC0 | Ch.3・11 の fixture 検証 | `Tests/Fixtures/stuffit/` の 26 本と差分コーパス |
 | Apple CommonCrypto / CryptoKit | システム framework | — | SIT5 の MD5、slice 6 の AES / DES / Blowfish ブロック暗号化 |
 
 > **StuffIt provenance map (2026-09-13, bd cooViewer-gu28).** StuffIt support is implemented solely
-> from the prose and wire-format constants of the user-owned format reconstruction under inbox/stuffit;
-> no code was transcribed from any origin. The reconstruction itself draws on XADMaster (LGPL 2.1:
+> from the user-owned format reconstruction under inbox/stuffit. Slice 7 also ports the six
+> independently written Python JPEG modules with the user’s explicit authorization; no third-party
+> implementation source was consulted. The reconstruction itself draws on XADMaster (LGPL 2.1:
 > chapters 1–11, plus three constant tables and the English dictionary asset, both transcribed with
 > recorded provenance), on measurements of the proprietary StuffIt Deluxe 16.0.5 `sitx` plug-in
 > (chapters 13, 37, 38, 42, 25–34 and 47–55; measured values only, no code or disassembly), on
 > StuffIt-Go (LGPL 2.1: chapter 12 prose only; its samples are oracle inputs and are not bundled),
 > on public specifications (RFC 1740, MacBinary, RFC 1951, NIST SP 800-38A, RFC 1321), on the CC0
 > ssokolow test corpus, and on Apple's CommonCrypto / CryptoKit for standard primitives.
+
+StuffIt slice 7（2026-09-13、bd `cooViewer-gu28.7`）の実装入力は指定 Python 6 本と
+Ch.25–34 のみで、16 ファイルの SHA256SUMS を照合した。数値表の出自は vendor バイナリからの
+測定値（支給 `research/THIRD_PARTY_DATA.md` を出自記録として指定、今回は開いていない）。
+`StuffItXJPEGTables.swift` は許可された Python の整数表と `SCALE` の十進定数を同順で生成する。
+vendor バイナリ・逆アセンブル、他の JPEG 再圧縮・JPEG 実装ソース、Web は参照していない。
+固定値生成器は許可 Python を呼び、試験用 range encoder はその区間更新式の逆演算だけを使う。
+[関数対応・照合・制約](verification/2026-09-13-stuffit-slice7.md) と `Tests/Fixtures/NOTICE` に詳細を記録した。
 
 StuffIt slice 6（2026-09-13、bd `cooViewer-gu28.6`）は Ch.13 全体、Ch.03 の順序付き
 algorithm record、Ch.02 の Windows self-extracting wrapper 節、支給 RFC 1321 を参照した。
@@ -707,6 +718,20 @@ source を実装入力にしていない。是正として、以後 The Unarchiv
 prose ページであることを確認し、`source-archive` を含む URL は取得しない。
 
 ## 11. 実装記録(2026-09-06〜13)
+
+- StuffIt slice 7（2026-09-13、bd `cooViewer-gu28.7`）: compression 7 の mode 0 / 色 baseline mode 1 /
+  baseline・progressive mode 2 を追加した。整数分布の重複アドレス、更新順、i16、符号付き切捨て、
+  SCALE、MCU hint、component slot、scan ごとの Huffman snapshot と最終 byte を保持する。
+  統計と係数は固定長ポインタ。baseline / mode 1 の近傍は二行、progressive の量子化係数は
+  `maxJPEGBlocks` 以下の全 plane、出力は MCU 行／scan と 255 バイト以下の tail chunk に分ける。
+  入力・出力は `maxEntrySize`、係数ブロック数は新設 `ReadLimits.maxJPEGBlocks`（既定 2,097,152）で制限する。
+  24 MP の 4:4:4 と 48 MP の 4:2:0 はともに 1,125,000 ブロックで、この既定値に収まる。
+  progressive の量子化係数 plane は最大 512 MiB で、既存 `maxDictionarySize` 既定 1 GiB の資源方針の範囲内。
+  入力不足は `truncated`、構造の破損は `malformed`、未対応 profile は `unsupportedMethod` として entry 単位で伝える。
+  JPEG の key-6 digest は圧縮入力、単層暗号では verifier・IV/salt を除く暗号文で検証する。
+  コーパス 292 本は 280 一致・参照と同じ 12 拒否・差分 0。歴史的 Root recovery 例の制約、
+  性能・ASan・関数別固定値は [slice 7 検証記録](verification/2026-09-13-stuffit-slice7.md)。
+
 
 - StuffIt slice 6（2026-09-13、bd `cooViewer-gu28.6`）: continuing-MD5（256 round）、
   2 バイト verifier、CFB / RC4 と複数 key-4 の逆順復号を framed 入力の直後に追加した。

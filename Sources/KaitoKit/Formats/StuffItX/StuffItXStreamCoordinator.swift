@@ -48,6 +48,7 @@ final class StuffItXStreamCoordinator {
     private func restart() throws {
         try Self.validateAlgorithms(element.algorithms)
         var input: any ByteSource = try StuffItXFramedInput(source: source, ranges: element.data)
+        let framed = input
         if element.algorithms.contains(where: { $0.key == 4 }) {
             guard let password else { throw KaitoError.passwordRequired }
             if crypto == nil { crypto = try StuffItXCrypto(password: password, algorithms: element.algorithms) }
@@ -70,7 +71,29 @@ final class StuffItXStreamCoordinator {
                 guard framed.length == 16 else { throw KaitoError.malformed("StuffIt X MD5 length") }
                 bytes = try readByteRange(source: framed, offset: 0, count: count)
             }
-            expected.append((digests[0].value, bytes))
+            if element.compression == 7 && digests[0].key == 6 {
+                // Ch.25: JPEG の key-6 は圧縮入力を覆い、単層暗号では verifier と IV/salt を除く暗号文を覆う。
+                // 多層の層間 digest は既存 coordinator の範囲外として明示的に拒否する。
+                guard (crypto?.layers.count ?? 0) <= 1 else {
+                    throw KaitoError.unsupportedMethod("StuffIt X JPEG layered checksum scope")
+                }
+                try Checked.size(input.length, limit: limits.maxEntrySize)
+                let prefix = crypto.map { UInt64(2 + $0.layers[0].prefixSize) } ?? 0
+                var compressedCRC = CRC32(), compressedMD5 = Insecure.MD5(), offset = prefix
+                try withUnsafeTemporaryAllocation(byteCount: 65_536, alignment: 16) { buffer in
+                    while offset < framed.length {
+                        let n = try framed.read(into: buffer, at: offset)
+                        guard n > 0, n <= buffer.count, UInt64(n) <= framed.length - offset else { throw KaitoError.truncated }
+                        let part = UnsafeRawBufferPointer(rebasing: buffer[..<n])
+                        if digests[0].value == 0 { compressedCRC.update(part) } else { compressedMD5.update(bufferPointer: part) }
+                        offset += UInt64(n)
+                    }
+                }
+                let actual = digests[0].value == 0 ? (0..<4).map { UInt8(truncatingIfNeeded: compressedCRC.value >> (24 - $0 * 8)) } : Array(compressedMD5.finalize())
+                guard actual == bytes else { throw KaitoError.checksumMismatch(entry: -1) }
+            } else {
+                expected.append((digests[0].value, bytes))
+            }
         }
         let preprocessing = element.algorithms.first { $0.key == 3 }?.value
         // English の中間長には marker と縮約 token が含まれ、最終 fork 長とは一致しない。

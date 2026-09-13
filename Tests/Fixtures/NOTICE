@@ -648,3 +648,18 @@ StuffIt slice 1（2026-09-13、bd cooViewer-gu28.1）
   supplied archive-verification report. Encrypted fixtures test enumeration only,
   using their plaintext counterparts' names and sizes. Independent core vectors
   are fixed as hex in XCTest. No stuffit-go sample archive is redistributed.
+
+
+StuffIt X slice 7（2026-09-13、bd cooViewer-gu28.7）
+  StuffItXJPEGTables.swift の数値表は vendor バイナリからの測定値。
+  直接の入力は利用者の独立実装 inbox/stuffit/tools/stuffitx_jpeg_tables.py であり、
+  出自は指定 Ch.25–34 と research/THIRD_PARTY_DATA.md に記録されている。
+  後者自体、vendor 実装ソース・逆アセンブル、他の JPEG 実装ソースは今回は参照していない。
+  利用者の明示許可により、stuffitx_jpeg*.py 6 本を関数単位で Swift へ移植した。
+  slice7-jpeg-vectors.json は同じ Python による分布・予測・算術状態・Huffman 出力の固定値。
+  合成ストリームは区間更新式から生成した。block vector の短い圧縮 prefix は支給 CC0 写真の
+  IMG_0243-240-gray.p20.jc の先頭 64 ブロックと IMG_0243-240-b420q75.p10.jc の
+  先頭 96 ブロックから、ヘッダーを含む照合に必要な圧縮 prefix だけを保持する。
+  元 JPEG 64 本・292 ストリーム・歴史的書庫の全体は外部コーパスに残す。
+  生成器は Tests/Tools/stuffitx-jpeg-vectors.py と stuffitx-jpeg-tables.py。
+  詳細は Documentation/verification/2026-09-13-stuffit-slice7.md。

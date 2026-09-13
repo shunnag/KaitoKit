@@ -104,7 +104,7 @@ for entry in directories {
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
 | LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
 | StuffIt / `.sit` | classic・StuffIt 5、method 0/1/2/3/5/6/8/13/14/15、MacBinary / AppleSingle / BinHex 4 の一段 unwrap | StuffIt 5 RC4、classic 改変 DES（wrapper の MKey が必要） | data/resource fork は別 entry。`.sea` は先頭署名、MZ `.exe` は header 検証付き走査。AppleDouble sidecar は非対応 |
-| StuffIt X / `.sitx` | `StuffIt!`、未圧縮、Brimstone、Cyanide、Darkhorse、Deflate（window 10〜25）、Blend（全 4 submethod）、RC4-stored、Iron（BWT/ST4） | AES / Blowfish / DES の CFB、RC4、複数暗号層、暗号化 catalog | solid・data/resource fork、MZ `.exe`。English（辞書組み込み）と x86 前処理。下記の制約を参照 |
+| StuffIt X / `.sitx` | `StuffIt!`、未圧縮、Brimstone、Cyanide、Darkhorse、Deflate（window 10〜25）、Blend（全 4 submethod）、RC4-stored、Iron（BWT/ST4）、JPEG（mode 0/1/2） | AES / Blowfish / DES の CFB、RC4、複数暗号層、暗号化 catalog | solid・data/resource fork、MZ `.exe`。English（辞書組み込み）と x86 前処理。下記の制約を参照 |
 
 > **Supported formats**
 >
@@ -194,8 +194,15 @@ English 辞書は本体に組み込み、初回展開時に SHA-256 を検査し
 前処理は解凍後の要素全体に適用し、checksum 検証と fork 分割へ渡します。
 Iron は native の固定頻度上限 `(64,64,256)`、x86 は候補に 6 バイトを要求する native 末尾規則を採用します。
 Cyanide の tail-model byte は n=0〜255 を受理し、実際に復号した rank が 256 以上のときだけ `malformed` とします。
-JPEG (7)、Iron version 1 (33)、その他の前処理、Root 暗号、recovery、segment、base-N transport は後続対応です。
-単一の最終出力 digest を検証し、反復 compression / preprocessing・複数 digest scope は `unsupportedMethod` とします。
+JPEG (7) は mode 0 の保存、mode 1 の色 baseline、mode 2 の baseline / progressive を扱い、
+元の JPEG バイト列を復元します。restart、padding、tail、scan 間の表更新も保持します。
+出力・入力は `maxEntrySize`、係数ブロック数は `ReadLimits.maxJPEGBlocks`（既定 2,097,152）で制限します。
+24 MP の 4:4:4 と 48 MP の 4:2:0 はそれぞれ 1,125,000 ブロックで、既定の範囲に収まります。
+progressive の量子化係数 plane は最大 512 MiB です。
+entry 読み取り時の入力不足は `truncated`、構造の破損は `malformed`、未対応 profile は `unsupportedMethod` になります。
+Iron version 1 (33)、その他の前処理、Root 暗号、recovery、segment、base-N transport は後続対応です。
+単一の最終出力 digest と JPEG の key-6 入力 digest を検証します。後者は単層暗号にも対応します。
+反復 compression / preprocessing・複数 digest scope・JPEG の多層暗号中の key-6 digest は `unsupportedMethod` とします。
 CC0 の対象 20 書庫と、SMSSenderPro3osx.sitx の全 95 entry の名前・長さ・SHA-256 が支給期待値と一致しました。
 旧 vector と native 規則の差、支給比較スクリプトのオラクル範囲の差は
 [slice 4 検証記録](Documentation/verification/2026-09-13-stuffit-slice4.md) に記載しています。
@@ -545,7 +552,8 @@ StuffIt X は `solid=<stream ID>`（独立 fork は `-1`）も表示します。
 `sha` は支給 XADMaster オラクルに合わせ、既定では data fork のみを検証・表示します。
 resource だけのファイルは空 data fork の行を表示します。`sha --forks` は公開 entry の
 全 fork を検証・表示します。StuffIt の失敗詳細は stderr にだけ出し、stdout の行は数値サイズを保ちます。
-支給 `compare.py` の実行結果と、password 付き StuffIt X・`.exe` の個別照合は [slice 6 検証記録](Documentation/verification/2026-09-13-stuffit-slice6.md) に記載しています。
+支給 `compare.py`、password 付き StuffIt X・`.exe` は [slice 6 検証記録](Documentation/verification/2026-09-13-stuffit-slice6.md)、
+JPEG の 292 ストリームと Windows 2009 DES の追加照合は [slice 7 検証記録](Documentation/verification/2026-09-13-stuffit-slice7.md) に記載しています。
 
 `bench` の時間は process 内の open / extract だけを複数回計測した median で、process 起動、
 SHA-256、標準出力は含みません。`swift run` には SwiftPM の planning / build も含まれるため、

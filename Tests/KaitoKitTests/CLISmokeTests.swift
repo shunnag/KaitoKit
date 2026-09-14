@@ -1,9 +1,109 @@
 import CryptoKit
+import CoreFoundation
 import Foundation
 import KaitoKit
 import XCTest
 
 final class CLISmokeTests: XCTestCase {
+    func testDetectEncodingIANARoundTripsForAllCorpusEncodings() throws {
+        let samples = [
+            ("windows-1250", "a3f3649f", "Łódź"),
+            ("windows-1251", "d3eaf0e0bfede0", "Україна"),
+            ("windows-1252", "45737061f161", "España"),
+            ("windows-1253", "c5ebebdce4e1", "Ελλάδα"),
+            ("windows-1254", "54fc726be765", "Türkçe"),
+            ("windows-1258", "eaec", "ê\u{0301}"),
+            ("iso-8859-2", "a3f364bc", "Łódź"),
+            ("iso-8859-5", "c0dee1e1d8ef", "Россия"),
+            ("iso-8859-15", "63bd7572", "cœur"),
+            ("koi8-r", "f2cfd3d3c9d1", "Россия"),
+            ("koi8-u", "f5cbd2c1a7cec1", "Україна"),
+            ("cp866", "90aee1e1a8ef", "Россия"),
+            ("cp850", "477294e165", "Größe"),
+            ("macintosh", "4672616e8d616973", "Français"),
+            ("x-mac-cyrillic", "90eef1f1e8df", "Россия"),
+            ("x-mac-centraleurroman", "fc976490", "Łódź"),
+            ("cp874", "c0d2c9d2e4b7c2", "ภาษาไทย"),
+            ("cp932", "93fa967b8cea", "日本語"),
+            ("euc-jp", "a4d2a4e9a4aca4ca", "ひらがな"),
+            ("gb18030", "babad3ef", "汉语"),
+            ("cp950", "ba7ebb79", "漢語"),
+            ("big5-hkscs", "adbbb4e4", "香港"),
+            ("cp949", "c7d1b1db", "한글"),
+        ]
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let executable = try findKaitoExecutable()
+        for (iana, hex, text) in samples {
+            let file = temporary.appendingPathComponent("\(iana).tsv")
+            try "sample\tfixture\t\(iana)\t\(hex)\t\(text)\n"
+                .write(to: file, atomically: true, encoding: .utf8)
+            let cfEncoding = CFStringConvertIANACharSetNameToEncoding(iana as CFString)
+            XCTAssertNotEqual(cfEncoding, kCFStringEncodingInvalidId, iana)
+            let nsEncoding = CFStringConvertEncodingToNSStringEncoding(cfEncoding)
+            let canonical = try XCTUnwrap(CFStringConvertEncodingToIANACharSetName(
+                CFStringConvertNSStringEncodingToEncoding(nsEncoding)
+            )) as String
+            // 指定名と CoreFoundation が返す名前の両方で、同じ厳密復号結果になることを確かめる。
+            for name in Set([iana, canonical]) {
+                let output = try runKaito(executable, arguments: ["detect-encoding", "--decode", name, file.path])
+                XCTAssertEqual(output, "sample\tOK\t\(text)\n", "\(iana) / \(name)")
+            }
+        }
+    }
+
+    func testDetectEncodingNamesArchivesAndStrictDecode() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = root.appendingPathComponent("Fixtures/encoding/names-smoke.tsv")
+        let rows = try String(contentsOf: fixture, encoding: .utf8).split(separator: "\n").map {
+            $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        }
+        XCTAssertEqual(rows.count, 20)
+        XCTAssertEqual(Set(rows.map { $0[1] }).count, 18)
+        let executable = try findKaitoExecutable()
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        for options in [[], ["--language", "ja"], ["--no-language", "--from-windows"]] {
+            let output = try runKaito(executable, arguments: ["detect-encoding"] + options + [fixture.path])
+            let detected = output.split(separator: "\n").map { $0.split(separator: "\t", omittingEmptySubsequences: false) }
+            XCTAssertEqual(detected.count, rows.count)
+            for (row, result) in zip(rows, detected) {
+                XCTAssertEqual(result.count, 4)
+                guard result.count == 4 else { continue }
+                XCTAssertEqual(String(result[0]), row[0])
+                XCTAssertFalse(result[1].isEmpty)
+                let confidence = try XCTUnwrap(Double(result[2]))
+                XCTAssertTrue((0...1).contains(confidence))
+                XCTAssertEqual(result[2].split(separator: ".").last?.count, 3)
+            }
+            XCTAssertEqual(detected[0][1], "cp932")
+            XCTAssertEqual(String(detected[0][3]), rows[0][4])
+            XCTAssertEqual(detected[1][1], "euc-jp")
+            XCTAssertEqual(String(detected[1][3]), rows[1][4])
+        }
+        for (encoding, group) in Dictionary(grouping: rows, by: { $0[2] }) {
+            let file = temporary.appendingPathComponent("decode.tsv")
+            try (group.map { $0.joined(separator: "\t") }.joined(separator: "\n") + "\n")
+                .write(to: file, atomically: true, encoding: .utf8)
+            let decoded = try runKaito(executable, arguments: ["detect-encoding", "--decode", encoding, file.path])
+            XCTAssertEqual(decoded, group.map { "\($0[0])\tOK\t\($0[4])\n" }.joined())
+        }
+        let archive = temporary.appendingPathComponent("archives.tsv")
+        let ascii = "636f7665722e6a7067"
+        try "group\tlang\ttruth_iana\tk\thex1,hex2,...\ng1\tja\tcp932\t1\t\(rows[0][3]),\(ascii)\ng2\tja\teuc-jp\t1\t\(rows[1][3])\ng3\ten\tutf-8\t1\t\(ascii)\n"
+            .write(to: archive, atomically: true, encoding: .utf8)
+        for options in [["--language", "ja"], ["--no-language"]] {
+            let output = try runKaito(executable, arguments: ["detect-encoding", "--archive"] + options + [archive.path])
+            XCTAssertEqual(output, "g1\tcp932\t0\t日本語の本|cover.jpg\ng2\teuc-jp\t0\tひらがな\ng3\tutf-8\t0\tcover.jpg\n")
+        }
+        // 誤った正解欄、厳密復号の失敗、制御文字・区切り・正準等価の扱いを確かめる。
+        let edge = temporary.appendingPathComponent("edge.tsv")
+        try "ok\ten\tutf-8\t61\ta\nmismatch\ten\tutf-8\t61\tb\nfail\ten\tutf-8\tff\tx\nescape\ten\tutf-8\t615c7c090a0d\tx\ncanonical\ten\tutf-8\t65cc81\té\n"
+            .write(to: edge, atomically: true, encoding: .utf8)
+        let decoded = try runKaito(executable, arguments: ["detect-encoding", "--decode", "utf-8", edge.path])
+        XCTAssertEqual(decoded, "ok\tOK\ta\nmismatch\tMISMATCH\ta\nfail\tFAIL\t\nescape\tMISMATCH\ta\\\\\\|\\t\\n\\r\ncanonical\tMISMATCH\te\u{0301}\n")
+    }
+
     func testStuffItExtractionDefersResourcesAndPreservesParentPaths() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }

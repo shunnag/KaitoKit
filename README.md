@@ -239,6 +239,7 @@ CC0 の対象 20 書庫と、SMSSenderPro3osx.sitx の全 95 entry の名前・�
 名前は ZIP/RAR4/LHA/tar/gzip FNAME の undecorated bytes に対して archive-wide の UTF-8、CP932、
 EUC-JP 判定を行い、format が宣言する Unicode 名を優先します。単一 file 形式の FNAME がない場合は
 source file の拡張子を除いた名前を entry 名にします。
+多言語判定の測定基盤として CLDR の 19 言語の文字集合（Unicode License v3、[NOTICE](NOTICE) 参照）と `kaito detect-encoding` を用意しており、現行検出器の対応状況は[ベースライン記録](Documentation/verification/2026-09-14-name-encoding-baseline.md)で確認できます。
 
 圧縮 tar の展開結果は `ReadLimits.inMemorySingleFileLimit` 以下なら memory、それより大きければ
 直ちに unlink した一時 file descriptor に保持します。どちらも同じ `TarReader` API を公開します。

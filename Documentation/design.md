@@ -184,6 +184,7 @@ KaitoKit のどの部分に効くかを併記する。
 
 | 元資料 | 性質 | レポートの章 | KaitoKit での帰結 |
 |---|---|---|---|
+| Unicode CLDR の 19 言語の主・補助文字集合（2026-09-14 取得） | Unicode License v3 | — | `Tests/Tools/make-exemplars.py` で `LanguageExemplars.swift` の閉区間表と二分探索を生成。ライセンス全文はルートの `NOTICE`。測定基盤のみで現行検出器には未接続 |
 | XADMaster（MacPaw 本家と shunnag fork） | LGPL 2.1 | Ch.1–11（容器・classic / SITX codec・wrapper・前処理） | 散文からの実装。形式定数 3 表（`method13.json`、`arsenic-randomization.json`、`classic-key-substitution.json`）は XADMaster から転記した数値で、`THIRD_PARTY_DATA.md` に転記元を記録。`StuffItTables.swift` / `StuffItCrypto.swift` に埋め込み |
 | XADMaster 内蔵の English 辞書（原資産は Aladdin） | LGPL 経由の展開物 | Ch.10 | 利用者決定（2026-09-13）により `StuffItXEnglishDictionary.swift` に圧縮して組み込み。`Tests/Fixtures/NOTICE` に出自 |
 | StuffIt Deluxe 16.0.5 の `sitx` プラグイン（Smith Micro） | proprietary。レポートは静的解析と隔離呼び出しによる**測定値**のみを含み、コード・逆アセンブルは含まない | Ch.13（暗号 KDF）、Ch.37（Deflate window 10–25）、Ch.38（x86 の tail 規則）、Ch.42（Iron の native 固定上限）、Ch.25–34（JPEG、数値表）、Ch.47–55 | Deflate window、x86、Iron の native profile（slice 3–4）。SITX 暗号（slice 6）と JPEG（slice 7）はこの経路 |

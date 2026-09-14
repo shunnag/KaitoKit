@@ -73,18 +73,22 @@ private func nameDetectionBytes(_ hex: Substring, line: Int) throws -> [UInt8] {
 
 func runDetectEncoding(_ arguments: [String]) throws {
     var archive = false
+    var checkOrthography = false
     var language: String? = "ja"
     var hasLanguage = false
     var fromWindows = false
     var decodeEncoding: String.Encoding?
     var path: String?
     var index = 0
-    let usage = "detect-encoding [--archive] [--language <code> | --no-language] [--from-windows] [--decode <iana>] <tsv>"
+    let usage = "detect-encoding [--archive | --check-orthography] [--language <code> | --no-language] [--from-windows] [--decode <iana>] <tsv>"
     func invalid() -> NameDetectionError { NameDetectionError(description: usage) }
     while index < arguments.count {
         let argument = arguments[index]
         index += 1
         switch argument {
+        case "--check-orthography":
+            guard !checkOrthography else { throw invalid() }
+            checkOrthography = true
         case "--archive":
             guard !archive else { throw invalid() }
             archive = true
@@ -110,7 +114,8 @@ func runDetectEncoding(_ arguments: [String]) throws {
             path = argument
         }
     }
-    guard let path, !(archive && decodeEncoding != nil) else { throw invalid() }
+    guard let path, !(archive && decodeEncoding != nil),
+          !(checkOrthography && (archive || decodeEncoding != nil)) else { throw invalid() }
     let policy = EncodingPolicy.automatic(likelyLanguage: language)
     let input = try String(contentsOfFile: path, encoding: .utf8)
     // TSV は引用符の特別扱いをしない。末尾の空の text も一つの欄として保持する。
@@ -125,7 +130,11 @@ func runDetectEncoding(_ arguments: [String]) throws {
         guard fields.count == 5, !fields[0].isEmpty else {
             throw NameDetectionError(description: "line \(offset + 1): expected five TSV fields")
         }
-        if archive {
+        if checkOrthography {
+            for violation in EncodingDetector.checkNameOrthography(String(fields[4]), language: String(fields[1])) {
+                print("\(fields[0])\t\(violation.rule)\t\(violation.offset)\tU+\(String(violation.scalar, radix: 16, uppercase: true))\t\(nameDetectionEscape(String(fields[4])))")
+            }
+        } else if archive {
             guard let k = Int(fields[3]), k > 0 else {
                 throw NameDetectionError(description: "line \(offset + 1): invalid k")
             }

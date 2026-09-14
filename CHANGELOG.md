@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 多言語ファイル名判定（bd `cooViewer-6lrc.1`。西欧ラテンの書庫 k≥10 と zh-cn 単名に残差、記録参照）: 厳密復号できる 26 legacy 候補を CLDR・文字体系・正書法で採点し、非ASCII byte 数で減衰する言語事前確率を書庫全体で一度だけ適用する。文字一般カテゴリと位置、書庫全体で一つの言語を選ぶ整合、長語・タイ語の無母音・短周期反復を扱い、復号不能名も同じ byte 尺度で集計する。漢字の二重加点を撤去し、公知の頻出ハングル音節を使う。タイ語候補には字母の頻出率・稀記号・語中数字の証拠を加え、配置適合の加点を弱める。UTF-8 優先と日本語候補間の既存決定規則を保持し、正書法自己検査 CLI と自作の多言語 fixture を追加した。測定値・制約は[検証記録](Documentation/verification/2026-09-14-name-encoding-multilingual.md)を参照。
+
 - StuffIt slice 8（2026-09-13、bd `cooViewer-gu28.8`）: resource fork を data ファイルの実 fork に展開し、CLI は data / hardlink の後に書き込む。resource-only は空の通常ファイルを作成し、非空 fork の上書き禁止と symlink 拒否を追加した。classic / SIT5 の `ArchiveEntry.name` を親フォルダ付きの完全な相対パスへ修正し、一覧・Compat・展開で同じ階層を保持する。Shift_JIS 名で CP932 decode に失敗した場合は MacJapanese を再試行する。[検証記録](Documentation/verification/2026-09-13-stuffit-slice8.md)。
 
 - StuffIt slice 7（2026-09-13、bd `cooViewer-gu28.7`）: JPEG 再圧縮（compression 7、mode 0/1/2）のバイト完全復元を追加した。利用者の独立 Python 実装を関数単位で移植し、固定長モデルと行／scan 出力、`maxJPEGBlocks`（既定 2,097,152）、JPEG の key-6 CRC 範囲を接続した。入力不足・破損・未対応 profile を分類し、敵対的テストの seed／回数を環境変数で指定できるようにした。292 ストリームは 280 一致・参照と同じ 12 拒否・差分 0。詳細・歴史的 recovery 例の制約は [検証記録](Documentation/verification/2026-09-13-stuffit-slice7.md)。

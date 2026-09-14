@@ -236,17 +236,37 @@ CC0 の対象 20 書庫と、SMSSenderPro3osx.sitx の全 95 entry の名前・�
 旧 vector と native 規則の差、支給比較スクリプトのオラクル範囲の差は
 [slice 4 検証記録](Documentation/verification/2026-09-13-stuffit-slice4.md) に記載しています。
 
-名前は ZIP/RAR4/LHA/tar/gzip FNAME の undecorated bytes に対して archive-wide の UTF-8、CP932、
-EUC-JP 判定を行い、format が宣言する Unicode 名を優先します。単一 file 形式の FNAME がない場合は
+名前は ZIP/RAR4/LHA/tar/gzip FNAME の undecorated bytes に対して、書庫全体の多言語符号化判定を行い、format が宣言する Unicode 名を優先します。単一 file 形式の FNAME がない場合は
 source file の拡張子を除いた名前を entry 名にします。
-多言語判定の測定基盤として CLDR の 19 言語の文字集合（Unicode License v3、[NOTICE](NOTICE) 参照）と `kaito detect-encoding` を用意しており、現行検出器の対応状況は[ベースライン記録](Documentation/verification/2026-09-14-name-encoding-baseline.md)で確認できます。
+厳密 UTF-8 を最優先にし、legacy 候補は CoreFoundation の厳密復号、文字集合、文字体系・綴りの規則で比較します。
+`likelyLanguage` は BCP-47 の主要 subtag と中国語の文字体系を解釈し、証拠量で減衰する事前確率として使います。
+
+| 言語 | 自動判定の候補 |
+|---|---|
+| 日本語 | CP932、EUC-JP |
+| 中国語（簡体字） | GB18030（GBK / GB2312 を包含） |
+| 中国語（繁体字） | CP950、Big5-HKSCS（CP950 で復号不能の場合） |
+| 韓国語 | CP949（EUC-KR を包含） |
+| タイ語 / ベトナム語 | CP874 / CP1258 |
+| ウクライナ語 / ロシア語 | CP1251、KOI8-U/R、CP866、ISO-8859-5、MacCyrillic |
+| スペイン語 / ポルトガル語 / フランス語 / ドイツ語 / イタリア語 / 英語 | CP1252、ISO-8859-15、MacRoman、CP850 |
+| ポーランド語 / チェコ語 / ハンガリー語 | CP1250、ISO-8859-2、MacCE |
+| ギリシア語 / トルコ語 | CP1253 / CP1254 |
+| その他の候補 | CP1255、CP1256、CP1257（今回の言語別精度評価の対象外） |
+
+ISO-2022-JP と VISCII は自動判定の対象外です。漢字だけの短名の ja–zh 曖昧性や、ラテン系の少数の識別文字だけでは解消できない誤判定があります。
+既定の `likelyLanguage: "ja"` では、単独の韓国語・中国語の短名（8音節未満）が日本語に解決されることがあります。他アプリは対象の言語に合わせた `likelyLanguage` を渡してください。日本語は eval の単名99.50%・書庫99.84%で従来精度を維持しました。複数名の書庫では証拠が蓄積され、今回の eval の k≥10 は ja / zh / ko / th / vi / uk が100%、esが98.08%でした。
+
+単名の非ASCII4文字以上を言語指定なしで測ると、koは96.40%、zh-twは95.68%、zh-cnは92.06%です。漢字だけの短名やタイ語への交差復号には曖昧性・規則不足が残ります。西欧・中欧では外国語の固有名を含む名前と共通の文字配置が誤判定を招き、タイ語の分布規則にも実在名を過小評価する例があります。候補に含まれることは正解率の保証ではありません。4 policy の測定値と未達項目は[多言語判定の検証記録](Documentation/verification/2026-09-14-name-encoding-multilingual.md)を参照してください。
+CLDR の 19 言語の文字集合を判定器で使用します（Unicode License v3、[NOTICE](NOTICE)）。
+`kaito detect-encoding --check-orthography <tsv>` はタイ語・ベトナム語の正解 text に規則を適用し、違反位置を出力します。
 
 圧縮 tar の展開結果は `ReadLimits.inMemorySingleFileLimit` 以下なら memory、それより大きければ
 直ちに unlink した一時 file descriptor に保持します。どちらも同じ `TarReader` API を公開します。
 
 > **Names and compressed tar staging**
 >
-> Names are resolved by an archive-wide UTF-8, CP932 and EUC-JP detection over the undecorated bytes
+> Names are resolved by archive-wide multilingual encoding detection over the undecorated bytes
 > of ZIP, RAR4, LHA, tar and gzip FNAME, preferring any Unicode name the format declares. When a
 > single-file format carries no FNAME, the entry name is the source file name with its extension
 > removed.

@@ -389,6 +389,14 @@ public enum EncodingDetector {
         maximumBatchByteCount: Int?,
         metrics: ArchiveEncodingDetectionMetrics?
     ) -> String.Encoding {
+        // 設計書「書庫単位」: 重複数を保持した有界 sample の加重和で、先に全候補から選ぶ。
+        let multilingual = scoreArchiveNames(
+            names, likelyLanguage: likelyLanguage, fromWindows: fromWindows,
+            maximumByteCount: maximumBatchByteCount
+        )
+        if let multilingual, multilingual != .shiftJIS, multilingual != .japaneseEUC {
+            return multilingual
+        }
         var ambiguousJapaneseNames: [[UInt8]] = []
         var cp932Only = 0
         var eucJPOnly = 0
@@ -701,6 +709,30 @@ public enum EncodingDetector {
             return (.utf8, string, 1.0)
         }
 
+        // 設計書変更履歴 c、f: 先に全候補の勝者を固定し、日本語の時だけ既存経路へ委ねる。
+        let ranked = NameEncodingScorer.ranked(
+            NameEncodingScorer.allScores(bytes, fromWindows: fromWindows),
+            likelyLanguage: likelyLanguage, fromWindows: fromWindows
+        )
+        if let winner = ranked.first {
+            let candidate = NameEncodingCandidates.all[winner.candidateIndex]
+            if !candidate.isJapanese {
+                return (candidate.encoding, winner.string, NameEncodingScorer.confidence(ranked))
+            }
+        } else {
+            let latin1 = decode(bytes: bytes, as: .isoLatin1)
+                ?? String(bytes.map { UnicodeScalar($0) }.map(Character.init))
+            return (.isoLatin1, latin1, 0.2)
+        }
+
+        let japanese = automaticallyDetectJapanese(bytes: bytes, likelyLanguage: likelyLanguage, fromWindows: fromWindows)
+        return (japanese.encoding, japanese.string, NameEncodingScorer.confidence(ranked))
+    }
+
+    // 設計書変更履歴 c、f: 既存の日本語決定処理を保持し、新候補の勝者が日本語の時だけ呼ぶ。
+    private static func automaticallyDetectJapanese(
+        bytes: [UInt8], likelyLanguage: String?, fromWindows: Bool
+    ) -> EncodingDetection {
         // Foundation の結果は先に取得し、構造検査が両方通る曖昧列では品質評価のヒントにも使う。
         let foundation = foundationDetection(
             bytes: bytes,
@@ -979,6 +1011,81 @@ public enum EncodingDetector {
             "ﾏﾝｶﾞ", "ﾀｲﾄﾙ", "ｻﾝﾌﾟﾙ", "ｲﾗｽﾄ",
         ]
         return commonTerms.contains { sampled.contains($0) }
+    }
+
+    // 設計書「書庫単位」「性能」: 既存 sample と同じ順序・中点抽出・byte 上限を使う。
+    private static func scoreArchiveNames(
+        _ names: [[UInt8]], likelyLanguage: String?, fromWindows: Bool,
+        maximumByteCount: Int?
+    ) -> String.Encoding? {
+        let frequencies = archiveNameFrequencies(names)
+        guard !frequencies.isEmpty else { return nil }
+        let sampleCount = min(names.count, maximumAutomaticDetectionSampleNameCount)
+        let byteLimit = min(maximumAutomaticDetectionSampleByteCount, max(0, maximumByteCount ?? maximumAutomaticDetectionSampleByteCount))
+        var selected: [Int: Int] = [:]
+        var frequencyIndex = 0
+        var cumulativeCount = frequencies[0].count
+        var byteCount = 0
+        for sampleIndex in 0..<sampleCount {
+            let lower = scaledPosition(sampleIndex, total: names.count, parts: sampleCount)
+            let upper = scaledPosition(sampleIndex + 1, total: names.count, parts: sampleCount)
+            let position = lower + (upper - lower) / 2
+            while position >= cumulativeCount, frequencyIndex + 1 < frequencies.count {
+                frequencyIndex += 1
+                cumulativeCount += frequencies[frequencyIndex].count
+            }
+            let separatorCount = byteCount == 0 ? 0 : 1
+            let size = frequencies[frequencyIndex].bytes.count
+            guard separatorCount <= byteLimit - byteCount,
+                  size <= byteLimit - byteCount - separatorCount else { continue }
+            byteCount += separatorCount + size
+            selected[frequencyIndex, default: 0] += 1
+        }
+        guard !selected.isEmpty else { return .isoLatin1 }
+        let candidates = NameEncodingCandidates.all
+        var totals = [SIMD8<Double>](repeating: .zero, count: candidates.count)
+        var decoded = [Int](repeating: 0, count: candidates.count)
+        var evidenceCounts = [Int](repeating: 0, count: candidates.count)
+        var hanOnly = [Bool](repeating: true, count: candidates.count)
+        let weight = selected.values.reduce(0, +)
+        var vietnameseEvidence = false
+        for index in selected.keys.sorted() {
+            let count = selected[index]!
+            let results = NameEncodingScorer.allScores(frequencies[index].bytes, fromWindows: fromWindows, includeHKSCS: true, archive: true)
+            // 第4回レビュー A: 全候補で同じ byte 尺度を使い、復号不能名も分母から落とさない。
+            let n = frequencies[index].bytes.reduce(0) { $0 + ($1 >= 128 ? 1 : 0) }
+            var values = [SIMD8<Double>](repeating: SIMD8(repeating: -3 * Double(n)), count: candidates.count)
+            for result in results {
+                if !vietnameseEvidence, candidates[result.candidateIndex].name == "windows-1258",
+                   NameEncodingScorer.vietnameseEvidence(result.string) { vietnameseEvidence = true }
+                values[result.candidateIndex] = result.languageScores * Double(n)
+                decoded[result.candidateIndex] += count
+                hanOnly[result.candidateIndex] = hanOnly[result.candidateIndex] && result.hanOnly
+            }
+            for i in totals.indices {
+                totals[i] += values[i] * Double(count)
+                evidenceCounts[i] += n * count
+            }
+        }
+        let results = candidates.indices.compactMap { i -> NameEncodingScorer.Result? in
+            guard decoded[i] > 0 else { return nil }
+            if candidates[i].name == "windows-1258", !vietnameseEvidence { return nil }
+            if candidates[i].name == "big5-hkscs", decoded[3] == weight { return nil }
+            // 第5回レビュー: 名前ごとの最大ではなく、同じ言語の証拠を全 sample で合算してから選ぶ。
+            let best = candidates[i].languages.indices.reduce(-Double.infinity) { max($0, totals[i][$1]) }
+            return NameEncodingScorer.Result(candidateIndex: i, string: "", score: best / Double(max(1, evidenceCounts[i])), hanOnly: hanOnly[i], byteCount: evidenceCounts[i])
+        }
+        guard let winner = NameEncodingScorer.ranked(results, likelyLanguage: likelyLanguage, fromWindows: fromWindows).first else { return .isoLatin1 }
+        return candidates[winner.candidateIndex].encoding
+    }
+
+    // 設計書「採点 1、2」: 新候補から既存の状態機械と半角名規則をそのまま使う。
+    static func nameIsStructurallyJapanese(_ bytes: [UInt8], euc: Bool) -> Bool {
+        euc ? isStructurallyEUCJP(bytes) : isStructurallyCP932(bytes)
+    }
+
+    static func nameIsLikelyHalfWidth(_ string: String) -> Bool {
+        isLikelyHalfWidthName(string, metrics: nil)
     }
 
     private static func replacementDecode(

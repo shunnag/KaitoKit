@@ -1,0 +1,526 @@
+id	lang	truth_iana	hex	text
+own-en-windows-1252-01	en	windows-1252	54686520636166e920626573696465207468652071756965742072697665722e747874	The café beside the quiet river.txt
+own-en-windows-1252-02	en	windows-1252	412072e973756de920666f72207468652073756d6d657220636166e92e747874	A résumé for the summer café.txt
+own-en-windows-1252-03	en	windows-1252	41206e61ef766520736b65746368206f662074686520636166e92e747874	A naïve sketch of the café.txt
+own-en-windows-1252-04	en	windows-1252	54686520636f6c6f757266756c206661e7616465206f66206f757220636166e92e747874	The colourful façade of our café.txt
+own-en-windows-1252-05	en	windows-1252	4120636166e9206d656e7520776974682061206372e86d6520646573736572742e747874	A café menu with a crème dessert.txt
+own-en-windows-1252-06	en	windows-1252	412072e973756de9206f66206f7572206368e2746561752076697369742e747874	A résumé of our château visit.txt
+own-en-windows-1252-07	en	windows-1252	467265736820666c6f7765727320666f722074686520636166e920746572726163652e747874	Fresh flowers for the café terrace.txt
+own-en-windows-1252-08	en	windows-1252	54686520636166e92062657369646520616e206f6c64206368e2746561752e747874	The café beside an old château.txt
+own-en-windows-1252-09	en	windows-1252	41206661e761646520736b6574636820666f72207468652072e973756de92e747874	A façade sketch for the résumé.txt
+own-en-windows-1252-10	en	windows-1252	412072e973756de9206f662074686520636166e92072656e6f766174696f6e2e747874	A résumé of the café renovation.txt
+own-en-iso-8859-15-01	en	iso-8859-15	54686520636166e920626573696465207468652071756965742072697665722e747874	The café beside the quiet river.txt
+own-en-iso-8859-15-02	en	iso-8859-15	412072e973756de920666f72207468652073756d6d657220636166e92e747874	A résumé for the summer café.txt
+own-en-iso-8859-15-03	en	iso-8859-15	41206e61ef766520736b65746368206f662074686520636166e92e747874	A naïve sketch of the café.txt
+own-en-iso-8859-15-04	en	iso-8859-15	54686520636f6c6f757266756c206661e7616465206f66206f757220636166e92e747874	The colourful façade of our café.txt
+own-en-iso-8859-15-05	en	iso-8859-15	4120636166e9206d656e7520776974682061206372e86d6520646573736572742e747874	A café menu with a crème dessert.txt
+own-en-iso-8859-15-06	en	iso-8859-15	412072e973756de9206f66206f7572206368e2746561752076697369742e747874	A résumé of our château visit.txt
+own-en-iso-8859-15-07	en	iso-8859-15	467265736820666c6f7765727320666f722074686520636166e920746572726163652e747874	Fresh flowers for the café terrace.txt
+own-en-iso-8859-15-08	en	iso-8859-15	54686520636166e92062657369646520616e206f6c64206368e2746561752e747874	The café beside an old château.txt
+own-en-iso-8859-15-09	en	iso-8859-15	41206661e761646520736b6574636820666f72207468652072e973756de92e747874	A façade sketch for the résumé.txt
+own-en-iso-8859-15-10	en	iso-8859-15	412072e973756de9206f662074686520636166e92072656e6f766174696f6e2e747874	A résumé of the café renovation.txt
+own-en-macintosh-01	en	macintosh	546865206361668e20626573696465207468652071756965742072697665722e747874	The café beside the quiet river.txt
+own-en-macintosh-02	en	macintosh	4120728e73756d8e20666f72207468652073756d6d6572206361668e2e747874	A résumé for the summer café.txt
+own-en-macintosh-03	en	macintosh	41206e6195766520736b65746368206f6620746865206361668e2e747874	A naïve sketch of the café.txt
+own-en-macintosh-04	en	macintosh	54686520636f6c6f757266756c2066618d616465206f66206f7572206361668e2e747874	The colourful façade of our café.txt
+own-en-macintosh-05	en	macintosh	41206361668e206d656e75207769746820612063728f6d6520646573736572742e747874	A café menu with a crème dessert.txt
+own-en-macintosh-06	en	macintosh	4120728e73756d8e206f66206f757220636889746561752076697369742e747874	A résumé of our château visit.txt
+own-en-macintosh-07	en	macintosh	467265736820666c6f7765727320666f7220746865206361668e20746572726163652e747874	Fresh flowers for the café terrace.txt
+own-en-macintosh-08	en	macintosh	546865206361668e2062657369646520616e206f6c6420636889746561752e747874	The café beside an old château.txt
+own-en-macintosh-09	en	macintosh	412066618d61646520736b6574636820666f722074686520728e73756d8e2e747874	A façade sketch for the résumé.txt
+own-en-macintosh-10	en	macintosh	4120728e73756d8e206f6620746865206361668e2072656e6f766174696f6e2e747874	A résumé of the café renovation.txt
+own-en-cp850-01	en	cp850	546865206361668220626573696465207468652071756965742072697665722e747874	The café beside the quiet river.txt
+own-en-cp850-02	en	cp850	4120728273756d8220666f72207468652073756d6d657220636166822e747874	A résumé for the summer café.txt
+own-en-cp850-03	en	cp850	41206e618b766520736b65746368206f662074686520636166822e747874	A naïve sketch of the café.txt
+own-en-cp850-04	en	cp850	54686520636f6c6f757266756c20666187616465206f66206f757220636166822e747874	The colourful façade of our café.txt
+own-en-cp850-05	en	cp850	412063616682206d656e75207769746820612063728a6d6520646573736572742e747874	A café menu with a crème dessert.txt
+own-en-cp850-06	en	cp850	4120728273756d82206f66206f757220636883746561752076697369742e747874	A résumé of our château visit.txt
+own-en-cp850-07	en	cp850	467265736820666c6f7765727320666f7220746865206361668220746572726163652e747874	Fresh flowers for the café terrace.txt
+own-en-cp850-08	en	cp850	54686520636166822062657369646520616e206f6c6420636883746561752e747874	The café beside an old château.txt
+own-en-cp850-09	en	cp850	412066618761646520736b6574636820666f722074686520728273756d822e747874	A façade sketch for the résumé.txt
+own-en-cp850-10	en	cp850	4120728273756d82206f662074686520636166822072656e6f766174696f6e2e747874	A résumé of the café renovation.txt
+own-ja-cp932-01	ja	cp932	90c28bf382cc8eca905e92a02e747874	青空の写真帳.txt
+own-ja-cp932-02	ja	cp932	8fac82b382c8905882cc8e5595e093b92e747874	小さな森の散歩道.txt
+own-ja-cp932-03	ja	cp932	90c382a982c88cce82c6949282a292b92e747874	静かな湖と白い鳥.txt
+own-ja-cp932-04	ja	cp932	8f4882cc975b95e982ea95d682e82e747874	秋の夕暮れ便り.txt
+own-ja-cp932-05	ja	cp932	92a982cc907d8f918ad982be82e682e82e747874	朝の図書館だより.txt
+own-ja-cp932-06	ja	cp932	894a82cc93fa82cc82a892838e9e8ad42e747874	雨の日のお茶時間.txt
+own-ja-cp932-07	ja	cp932	899382a28a4382a982e782cc8ee88e862e747874	遠い海からの手紙.txt
+own-ja-cp932-08	ja	cp932	8f7482cc92eb82c690d482a289d42e747874	春の庭と赤い花.txt
+own-ja-cp932-09	ja	cp932	90e182cc92ac82f095e082ad93fa2e747874	雪の町を歩く日.txt
+own-ja-cp932-10	ja	cp932	90af82f08ca982c282af82bd96e92e747874	星を見つけた夜.txt
+own-ja-euc-jp-01	ja	euc-jp	c0c4b6f5a4cebcccbfbfc4a22e747874	青空の写真帳.txt
+own-ja-euc-jp-02	ja	euc-jp	beaea4b5a4cabfb9a4cebbb6cae2c6bb2e747874	小さな森の散歩道.txt
+own-ja-euc-jp-03	ja	euc-jp	c0c5a4aba4cab8d0a4c8c7f2a4a4c4bb2e747874	静かな湖と白い鳥.txt
+own-ja-euc-jp-04	ja	euc-jp	bda9a4cecdbccaeba4eccad8a4ea2e747874	秋の夕暮れ便り.txt
+own-ja-euc-jp-05	ja	euc-jp	c4aba4cebfdebdf1b4dba4c0a4e8a4ea2e747874	朝の図書館だより.txt
+own-ja-euc-jp-06	ja	euc-jp	b1aba4cec6fca4cea4aac3e3bbfeb4d62e747874	雨の日のお茶時間.txt
+own-ja-euc-jp-07	ja	euc-jp	b1f3a4a4b3a4a4aba4e9a4cebceabbe62e747874	遠い海からの手紙.txt
+own-ja-euc-jp-08	ja	euc-jp	bdd5a4cec4eda4c8c0d6a4a4b2d62e747874	春の庭と赤い花.txt
+own-ja-euc-jp-09	ja	euc-jp	c0e3a4cec4aea4f2cae2a4afc6fc2e747874	雪の町を歩く日.txt
+own-ja-euc-jp-10	ja	euc-jp	c0b1a4f2b8aba4c4a4b1a4bfcceb2e747874	星を見つけた夜.txt
+own-zh-cn-gb18030-01	zh-cn	gb18030	b4bab7e7c0efb5c4d0a1bba8d4b02e747874	春风里的小花园.txt
+own-zh-cn-gb18030-02	zh-cn	gb18030	c0b6c9abccecbfd5bacdb0d7d4c62e747874	蓝色天空和白云.txt
+own-zh-cn-gb18030-03	zh-cn	gb18030	d2b9cdedbad3b1dfb5c4b5c6b9e22e747874	夜晚河边的灯光.txt
+own-zh-cn-gb18030-04	zh-cn	gb18030	d0a1c3a8b5c4d0c2cde6bedf2e747874	小猫的新玩具.txt
+own-zh-cn-gb18030-05	zh-cn	gb18030	d0b4b8f8c5f3d3d1b5c4d0c52e747874	写给朋友的信.txt
+own-zh-cn-gb18030-06	zh-cn	gb18030	d3eabaf3b5c4b0b2beb2bdd6b5c02e747874	雨后的安静街道.txt
+own-zh-cn-gb18030-07	zh-cn	gb18030	c9bdc9cfb5c4c2ccc9abcaf7c1d62e747874	山上的绿色树林.txt
+own-zh-cn-gb18030-08	zh-cn	gb18030	bfecc0d6b5c4d6dcc4a9c9fabbee2e747874	快乐的周末生活.txt
+own-zh-cn-gb18030-09	zh-cn	gb18030	b6accceccec2c5afb5c4b7bfbce42e747874	冬天温暖的房间.txt
+own-zh-cn-gb18030-10	zh-cn	gb18030	c7e5b3bfb3f8b7bfb5c4cfe3ceb62e747874	清晨厨房的香味.txt
+own-zh-tw-cp950-01	zh-tw	cp950	ac4badb7b8ccaabaa470aae1b6e92e747874	春風裡的小花園.txt
+own-zh-tw-cp950-02	zh-tw	cp950	c2c5a6e2a4d1aac5a94da5d5b6b32e747874	藍色天空和白雲.txt
+own-zh-tw-cp950-03	zh-tw	cp950	a95db1dfaa65c3e4aababf4fa5fa2e747874	夜晚河邊的燈光.txt
+own-zh-tw-cp950-04	zh-tw	cp950	a470bfdfaabab773aab1a8e32e747874	小貓的新玩具.txt
+own-zh-tw-cp950-05	zh-tw	cp950	bc67b5b9aa42a4cdaabaab482e747874	寫給朋友的信.txt
+own-zh-tw-cp950-06	zh-tw	cp950	ab42abe1aabaa677c052b5f3b9442e747874	雨後的安靜街道.txt
+own-zh-tw-cp950-07	zh-tw	cp950	a473a457aababaf1a6e2bef0aa4c2e747874	山上的綠色樹林.txt
+own-zh-tw-cp950-08	zh-tw	cp950	a7d6bcd6aabab667a5bda5cdaca12e747874	快樂的週末生活.txt
+own-zh-tw-cp950-09	zh-tw	cp950	a556a4d1b7c5b778aabaa9d0b6a12e747874	冬天溫暖的房間.txt
+own-zh-tw-cp950-10	zh-tw	cp950	b24db1e1bc70a9d0aabaadbba8fd2e747874	清晨廚房的香味.txt
+own-zh-tw-big5-hkscs-01	zh-tw	big5-hkscs	b5a1c3e49df8a470aae1b67d9df72e747874	窗邊啲小花開咗.txt
+own-zh-tw-big5-hkscs-02	zh-tw	big5-hkscs	abcea5f89defa470aae1b6e92e747874	屋企嘅小花園.txt
+own-zh-tw-big5-hkscs-03	zh-tw	big5-hkscs	a4b5a4e99df6aa65c3e4b4b2a8422e747874	今日喺河邊散步.txt
+own-zh-tw-big5-hkscs-04	zh-tw	big5-hkscs	aa42a4cdb065cd71a7da9defab482e747874	朋友送畀我嘅信.txt
+own-zh-tw-big5-hkscs-05	zh-tw	big5-hkscs	a470bfdf8fd49df6b5a1c3e42e747874	小貓瞓喺窗邊.txt
+own-zh-tw-big5-hkscs-06	zh-tw	big5-hkscs	b6fdb6fdbee39defbcf6b4f62e747874	媽媽整嘅熱湯.txt
+own-zh-tw-big5-hkscs-07	zh-tw	big5-hkscs	9df8a5d5b6b3ba43ba43c4c6b94c2e747874	啲白雲慢慢飄過.txt
+own-zh-tw-big5-hkscs-08	zh-tw	big5-hkscs	aafcadf49df6bc70a9d0b54eb6ba2e747874	阿哥喺廚房煮飯.txt
+own-zh-tw-big5-hkscs-09	zh-tw	big5-hkscs	b773aed1ab59b065cd71a7419dee2e747874	新書係送畀你㗎.txt
+own-zh-tw-big5-hkscs-10	zh-tw	big5-hkscs	a95db1df9df8bf4fa66eb7c5b7782e747874	夜晚啲燈好溫暖.txt
+own-ko-cp949-01	ko	cp949	c0dbc0ba20c1a4bff8c0c720bec6c4a72e747874	작은 정원의 아침.txt
+own-ko-cp949-02	ko	cp949	c6c4b6f520c7cfb4c3b0fa20c8f220b1b8b8a72e747874	파란 하늘과 흰 구름.txt
+own-ko-cp949-03	ko	cp949	c4a3b1b8bfa1b0d420bab8b3bbb4c220c6edc1f62e747874	친구에게 보내는 편지.txt
+own-ko-cp949-04	ko	cp949	b5fbb6e6c7d120babdb3afc0c720bbeac3a52e747874	따뜻한 봄날의 산책.txt
+own-ko-cp949-05	ko	cp949	c1b6bfebc7d120b9d9b4d9c0c720b3ebb7a12e747874	조용한 바다의 노래.txt
+own-ko-cp949-06	ko	cp949	bbf5b7cebfee20b0edbee7c0cc20bbe7c1f82e747874	새로운 고양이 사진.txt
+own-ko-cp949-07	ko	cp949	baf1b0a120bfc0b4c220c0fab3e120c7b3b0e62e747874	비가 오는 저녁 풍경.txt
+own-ko-cp949-08	ko	cp949	b0dcbfef20bda3bfa1bcad20b8b8b3ad20bbf52e747874	겨울 숲에서 만난 새.txt
+own-ko-cp949-09	ko	cp949	bef6b8b6bfcd20c7d4b2b220b8b8b5e720bfe4b8ae2e747874	엄마와 함께 만든 요리.txt
+own-ko-cp949-10	ko	cp949	bfecb8ae20b5bfb3d720c0dbc0ba20b5b5bcadb0fc2e747874	우리 동네 작은 도서관.txt
+own-vi-windows-1258-01	vi	windows-1258	4275f4d26920636869eacc7520f5d22076fdf5cc6e206e686fd22e747874	Buổi chiều ở vườn nhỏ.txt
+own-vi-windows-1258-02	vi	windows-1258	5469eaec6e67206dfd61207472ea6e206de169206e68e02e747874	Tiếng mưa trên mái nhà.txt
+own-vi-windows-1258-03	vi	windows-1258	d0fdf5cc6e672076eacc2062ea6e20646fcc6e672073f46e672e747874	Đường về bên dòng sông.txt
+own-vi-windows-1258-04	vi	windows-1258	4e68fdde6e672062f46e6720686f612074726f6e67206ee3ec6e672e747874	Những bông hoa trong nắng.txt
+own-vi-windows-1258-05	vi	windows-1258	4e67fdf5cc69206261f26e206375d261206df961207875e26e2e747874	Người bạn của mùa xuân.txt
+own-vi-windows-1258-06	vi	windows-1258	c16e6820f0e86e2062ea6e2063fdd2612073f4d22e747874	Ánh đèn bên cửa sổ.txt
+own-vi-windows-1258-07	vi	windows-1258	42fdec63207468fd2067fdd269206e67fdf5cc6920656d2e747874	Bức thư gửi người em.txt
+own-vi-windows-1258-08	vi	windows-1258	4df4f274206e67e07920f5d2207468fd207669eaf26e2e747874	Một ngày ở thư viện.txt
+own-vi-windows-1258-09	vi	windows-1258	517579ead26e2076f5d2206de0752078616e68206269eaec632e747874	Quyển vở màu xanh biếc.txt
+own-vi-windows-1258-10	vi	windows-1258	42fdde612063f56d20e2ec6d2074726f6e6720f0ea6d2e747874	Bữa cơm ấm trong đêm.txt
+own-th-cp874-01	th	cp874	c0d2beb4cda1e4c1e9e3b9cac7b92e747874	ภาพดอกไม้ในสวน.txt
+own-th-cp874-02	th	cp874	e0cad5c2a7bdb9b7d5e8bae9d2b9e0c5e7a12e747874	เสียงฝนที่บ้านเล็ก.txt
+own-th-cp874-03	th	cp874	a8b4cbc1d2c2b6d6a7e0bed7e8cdb9c3d1a12e747874	จดหมายถึงเพื่อนรัก.txt
+own-th-cp874-04	th	cp874	e1caa7e0aae9d2b7d5e8c3d4c1e1c1e8b9e9d32e747874	แสงเช้าที่ริมแม่น้ำ.txt
+own-th-cp874-05	th	cp874	e1c1c7b9e9cdc2a1d1baa2cda7e0c5e8b9e3cbc1e82e747874	แมวน้อยกับของเล่นใหม่.txt
+own-th-cp874-06	th	cp874	e0b4d4b9e0c5e8b9e3b9bbe8d2cad5e0a2d5c2c72e747874	เดินเล่นในป่าสีเขียว.txt
+own-th-cp874-07	th	cp874	cdd2cbd2c3cdd8e8b9e3b9a4d7b9cbb9d2c72e747874	อาหารอุ่นในคืนหนาว.txt
+own-th-cp874-08	th	cp874	cbb9d1a7cad7cde0c5e8c1e3cbc1e8a2cda7e1c1e82e747874	หนังสือเล่มใหม่ของแม่.txt
+own-th-cp874-09	th	cp874	c7d1b9cbc2d8b4b7d5e8cbe9cda7cac1d8b42e747874	วันหยุดที่ห้องสมุด.txt
+own-th-cp874-10	th	cp874	b9a1cad5a2d2c7bab9a1d4e8a7e4c1e92e747874	นกสีขาวบนกิ่งไม้.txt
+own-uk-windows-1251-01	uk	windows-1251	d2e5efebe020eae0e7eae020eff0ee20ede0f8f320f0eee4e8edf32e747874	Тепла казка про нашу родину.txt
+own-uk-windows-1251-02	uk	windows-1251	cdeee2e520f1eeedf6e520ede0e420e7e5ebe5ede8ec20f1e0e4eeec2e747874	Нове сонце над зеленим садом.txt
+own-uk-windows-1251-03	uk	windows-1251	cbe8f1f220e4ee20eceebabf20e4eee1f0eebf20efeee4f0f3e3e82e747874	Лист до моєї доброї подруги.txt
+own-uk-windows-1251-04	uk	windows-1251	d1e8edba20ede5e1ee20ede0e420ede0f8eefe20f5e0f2eefe2e747874	Синє небо над нашою хатою.txt
+own-uk-windows-1251-05	uk	windows-1251	d0e0edeaeee2e020f0eef1e020ede020ebe8f1f2eae0f52e747874	Ранкова роса на листках.txt
+own-uk-windows-1251-06	uk	windows-1251	d2e5efebe8e920e2e5f7eef0eeea20e4ebff20ede0f8e8f520e4f0f3e7ffea2e747874	Теплий вечорок для наших друзяк.txt
+own-uk-windows-1251-07	uk	windows-1251	cce0ebe5edfceae020eff2e0f8eae020ede020e4e5f0e5e2b32e747874	Маленька пташка на дереві.txt
+own-uk-windows-1251-08	uk	windows-1251	c2e5f1edffede020f5ece0f0eae020ede0e420f1e5ebeeec2e747874	Весняна хмарка над селом.txt
+own-uk-windows-1251-09	uk	windows-1251	c7e5ebe5ede8e920e3e0e920efe5f0e5e420e4eef9e5ec2e747874	Зелений гай перед дощем.txt
+own-uk-windows-1251-10	uk	windows-1251	d1efeee3e0e4e820eff0ee20ede0f820e4e0ebe5eae8e920eaf0e0e92e747874	Спогади про наш далекий край.txt
+own-uk-koi8-u-01	uk	koi8-u	f4c5d0ccc120cbc1dacbc120d0d2cf20cec1dbd520d2cfc4c9ced52e747874	Тепла казка про нашу родину.txt
+own-uk-koi8-u-02	uk	koi8-u	eecfd7c520d3cfcec3c520cec1c420dac5ccc5cec9cd20d3c1c4cfcd2e747874	Нове сонце над зеленим садом.txt
+own-uk-koi8-u-03	uk	koi8-u	ecc9d3d420c4cf20cdcfa4a720c4cfc2d2cfa720d0cfc4d2d5c7c92e747874	Лист до моєї доброї подруги.txt
+own-uk-koi8-u-04	uk	koi8-u	f3c9cea420cec5c2cf20cec1c420cec1dbcfc020c8c1d4cfc02e747874	Синє небо над нашою хатою.txt
+own-uk-koi8-u-05	uk	koi8-u	f2c1cecbcfd7c120d2cfd3c120cec120ccc9d3d4cbc1c82e747874	Ранкова роса на листках.txt
+own-uk-koi8-u-06	uk	koi8-u	f4c5d0ccc9ca20d7c5decfd2cfcb20c4ccd120cec1dbc9c820c4d2d5dad1cb2e747874	Теплий вечорок для наших друзяк.txt
+own-uk-koi8-u-07	uk	koi8-u	edc1ccc5ced8cbc120d0d4c1dbcbc120cec120c4c5d2c5d7a62e747874	Маленька пташка на дереві.txt
+own-uk-koi8-u-08	uk	koi8-u	f7c5d3ced1cec120c8cdc1d2cbc120cec1c420d3c5cccfcd2e747874	Весняна хмарка над селом.txt
+own-uk-koi8-u-09	uk	koi8-u	fac5ccc5cec9ca20c7c1ca20d0c5d2c5c420c4cfddc5cd2e747874	Зелений гай перед дощем.txt
+own-uk-koi8-u-10	uk	koi8-u	f3d0cfc7c1c4c920d0d2cf20cec1db20c4c1ccc5cbc9ca20cbd2c1ca2e747874	Спогади про наш далекий край.txt
+own-uk-iso-8859-5-01	uk	iso-8859-5	c2d5dfdbd020dad0d7dad020dfe0de20ddd0e8e320e0ded4d8dde32e747874	Тепла казка про нашу родину.txt
+own-uk-iso-8859-5-02	uk	iso-8859-5	bdded2d520e1dedde6d520ddd0d420d7d5dbd5ddd8dc20e1d0d4dedc2e747874	Нове сонце над зеленим садом.txt
+own-uk-iso-8859-5-03	uk	iso-8859-5	bbd8e1e220d4de20dcdef4f720d4ded1e0def720dfded4e0e3d3d82e747874	Лист до моєї доброї подруги.txt
+own-uk-iso-8859-5-04	uk	iso-8859-5	c1d8ddf420ddd5d1de20ddd0d420ddd0e8deee20e5d0e2deee2e747874	Синє небо над нашою хатою.txt
+own-uk-iso-8859-5-05	uk	iso-8859-5	c0d0dddaded2d020e0dee1d020ddd020dbd8e1e2dad0e52e747874	Ранкова роса на листках.txt
+own-uk-iso-8859-5-06	uk	iso-8859-5	c2d5dfdbd8d920d2d5e7dee0deda20d4dbef20ddd0e8d8e520d4e0e3d7efda2e747874	Теплий вечорок для наших друзяк.txt
+own-uk-iso-8859-5-07	uk	iso-8859-5	bcd0dbd5ddecdad020dfe2d0e8dad020ddd020d4d5e0d5d2f62e747874	Маленька пташка на дереві.txt
+own-uk-iso-8859-5-08	uk	iso-8859-5	b2d5e1ddefddd020e5dcd0e0dad020ddd0d420e1d5dbdedc2e747874	Весняна хмарка над селом.txt
+own-uk-iso-8859-5-09	uk	iso-8859-5	b7d5dbd5ddd8d920d3d0d920dfd5e0d5d420d4dee9d5dc2e747874	Зелений гай перед дощем.txt
+own-uk-iso-8859-5-10	uk	iso-8859-5	c1dfded3d0d4d820dfe0de20ddd0e820d4d0dbd5dad8d920dae0d0d92e747874	Спогади про наш далекий край.txt
+own-uk-cp866-01	uk	cp866	92a5afaba020aaa0a7aaa020afe0ae20ada0e8e320e0aea4a8ade32e747874	Тепла казка про нашу родину.txt
+own-uk-cp866-02	uk	cp866	8daea2a520e1aeade6a520ada0a420a7a5aba5ada8ac20e1a0a4aeac2e747874	Нове сонце над зеленим садом.txt
+own-uk-cp866-03	uk	cp866	8ba8e1e220a4ae20acaef3f520a4aea1e0aef520afaea4e0e3a3a82e747874	Лист до моєї доброї подруги.txt
+own-uk-cp866-04	uk	cp866	91a8adf320ada5a1ae20ada0a420ada0e8aeee20e5a0e2aeee2e747874	Синє небо над нашою хатою.txt
+own-uk-cp866-05	uk	cp866	90a0adaaaea2a020e0aee1a020ada020aba8e1e2aaa0e52e747874	Ранкова роса на листках.txt
+own-uk-cp866-06	uk	cp866	92a5afaba8a920a2a5e7aee0aeaa20a4abef20ada0e8a8e520a4e0e3a7efaa2e747874	Теплий вечорок для наших друзяк.txt
+own-uk-cp866-08	uk	cp866	82a5e1adefada020e5aca0e0aaa020ada0a420e1a5abaeac2e747874	Весняна хмарка над селом.txt
+own-uk-cp866-09	uk	cp866	87a5aba5ada8a920a3a0a920afa5e0a5a420a4aee9a5ac2e747874	Зелений гай перед дощем.txt
+own-uk-cp866-10	uk	cp866	91afaea3a0a4a820afe0ae20ada0e820a4a0aba5aaa8a920aae0a0a92e747874	Спогади про наш далекий край.txt
+own-uk-x-mac-cyrillic-01	uk	x-mac-cyrillic	92e5efebe020eae0e7eae020eff0ee20ede0f8f320f0eee4e8edf32e747874	Тепла казка про нашу родину.txt
+own-uk-x-mac-cyrillic-02	uk	x-mac-cyrillic	8deee2e520f1eeedf6e520ede0e420e7e5ebe5ede8ec20f1e0e4eeec2e747874	Нове сонце над зеленим садом.txt
+own-uk-x-mac-cyrillic-03	uk	x-mac-cyrillic	8be8f1f220e4ee20eceeb9bb20e4eee1f0eebb20efeee4f0f3e3e82e747874	Лист до моєї доброї подруги.txt
+own-uk-x-mac-cyrillic-04	uk	x-mac-cyrillic	91e8edb920ede5e1ee20ede0e420ede0f8eefe20f5e0f2eefe2e747874	Синє небо над нашою хатою.txt
+own-uk-x-mac-cyrillic-05	uk	x-mac-cyrillic	90e0edeaeee2e020f0eef1e020ede020ebe8f1f2eae0f52e747874	Ранкова роса на листках.txt
+own-uk-x-mac-cyrillic-06	uk	x-mac-cyrillic	92e5efebe8e920e2e5f7eef0eeea20e4ebdf20ede0f8e8f520e4f0f3e7dfea2e747874	Теплий вечорок для наших друзяк.txt
+own-uk-x-mac-cyrillic-07	uk	x-mac-cyrillic	8ce0ebe5edfceae020eff2e0f8eae020ede020e4e5f0e5e2b42e747874	Маленька пташка на дереві.txt
+own-uk-x-mac-cyrillic-08	uk	x-mac-cyrillic	82e5f1eddfede020f5ece0f0eae020ede0e420f1e5ebeeec2e747874	Весняна хмарка над селом.txt
+own-uk-x-mac-cyrillic-09	uk	x-mac-cyrillic	87e5ebe5ede8e920e3e0e920efe5f0e5e420e4eef9e5ec2e747874	Зелений гай перед дощем.txt
+own-uk-x-mac-cyrillic-10	uk	x-mac-cyrillic	91efeee3e0e4e820eff0ee20ede0f820e4e0ebe5eae8e920eaf0e0e92e747874	Спогади про наш далекий край.txt
+own-ru-windows-1251-01	ru	windows-1251	d2e8f5e8e920e2e5f7e5f020f320f1e8ede5e920f0e5eae82e747874	Тихий вечер у синей реки.txt
+own-ru-windows-1251-02	ru	windows-1251	cdeee2fbe520f6e2e5f2fb20e220ece0ebe5edfceaeeec20f1e0e4f32e747874	Новые цветы в маленьком саду.txt
+own-ru-windows-1251-03	ru	windows-1251	cfe8f1fcecee20eceee5e920e4eee1f0eee920efeee4f0f3e3e52e747874	Письмо моей доброй подруге.txt
+own-ru-windows-1251-04	ru	windows-1251	c1e5ebfbe520eee1ebe0eae020ede0e420f1f2e0f0fbec20e4eeeceeec2e747874	Белые облака над старым домом.txt
+own-ru-windows-1251-05	ru	windows-1251	d1e2e5f220f0e0edede5e3ee20f3f2f0e020f320eeeaede02e747874	Свет раннего утра у окна.txt
+own-ru-windows-1251-06	ru	windows-1251	d2b8efebfbe920f7e0e920e4ebff20e2f1e5e920f1e5ecfce82e747874	Тёплый чай для всей семьи.txt
+own-ru-windows-1251-07	ru	windows-1251	cce0ebe5edfceae0ff20eff2e8f6e020ede020e2e5f2eae52e747874	Маленькая птица на ветке.txt
+own-ru-windows-1251-08	ru	windows-1251	cef1e5edede8e520e2eef1efeeece8ede0ede8ff20ee20eceef0e52e747874	Осенние воспоминания о море.txt
+own-ru-windows-1251-09	ru	windows-1251	c7e5ebb8ede0ff20f0eef9e020efeef1ebe520e4eee6e4ff2e747874	Зелёная роща после дождя.txt
+own-ru-windows-1251-10	ru	windows-1251	c2e5f1e5ededffff20eff0eee3f3ebeae020efee20ebe5f1f32e747874	Весенняя прогулка по лесу.txt
+own-ru-koi8-r-01	ru	koi8-r	f4c9c8c9ca20d7c5dec5d220d520d3c9cec5ca20d2c5cbc92e747874	Тихий вечер у синей реки.txt
+own-ru-koi8-r-02	ru	koi8-r	eecfd7d9c520c3d7c5d4d920d720cdc1ccc5ced8cbcfcd20d3c1c4d52e747874	Новые цветы в маленьком саду.txt
+own-ru-koi8-r-03	ru	koi8-r	f0c9d3d8cdcf20cdcfc5ca20c4cfc2d2cfca20d0cfc4d2d5c7c52e747874	Письмо моей доброй подруге.txt
+own-ru-koi8-r-04	ru	koi8-r	e2c5ccd9c520cfc2ccc1cbc120cec1c420d3d4c1d2d9cd20c4cfcdcfcd2e747874	Белые облака над старым домом.txt
+own-ru-koi8-r-05	ru	koi8-r	f3d7c5d420d2c1cecec5c7cf20d5d4d2c120d520cfcbcec12e747874	Свет раннего утра у окна.txt
+own-ru-koi8-r-06	ru	koi8-r	f4a3d0ccd9ca20dec1ca20c4ccd120d7d3c5ca20d3c5cdd8c92e747874	Тёплый чай для всей семьи.txt
+own-ru-koi8-r-07	ru	koi8-r	edc1ccc5ced8cbc1d120d0d4c9c3c120cec120d7c5d4cbc52e747874	Маленькая птица на ветке.txt
+own-ru-koi8-r-08	ru	koi8-r	efd3c5cecec9c520d7cfd3d0cfcdc9cec1cec9d120cf20cdcfd2c52e747874	Осенние воспоминания о море.txt
+own-ru-koi8-r-09	ru	koi8-r	fac5cca3cec1d120d2cfddc120d0cfd3ccc520c4cfd6c4d12e747874	Зелёная роща после дождя.txt
+own-ru-koi8-r-10	ru	koi8-r	f7c5d3c5ceced1d120d0d2cfc7d5cccbc120d0cf20ccc5d3d52e747874	Весенняя прогулка по лесу.txt
+own-ru-iso-8859-5-01	ru	iso-8859-5	c2d8e5d8d920d2d5e7d5e020e320e1d8ddd5d920e0d5dad82e747874	Тихий вечер у синей реки.txt
+own-ru-iso-8859-5-02	ru	iso-8859-5	bdded2ebd520e6d2d5e2eb20d220dcd0dbd5ddecdadedc20e1d0d4e32e747874	Новые цветы в маленьком саду.txt
+own-ru-iso-8859-5-03	ru	iso-8859-5	bfd8e1ecdcde20dcded5d920d4ded1e0ded920dfded4e0e3d3d52e747874	Письмо моей доброй подруге.txt
+own-ru-iso-8859-5-04	ru	iso-8859-5	b1d5dbebd520ded1dbd0dad020ddd0d420e1e2d0e0ebdc20d4dedcdedc2e747874	Белые облака над старым домом.txt
+own-ru-iso-8859-5-05	ru	iso-8859-5	c1d2d5e220e0d0ddddd5d3de20e3e2e0d020e320dedaddd02e747874	Свет раннего утра у окна.txt
+own-ru-iso-8859-5-06	ru	iso-8859-5	c2f1dfdbebd920e7d0d920d4dbef20d2e1d5d920e1d5dcecd82e747874	Тёплый чай для всей семьи.txt
+own-ru-iso-8859-5-07	ru	iso-8859-5	bcd0dbd5ddecdad0ef20dfe2d8e6d020ddd020d2d5e2dad52e747874	Маленькая птица на ветке.txt
+own-ru-iso-8859-5-08	ru	iso-8859-5	bee1d5ddddd8d520d2dee1dfdedcd8ddd0ddd8ef20de20dcdee0d52e747874	Осенние воспоминания о море.txt
+own-ru-iso-8859-5-09	ru	iso-8859-5	b7d5dbf1ddd0ef20e0dee9d020dfdee1dbd520d4ded6d4ef2e747874	Зелёная роща после дождя.txt
+own-ru-iso-8859-5-10	ru	iso-8859-5	b2d5e1d5ddddefef20dfe0ded3e3dbdad020dfde20dbd5e1e32e747874	Весенняя прогулка по лесу.txt
+own-ru-cp866-01	ru	cp866	92a8e5a8a920a2a5e7a5e020e320e1a8ada5a920e0a5aaa82e747874	Тихий вечер у синей реки.txt
+own-ru-cp866-02	ru	cp866	8daea2eba520e6a2a5e2eb20a220aca0aba5adecaaaeac20e1a0a4e32e747874	Новые цветы в маленьком саду.txt
+own-ru-cp866-03	ru	cp866	8fa8e1ecacae20acaea5a920a4aea1e0aea920afaea4e0e3a3a52e747874	Письмо моей доброй подруге.txt
+own-ru-cp866-04	ru	cp866	81a5abeba520aea1aba0aaa020ada0a420e1e2a0e0ebac20a4aeacaeac2e747874	Белые облака над старым домом.txt
+own-ru-cp866-05	ru	cp866	91a2a5e220e0a0adada5a3ae20e3e2e0a020e320aeaaada02e747874	Свет раннего утра у окна.txt
+own-ru-cp866-06	ru	cp866	92f1afabeba920e7a0a920a4abef20a2e1a5a920e1a5aceca82e747874	Тёплый чай для всей семьи.txt
+own-ru-cp866-07	ru	cp866	8ca0aba5adecaaa0ef20afe2a8e6a020ada020a2a5e2aaa52e747874	Маленькая птица на ветке.txt
+own-ru-cp866-08	ru	cp866	8ee1a5adada8a520a2aee1afaeaca8ada0ada8ef20ae20acaee0a52e747874	Осенние воспоминания о море.txt
+own-ru-cp866-09	ru	cp866	87a5abf1ada0ef20e0aee9a020afaee1aba520a4aea6a4ef2e747874	Зелёная роща после дождя.txt
+own-ru-cp866-10	ru	cp866	82a5e1a5adadefef20afe0aea3e3abaaa020afae20aba5e1e32e747874	Весенняя прогулка по лесу.txt
+own-ru-x-mac-cyrillic-01	ru	x-mac-cyrillic	92e8f5e8e920e2e5f7e5f020f320f1e8ede5e920f0e5eae82e747874	Тихий вечер у синей реки.txt
+own-ru-x-mac-cyrillic-02	ru	x-mac-cyrillic	8deee2fbe520f6e2e5f2fb20e220ece0ebe5edfceaeeec20f1e0e4f32e747874	Новые цветы в маленьком саду.txt
+own-ru-x-mac-cyrillic-03	ru	x-mac-cyrillic	8fe8f1fcecee20eceee5e920e4eee1f0eee920efeee4f0f3e3e52e747874	Письмо моей доброй подруге.txt
+own-ru-x-mac-cyrillic-04	ru	x-mac-cyrillic	81e5ebfbe520eee1ebe0eae020ede0e420f1f2e0f0fbec20e4eeeceeec2e747874	Белые облака над старым домом.txt
+own-ru-x-mac-cyrillic-05	ru	x-mac-cyrillic	91e2e5f220f0e0edede5e3ee20f3f2f0e020f320eeeaede02e747874	Свет раннего утра у окна.txt
+own-ru-x-mac-cyrillic-06	ru	x-mac-cyrillic	92deefebfbe920f7e0e920e4ebdf20e2f1e5e920f1e5ecfce82e747874	Тёплый чай для всей семьи.txt
+own-ru-x-mac-cyrillic-07	ru	x-mac-cyrillic	8ce0ebe5edfceae0df20eff2e8f6e020ede020e2e5f2eae52e747874	Маленькая птица на ветке.txt
+own-ru-x-mac-cyrillic-08	ru	x-mac-cyrillic	8ef1e5edede8e520e2eef1efeeece8ede0ede8df20ee20eceef0e52e747874	Осенние воспоминания о море.txt
+own-ru-x-mac-cyrillic-09	ru	x-mac-cyrillic	87e5ebdeede0df20f0eef9e020efeef1ebe520e4eee6e4df2e747874	Зелёная роща после дождя.txt
+own-ru-x-mac-cyrillic-10	ru	x-mac-cyrillic	82e5f1e5ededdfdf20eff0eee3f3ebeae020efee20ebe5f1f32e747874	Весенняя прогулка по лесу.txt
+own-es-windows-1252-01	es	windows-1252	456c206e69f16f207065717565f16f20656e20656c206a617264ed6e2e747874	El niño pequeño en el jardín.txt
+own-es-windows-1252-02	es	windows-1252	4d61f1616e61206465206f746ff16f206a756e746f20616c2072ed6f2e747874	Mañana de otoño junto al río.txt
+own-es-windows-1252-03	es	windows-1252	4c612063616e6369f36e2064656c2070e16a61726f20617a756c2e747874	La canción del pájaro azul.txt
+own-es-windows-1252-04	es	windows-1252	556e612070e167696e612070617261206d69206d616de12e747874	Una página para mi mamá.txt
+own-es-windows-1252-05	es	windows-1252	4c61206d6f6e7461f1612064657472e173206465206c612063616261f1612e747874	La montaña detrás de la cabaña.txt
+own-es-windows-1252-06	es	windows-1252	456c20737565f16f20646520756e61206e69f1612074ed6d6964612e747874	El sueño de una niña tímida.txt
+own-es-windows-1252-07	es	windows-1252	436166e92063616c69656e746520656e20656c2062616c63f36e2e747874	Café caliente en el balcón.txt
+own-es-windows-1252-08	es	windows-1252	5065717565f16120636f6c65636369f36e20646520666f746f67726166ed61732e747874	Pequeña colección de fotografías.txt
+own-es-windows-1252-09	es	windows-1252	456c2063756d706c6561f16f73206465206d692074ed6f2e747874	El cumpleaños de mi tío.txt
+own-es-windows-1252-10	es	windows-1252	556e20e172626f6c20616c2066696e616c2064656c2063616d696e6f2e747874	Un árbol al final del camino.txt
+own-es-iso-8859-15-01	es	iso-8859-15	456c206e69f16f207065717565f16f20656e20656c206a617264ed6e2e747874	El niño pequeño en el jardín.txt
+own-es-iso-8859-15-02	es	iso-8859-15	4d61f1616e61206465206f746ff16f206a756e746f20616c2072ed6f2e747874	Mañana de otoño junto al río.txt
+own-es-iso-8859-15-03	es	iso-8859-15	4c612063616e6369f36e2064656c2070e16a61726f20617a756c2e747874	La canción del pájaro azul.txt
+own-es-iso-8859-15-04	es	iso-8859-15	556e612070e167696e612070617261206d69206d616de12e747874	Una página para mi mamá.txt
+own-es-iso-8859-15-05	es	iso-8859-15	4c61206d6f6e7461f1612064657472e173206465206c612063616261f1612e747874	La montaña detrás de la cabaña.txt
+own-es-iso-8859-15-06	es	iso-8859-15	456c20737565f16f20646520756e61206e69f1612074ed6d6964612e747874	El sueño de una niña tímida.txt
+own-es-iso-8859-15-07	es	iso-8859-15	436166e92063616c69656e746520656e20656c2062616c63f36e2e747874	Café caliente en el balcón.txt
+own-es-iso-8859-15-08	es	iso-8859-15	5065717565f16120636f6c65636369f36e20646520666f746f67726166ed61732e747874	Pequeña colección de fotografías.txt
+own-es-iso-8859-15-09	es	iso-8859-15	456c2063756d706c6561f16f73206465206d692074ed6f2e747874	El cumpleaños de mi tío.txt
+own-es-iso-8859-15-10	es	iso-8859-15	556e20e172626f6c20616c2066696e616c2064656c2063616d696e6f2e747874	Un árbol al final del camino.txt
+own-es-macintosh-01	es	macintosh	456c206e69966f207065717565966f20656e20656c206a617264926e2e747874	El niño pequeño en el jardín.txt
+own-es-macintosh-02	es	macintosh	4d6196616e61206465206f746f966f206a756e746f20616c2072926f2e747874	Mañana de otoño junto al río.txt
+own-es-macintosh-03	es	macintosh	4c612063616e6369976e2064656c2070876a61726f20617a756c2e747874	La canción del pájaro azul.txt
+own-es-macintosh-04	es	macintosh	556e6120708767696e612070617261206d69206d616d872e747874	Una página para mi mamá.txt
+own-es-macintosh-05	es	macintosh	4c61206d6f6e7461966120646574728773206465206c61206361626196612e747874	La montaña detrás de la cabaña.txt
+own-es-macintosh-06	es	macintosh	456c20737565966f20646520756e61206e6996612074926d6964612e747874	El sueño de una niña tímida.txt
+own-es-macintosh-07	es	macintosh	4361668e2063616c69656e746520656e20656c2062616c63976e2e747874	Café caliente en el balcón.txt
+own-es-macintosh-08	es	macintosh	5065717565966120636f6c65636369976e20646520666f746f677261669261732e747874	Pequeña colección de fotografías.txt
+own-es-macintosh-09	es	macintosh	456c2063756d706c6561966f73206465206d692074926f2e747874	El cumpleaños de mi tío.txt
+own-es-macintosh-10	es	macintosh	556e208772626f6c20616c2066696e616c2064656c2063616d696e6f2e747874	Un árbol al final del camino.txt
+own-es-cp850-01	es	cp850	456c206e69a46f207065717565a46f20656e20656c206a617264a16e2e747874	El niño pequeño en el jardín.txt
+own-es-cp850-02	es	cp850	4d61a4616e61206465206f746fa46f206a756e746f20616c2072a16f2e747874	Mañana de otoño junto al río.txt
+own-es-cp850-03	es	cp850	4c612063616e6369a26e2064656c2070a06a61726f20617a756c2e747874	La canción del pájaro azul.txt
+own-es-cp850-04	es	cp850	556e612070a067696e612070617261206d69206d616da02e747874	Una página para mi mamá.txt
+own-es-cp850-05	es	cp850	4c61206d6f6e7461a4612064657472a073206465206c612063616261a4612e747874	La montaña detrás de la cabaña.txt
+own-es-cp850-06	es	cp850	456c20737565a46f20646520756e61206e69a4612074a16d6964612e747874	El sueño de una niña tímida.txt
+own-es-cp850-07	es	cp850	436166822063616c69656e746520656e20656c2062616c63a26e2e747874	Café caliente en el balcón.txt
+own-es-cp850-08	es	cp850	5065717565a46120636f6c65636369a26e20646520666f746f67726166a161732e747874	Pequeña colección de fotografías.txt
+own-es-cp850-09	es	cp850	456c2063756d706c6561a46f73206465206d692074a16f2e747874	El cumpleaños de mi tío.txt
+own-es-cp850-10	es	cp850	556e20a072626f6c20616c2066696e616c2064656c2063616d696e6f2e747874	Un árbol al final del camino.txt
+own-pt-windows-1252-01	pt	windows-1252	43616ee7e36f206461206d616e68e3206e6f206a617264696d2e747874	Canção da manhã no jardim.txt
+own-pt-windows-1252-02	pt	windows-1252	4f20636f7261e7e36f2064612070657175656e6120616c646569612e747874	O coração da pequena aldeia.txt
+own-pt-windows-1252-03	pt	windows-1252	466f746f677261666961732064612065737461e7e36f20636875766f73612e747874	Fotografias da estação chuvosa.txt
+own-pt-windows-1252-04	pt	windows-1252	436166e920652070e36f207061726120612066616ded6c69612e747874	Café e pão para a família.txt
+own-pt-windows-1252-05	pt	windows-1252	556d6120636f6c65e7e36f2064652068697374f3726961732e747874	Uma coleção de histórias.txt
+own-pt-windows-1252-06	pt	windows-1252	416d616e68e3206861766572e1206dfa73696361206e6120707261e7612e747874	Amanhã haverá música na praça.txt
+own-pt-windows-1252-07	pt	windows-1252	4f2070e1737361726f2065206120e172766f726520616d6172656c612e747874	O pássaro e a árvore amarela.txt
+own-pt-windows-1252-08	pt	windows-1252	4c656d6272616ee7617320646f20766572e36f20e02062656972612d6d61722e747874	Lembranças do verão à beira-mar.txt
+own-pt-windows-1252-09	pt	windows-1252	4120637269616ee7612065206f206272696e717565646f206e6f766f2e747874	A criança e o brinquedo novo.txt
+own-pt-windows-1252-10	pt	windows-1252	556d612070e167696e6120736f627265206120616d697a6164652e747874	Uma página sobre a amizade.txt
+own-pt-iso-8859-15-01	pt	iso-8859-15	43616ee7e36f206461206d616e68e3206e6f206a617264696d2e747874	Canção da manhã no jardim.txt
+own-pt-iso-8859-15-02	pt	iso-8859-15	4f20636f7261e7e36f2064612070657175656e6120616c646569612e747874	O coração da pequena aldeia.txt
+own-pt-iso-8859-15-03	pt	iso-8859-15	466f746f677261666961732064612065737461e7e36f20636875766f73612e747874	Fotografias da estação chuvosa.txt
+own-pt-iso-8859-15-04	pt	iso-8859-15	436166e920652070e36f207061726120612066616ded6c69612e747874	Café e pão para a família.txt
+own-pt-iso-8859-15-05	pt	iso-8859-15	556d6120636f6c65e7e36f2064652068697374f3726961732e747874	Uma coleção de histórias.txt
+own-pt-iso-8859-15-06	pt	iso-8859-15	416d616e68e3206861766572e1206dfa73696361206e6120707261e7612e747874	Amanhã haverá música na praça.txt
+own-pt-iso-8859-15-07	pt	iso-8859-15	4f2070e1737361726f2065206120e172766f726520616d6172656c612e747874	O pássaro e a árvore amarela.txt
+own-pt-iso-8859-15-08	pt	iso-8859-15	4c656d6272616ee7617320646f20766572e36f20e02062656972612d6d61722e747874	Lembranças do verão à beira-mar.txt
+own-pt-iso-8859-15-09	pt	iso-8859-15	4120637269616ee7612065206f206272696e717565646f206e6f766f2e747874	A criança e o brinquedo novo.txt
+own-pt-iso-8859-15-10	pt	iso-8859-15	556d612070e167696e6120736f627265206120616d697a6164652e747874	Uma página sobre a amizade.txt
+own-pt-macintosh-01	pt	macintosh	43616e8d8b6f206461206d616e688b206e6f206a617264696d2e747874	Canção da manhã no jardim.txt
+own-pt-macintosh-02	pt	macintosh	4f20636f72618d8b6f2064612070657175656e6120616c646569612e747874	O coração da pequena aldeia.txt
+own-pt-macintosh-03	pt	macintosh	466f746f6772616669617320646120657374618d8b6f20636875766f73612e747874	Fotografias da estação chuvosa.txt
+own-pt-macintosh-04	pt	macintosh	4361668e206520708b6f207061726120612066616d926c69612e747874	Café e pão para a família.txt
+own-pt-macintosh-05	pt	macintosh	556d6120636f6c658d8b6f206465206869737497726961732e747874	Uma coleção de histórias.txt
+own-pt-macintosh-06	pt	macintosh	416d616e688b20686176657287206d9c73696361206e61207072618d612e747874	Amanhã haverá música na praça.txt
+own-pt-macintosh-07	pt	macintosh	4f207087737361726f20652061208772766f726520616d6172656c612e747874	O pássaro e a árvore amarela.txt
+own-pt-macintosh-08	pt	macintosh	4c656d6272616e8d617320646f207665728b6f20882062656972612d6d61722e747874	Lembranças do verão à beira-mar.txt
+own-pt-macintosh-09	pt	macintosh	4120637269616e8d612065206f206272696e717565646f206e6f766f2e747874	A criança e o brinquedo novo.txt
+own-pt-macintosh-10	pt	macintosh	556d6120708767696e6120736f627265206120616d697a6164652e747874	Uma página sobre a amizade.txt
+own-pt-cp850-01	pt	cp850	43616e87c66f206461206d616e68c6206e6f206a617264696d2e747874	Canção da manhã no jardim.txt
+own-pt-cp850-02	pt	cp850	4f20636f726187c66f2064612070657175656e6120616c646569612e747874	O coração da pequena aldeia.txt
+own-pt-cp850-03	pt	cp850	466f746f67726166696173206461206573746187c66f20636875766f73612e747874	Fotografias da estação chuvosa.txt
+own-pt-cp850-04	pt	cp850	4361668220652070c66f207061726120612066616da16c69612e747874	Café e pão para a família.txt
+own-pt-cp850-05	pt	cp850	556d6120636f6c6587c66f2064652068697374a2726961732e747874	Uma coleção de histórias.txt
+own-pt-cp850-06	pt	cp850	416d616e68c6206861766572a0206da373696361206e612070726187612e747874	Amanhã haverá música na praça.txt
+own-pt-cp850-07	pt	cp850	4f2070a0737361726f2065206120a072766f726520616d6172656c612e747874	O pássaro e a árvore amarela.txt
+own-pt-cp850-08	pt	cp850	4c656d6272616e87617320646f20766572c66f20852062656972612d6d61722e747874	Lembranças do verão à beira-mar.txt
+own-pt-cp850-09	pt	cp850	4120637269616e87612065206f206272696e717565646f206e6f766f2e747874	A criança e o brinquedo novo.txt
+own-pt-cp850-10	pt	cp850	556d612070a067696e6120736f627265206120616d697a6164652e747874	Uma página sobre a amizade.txt
+own-fr-windows-1252-01	fr	windows-1252	556e65206c756d69e87265207072e873206465206c612066656eea7472652e747874	Une lumière près de la fenêtre.txt
+own-fr-windows-1252-02	fr	windows-1252	4c6520636166e9206368617564206465206d61206de872652e747874	Le café chaud de ma mère.txt
+own-fr-windows-1252-03	fr	windows-1252	4c61206661e761646520636f6c6f72e96520617072e873206c6120706c7569652e747874	La façade colorée après la pluie.txt
+own-fr-windows-1252-04	fr	windows-1252	556e65206a6f75726ee96520e0206c61206269626c696f7468e87175652e747874	Une journée à la bibliothèque.txt
+own-fr-windows-1252-05	fr	windows-1252	4c6520676172e76f6e206574206c61207065746974652072697669e872652e747874	Le garçon et la petite rivière.txt
+own-fr-windows-1252-06	fr	windows-1252	556e20e974e9207472616e7175696c6c6520e0206c612063616d7061676e652e747874	Un été tranquille à la campagne.txt
+own-fr-windows-1252-07	fr	windows-1252	4c6120666f72ea74206465727269e87265206e6f74726520e9636f6c652e747874	La forêt derrière notre école.txt
+own-fr-windows-1252-08	fr	windows-1252	556e65207061676520e9637269746520706f7572206d6f6e2070e872652e747874	Une page écrite pour mon père.txt
+own-fr-windows-1252-09	fr	windows-1252	4c6573207072656d69e872657320666c657572732064752063f474e9207375642e747874	Les premières fleurs du côté sud.txt
+own-fr-windows-1252-10	fr	windows-1252	4c6120626fee746520e020736f7576656e697273206465204e6feb6c2e747874	La boîte à souvenirs de Noël.txt
+own-fr-iso-8859-15-01	fr	iso-8859-15	556e65206c756d69e87265207072e873206465206c612066656eea7472652e747874	Une lumière près de la fenêtre.txt
+own-fr-iso-8859-15-02	fr	iso-8859-15	4c6520636166e9206368617564206465206d61206de872652e747874	Le café chaud de ma mère.txt
+own-fr-iso-8859-15-03	fr	iso-8859-15	4c61206661e761646520636f6c6f72e96520617072e873206c6120706c7569652e747874	La façade colorée après la pluie.txt
+own-fr-iso-8859-15-04	fr	iso-8859-15	556e65206a6f75726ee96520e0206c61206269626c696f7468e87175652e747874	Une journée à la bibliothèque.txt
+own-fr-iso-8859-15-05	fr	iso-8859-15	4c6520676172e76f6e206574206c61207065746974652072697669e872652e747874	Le garçon et la petite rivière.txt
+own-fr-iso-8859-15-06	fr	iso-8859-15	556e20e974e9207472616e7175696c6c6520e0206c612063616d7061676e652e747874	Un été tranquille à la campagne.txt
+own-fr-iso-8859-15-07	fr	iso-8859-15	4c6120666f72ea74206465727269e87265206e6f74726520e9636f6c652e747874	La forêt derrière notre école.txt
+own-fr-iso-8859-15-08	fr	iso-8859-15	556e65207061676520e9637269746520706f7572206d6f6e2070e872652e747874	Une page écrite pour mon père.txt
+own-fr-iso-8859-15-09	fr	iso-8859-15	4c6573207072656d69e872657320666c657572732064752063f474e9207375642e747874	Les premières fleurs du côté sud.txt
+own-fr-iso-8859-15-10	fr	iso-8859-15	4c6120626fee746520e020736f7576656e697273206465204e6feb6c2e747874	La boîte à souvenirs de Noël.txt
+own-fr-macintosh-01	fr	macintosh	556e65206c756d698f72652070728f73206465206c612066656e907472652e747874	Une lumière près de la fenêtre.txt
+own-fr-macintosh-02	fr	macintosh	4c65206361668e206368617564206465206d61206d8f72652e747874	Le café chaud de ma mère.txt
+own-fr-macintosh-03	fr	macintosh	4c612066618d61646520636f6c6f728e65206170728f73206c6120706c7569652e747874	La façade colorée après la pluie.txt
+own-fr-macintosh-04	fr	macintosh	556e65206a6f75726e8e652088206c61206269626c696f74688f7175652e747874	Une journée à la bibliothèque.txt
+own-fr-macintosh-05	fr	macintosh	4c65206761728d6f6e206574206c612070657469746520726976698f72652e747874	Le garçon et la petite rivière.txt
+own-fr-macintosh-06	fr	macintosh	556e208e748e207472616e7175696c6c652088206c612063616d7061676e652e747874	Un été tranquille à la campagne.txt
+own-fr-macintosh-07	fr	macintosh	4c6120666f7290742064657272698f7265206e6f747265208e636f6c652e747874	La forêt derrière notre école.txt
+own-fr-macintosh-08	fr	macintosh	556e652070616765208e637269746520706f7572206d6f6e20708f72652e747874	Une page écrite pour mon père.txt
+own-fr-macintosh-09	fr	macintosh	4c6573207072656d698f72657320666c65757273206475206399748e207375642e747874	Les premières fleurs du côté sud.txt
+own-fr-macintosh-10	fr	macintosh	4c6120626f947465208820736f7576656e697273206465204e6f916c2e747874	La boîte à souvenirs de Noël.txt
+own-fr-cp850-01	fr	cp850	556e65206c756d698a72652070728a73206465206c612066656e887472652e747874	Une lumière près de la fenêtre.txt
+own-fr-cp850-02	fr	cp850	4c652063616682206368617564206465206d61206d8a72652e747874	Le café chaud de ma mère.txt
+own-fr-cp850-03	fr	cp850	4c612066618761646520636f6c6f728265206170728a73206c6120706c7569652e747874	La façade colorée après la pluie.txt
+own-fr-cp850-04	fr	cp850	556e65206a6f75726e82652085206c61206269626c696f74688a7175652e747874	Une journée à la bibliothèque.txt
+own-fr-cp850-05	fr	cp850	4c6520676172876f6e206574206c612070657469746520726976698a72652e747874	Le garçon et la petite rivière.txt
+own-fr-cp850-06	fr	cp850	556e20827482207472616e7175696c6c652085206c612063616d7061676e652e747874	Un été tranquille à la campagne.txt
+own-fr-cp850-07	fr	cp850	4c6120666f7288742064657272698a7265206e6f7472652082636f6c652e747874	La forêt derrière notre école.txt
+own-fr-cp850-08	fr	cp850	556e6520706167652082637269746520706f7572206d6f6e20708a72652e747874	Une page écrite pour mon père.txt
+own-fr-cp850-09	fr	cp850	4c6573207072656d698a72657320666c657572732064752063937482207375642e747874	Les premières fleurs du côté sud.txt
+own-fr-cp850-10	fr	cp850	4c6120626f8c7465208520736f7576656e697273206465204e6f896c2e747874	La boîte à souvenirs de Noël.txt
+own-de-windows-1252-01	de	windows-1252	4772fcdf65206175732064656d206772fc6e656e2047617274656e2e747874	Grüße aus dem grünen Garten.txt
+own-de-windows-1252-02	de	windows-1252	4672fc687374fc636b2066fc72206469652067726fdf652046616d696c69652e747874	Frühstück für die große Familie.txt
+own-de-windows-1252-03	de	windows-1252	4469652056f667656c20fc6265722064657220616c74656e204272fc636b652e747874	Die Vögel über der alten Brücke.txt
+own-de-windows-1252-04	de	windows-1252	53fcdf65204672fc636874652066fc72206b6c65696e652047e47374652e747874	Süße Früchte für kleine Gäste.txt
+own-de-windows-1252-05	de	windows-1252	45696e20736368f66e65722054616720616d20776569df656e20537472616e642e747874	Ein schöner Tag am weißen Strand.txt
+own-de-windows-1252-06	de	windows-1252	4de4726368656e206175732064656d206bfc686c656e2057616c642e747874	Märchen aus dem kühlen Wald.txt
+own-de-windows-1252-07	de	windows-1252	4672f6686c69636865204b696e64657220766f7220646572204dfc686c652e747874	Fröhliche Kinder vor der Mühle.txt
+own-de-windows-1252-08	de	windows-1252	5a77f66c6620426ce47474657220696d2048657262737477696e642e747874	Zwölf Blätter im Herbstwind.txt
+own-de-windows-1252-09	de	windows-1252	57e4726d656e6465204772fcdf65207a756d206672fc68656e204162656e642e747874	Wärmende Grüße zum frühen Abend.txt
+own-de-windows-1252-10	de	windows-1252	446965206772f6df746520dc6265727261736368756e6720696d204672fc686c696e672e747874	Die größte Überraschung im Frühling.txt
+own-de-iso-8859-15-01	de	iso-8859-15	4772fcdf65206175732064656d206772fc6e656e2047617274656e2e747874	Grüße aus dem grünen Garten.txt
+own-de-iso-8859-15-02	de	iso-8859-15	4672fc687374fc636b2066fc72206469652067726fdf652046616d696c69652e747874	Frühstück für die große Familie.txt
+own-de-iso-8859-15-03	de	iso-8859-15	4469652056f667656c20fc6265722064657220616c74656e204272fc636b652e747874	Die Vögel über der alten Brücke.txt
+own-de-iso-8859-15-04	de	iso-8859-15	53fcdf65204672fc636874652066fc72206b6c65696e652047e47374652e747874	Süße Früchte für kleine Gäste.txt
+own-de-iso-8859-15-05	de	iso-8859-15	45696e20736368f66e65722054616720616d20776569df656e20537472616e642e747874	Ein schöner Tag am weißen Strand.txt
+own-de-iso-8859-15-06	de	iso-8859-15	4de4726368656e206175732064656d206bfc686c656e2057616c642e747874	Märchen aus dem kühlen Wald.txt
+own-de-iso-8859-15-07	de	iso-8859-15	4672f6686c69636865204b696e64657220766f7220646572204dfc686c652e747874	Fröhliche Kinder vor der Mühle.txt
+own-de-iso-8859-15-08	de	iso-8859-15	5a77f66c6620426ce47474657220696d2048657262737477696e642e747874	Zwölf Blätter im Herbstwind.txt
+own-de-iso-8859-15-09	de	iso-8859-15	57e4726d656e6465204772fcdf65207a756d206672fc68656e204162656e642e747874	Wärmende Grüße zum frühen Abend.txt
+own-de-iso-8859-15-10	de	iso-8859-15	446965206772f6df746520dc6265727261736368756e6720696d204672fc686c696e672e747874	Die größte Überraschung im Frühling.txt
+own-de-macintosh-01	de	macintosh	47729fa765206175732064656d2067729f6e656e2047617274656e2e747874	Grüße aus dem grünen Garten.txt
+own-de-macintosh-02	de	macintosh	46729f6873749f636b20669f72206469652067726fa7652046616d696c69652e747874	Frühstück für die große Familie.txt
+own-de-macintosh-03	de	macintosh	44696520569a67656c209f6265722064657220616c74656e2042729f636b652e747874	Die Vögel über der alten Brücke.txt
+own-de-macintosh-04	de	macintosh	539fa7652046729f6368746520669f72206b6c65696e6520478a7374652e747874	Süße Früchte für kleine Gäste.txt
+own-de-macintosh-05	de	macintosh	45696e207363689a6e65722054616720616d20776569a7656e20537472616e642e747874	Ein schöner Tag am weißen Strand.txt
+own-de-macintosh-06	de	macintosh	4d8a726368656e206175732064656d206b9f686c656e2057616c642e747874	Märchen aus dem kühlen Wald.txt
+own-de-macintosh-07	de	macintosh	46729a686c69636865204b696e64657220766f7220646572204d9f686c652e747874	Fröhliche Kinder vor der Mühle.txt
+own-de-macintosh-08	de	macintosh	5a779a6c6620426c8a7474657220696d2048657262737477696e642e747874	Zwölf Blätter im Herbstwind.txt
+own-de-macintosh-09	de	macintosh	578a726d656e64652047729fa765207a756d2066729f68656e204162656e642e747874	Wärmende Grüße zum frühen Abend.txt
+own-de-macintosh-10	de	macintosh	4469652067729aa7746520866265727261736368756e6720696d2046729f686c696e672e747874	Die größte Überraschung im Frühling.txt
+own-de-cp850-01	de	cp850	477281e165206175732064656d206772816e656e2047617274656e2e747874	Grüße aus dem grünen Garten.txt
+own-de-cp850-02	de	cp850	46728168737481636b20668172206469652067726fe1652046616d696c69652e747874	Frühstück für die große Familie.txt
+own-de-cp850-03	de	cp850	44696520569467656c20816265722064657220616c74656e20427281636b652e747874	Die Vögel über der alten Brücke.txt
+own-de-cp850-04	de	cp850	5381e165204672816368746520668172206b6c65696e652047847374652e747874	Süße Früchte für kleine Gäste.txt
+own-de-cp850-05	de	cp850	45696e20736368946e65722054616720616d20776569e1656e20537472616e642e747874	Ein schöner Tag am weißen Strand.txt
+own-de-cp850-06	de	cp850	4d84726368656e206175732064656d206b81686c656e2057616c642e747874	Märchen aus dem kühlen Wald.txt
+own-de-cp850-07	de	cp850	467294686c69636865204b696e64657220766f7220646572204d81686c652e747874	Fröhliche Kinder vor der Mühle.txt
+own-de-cp850-08	de	cp850	5a77946c6620426c847474657220696d2048657262737477696e642e747874	Zwölf Blätter im Herbstwind.txt
+own-de-cp850-09	de	cp850	5784726d656e646520477281e165207a756d2066728168656e204162656e642e747874	Wärmende Grüße zum frühen Abend.txt
+own-de-cp850-10	de	cp850	44696520677294e17465209a6265727261736368756e6720696d20467281686c696e672e747874	Die größte Überraschung im Frühling.txt
+own-it-windows-1252-01	it	windows-1252	556e612063697474e0207069f9207472616e7175696c6c612e747874	Una città più tranquilla.txt
+own-it-windows-1252-02	it	windows-1252	496c2063616666e82063616c646f2064656c6c61206d617474696e612e747874	Il caffè caldo della mattina.txt
+own-it-windows-1252-03	it	windows-1252	4c612066656c69636974e020646920756e20706963636f6c6f2062616d62696e6f2e747874	La felicità di un piccolo bambino.txt
+own-it-windows-1252-04	it	windows-1252	556e6120706f73736962696c6974e020706572206c61206e6f7374726120636f6d756e6974e02e747874	Una possibilità per la nostra comunità.txt
+own-it-windows-1252-05	it	windows-1252	4c61207175616c6974e02064656c6c92616371756120696e2063697474e02e747874	La qualità dell’acqua in città.txt
+own-it-windows-1252-06	it	windows-1252	556e2074e820766963696e6f20616c6c612066696e65737472612e747874	Un tè vicino alla finestra.txt
+own-it-windows-1252-07	it	windows-1252	4c6120637572696f736974e020e820756e612062656c6c61207175616c6974e02e747874	La curiosità è una bella qualità.txt
+own-it-windows-1252-08	it	windows-1252	4c756e6564ec20746f726e6572f220616c206769617264696e6f2e747874	Lunedì tornerò al giardino.txt
+own-it-windows-1252-09	it	windows-1252	4c6120626f6e74e020646920756e20616d69636f20736172e0207269636f72646174612e747874	La bontà di un amico sarà ricordata.txt
+own-it-windows-1252-10	it	windows-1252	556e9265737461746520636f73ec207069656e61206469206e6f766974e02e747874	Un’estate così piena di novità.txt
+own-it-iso-8859-15-01	it	iso-8859-15	556e612063697474e0207069f9207472616e7175696c6c612e747874	Una città più tranquilla.txt
+own-it-iso-8859-15-02	it	iso-8859-15	496c2063616666e82063616c646f2064656c6c61206d617474696e612e747874	Il caffè caldo della mattina.txt
+own-it-iso-8859-15-03	it	iso-8859-15	4c612066656c69636974e020646920756e20706963636f6c6f2062616d62696e6f2e747874	La felicità di un piccolo bambino.txt
+own-it-iso-8859-15-04	it	iso-8859-15	556e6120706f73736962696c6974e020706572206c61206e6f7374726120636f6d756e6974e02e747874	Una possibilità per la nostra comunità.txt
+own-it-iso-8859-15-06	it	iso-8859-15	556e2074e820766963696e6f20616c6c612066696e65737472612e747874	Un tè vicino alla finestra.txt
+own-it-iso-8859-15-07	it	iso-8859-15	4c6120637572696f736974e020e820756e612062656c6c61207175616c6974e02e747874	La curiosità è una bella qualità.txt
+own-it-iso-8859-15-08	it	iso-8859-15	4c756e6564ec20746f726e6572f220616c206769617264696e6f2e747874	Lunedì tornerò al giardino.txt
+own-it-iso-8859-15-09	it	iso-8859-15	4c6120626f6e74e020646920756e20616d69636f20736172e0207269636f72646174612e747874	La bontà di un amico sarà ricordata.txt
+own-it-macintosh-01	it	macintosh	556e612063697474882070699d207472616e7175696c6c612e747874	Una città più tranquilla.txt
+own-it-macintosh-02	it	macintosh	496c20636166668f2063616c646f2064656c6c61206d617474696e612e747874	Il caffè caldo della mattina.txt
+own-it-macintosh-03	it	macintosh	4c612066656c696369748820646920756e20706963636f6c6f2062616d62696e6f2e747874	La felicità di un piccolo bambino.txt
+own-it-macintosh-04	it	macintosh	556e6120706f73736962696c69748820706572206c61206e6f7374726120636f6d756e6974882e747874	Una possibilità per la nostra comunità.txt
+own-it-macintosh-05	it	macintosh	4c61207175616c6974882064656c6cd5616371756120696e2063697474882e747874	La qualità dell’acqua in città.txt
+own-it-macintosh-06	it	macintosh	556e20748f20766963696e6f20616c6c612066696e65737472612e747874	Un tè vicino alla finestra.txt
+own-it-macintosh-07	it	macintosh	4c6120637572696f73697488208f20756e612062656c6c61207175616c6974882e747874	La curiosità è una bella qualità.txt
+own-it-macintosh-08	it	macintosh	4c756e65649320746f726e65729820616c206769617264696e6f2e747874	Lunedì tornerò al giardino.txt
+own-it-macintosh-09	it	macintosh	4c6120626f6e748820646920756e20616d69636f2073617288207269636f72646174612e747874	La bontà di un amico sarà ricordata.txt
+own-it-macintosh-10	it	macintosh	556ed565737461746520636f7393207069656e61206469206e6f766974882e747874	Un’estate così piena di novità.txt
+own-it-cp850-01	it	cp850	556e6120636974748520706997207472616e7175696c6c612e747874	Una città più tranquilla.txt
+own-it-cp850-02	it	cp850	496c20636166668a2063616c646f2064656c6c61206d617474696e612e747874	Il caffè caldo della mattina.txt
+own-it-cp850-03	it	cp850	4c612066656c696369748520646920756e20706963636f6c6f2062616d62696e6f2e747874	La felicità di un piccolo bambino.txt
+own-it-cp850-04	it	cp850	556e6120706f73736962696c69748520706572206c61206e6f7374726120636f6d756e6974852e747874	Una possibilità per la nostra comunità.txt
+own-it-cp850-06	it	cp850	556e20748a20766963696e6f20616c6c612066696e65737472612e747874	Un tè vicino alla finestra.txt
+own-it-cp850-07	it	cp850	4c6120637572696f73697485208a20756e612062656c6c61207175616c6974852e747874	La curiosità è una bella qualità.txt
+own-it-cp850-08	it	cp850	4c756e65648d20746f726e65729520616c206769617264696e6f2e747874	Lunedì tornerò al giardino.txt
+own-it-cp850-09	it	cp850	4c6120626f6e748520646920756e20616d69636f2073617285207269636f72646174612e747874	La bontà di un amico sarà ricordata.txt
+own-pl-windows-1250-01	pl	windows-1250	aff3b3747920bf616769656c206e612073706f6b6f6a6e656a20727a6563652e747874	Żółty żagiel na spokojnej rzece.txt
+own-pl-windows-1250-02	pl	windows-1250	4d61b379206f6772f364207065b3656e209c776965bf796368206b77696174f3772e747874	Mały ogród pełen świeżych kwiatów.txt
+own-pl-windows-1250-03	pl	windows-1250	5069ea6b6e61206b7369b9bf6b6120646c61206e61737a656a2063f3726b692e747874	Piękna książka dla naszej córki.txt
+own-pl-windows-1250-04	pl	windows-1250	43696570b37920776965637af3722070727a79207a69656c6f6e656a20b3b963652e747874	Ciepły wieczór przy zielonej łące.txt
+own-pl-windows-1250-05	pl	windows-1250	a361676f646e79209c70696577207074616bf377206f209c77696369652e747874	Łagodny śpiew ptaków o świcie.txt
+own-pl-windows-1250-06	pl	windows-1250	4e6f776120b3f3649f206f626f6b20647265776e69616e65676f206d6f7374752e747874	Nowa łódź obok drewnianego mostu.txt
+own-pl-windows-1250-07	pl	windows-1250	5a646aea636961206a657369656e6e796368206c699c636920692064727a65772e747874	Zdjęcia jesiennych liści i drzew.txt
+own-pl-windows-1250-08	pl	windows-1250	5765736fb37920647a6965f120779c72f36420646f62727963682070727a796a616369f3b32e747874	Wesoły dzień wśród dobrych przyjaciół.txt
+own-pl-windows-1250-09	pl	windows-1250	8c7769b97465637a6e61206f706f7769659ce62070727a79209c77696563792e747874	Świąteczna opowieść przy świecy.txt
+own-pl-windows-1250-10	pl	windows-1250	4b72f3746b69206c697374206f20737a637aea9c6c6977656a20706f6472f3bf792e747874	Krótki list o szczęśliwej podróży.txt
+own-pl-iso-8859-2-01	pl	iso-8859-2	aff3b3747920bf616769656c206e612073706f6b6f6a6e656a20727a6563652e747874	Żółty żagiel na spokojnej rzece.txt
+own-pl-iso-8859-2-02	pl	iso-8859-2	4d61b379206f6772f364207065b3656e20b6776965bf796368206b77696174f3772e747874	Mały ogród pełen świeżych kwiatów.txt
+own-pl-iso-8859-2-03	pl	iso-8859-2	5069ea6b6e61206b7369b1bf6b6120646c61206e61737a656a2063f3726b692e747874	Piękna książka dla naszej córki.txt
+own-pl-iso-8859-2-04	pl	iso-8859-2	43696570b37920776965637af3722070727a79207a69656c6f6e656a20b3b163652e747874	Ciepły wieczór przy zielonej łące.txt
+own-pl-iso-8859-2-05	pl	iso-8859-2	a361676f646e7920b670696577207074616bf377206f20b677696369652e747874	Łagodny śpiew ptaków o świcie.txt
+own-pl-iso-8859-2-06	pl	iso-8859-2	4e6f776120b3f364bc206f626f6b20647265776e69616e65676f206d6f7374752e747874	Nowa łódź obok drewnianego mostu.txt
+own-pl-iso-8859-2-07	pl	iso-8859-2	5a646aea636961206a657369656e6e796368206c69b6636920692064727a65772e747874	Zdjęcia jesiennych liści i drzew.txt
+own-pl-iso-8859-2-08	pl	iso-8859-2	5765736fb37920647a6965f12077b672f36420646f62727963682070727a796a616369f3b32e747874	Wesoły dzień wśród dobrych przyjaciół.txt
+own-pl-iso-8859-2-09	pl	iso-8859-2	a67769b17465637a6e61206f706f776965b6e62070727a7920b677696563792e747874	Świąteczna opowieść przy świecy.txt
+own-pl-iso-8859-2-10	pl	iso-8859-2	4b72f3746b69206c697374206f20737a637aeab66c6977656a20706f6472f3bf792e747874	Krótki list o szczęśliwej podróży.txt
+own-pl-x-mac-centraleurroman-01	pl	x-mac-centraleurroman	fb97b8747920fd616769656c206e612073706f6b6f6a6e656a20727a6563652e747874	Żółty żagiel na spokojnej rzece.txt
+own-pl-x-mac-centraleurroman-02	pl	x-mac-centraleurroman	4d61b879206f67729764207065b8656e20e6776965fd796368206b7769617497772e747874	Mały ogród pełen świeżych kwiatów.txt
+own-pl-x-mac-centraleurroman-03	pl	x-mac-centraleurroman	5069ab6b6e61206b736988fd6b6120646c61206e61737a656a206397726b692e747874	Piękna książka dla naszej córki.txt
+own-pl-x-mac-centraleurroman-04	pl	x-mac-centraleurroman	43696570b87920776965637a97722070727a79207a69656c6f6e656a20b88863652e747874	Ciepły wieczór przy zielonej łące.txt
+own-pl-x-mac-centraleurroman-05	pl	x-mac-centraleurroman	fc61676f646e7920e670696577207074616b9777206f20e677696369652e747874	Łagodny śpiew ptaków o świcie.txt
+own-pl-x-mac-centraleurroman-06	pl	x-mac-centraleurroman	4e6f776120b8976490206f626f6b20647265776e69616e65676f206d6f7374752e747874	Nowa łódź obok drewnianego mostu.txt
+own-pl-x-mac-centraleurroman-07	pl	x-mac-centraleurroman	5a646aab636961206a657369656e6e796368206c69e6636920692064727a65772e747874	Zdjęcia jesiennych liści i drzew.txt
+own-pl-x-mac-centraleurroman-08	pl	x-mac-centraleurroman	5765736fb87920647a6965c42077e672976420646f62727963682070727a796a61636997b82e747874	Wesoły dzień wśród dobrych przyjaciół.txt
+own-pl-x-mac-centraleurroman-09	pl	x-mac-centraleurroman	e57769887465637a6e61206f706f776965e68d2070727a7920e677696563792e747874	Świąteczna opowieść przy świecy.txt
+own-pl-x-mac-centraleurroman-10	pl	x-mac-centraleurroman	4b7297746b69206c697374206f20737a637aabe66c6977656a20706f647297fd792e747874	Krótki list o szczęśliwej podróży.txt
+own-cs-windows-1250-01	cs	windows-1250	8e6c7574fd20e86c756e20752074696368e920f8656b792e747874	Žlutý člun u tiché řeky.txt
+own-cs-windows-1250-02	cs	windows-1250	4d616ce1207a616872e1646b6120706c6ee120e86572737476fd6368206b76ec74f92e747874	Malá zahrádka plná čerstvých květů.txt
+own-cs-windows-1250-03	cs	windows-1250	50ec6b6ee1206b6eed9e6b612070726f206e619a692064636572752e747874	Pěkná knížka pro naši dceru.txt
+own-cs-windows-1250-04	cs	windows-1250	5465706cfd207665e865722075207a656c656ee9206c6f756b792e747874	Teplý večer u zelené louky.txt
+own-cs-windows-1250-05	cs	windows-1250	4a656d6efd207a70ec76207074e16bf9207a6120fa73766974752e747874	Jemný zpěv ptáků za úsvitu.txt
+own-cs-windows-1250-06	cs	windows-1250	4e6f76e1206c6fef207665646c652064f86576ec6ee9686f206d6f7374752e747874	Nová loď vedle dřevěného mostu.txt
+own-cs-windows-1250-07	cs	windows-1250	4f6272e17a6b7920706f647a696d6eed686f206c697374ed2061207374726f6df92e747874	Obrázky podzimního listí a stromů.txt
+own-cs-windows-1250-08	cs	windows-1250	566573656cfd2064656e206d657a6920646f6272fd6d692070f8e174656c692e747874	Veselý den mezi dobrými přáteli.txt
+own-cs-windows-1250-09	cs	windows-1250	56e16e6fe86eed2070f8ed62ec682070f869207376ede863652e747874	Vánoční příběh při svíčce.txt
+own-cs-windows-1250-10	cs	windows-1250	4b72e1746bfd20646f706973206f209a9d6173746ee92063657374ec2e747874	Krátký dopis o šťastné cestě.txt
+own-cs-iso-8859-2-01	cs	iso-8859-2	ae6c7574fd20e86c756e20752074696368e920f8656b792e747874	Žlutý člun u tiché řeky.txt
+own-cs-iso-8859-2-02	cs	iso-8859-2	4d616ce1207a616872e1646b6120706c6ee120e86572737476fd6368206b76ec74f92e747874	Malá zahrádka plná čerstvých květů.txt
+own-cs-iso-8859-2-03	cs	iso-8859-2	50ec6b6ee1206b6eedbe6b612070726f206e61b9692064636572752e747874	Pěkná knížka pro naši dceru.txt
+own-cs-iso-8859-2-04	cs	iso-8859-2	5465706cfd207665e865722075207a656c656ee9206c6f756b792e747874	Teplý večer u zelené louky.txt
+own-cs-iso-8859-2-05	cs	iso-8859-2	4a656d6efd207a70ec76207074e16bf9207a6120fa73766974752e747874	Jemný zpěv ptáků za úsvitu.txt
+own-cs-iso-8859-2-06	cs	iso-8859-2	4e6f76e1206c6fef207665646c652064f86576ec6ee9686f206d6f7374752e747874	Nová loď vedle dřevěného mostu.txt
+own-cs-iso-8859-2-07	cs	iso-8859-2	4f6272e17a6b7920706f647a696d6eed686f206c697374ed2061207374726f6df92e747874	Obrázky podzimního listí a stromů.txt
+own-cs-iso-8859-2-08	cs	iso-8859-2	566573656cfd2064656e206d657a6920646f6272fd6d692070f8e174656c692e747874	Veselý den mezi dobrými přáteli.txt
+own-cs-iso-8859-2-09	cs	iso-8859-2	56e16e6fe86eed2070f8ed62ec682070f869207376ede863652e747874	Vánoční příběh při svíčce.txt
+own-cs-iso-8859-2-10	cs	iso-8859-2	4b72e1746bfd20646f706973206f20b9bb6173746ee92063657374ec2e747874	Krátký dopis o šťastné cestě.txt
+own-cs-x-mac-centraleurroman-01	cs	x-mac-centraleurroman	eb6c7574f9208b6c756e207520746963688e20de656b792e747874	Žlutý člun u tiché řeky.txt
+own-cs-x-mac-centraleurroman-02	cs	x-mac-centraleurroman	4d616c87207a61687287646b6120706c6e87208b6572737476f96368206b769e74f32e747874	Malá zahrádka plná čerstvých květů.txt
+own-cs-x-mac-centraleurroman-03	cs	x-mac-centraleurroman	509e6b6e87206b6e92ec6b612070726f206e61e4692064636572752e747874	Pěkná knížka pro naši dceru.txt
+own-cs-x-mac-centraleurroman-04	cs	x-mac-centraleurroman	5465706cf92076658b65722075207a656c656e8e206c6f756b792e747874	Teplý večer u zelené louky.txt
+own-cs-x-mac-centraleurroman-05	cs	x-mac-centraleurroman	4a656d6ef9207a709e76207074876bf3207a61209c73766974752e747874	Jemný zpěv ptáků za úsvitu.txt
+own-cs-x-mac-centraleurroman-06	cs	x-mac-centraleurroman	4e6f7687206c6f93207665646c652064de65769e6e8e686f206d6f7374752e747874	Nová loď vedle dřevěného mostu.txt
+own-cs-x-mac-centraleurroman-07	cs	x-mac-centraleurroman	4f6272877a6b7920706f647a696d6e92686f206c697374922061207374726f6df32e747874	Obrázky podzimního listí a stromů.txt
+own-cs-x-mac-centraleurroman-08	cs	x-mac-centraleurroman	566573656cf92064656e206d657a6920646f6272f96d692070de8774656c692e747874	Veselý den mezi dobrými přáteli.txt
+own-cs-x-mac-centraleurroman-09	cs	x-mac-centraleurroman	56876e6f8b6e922070de92629e682070de69207376928b63652e747874	Vánoční příběh při svíčce.txt
+own-cs-x-mac-centraleurroman-10	cs	x-mac-centraleurroman	4b7287746bf920646f706973206f20e4e96173746e8e20636573749e2e747874	Krátký dopis o šťastné cestě.txt
+own-hu-windows-1250-01	hu	windows-1250	d5737a692066e96e79656b2061206373656e64657320657264f562656e2e747874	Őszi fények a csendes erdőben.txt
+own-hu-windows-1250-02	hu	windows-1250	4779f66e79f672fb2066656c68f56b2061206be96b20e9672066f66cf674742e747874	Gyönyörű felhők a kék ég fölött.txt
+own-hu-windows-1250-03	hu	windows-1250	456779fc747420f672fc6cfc6e6b20617a20656c73f520766972e1676e616b2e747874	Együtt örülünk az első virágnak.txt
+own-hu-windows-1250-04	hu	windows-1250	4bfc6cf66ef6732074f67274e96e6574206120737af56cf5736b65727462f56c2e747874	Különös történet a szőlőskertből.txt
+own-hu-windows-1250-05	hu	windows-1250	4672697373206b656e79e97220e97320666f7272f3206779fc6df66c63737465612e747874	Friss kenyér és forró gyümölcstea.txt
+own-hu-windows-1250-06	hu	windows-1250	48fb76f6732072656767656c2061207af66c64206d657af56e2e747874	Hűvös reggel a zöld mezőn.txt
+own-hu-windows-1250-07	hu	windows-1250	41206b69736669fa20f672f66d6d656c206bf6737af66e74f674746520f5742e747874	A kisfiú örömmel köszöntötte őt.txt
+own-hu-windows-1250-08	hu	windows-1250	42e96be9732064e96c7574e16e20612066fc7264f5206bf67a656ce962656e2e747874	Békés délután a fürdő közelében.txt
+own-hu-windows-1250-09	hu	windows-1250	537aed6e6573206c6576656c656b20617a20f67265672066fb7a20616c6174742e747874	Színes levelek az öreg fűz alatt.txt
+own-hu-windows-1250-10	hu	windows-1250	dc7a656e657420612074e1766f6c692069736d6572f573fc6e6b74f56c2e747874	Üzenet a távoli ismerősünktől.txt
+own-hu-iso-8859-2-01	hu	iso-8859-2	d5737a692066e96e79656b2061206373656e64657320657264f562656e2e747874	Őszi fények a csendes erdőben.txt
+own-hu-iso-8859-2-02	hu	iso-8859-2	4779f66e79f672fb2066656c68f56b2061206be96b20e9672066f66cf674742e747874	Gyönyörű felhők a kék ég fölött.txt
+own-hu-iso-8859-2-03	hu	iso-8859-2	456779fc747420f672fc6cfc6e6b20617a20656c73f520766972e1676e616b2e747874	Együtt örülünk az első virágnak.txt
+own-hu-iso-8859-2-04	hu	iso-8859-2	4bfc6cf66ef6732074f67274e96e6574206120737af56cf5736b65727462f56c2e747874	Különös történet a szőlőskertből.txt
+own-hu-iso-8859-2-05	hu	iso-8859-2	4672697373206b656e79e97220e97320666f7272f3206779fc6df66c63737465612e747874	Friss kenyér és forró gyümölcstea.txt
+own-hu-iso-8859-2-06	hu	iso-8859-2	48fb76f6732072656767656c2061207af66c64206d657af56e2e747874	Hűvös reggel a zöld mezőn.txt
+own-hu-iso-8859-2-07	hu	iso-8859-2	41206b69736669fa20f672f66d6d656c206bf6737af66e74f674746520f5742e747874	A kisfiú örömmel köszöntötte őt.txt
+own-hu-iso-8859-2-08	hu	iso-8859-2	42e96be9732064e96c7574e16e20612066fc7264f5206bf67a656ce962656e2e747874	Békés délután a fürdő közelében.txt
+own-hu-iso-8859-2-09	hu	iso-8859-2	537aed6e6573206c6576656c656b20617a20f67265672066fb7a20616c6174742e747874	Színes levelek az öreg fűz alatt.txt
+own-hu-iso-8859-2-10	hu	iso-8859-2	dc7a656e657420612074e1766f6c692069736d6572f573fc6e6b74f56c2e747874	Üzenet a távoli ismerősünktől.txt
+own-hu-x-mac-centraleurroman-01	hu	x-mac-centraleurroman	cc737a6920668e6e79656b2061206373656e64657320657264ce62656e2e747874	Őszi fények a csendes erdőben.txt
+own-hu-x-mac-centraleurroman-02	hu	x-mac-centraleurroman	47799a6e799a72f52066656c68ce6b2061206b8e6b208e6720669a6c9a74742e747874	Gyönyörű felhők a kék ég fölött.txt
+own-hu-x-mac-centraleurroman-03	hu	x-mac-centraleurroman	4567799f7474209a729f6c9f6e6b20617a20656c73ce2076697287676e616b2e747874	Együtt örülünk az első virágnak.txt
+own-hu-x-mac-centraleurroman-04	hu	x-mac-centraleurroman	4b9f6c9a6e9a7320749a72748e6e6574206120737ace6cce736b65727462ce6c2e747874	Különös történet a szőlőskertből.txt
+own-hu-x-mac-centraleurroman-05	hu	x-mac-centraleurroman	4672697373206b656e798e72208e7320666f7272972067799f6d9a6c63737465612e747874	Friss kenyér és forró gyümölcstea.txt
+own-hu-x-mac-centraleurroman-06	hu	x-mac-centraleurroman	48f5769a732072656767656c2061207a9a6c64206d657ace6e2e747874	Hűvös reggel a zöld mezőn.txt
+own-hu-x-mac-centraleurroman-07	hu	x-mac-centraleurroman	41206b697366699c209a729a6d6d656c206b9a737a9a6e749a74746520ce742e747874	A kisfiú örömmel köszöntötte őt.txt
+own-hu-x-mac-centraleurroman-08	hu	x-mac-centraleurroman	428e6b8e7320648e6c7574876e206120669f7264ce206b9a7a656c8e62656e2e747874	Békés délután a fürdő közelében.txt
+own-hu-x-mac-centraleurroman-09	hu	x-mac-centraleurroman	537a926e6573206c6576656c656b20617a209a7265672066f57a20616c6174742e747874	Színes levelek az öreg fűz alatt.txt
+own-hu-x-mac-centraleurroman-10	hu	x-mac-centraleurroman	867a656e65742061207487766f6c692069736d6572ce739f6e6b74ce6c2e747874	Üzenet a távoli ismerősünktől.txt
+own-el-windows-1253-01	el	windows-1253	b8ede120def3f5f7ef20f0f1f9e9edfc20f3f4efed20eadef0ef2e747874	Ένα ήσυχο πρωινό στον κήπο.txt
+own-el-windows-1253-02	el	windows-1253	d4ef20ece9eaf1fc20f0eff5ebdf20e4dff0ebe120f3f4e720ebdfecede72e747874	Το μικρό πουλί δίπλα στη λίμνη.txt
+own-el-windows-1253-03	el	windows-1253	c3f1dcecece120f3f4efed20e1e3e1f0e7ecddedef20eceff520f6dfebef2e747874	Γράμμα στον αγαπημένο μου φίλο.txt
+own-el-windows-1253-04	el	windows-1253	d4ef20f6f9f220f4eff520deebe9eff520f3f4ef20f0e1f1dce8f5f1ef2e747874	Το φως του ήλιου στο παράθυρο.txt
+own-el-windows-1253-05	el	windows-1253	cce9e120e6e5f3f4de20edfdf7f4e120eaefedf4dc20f3f4e720e8dcebe1f3f3e12e747874	Μια ζεστή νύχτα κοντά στη θάλασσα.txt
+own-el-windows-1253-06	el	windows-1253	d4e120f0f1fef4e120ebeff5ebeffde4e9e120f4e7f220dcedefe9eee7f22e747874	Τα πρώτα λουλούδια της άνοιξης.txt
+own-el-windows-1253-07	el	windows-1253	cce9e120fceceff1f6e720ecddf1e120f3f4e720e2e9e2ebe9efe8deeae72e747874	Μια όμορφη μέρα στη βιβλιοθήκη.txt
+own-el-windows-1253-08	el	windows-1253	d4ef20f4f1e1e3effde4e920f4e7f220ece9eaf1def220e3dcf4e1f22e747874	Το τραγούδι της μικρής γάτας.txt
+own-el-windows-1253-09	el	windows-1253	d0f1dcf3e9ede120f6fdebebe120ece5f4dc20f4e720e2f1eff7de2e747874	Πράσινα φύλλα μετά τη βροχή.txt
+own-el-windows-1253-10	el	windows-1253	cfe920e3ebf5eaddf220e1ede1eceddef3e5e9f220f4eff520eae1ebefeae1e9f1e9effd2e747874	Οι γλυκές αναμνήσεις του καλοκαιριού.txt
+own-tr-windows-1254-01	tr	windows-1254	4bfce7fc6b20626168e76564656b692067fc7a656c20e769e7656b6c65722e747874	Küçük bahçedeki güzel çiçekler.txt
+own-tr-windows-1254-02	tr	windows-1254	5961f06d757264616e20736f6e72612073657373697a20fe656869722e747874	Yağmurdan sonra sessiz şehir.txt
+own-tr-windows-1254-03	tr	windows-1254	47f66b79fc7afc6e64652073fc7afc6c656e206bfce7fc6b206b75fe2e747874	Gökyüzünde süzülen küçük kuş.txt
+own-tr-windows-1254-04	tr	windows-1254	53fd63616b20e761792076652074617a6520e7f672656b2e747874	Sıcak çay ve taze çörek.txt
+own-tr-windows-1254-05	tr	windows-1254	d6f07265746d656e696d652079617a64fdf0fd6d206d656b7475702e747874	Öğretmenime yazdığım mektup.txt
+own-tr-windows-1254-06	tr	windows-1254	5965fe696c2061f061e76c6172fd6e2067f66c676573696e64652079fc72fc79fcfe2e747874	Yeşil ağaçların gölgesinde yürüyüş.txt
+own-tr-windows-1254-07	tr	windows-1254	47fc6e65fe6c69206269722067fc6efc6e20666f746ff0726166fd2e747874	Güneşli bir günün fotoğrafı.txt
+own-tr-windows-1254-08	tr	windows-1254	4bfc74fc7068616e6564656b6920fdfefd6b6cfd206bf6fe652e747874	Kütüphanedeki ışıklı köşe.txt
+own-tr-windows-1254-09	tr	windows-1254	c76f6375f0756e2064fcfe6c656469f06920f67a67fc722064fc6e79612e747874	Çocuğun düşlediği özgür dünya.txt
+own-tr-windows-1254-10	tr	windows-1254	536ff0756b206bfdfe2067fc6efc6e64652073fd63616b20f6796bfc6c65722e747874	Soğuk kış gününde sıcak öyküler.txt

@@ -10,6 +10,13 @@ final class NameEncodingCandidatesTests: XCTestCase {
                 let bytes = [UInt8(value)]
                 if candidate.name.hasPrefix("iso-"), (0x80...0x9F).contains(value) {
                     XCTAssertNil(candidate.decode(bytes))
+                } else if candidate.name == "windows-1256", let scalar = NameEncodingCandidates.cp1256Supplement[UInt8(value)] {
+                    // C-B で許可された判定専用の補完。reader の CF 復号は別テストで不変を検査する。
+                    XCTAssertEqual(candidate.decode(bytes)?.unicodeScalars.map(\.value), [scalar])
+                } else if candidate.name == "x-mac-arabic" || candidate.name == "x-mac-farsi" {
+                    let expected = EncodingDetector.decode(bytes: bytes, as: candidate.encoding)?.unicodeScalars.map(\.value)
+                        .filter { !(0x202A...0x202E).contains($0) && !(0x2066...0x2069).contains($0) }
+                    XCTAssertEqual(candidate.decode(bytes)?.unicodeScalars.map(\.value), expected, "\(candidate.name): \(value)")
                 } else {
                     XCTAssertEqual(candidate.decode(bytes)?.unicodeScalars.map(\.value),
                                    EncodingDetector.decode(bytes: bytes, as: candidate.encoding)?.unicodeScalars.map(\.value),

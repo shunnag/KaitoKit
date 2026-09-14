@@ -103,6 +103,7 @@ ISO-2022-JP は 7 bit なので `automaticallyDetect` の「全 ASCII → UTF-8�
 
 名前 1 件あたり 20 候補の採点で ≤ 50 µs(M 系)、1,000 名の書庫で ≤ 50 ms を目標。1 byte 系は表引きのみ、
 多 byte 系は構造検査で大半を早期除外。既存の 512 名 / 256 KiB の sample 上限は維持。
+この当初の目標に対し、C-Bの受け入れには後掲の512名×実測時間の基準を使う。
 
 ## 検証
 
@@ -167,3 +168,155 @@ design.md §10(出自: CLDR = Unicode License、NOTICE)/ §11、README(対応言
   頻出 10 文字の比率(実在 ≈55% / 乱数 ≈23%)が 35% 未満なら不足分 −1.5、稀な記号(ํ ๎ ฺ ๏ ๚ ๛)−2、タイ数字が Thai 文字に挟まれる −3、
   配置規則の適合 bonus +0.5 → +0.25。西欧ラテンの書庫 k≥10 の 99% 未達(es 98.1 / fr 98.2 / de 97.5 / it 96.7、全て udet 以上)は
   外来名の一様混入と CP1250 / ISO-8859-15 の文字重なりとして残差を記録する(prior で直さない)。
+
+## Task C Phase C-B（2026-09-14）
+
+C-A（PR #23）の生成済み CLDR 集合を接続し、測定39言語（英語の補助集合を含め40集合）・54 legacy 候補へ拡張する。
+UTF-8 優先、既存の日本語候補間の決定、書庫 sample の上限、Unicode scalar の証拠、非ASCII byte による prior の減衰を保持する。
+受け入れと残差の実測は [検証記録](verification/2026-09-14-name-encoding-languages.md) に置く。
+
+### 候補・言語の接続
+
+追加候補28種類: ISO-8859-4 / 6 / 7 / 8 / 9 / 10 / 13 / 16、CP437 / 737 / 775 / 852 / 855 / 857 / 862 / 864 / 865 / 869、
+MacHebrew / MacArabic / MacFarsi / MacIcelandic / MacRomanian / MacCroatian / MacUkrainian / MacGreek / MacTurkish / MacThai。
+CP861 は CF の DOSIcelandic 表が CP775 と同一なので含めない。VISCII / TCVN3 と独自復号 API は C-C に残す。
+既存26候補の順位と prior は保持する。追加候補には family ごとの明示値を持たせ、Windows > ISO > DOS > Mac を厳密にする。
+既存の同点はそのままとし、全候補の値と次の順位をテストで検査する。
+
+| family | prior の順序（同段は `=`） |
+|---|---|
+| Greek | windows-1253 0.3 > iso-8859-7 0.2 > cp737 = cp869 0.1 > x-mac-greek 0.05 |
+| Turkish | windows-1254 0.3 > iso-8859-9 0.2 > cp857 0.1 > x-mac-turkish 0.05 |
+| Hebrew | windows-1255 0.2 > iso-8859-8 0.15 > cp862 0.1 > x-mac-hebrew 0.05 |
+| Arabic | windows-1256 0.2 > iso-8859-6 0.15 > cp864 0.1 > x-mac-arabic = x-mac-farsi 0.05 |
+| Baltic | windows-1257 0.2 > iso-8859-13 0.15 > iso-8859-4 0.12 > cp775 0.1 |
+| Western | windows-1252 1.0 > iso-8859-15 0.4 > iso-8859-10 0.3 > cp850 = cp437 = macintosh 0.2 > cp865 0.15 > x-mac-icelandic 0.1 |
+| Central | windows-1250 0.6 > iso-8859-2 0.3 > iso-8859-16 0.25 > cp852 0.15 > x-mac-centraleurroman 0.1 > x-mac-romanian = x-mac-croatian 0.05 |
+| Cyrillic | windows-1251 0.6 > koi8-u = koi8-r 0.3 > cp866 0.2 > cp855 0.15 > iso-8859-5 = x-mac-cyrillic 0.1 > x-mac-ukrainian 0.05 |
+| Thai | cp874 0.4 > x-mac-thai 0.05 |
+
+- 西欧候補: es / pt / fr / de / it / en に da / nb / sv / fi / is / nl を追加。追加北欧・DOS候補にも同じ集合を接続する。
+- 中欧候補: pl / cs / hu に ro / hr / sl / sk / sr-Latn を追加。MacRomanian / MacCroatian / CP852 / ISO-8859-16 もこの集合。
+- キリル候補: uk / ru に bg / sr / mk / be を追加。CP855 / MacUkrainian もこの集合。
+- Hebrew: he、Arabic: ar / fa、Baltic: lt / lv / et、Greek: el、Turkish: tr、Thai: th。
+- `sr-Latn` の script subtag、`fa-IR` 等の地域 subtag、Norwegian `no`→`nb` を解決する。
+
+所属マスクを UInt64、候補内の言語別得点を SIMD16 に広げる。最大12言語の西欧候補でも、書庫全体で一つの言語を選ぶ。
+main / auxiliary の生成物と NOTICE は変更しない。fa の ي / ك、ro の ŞşŢţ は判定時の main に追加する。
+es / pt の序数標識 ª / º も main と同格にする。これらは出力文字列を書き換える正規化ではない。
+序数標識の字種は [Unicode Latin-1](https://www.unicode.org/charts/nameslist/n_0080.html)、表記の例は
+[FundéuRAE の序数表記](https://www.fundeu.es/recomendacion/numero-ordinales-claves-de-escritura/)、所属は CLDR の es / pt auxiliary に基づく。
+
+### CF 表と復号の境界
+
+1 byte 表は CF の厳密復号から作り、未定義 byte の256 bitマスクを前計算する。
+入力全体の byte 存在集合と交差する候補は、文字列の生成・採点より前に除外する。採点上限256 scalarより後ろの未定義位置も検査する。
+既存の言語別 byte 得点・同値表の計算共有を保つ。候補対の256 bit差分マスクと入力の存在集合の交差が空で、
+言語配列も同じときだけ先行候補の採点結果を複製する。prior は後で候補ごとに適用する。
+共有を無効にした同じ規則・prior の release CLI と、tune の4方式×単名/書庫の8出力をbyte完全一致で検査する。
+訂正2の性能基準は **sample上限512 × 実測µs/構成員 ≤ 50 ms/書庫**。
+訂正3のevalではja実測71.138 µs、512名換算で36.423 msに相当する。mainとの比較・4方式の時間は検証記録に示す。
+この積は平均処理時間からの見積もりであり、全入力のwall-clock上限を保証するものではない。
+
+CP1256 の 8A / 8F / 98 / 9A / 9F / AA / C0 / FF は Microsoft 公開表で判定だけ補う。
+Mac Arabic / Farsi の CF が挿入する U+202A–U+202E / U+2066–U+2069 は採点表から除く。
+これら3候補の単名判定結果を返す際も、文字列は既存の CF 復号を通す。失敗時は既存の fallback を使う。
+`decode(bytes:as:)` と13 readerの復号実装は変更しない。
+したがって Persian ک の encoding を判定できても、その文字を CF で復元できない制約は残る。
+
+### 言語ごとの規則と tune の調整
+
+名前ごとの候補の和集合に固有規則を適用せず、各言語の得点成分へ加減してから書庫で最大を取る。
+語・文字体系に共通の規則は全言語成分へ同じ値を加える。
+
+- he: ךםןףץ の語中 −3、先行するHebrew字母のある語末形 +0.5（結合記号は挟める。孤立字形は加点しない）、כמנפצ の語末 −1、niqqud の基底字母不在 −3。
+  点や声調の複数結合を許し、U+05B0–05C7 内でも句読点を niqqud と誤認しない。
+- ar / fa: tashkeel の基底字母不在 −3、ة の語中 −3。ى の語中 −3 と語頭の独立 ء −1 は ar だけ。
+- ru: ъ は子音の後かつ е / ё / ю / я の前。違反 −1。
+  uk / be の ъ は子音の後という条件だけで、所属集合外の減点も別に働く。bg の ъ は母音として音韻を再評価する。
+  12字以上のキリル文字列で щ が8%、й が10%を超えた個数分の減点は ru / uk / be / bg / sr / mk の各成分に適用する。
+  ъ の3%超の減点は ru / uk / be のみ。he の交差復号が uk 成分で ru の規則を迂回することを内訳で確認して範囲を拡張した。
+- Latin と Hebrew / Arabic の語内混在、Latin 直後の Hebrew / Arabic 結合記号も既存の混在 −2.5 に含める。
+- 追加の短い頻出・識別字リストは後掲の表。he / ar / fa のリストも保持する。
+  fa の ه は語末にも多い字として追加。精密頻度や記事名由来の語彙を持たない。
+  既存 ru の短いリストには頻出字 д / Д を追加する。Hebrew / Arabic 系も短名・長名を通じて一律 +0.5。
+- tune で観察した追加候補への交差復号に対する補助規則: 語末の非ASCII Latin 大文字（直前は小文字）−1、
+  セルビア・マケドニア専用字と東スラブ専用字（軟音記号を含む）の同一語内混在 −1、二字のキリル子音列（全大文字を除く）−0.5、
+  Latin 4字以上の中の独立した非Latin字母1字 −1（キリル / Hebrew / Arabic）、Thai語頭の閉じ引用符 −2。
+- el: monotonic の tonos 付き母音は同じ語で2字目以降 −2ずつ。対象は άέήίόύώΐΰ とその大文字。
+  ς の語頭・語中 −2、σ の語末 −1。大文字 Σ の略号は対象外。
+  ς の直後の Greek 大文字は複合固有名の次成分として扱い、大文字・sigma・tonos の規則で同じ境界を使う。
+  `ΦιτςΆλαν` のような正しい成分末を語中違反として二重に罰しない。個別の語彙や名前の照合は行わない。
+- 両側が字母の括弧（Ps / Pe）−2。既存の ASCII 記号・Sm / Sc / So の語内位置規則にも Hebrew / Arabic を含める。
+  記号得点は従来どおり非ASCII scalar数で平均する。通常の副題括弧や CJK の演算記号表記は保持する。
+- ASCII circumflex（U+005E）も字母の隣ではSkの−5を適用する。従来のASCII分岐では語頭の`^`がこの規則を迂回していた。
+  `2^3`は字母がなく対象外。backtickの既存の引用・区切りの扱いは保持する。
+- 字母間のSc / Sm / So一つでスクリプト混在を隠さない。語長・大小文字の状態は区切り、次の字母とのscript比較だけ持ち越す。
+  `ô£ذ`のようにLatinとArabicが接続される場合は既存の混在−2.5。同じ文字体系、空白を挟む場合、連続する複数記号はこの追加の対象外。
+- elのdialytika（ϊ / ϋ / ΐ / ΰ / Ϊ / Ϋ）は直前のGreek母音との分離を示す。語頭・子音直後は−2。
+  [φαΐ](https://www.greek-language.gr/greekLang/modern_greek/tools/lexica/triantafyllides/search.html?lq=%CF%86%CE%B1%CE%90)のような語末形は許し、語中だけには限定しない。
+  語頭のU+2019の直後がGreek母音なら−1。語末の`απ’`や子音前の`’πε`、開き引用符U+2018は対象外。
+  [ギリシア教育省の文法書 §3.2](https://ebooks.edu.gr/ebooks/v/html/8547/2334/Grammatiki-Neas-Ellinikis-Glossas_A-B-G-Gymnasiou_html-apli/index_B_03.html)を根拠とし、後者は母音脱落の通常形からの弱い推論として扱う。
+- frでは字母の直前にある孤立した語頭U+2019を−1。通常のélisionは前の語の末尾母音を省略するためで、`l’oiseau`等は対象外。
+  [OQLFのélision](https://vitrinelinguistique.oqlf.gouv.qc.ca/21737/lorthographe/elision-et-apostrophe/elision-obligatoire)に基づく弱い証拠であり、
+  [口語の省略や借用表記](https://vitrinelinguistique.oqlf.gouv.qc.ca/23349/la-ponctuation/autres-signes-graphiques/apostrophe)を不可能とは扱わない。fr成分だけに適用し、nlの`’t`等へは適用しない。
+- 六字以上の Latin 語で非ASCII Latin字母が **2/3超**（非ASCII字母数 × 3 > 字母数 × 2）なら −2。ちょうど2/3には発火しない。vi は既存の別経路を使う。
+  U+FB00–FB06 の Latin 合字も同じ文字体系として数え、MacRoman の ﬁ による回避を防ぐ。
+- Italian grave と fr / pt の ç の位置加点は Task B と同じく **候補の全言語成分へ共通に加える**。
+  候補間の比較の証拠であり、言語を選ぶための証拠にはしない。訂正1で行った言語成分への限定は撤回した。
+- is: 語末の ý −2、語頭の Ý −1、同名内の ý / Ý は2字目以降 −1.5ずつ。これらは is 成分だけ。
+  語頭の ð −3、語末の þ −3、þ の後の非母音・非 j/r/v −1。複合語の語中 þ 自体は禁止しない。
+  be: ў / Ў の前は母音（語間の空白を許す）。違反 −1。
+
+これらは未知語を復号不能として落とす規則ではなく、借用語・略号にも発火しうる弱い証拠を含む。
+発火率・例・未達を検証記録に記す。言語別の走査に必要な字母数と文字フラグは共通の走査で集め、Thai書庫の文字列構築を省く。
+CF の複数 scalar 展開を含まない入力は平坦な byte 表で採点する。診断用違反配列は製品の採点では生成しない。
+
+### 追加言語の頻出・識別字
+
+次の短いリストは利用者提示案と公知の CLDR main の字母を用い、記事名コーパスから集計しない。
+出典は C-A が2026-09-14に取得した `inbox/cldr/` の各XML（Unicode License v3、NOTICEは既存のまま）。
+CLDRは字母集合の出典であり、リストの頻度順位を示す資料ではない。採点5の既存機構で大文字とmain内のcanonicalなアクセント違いを展開し、非ASCII字母に +0.5 を与える。
+追加は byte 得点表の前計算に載せ、名前ごとの規則走査は増やさない。既存18言語のリストは訂正1から変更しない。
+
+| 言語 | リスト | 字数 | 字母集合の出典 |
+|---|---|---:|---|
+| lt | `iaseųėįąčšžū` | 12 | [CLDR lt](https://github.com/unicode-org/cldr/blob/main/common/main/lt.xml) |
+| lv | `aiesāēīūķļņčšž` | 14 | [CLDR lv](https://github.com/unicode-org/cldr/blob/main/common/main/lv.xml) |
+| et | `aeiõäöüšž` | 9 | [CLDR et](https://github.com/unicode-org/cldr/blob/main/common/main/et.xml) |
+| ro | `eaiăâîșțşţ` | 10 | [CLDR ro](https://github.com/unicode-org/cldr/blob/main/common/main/ro.xml)（ş/ţはlegacy互換） |
+| hr | `aeiončćđšž` | 10 | [CLDR hr](https://github.com/unicode-org/cldr/blob/main/common/main/hr.xml) |
+| sl | `aeiončšž` | 8 | [CLDR sl](https://github.com/unicode-org/cldr/blob/main/common/main/sl.xml) |
+| sk | `ntsrľĺŕôäčšťž` | 13 | [CLDR sk](https://github.com/unicode-org/cldr/blob/main/common/main/sk.xml) |
+| da | `aerntæøå` | 8 | [CLDR da](https://github.com/unicode-org/cldr/blob/main/common/main/da.xml) |
+| nb | `aerntæøå` | 8 | [CLDR nb](https://github.com/unicode-org/cldr/blob/main/common/main/nb.xml)・[継承元no](https://github.com/unicode-org/cldr/blob/main/common/main/no.xml) |
+| sv | `enrtsäöå` | 8 | [CLDR sv](https://github.com/unicode-org/cldr/blob/main/common/main/sv.xml) |
+| fi | `itnesäöu` | 8 | [CLDR fi](https://github.com/unicode-org/cldr/blob/main/common/main/fi.xml) |
+| is | `arnistðæö` | 9 | [CLDR is](https://github.com/unicode-org/cldr/blob/main/common/main/is.xml) |
+| nl | `enatirdsëïé` | 11 | [CLDR nl](https://github.com/unicode-org/cldr/blob/main/common/main/nl.xml) |
+| sr-Latn | `aeiončćđšž` | 10 | [CLDR sr_Latn](https://github.com/unicode-org/cldr/blob/main/common/main/sr_Latn.xml) |
+| bg | `аеиотнръ` | 8 | [CLDR bg](https://github.com/unicode-org/cldr/blob/main/common/main/bg.xml) |
+| sr | `аеиоњљћџј` | 9 | [CLDR sr](https://github.com/unicode-org/cldr/blob/main/common/main/sr.xml) |
+| mk | `аеиоќѓѕџљњј` | 11 | [CLDR mk](https://github.com/unicode-org/cldr/blob/main/common/main/mk.xml) |
+| be | `аеіоўяьн` | 8 | [CLDR be](https://github.com/unicode-org/cldr/blob/main/common/main/be.xml) |
+
+is は þ / ý を加点せず、ý を展開する基底 y も入れない。sr は mk の字母 ѕ を含めない。
+提示案のtuneでsk成分が西欧の交差復号を強く加点したため、skは基本子音と固有字を選び、基底a/e/i/oからの共通アクセント母音の加点を抑える。
+svはaをs、fiはaをuへ置き換え、svのà/áやfiのåを展開加点しない。固有字sv ä/ö/å、fi ä/öは保つ。
+srのђはmainのまま加点対象から外す。孤立したЂへの+0.5がCP1252の通貨記号との既存guardを破るためである。
+いずれも短いリストの選択だけを調整し、main集合・既存18言語のリスト・prior・規則は変更しない。提示案と採用案のtuneを別に保存する。
+8字未満だった提示案には sl の n、da / nb の a、be の н を加え、lv にはmainの č を加えた。
+ro の ş / ţ の加点を外す案は、CP1250の正しいlegacy綴りをISO-8859-16のmodern綴りより常に弱くしてしまうため採用しない。
+mainと頻度の両方で互換字を保つ。scalar完全一致の測定やreaderの復号は変更しない。
+
+### ablation の帰属と受け入れの分母
+
+変更前 main（Thai修正込み）の release CLI で新コーパスの tune / eval を4方式測る。
+旧49（言語, encoding）群の tune 行だけをそのまま抽出し、(a)26候補・言語集合のみ追加、(b)54候補・規則は追加前、を別の実行ファイルで固定する。
+最終版との差は正書法・互換集合・頻出字・prior順序の修正を含む差として分ける。
+訂正2では規則修正後・識別字追加前のCLIも保存し、同じtuneで識別字だけの差を測る。
+tr / ru / uk の単名1–3 / ≥4は各方式で別記し、新たに下がる群も記録する。
+el の初回版の大きな回帰は Windows / ISO の同点priorの不備であり、report-onlyを理由に免除しない。西欧書庫の言語整合による改善を候補増加に帰さない。
+既存18言語の受け入れ比較には、新しい候補行を混ぜず旧49群だけを使う。
+CP861 を cf-table-invalid として全方式の分母から除き、Mac Arabic / Farsi は CF の方向制御だけを除いて完全一致を判定する。
+書庫の時間は同じ sample 構成員数で µs に換算し、除外行を含む実際の全入力に対応させる。

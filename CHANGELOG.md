@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- ファイル名判定（Task C Phase C-B）: CLDR の測定39言語を54 legacy候補へ接続し、Hebrew / Arabic / Persian、バルト・北欧・中東欧の候補と文字体系の規則、未定義 byte の事前除外を追加した。公開APIとreaderのCF復号は維持する。CP861はCF表の誤りにより対象外。PersianのCP1256では判定できてもک等8文字をCFで復号できず、既存fallbackの表記になることがある。VISCII / TCVN3と自前復号は含めない。eval の書庫（likelyLanguage ja）は 64.05% → 87.68%、日本語は単名 99.50% / 書庫 99.84% を維持、新 21 言語のうち 12 言語が書庫 k≥10 で 99% 以上。残差: トルコ語短名はアイスランド語との同一 bytes の交換で低下（CP1252 の集合から is を外せば戻る）、ギリシア語書庫の全大文字 Ά、ヘブライ語短名（udet 未満）、ru / uk 短名の MacCyrillic 大文字。1 書庫あたりの判定は最大 512 名 sample で約 36 ms。詳細は[検証記録](Documentation/verification/2026-09-14-name-encoding-languages.md)を参照。
+
 - 多言語判定の測定基盤（Task C Phase C-A、bd `cooViewer-rbrj`）: 名前コーパス生成器と測定器を 39 言語・53 encoding に拡張し（新 21 言語、VISCII は RFC 1456 の表、fa / ro の互換写像）、CLDR の言語別文字集合を 41 言語に広げた。判定器の候補・採点・公開 API は変えていない。現行判定器のベースラインと CF の復号制約（CP861 表が CP775 と同一、CP1256 の 8 byte が復号不能）は[検証記録](Documentation/verification/2026-09-14-name-encoding-baseline-c.md)を参照。
 
 - タイ語ファイル名判定（bd `cooViewer-fl6u`）: 分布規則専用の頻出集合を10字から15字へ広げ、tuneの実在名への発火率を7.04%から0.31%へ低減した。evalのth単名・zh-cn単名は受け入れ目標に未達で、差分と制約は[検証記録](Documentation/verification/2026-09-14-name-encoding-thai-rule.md)に記載。

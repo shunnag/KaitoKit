@@ -301,7 +301,9 @@ final class NameEncodingScorerTests: XCTestCase {
     }
 
     func testArchiveAppliesPriorOnlyOnceForRepeatedShortNames() {
-        let bytes: [UInt8] = [0xE4, 0xE5]
+        // C-B の北欧集合では旧入力 E4 E5（äå / де）の証拠が同点になる。
+        // ñÿ / ся は単名の prior と書庫の証拠が逆転し、prior を一度だけ適用する意図を保つ。
+        let bytes: [UInt8] = [0xF1, 0xFF]
         let cp1251 = NameEncodingCandidates.all.first { $0.name == "windows-1251" }!.encoding
         XCTAssertEqual(EncodingDetector.detectArchiveEncoding(names: [bytes], policy: .automatic(likelyLanguage: nil)), .windowsCP1252)
         XCTAssertEqual(EncodingDetector.detectArchiveEncoding(names: Array(repeating: bytes, count: 100), policy: .automatic(likelyLanguage: nil)), cp1251)
@@ -451,7 +453,7 @@ final class NameEncodingScorerTests: XCTestCase {
                 for value in ranges {
                     for scalar in [value - 1, value, value + 1] {
                         XCTAssertEqual(NameEncodingScorer.contains(scalar, ranges: ranges), LanguageExemplars.contains(scalar, language: entry.language, kind: kind))
-                        let bit = UInt32(1) << NameEncodingScorer.exemplarLanguages.firstIndex(of: entry.language)!
+                        let bit = UInt64(1) << NameEncodingScorer.exemplarLanguages.firstIndex(of: entry.language)!
                         let traits = NameEncodingScorer.traits(scalar)
                         let mask = kind == .main ? traits.mainMask : traits.auxiliaryMask
                         XCTAssertEqual(mask & bit != 0, NameEncodingScorer.contains(scalar, ranges: ranges))

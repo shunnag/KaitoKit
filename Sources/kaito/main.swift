@@ -18,6 +18,7 @@ private enum CLIError: Error, CustomStringConvertible {
 private let usage = """
 usage:
   kaito detect <archive>
+  kaito detect-encoding [--archive] [--language <code> | --no-language] [--from-windows] [--decode <iana>] <tsv>
   kaito list <archive> [--raw] [-p <password>]
   kaito extract <archive> -o <directory> [-p <password>]
   kaito sha <archive> [--forks] [-p <password>]
@@ -532,6 +533,7 @@ private func run(_ arguments: [String]) throws {
     let tail = Array(arguments.dropFirst())
     switch command {
     case "detect": try runDetect(tail)
+    case "detect-encoding": try runDetectEncoding(tail)
     case "list": try runList(tail)
     case "extract": try runExtract(tail)
     case "sha": try runSHA(tail)

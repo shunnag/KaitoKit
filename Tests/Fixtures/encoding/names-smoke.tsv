@@ -1,0 +1,20 @@
+smoke01	ja	cp932	93fa967b8cea82cc967b	日本語の本
+smoke02	ja	euc-jp	a4d2a4e9a4aca4ca	ひらがな
+smoke03	zh-cn	gb18030	babad3efb9cacac2	汉语故事
+smoke04	zh-tw	cp950	ba7ebb79ac47a8c6	漢語故事
+smoke05	ko	cp949	c7d1b1dbc3a5	한글책
+smoke06	vi	windows-1258	d0e0	Đà
+smoke07	th	cp874	c0d2c9d2e4b7c2	ภาษาไทย
+smoke08	uk	windows-1251	d3eaf0e0bfede0	Україна
+smoke09	ru	koi8-r	f2d5d3d3cbc1d120cbcec9c7c1	Русская книга
+smoke10	es	windows-1252	45737061f161	España
+smoke11	pt	windows-1252	436f7261e7e36f	Coração
+smoke12	fr	windows-1252	4672616ee7616973	Français
+smoke13	de	windows-1252	4772f6df65	Größe
+smoke14	it	windows-1252	43697474e0	Città
+smoke15	pl	windows-1250	a3f3649f	Łódź
+smoke16	cs	windows-1250	c8659a74696e61	Čeština
+smoke17	hu	windows-1250	54fc6bf672	Tükör
+smoke18	el	windows-1253	c5ebebdce4e1	Ελλάδα
+smoke19	tr	windows-1254	54fc726be765	Türkçe
+smoke20	zh-cn	gb18030	d0dcc3a8	熊猫

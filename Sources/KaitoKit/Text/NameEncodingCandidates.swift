@@ -12,6 +12,7 @@ enum NameEncodingCandidates {
         let form: Form
         let isMac: Bool
         let singleByteTable: [[UInt32]?]
+        let undefinedBytes: SIMD4<UInt64>
 
         var isJapanese: Bool { form == .cp932 || form == .eucJP }
         var isCJK: Bool { form != .single }
@@ -30,10 +31,20 @@ enum NameEncodingCandidates {
             // Mac の往復用タグのような複数 scalar も切り捨てない。
             singleByteTable = form == .single ? (0...255).map { value in
                 if name.hasPrefix("iso-"), (0x80...0x9F).contains(value) { return nil }
+                // CP1256 の CF 欠落8位置は Microsoft 表で採点だけを補う。reader の復号は変更しない。
+                if name == "windows-1256", let scalar = NameEncodingCandidates.cp1256Supplement[UInt8(value)] { return [scalar] }
                 var byte = UInt8(value)
                 guard let decoded = CFStringCreateWithBytes(nil, &byte, 1, cf, false) else { return nil }
-                return (decoded as String).unicodeScalars.map(\.value)
+                let scalars = (decoded as String).unicodeScalars.map(\.value)
+                // Mac Arabic/Farsi の CF が挿入する方向制御は文字の証拠に含めない。
+                return name == "x-mac-arabic" || name == "x-mac-farsi"
+                    ? scalars.filter { !(0x202A...0x202E).contains($0) && !(0x2066...0x2069).contains($0) } : scalars
             } : []
+            var undefined = SIMD4<UInt64>.zero
+            for byte in singleByteTable.indices where singleByteTable[byte] == nil {
+                undefined[byte / 64] |= UInt64(1) << (byte % 64)
+            }
+            undefinedBytes = undefined
         }
 
         func decode(_ bytes: [UInt8]) -> String? {
@@ -138,23 +149,58 @@ enum NameEncodingCandidates {
         }
     }
 
+    // Microsoft CP1256 の公開配置。CF 復号に適用する表ではない。
+    static let cp1256Supplement: [UInt8: UInt32] = [
+        0x8A: 0x0679, 0x8F: 0x0688, 0x98: 0x06A9, 0x9A: 0x0691,
+        0x9F: 0x06BA, 0xAA: 0x06BE, 0xC0: 0x06C1, 0xFF: 0x06D2,
+    ]
+
     // 設計書「採点 6」と変更履歴 c: 同点時の既定順位。HKSCS は CP950 復号失敗時だけ参加する。
     static let all: [Candidate] = [
         Candidate("cp932", ["ja"], .cp932), Candidate("euc-jp", ["ja"], .eucJP),
         Candidate("gb18030", ["zh"], .gb18030), Candidate("cp950", ["zh-Hant"], .big5),
         Candidate("cp949", ["ko"], .cp949), Candidate("big5-hkscs", ["zh-Hant"], .big5),
-        Candidate("windows-1251", ["uk", "ru"]), Candidate("koi8-u", ["uk", "ru"]),
-        Candidate("koi8-r", ["uk", "ru"]), Candidate("cp866", ["uk", "ru"]),
-        Candidate("iso-8859-5", ["uk", "ru"]), Candidate("x-mac-cyrillic", ["uk", "ru"]),
-        Candidate("windows-1252", ["es", "pt", "fr", "de", "it", "en"]),
-        Candidate("windows-1250", ["pl", "cs", "hu"]),
-        Candidate("iso-8859-15", ["es", "pt", "fr", "de", "it", "en"]),
-        Candidate("macintosh", ["es", "pt", "fr", "de", "it", "en"]),
-        Candidate("cp850", ["es", "pt", "fr", "de", "it", "en"]),
-        Candidate("windows-1258", ["vi"]), Candidate("iso-8859-2", ["pl", "cs", "hu"]),
-        Candidate("x-mac-centraleurroman", ["pl", "cs", "hu"]), Candidate("cp874", ["th"]),
+        Candidate("windows-1251", ["uk", "ru", "bg", "sr", "mk", "be"]), Candidate("koi8-u", ["uk", "ru", "bg", "sr", "mk", "be"]),
+        Candidate("koi8-r", ["uk", "ru", "bg", "sr", "mk", "be"]), Candidate("cp866", ["uk", "ru", "bg", "sr", "mk", "be"]),
+        Candidate("iso-8859-5", ["uk", "ru", "bg", "sr", "mk", "be"]), Candidate("x-mac-cyrillic", ["uk", "ru", "bg", "sr", "mk", "be"]),
+        Candidate("windows-1252", ["es", "pt", "fr", "de", "it", "en", "da", "nb", "sv", "fi", "is", "nl"]),
+        Candidate("windows-1250", ["pl", "cs", "hu", "ro", "hr", "sl", "sk", "sr-Latn"]),
+        Candidate("iso-8859-15", ["es", "pt", "fr", "de", "it", "en", "da", "nb", "sv", "fi", "is", "nl"]),
+        Candidate("macintosh", ["es", "pt", "fr", "de", "it", "en", "da", "nb", "sv", "fi", "is", "nl"]),
+        Candidate("cp850", ["es", "pt", "fr", "de", "it", "en", "da", "nb", "sv", "fi", "is", "nl"]),
+        Candidate("windows-1258", ["vi"]), Candidate("iso-8859-2", ["pl", "cs", "hu", "ro", "hr", "sl", "sk", "sr-Latn"]),
+        Candidate("x-mac-centraleurroman", ["pl", "cs", "hu", "ro", "hr", "sl", "sk", "sr-Latn"]), Candidate("cp874", ["th"]),
         Candidate("windows-1253", ["el"]), Candidate("windows-1254", ["tr"]),
-        Candidate("windows-1255", ["he"]), Candidate("windows-1256", ["ar"]),
+        Candidate("windows-1255", ["he"]), Candidate("windows-1256", ["ar", "fa"]),
         Candidate("windows-1257", ["lt", "lv", "et"]),
+        // C-B: CF で扱える候補のみ。CP861 は CF の表が CP775 と同じため除外。
+        Candidate("iso-8859-8", ["he"]),
+        Candidate("cp862", ["he"]),
+        Candidate("x-mac-hebrew", ["he"]),
+        Candidate("iso-8859-6", ["ar", "fa"]),
+        Candidate("cp864", ["ar", "fa"]),
+        Candidate("x-mac-arabic", ["ar", "fa"]),
+        Candidate("x-mac-farsi", ["ar", "fa"]),
+        Candidate("iso-8859-4", ["lt", "lv", "et"]),
+        Candidate("iso-8859-13", ["lt", "lv", "et"]),
+        Candidate("cp775", ["lt", "lv", "et"]),
+        Candidate("cp865", ["es", "pt", "fr", "de", "it", "en", "da", "nb", "sv", "fi", "is", "nl"]),
+        Candidate("x-mac-icelandic", ["es", "pt", "fr", "de", "it", "en", "da", "nb", "sv", "fi", "is", "nl"]),
+        Candidate("iso-8859-10", ["es", "pt", "fr", "de", "it", "en", "da", "nb", "sv", "fi", "is", "nl"]),
+        Candidate("cp437", ["es", "pt", "fr", "de", "it", "en", "da", "nb", "sv", "fi", "is", "nl"]),
+        Candidate("iso-8859-16", ["pl", "cs", "hu", "ro", "hr", "sl", "sk", "sr-Latn"]),
+        Candidate("x-mac-romanian", ["pl", "cs", "hu", "ro", "hr", "sl", "sk", "sr-Latn"]),
+        Candidate("cp852", ["pl", "cs", "hu", "ro", "hr", "sl", "sk", "sr-Latn"]),
+        Candidate("x-mac-croatian", ["pl", "cs", "hu", "ro", "hr", "sl", "sk", "sr-Latn"]),
+        Candidate("cp855", ["uk", "ru", "bg", "sr", "mk", "be"]),
+        Candidate("x-mac-ukrainian", ["uk", "ru", "bg", "sr", "mk", "be"]),
+        Candidate("iso-8859-7", ["el"]),
+        Candidate("cp737", ["el"]),
+        Candidate("cp869", ["el"]),
+        Candidate("x-mac-greek", ["el"]),
+        Candidate("iso-8859-9", ["tr"]),
+        Candidate("cp857", ["tr"]),
+        Candidate("x-mac-turkish", ["tr"]),
+        Candidate("x-mac-thai", ["th"]),
     ]
 }

@@ -717,7 +717,12 @@ public enum EncodingDetector {
         if let winner = ranked.first {
             let candidate = NameEncodingCandidates.all[winner.candidateIndex]
             if !candidate.isJapanese {
-                return (candidate.encoding, winner.string, NameEncodingScorer.confidence(ranked))
+                // C-B の補完・方向制御除去は採点専用。返す名前は既存の CF 復号を通す。
+                let string: String
+                if candidate.name == "windows-1256" || candidate.name == "x-mac-arabic" || candidate.name == "x-mac-farsi" {
+                    string = decode(bytes: bytes, as: candidate.encoding) ?? replacementDecode(bytes, encoding: candidate.encoding)
+                } else { string = winner.string }
+                return (candidate.encoding, string, NameEncodingScorer.confidence(ranked))
             }
         } else {
             let latin1 = decode(bytes: bytes, as: .isoLatin1)
@@ -1043,7 +1048,7 @@ public enum EncodingDetector {
         }
         guard !selected.isEmpty else { return .isoLatin1 }
         let candidates = NameEncodingCandidates.all
-        var totals = [SIMD8<Double>](repeating: .zero, count: candidates.count)
+        var totals = [SIMD16<Double>](repeating: .zero, count: candidates.count)
         var decoded = [Int](repeating: 0, count: candidates.count)
         var evidenceCounts = [Int](repeating: 0, count: candidates.count)
         var hanOnly = [Bool](repeating: true, count: candidates.count)
@@ -1054,7 +1059,7 @@ public enum EncodingDetector {
             let results = NameEncodingScorer.allScores(frequencies[index].bytes, fromWindows: fromWindows, includeHKSCS: true, archive: true)
             // 第4回レビュー A: 全候補で同じ byte 尺度を使い、復号不能名も分母から落とさない。
             let n = frequencies[index].bytes.reduce(0) { $0 + ($1 >= 128 ? 1 : 0) }
-            var values = [SIMD8<Double>](repeating: SIMD8(repeating: -3 * Double(n)), count: candidates.count)
+            var values = [SIMD16<Double>](repeating: SIMD16(repeating: -3 * Double(n)), count: candidates.count)
             for result in results {
                 if !vietnameseEvidence, candidates[result.candidateIndex].name == "windows-1258",
                    NameEncodingScorer.vietnameseEvidence(result.string) { vietnameseEvidence = true }

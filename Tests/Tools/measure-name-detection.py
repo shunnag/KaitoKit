@@ -74,6 +74,52 @@ def decode_udet(data, mime):
         return None
 
 
+# CF の Mac Arabic/Farsi が挿入する方向制御だけを比較前に除く。NFC 等価は導入しない。
+def cf_comparison_text(text, encoding):
+    if text is not None and encoding.lower() in ("x-mac-arabic", "x-mac-farsi"):
+        return "".join(c for c in text if not (0x202A <= ord(c) <= 0x202E or 0x2066 <= ord(c) <= 0x2069))
+    return text
+
+
+def archive_sample_counts(members):
+    """判定器と同じ512名・256KiBの中点抽出。引数は非UTF-8構成員だけ。"""
+    if len(members) <= 512 and sum(map(len, members)) + max(0, len(members) - 1) <= 256 * 1024:
+        return len(members), len(set(members))
+    def stable_hash(data):
+        value = 0xCBF29CE484222325
+        for byte in data:
+            value = ((value ^ byte) * 0x100000001B3) & ((1 << 64) - 1)
+        return ((value ^ len(data)) * 0x100000001B3) & ((1 << 64) - 1)
+    frequencies = sorted(Counter(members).items(), key=lambda entry: (stable_hash(entry[0]), entry[0]), reverse=True)
+    if not frequencies:
+        return 0, 0
+    limit = min(len(members), 512)
+    selected = Counter()
+    index = 0
+    cumulative = frequencies[0][1]
+    size = 0
+    for sample in range(limit):
+        lower = len(members) * sample // limit
+        upper = len(members) * (sample + 1) // limit
+        position = lower + (upper - lower) // 2
+        while position >= cumulative and index + 1 < len(frequencies):
+            index += 1
+            cumulative += frequencies[index][1]
+        extra = len(frequencies[index][0]) + (size != 0)
+        if size + extra <= 256 * 1024:
+            size += extra
+            selected[index] += 1
+    return sum(selected.values()), len(selected)
+
+
+def strict_utf8(data):
+    try:
+        data.decode("utf-8", errors="strict")
+        return True
+    except UnicodeDecodeError:
+        return False
+
+
 def self_check():
     for name, mapped in CODECS.items():
         expected = codecs.lookup(mapped).name
@@ -157,12 +203,15 @@ def metric():
 
 
 def new_group(detectors):
-    return {"rows": 0, "codec_mismatch": 0, "eligible": 0, "members": 0,
+    return {"rows": 0, "cf_table_invalid": 0, "codec_mismatch": 0, "eligible": 0, "members": 0,
             "detectors": {name: metric() for name in detectors}}
 
 
 def accumulate(group, excluded, expected, truth, results):
     group["rows"] += 1
+    if truth == "cp861":
+        group["cf_table_invalid"] += 1
+        return
     if excluded:
         group["codec_mismatch"] += 1
         return
@@ -198,10 +247,10 @@ def percentage(value):
 
 
 def markdown_table(rows, dimensions, detectors, indicator="accuracy"):
-    columns = list(dimensions) + ["行数", "codec-mismatch", "分母"] + [LABELS[d] for d in detectors]
+    columns = list(dimensions) + ["行数", "cf-table-invalid", "codec-mismatch", "分母"] + [LABELS[d] for d in detectors]
     output = ["| " + " | ".join(columns) + " |", "|" + "---|" * len(columns)]
     for row in rows:
-        cells = [str(row[d]) for d in dimensions] + [str(row[d]) for d in ("rows", "codec_mismatch", "eligible")]
+        cells = [str(row[d]) for d in dimensions] + [str(row[d]) for d in ("rows", "cf_table_invalid", "codec_mismatch", "eligible")]
         cells.extend(percentage(row["detectors"][d][indicator]) for d in detectors)
         output.append("| " + " | ".join(cells) + " |")
     return "\n".join(output)
@@ -296,6 +345,7 @@ def measure(args):
             raise ValueError(f"{row[0]}: ASCII bytes are outside the corpus scope")
         by_encoding[row[2]].append(row)
         by_bytes[(row[1], row[2], row[3])].append(row)
+    sampled_inputs = {bytes.fromhex(row[3]) for row in names if not strict_utf8(bytes.fromhex(row[3]))}
     mismatches = {}
     mismatch_counts = Counter()
     # 一回のプロセスで同じ正解 encoding の全行を検査する。
@@ -304,19 +354,22 @@ def measure(args):
             subset = Path(temporary) / f"{encoding}.tsv"
             subset.write_text("".join("\t".join(row) + "\n" for row in rows), encoding="utf-8")
             output = run(f"decode-{encoding}", [args.kaito, "detect-encoding", "--decode", encoding, subset])
-            for identifier, (status, escaped) in keyed_output(output, [r[0] for r in rows], 3).items():
+            checked = keyed_output(output, [r[0] for r in rows], 3)
+            for row in rows:
+                status, escaped = checked[row[0]]
                 decoded = decoded_fields(escaped)
                 if status not in ("OK", "MISMATCH", "FAIL") or len(decoded) != 1:
                     raise ValueError("invalid --decode result")
-                if status != "OK":
-                    mismatches[identifier] = {"status": status, "decoded": decoded[0] if status != "FAIL" else None}
-                    mismatch_counts[status] += 1
-            # CLI の status と別に Python 側でも scalar の完全一致を照合する。
-            checked = keyed_output(output, [r[0] for r in rows], 3)
-            for row in rows:
-                status, value = checked[row[0]]
-                if (status == "OK") != (status != "FAIL" and decoded_fields(value)[0] == row[4]):
+                # CLI の生の判定との照合は保存し、方向制御除去後の一致を別に判定する。
+                if (status == "OK") != (status != "FAIL" and decoded[0] == row[4]):
                     raise ValueError(f"{row[0]}: inconsistent CF equality result")
+                if encoding == "cp861":
+                    continue
+                value = cf_comparison_text(decoded[0], encoding) if status != "FAIL" else None
+                if value != row[4]:
+                    adjusted_status = "FAIL" if status == "FAIL" else "MISMATCH"
+                    mismatches[row[0]] = {"status": adjusted_status, "decoded": value}
+                    mismatch_counts[adjusted_status] += 1
 
     detectors = ["kaito_ja", "kaito_none", "kaito_zh"] + (["udet"] if args.udet else [])
     single_results = {}
@@ -373,7 +426,7 @@ def measure(args):
             decoded = decoded_fields(escaped)
             if len(decoded) != 1:
                 raise ValueError("unexpected field separator in a single name")
-            results[detector] = (encoding, decoded, 0)
+            results[detector] = (encoding, [cf_comparison_text(v, encoding) for v in decoded], 0)
         if args.udet:
             mime = ud_names[identifier]
             results["udet"] = (mime, [decode_udet(bytes.fromhex(hex_value), mime)], 0)
@@ -383,8 +436,13 @@ def measure(args):
             accumulate(group, excluded, [text], truth, results)
 
     excluded_members = 0
+    sampled_members = 0
+    scored_unique_members = 0
     for identifier, lang, truth, k, hex_list in archives:
         data = [bytes.fromhex(h) for h in hex_list.split(",")]
+        sampled, unique = archive_sample_counts([m for m in data if m in sampled_inputs])
+        sampled_members += sampled
+        scored_unique_members += unique
         expected = []
         excluded = False
         non_ascii_count = 0
@@ -411,7 +469,7 @@ def measure(args):
             decoded = decoded_fields(escaped)
             if len(decoded) != len(data) or not 0 <= int(fallback) <= len(data):
                 raise ValueError(f"{identifier}: invalid archive output")
-            results[detector] = (encoding, decoded, int(fallback))
+            results[detector] = (encoding, [cf_comparison_text(v, encoding) for v in decoded], int(fallback))
         if args.udet:
             mime = ud_archives[identifier]
             results["udet"] = (mime, [decode_udet(member, mime) for member in data], 0)
@@ -431,18 +489,28 @@ def measure(args):
                   "single_by_length": ("lang", "truth_iana", "non_ascii_scalars"), "archive_by_language": ("lang",),
                   "archive_by_encoding_k": ("lang", "truth_iana", "k")}
     timings["total"] = time.perf_counter() - started
-    report = {"schema_version": 2, "created_at": datetime.now(timezone.utc).isoformat(),
+    report = {"schema_version": 3, "created_at": datetime.now(timezone.utc).isoformat(),
               "platform": platform.platform(), "python_version": platform.python_version(),
               "corpus_sha256": hashes, "corpus_summary": summary,
               "corpus_split": summary.get("split", "all") if summary else "unknown",
               "kaito_sha256": sha256(args.kaito), "udet_sha256": sha256(args.udet) if args.udet else None,
               "detector_source_sha256": sha256(ROOT / "Sources/KaitoKit/Text/EncodingDetector.swift"),
               "definitions": {"accuracy": "exact Unicode scalar sequence equality; archive requires all members correct",
+                              "cf_table_invalid": "cp861: CF DOSIcelandic table equals CP775; exclude from all four denominators",
+                              "cf_bidi_normalization": "x-mac-arabic/x-mac-farsi: strip U+202A–202E and U+2066–2069 before comparison",
                               "codec_mismatch": "CF truth decode FAIL or MISMATCH; exclude entire archive if any member mismatches",
                               "encoding_accuracy": "secondary: codec alias mapping equality; (nil) never matches an encoding name",
                               "udet_nil": "decode as windows-1252", "k": "non-ASCII members, before adding ASCII names",
                               "top_detected": "top 3 raw detector encoding names among eligible rows/groups, including correct predictions; ties sort by name",
                               "member_accuracy": "all eligible member occurrences, including mixed ASCII names"},
+              "performance": {"archive_sampled_members": sampled_members,
+                              "archive_scored_unique_members": scored_unique_members,
+                              "archive_microseconds_per_sampled_member": {
+                                  d: timings[f"archives-{d}"] * 1e6 / sampled_members if sampled_members else None for d in detectors},
+                              "includes": "all timed input rows, including excluded rows; process startup, decoding and TSV IO"},
+              "cf_table_invalid": {"encoding": "cp861", "reason": "CF DOSIcelandic table equals CP775",
+                                   "single_rows": len(by_encoding.get("cp861", [])),
+                                   "archive_rows": sum(r[2] == "cp861" for r in archives)},
               "timings_seconds": timings, "commands": commands, "detectors": detectors,
               "codec_mismatch_status_counts": dict(mismatch_counts), "codec_mismatch_examples": examples,
               "archive_codec_mismatch_member_occurrences": excluded_members,
@@ -457,6 +525,7 @@ def measure(args):
     md = ["# 名前エンコーディング判定の測定結果", "",
           "正解は復号後の Unicode scalar 列の完全一致。書庫の主指標は全構成員の一致。",
           "`--decode truth_iana` の FAIL / MISMATCH は codec-mismatch として全検出器の分母から除外する。",
+          "cp861 は CF 表が CP775 と同じため cf-table-invalid として全方式の分母から除外。Mac Arabic/Farsi は CF の方向制御を除去して比較。",
           "書庫では不一致の構成員を一つでも含む group 全体を除外する。k は追加 ASCII 名を含まない。",
           "udet の `(nil)` は windows-1252 で復号。文字コード名の一致率は別表。",
           "長さは非 ASCII scalar 数（結合記号も 1）で、表の — は分母 0 または未測定を表す。", "",
@@ -483,6 +552,10 @@ def measure(args):
             md.extend([f"### {title}", "", comparison_table(comparison[key], detectors), ""])
     md.extend(["## 実行時間", "", "| 実行 | 秒 |", "|---|---:|"])
     md.extend(f"| {label} | {seconds:.3f} |" for label, seconds in timings.items())
+    md.extend(["", "## sample 構成員あたりの時間", "",
+               f"sample 構成員 {sampled_members:,}、採点した重複除去後の名前 {scored_unique_members:,}。除外前の全入力で集計。",
+               "", "| 方式 | µs / sample 構成員 |", "|---|---:|"])
+    md.extend(f"| {LABELS[d]} | " + (f"{report['performance']['archive_microseconds_per_sampled_member'][d]:.3f}" if sampled_members else "—") + " |" for d in detectors)
     md.extend(["", "## codec-mismatch の例", "", "```json", json.dumps(examples, ensure_ascii=False, indent=2), "```", "",
                "未対応の udet MIME: " + json.dumps(dict(unknown_mimes), ensure_ascii=False), ""])
     (args.out_dir / "report.md").write_text("\n".join(md), encoding="utf-8")

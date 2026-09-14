@@ -730,8 +730,12 @@ enum NameEncodingScorer {
     static let vietnameseVowels = Set("aăâeêioôơuưyAĂÂEÊIOÔƠUƯY".unicodeScalars.map(\.value))
 
     // 訂正6: タイ文字の main はほぼ全文字を含むため、通常の分布と語中の稀な表記を別の証拠にする。
-    // 頻出集合は既存の公知リストから一度だけ表にし、候補内の走査では表引きだけを行う。
-    static let thaiFrequentFlags: [Bool] = (UInt32(0xE00)...0xE7F).map { frequent["th"]!.contains($0) }
+    // 分布だけ15字へ広げ、通常の名前の子音も数える。文字得点の頻出 bonus は変更しない。
+    // 集合の出典と比較: Documentation/verification/2026-09-14-name-encoding-thai-rule.md。
+    static let thaiFrequentFlags: [Bool] = {
+        let letters = frequent["th"]!.union("สทดคง".unicodeScalars.map(\.value))
+        return (UInt32(0xE00)...0xE7F).map { letters.contains($0) }
+    }()
     static func thaiDistribution(_ properties: [Traits]) -> Orthography {
         var result = Orthography()
         var start = 0

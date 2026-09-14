@@ -69,6 +69,15 @@ final class NameEncodingScorerTests: XCTestCase {
         XCTAssertEqual(thaiDistribution("漢字漢字漢字漢字").score, 0)
     }
 
+    func testThaiCommonRatioPreservesOrdinaryNames() {
+        for name in ["กรมสรรพากร", "สำนักงานคณะกรรมการ", "กระทรวงศึกษาธิการ", "มหาวิทยาลัยเชียงใหม่",
+                     "คณะสัตวแพทยศาสตร์", "ฟุตบอลหญิงชิงแชมป์คอนคาแคฟ", "จังหวัดพัทลุง"] {
+            let evidence = thaiDistribution(name)
+            XCTAssertEqual(evidence.score, 0, name)
+            XCTAssertTrue(evidence.violations.isEmpty, name)
+        }
+    }
+
     func testThaiRareMarksPunctuationAndEmbeddedDigits() {
         XCTAssertEqual(thaiDistribution("กําข").score, 0)
         XCTAssertEqual(thaiDistribution("กํข").score, -2)

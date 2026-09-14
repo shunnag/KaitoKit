@@ -9,12 +9,17 @@
 import argparse
 from pathlib import Path
 import re
+import sys
+import time
 import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[2]
-LANGUAGES = "ja zh zh-Hant ko vi th uk ru es pt fr de it pl cs hu el tr en".split()
+TASK_B_LANGUAGES = "ja zh zh-Hant ko vi th uk ru es pt fr de it pl cs hu el tr en".split()
+LANGUAGES = TASK_B_LANGUAGES + "he ar fa lt lv et ro hr sl sk sr sr-Latn bg mk be da nb sv fi nl is".split()
 SOURCE = "https://github.com/unicode-org/cldr/tree/main/common/main"
+# CLDR supplementalData.xml の parentLocale。nb.xml は集合を no.xml から継承する。
+PARENTS = {"nb": "no"}
 
 
 def parse_unicode_set(pattern):
@@ -101,12 +106,46 @@ def swift_array(values, indent):
     return "[\n" + "\n".join(indent + "    " + line + "," for line in lines) + "\n" + indent + "]"
 
 
+def wait_for_inputs(directory):
+    deadline = time.monotonic() + 600
+    while True:
+        paths = [directory / (language.replace("-", "_") + ".xml")
+                 for language in LANGUAGES + list(PARENTS.values())] + [directory / "LICENSE"]
+        missing = [path.name for path in paths if not path.is_file() or path.stat().st_size == 0]
+        if not missing:
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError("入力の待機期限を超過: " + ", ".join(missing))
+        print("未到着の CLDR 入力を待機: " + ", ".join(missing), file=sys.stderr, flush=True)
+        time.sleep(min(30, remaining))
+
+
+def exemplar_sets(directory, language):
+    sets = exemplar_sets(directory, PARENTS[language]) if language in PARENTS else {}
+    root = ET.parse(directory / (language.replace("-", "_") + ".xml")).getroot()
+    local = {}
+    for entry in root.findall("./characters/exemplarCharacters"):
+        kind = entry.get("type", "main")
+        if kind in ("main", "auxiliary") and entry.get("alt") is None:
+            if kind in local:
+                raise ValueError(f"{language}: {kind} が複数あります")
+            local[kind] = entry.text or ""
+    for kind, pattern in local.items():
+        if pattern.strip() != "↑↑↑":
+            sets[kind] = parse_unicode_set(pattern)
+    if set(sets) != {"main", "auxiliary"}:
+        raise ValueError(f"{language}: 主集合または補助集合がありません")
+    return sets
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cldr-dir", type=Path, default=ROOT / "inbox/cldr")
     parser.add_argument("--output", type=Path, default=ROOT / "Sources/KaitoKit/Text/LanguageExemplars.swift")
     parser.add_argument("--notice", type=Path, default=ROOT / "NOTICE")
     args = parser.parse_args()
+    wait_for_inputs(args.cldr_dir)
     lines = [
         "// このファイルは Tests/Tools/make-exemplars.py により生成されています。",
         f"// 生成元: CLDR の文字集合 {SOURCE}",
@@ -118,7 +157,7 @@ def main():
         "    enum Kind { case main, auxiliary }",
         "",
         "    static func contains(_ scalar: UInt32, language: String, kind: Kind) -> Bool {",
-        "        guard let entry = table.first(where: { $0.language == language }) else { return false }",
+        "        guard let entry = allTable.first(where: { $0.language == language }) else { return false }",
         "        let ranges: [UInt32]",
         "        switch kind {",
         "        case .main: ranges = entry.main",
@@ -143,16 +182,14 @@ def main():
     ]
     counts = []
     for language in LANGUAGES:
-        root = ET.parse(args.cldr_dir / (language.replace("-", "_") + ".xml")).getroot()
-        sets = {}
-        for entry in root.findall("./characters/exemplarCharacters"):
-            kind = entry.get("type", "main")
-            if kind in ("main", "auxiliary") and entry.get("alt") is None:
-                if kind in sets:
-                    raise ValueError(f"{language}: {kind} が複数あります")
-                sets[kind] = parse_unicode_set(entry.text or "")
-        if set(sets) != {"main", "auxiliary"}:
-            raise ValueError(f"{language}: 主集合または補助集合がありません")
+        if language == LANGUAGES[len(TASK_B_LANGUAGES)]:
+            lines.extend([
+                "    ]", "",
+                "    // Phase C-A: 追加集合は生成・検証だけを行い、採点器への接続は C-B で行う。",
+                "    // 現行採点器の UInt32 言語マスクと Task B の候補・採点結果を保つ。",
+                "    static let additionalTable: [(language: String, main: [UInt32], auxiliary: [UInt32])] = [",
+            ])
+        sets = exemplar_sets(args.cldr_dir, language)
         ranges = {kind: compress_ranges(values) for kind, values in sets.items()}
         lines.extend([
             "        (",
@@ -162,7 +199,7 @@ def main():
             "        ),",
         ])
         counts.append(f"{language}: {len(ranges['main']) // 2}/{len(ranges['auxiliary']) // 2}")
-    lines.extend(["    ]", "}", ""])
+    lines.extend(["    ]", "", "    static let allTable = table + additionalTable", "}", ""])
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text("\n".join(lines), encoding="utf-8")
     notice = ("対象ファイル: Sources/KaitoKit/Text/LanguageExemplars.swift\n"
@@ -171,6 +208,7 @@ def main():
               "以下は配布元 inbox/cldr/LICENSE の全文です。\n\n")
     args.notice.write_bytes(notice.encode("utf-8") + (args.cldr_dir / "LICENSE").read_bytes())
     print(f"{len(counts)} 言語を生成（主/補助の範囲数）: " + ", ".join(counts))
+    print(f"Swift 表: {args.output.stat().st_size:,} bytes（採点器接続済み {len(TASK_B_LANGUAGES)} 言語）")
 
 
 if __name__ == "__main__":

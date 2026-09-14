@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 多言語判定の測定基盤（Task C Phase C-A、bd `cooViewer-rbrj`）: 名前コーパス生成器と測定器を 39 言語・53 encoding に拡張し（新 21 言語、VISCII は RFC 1456 の表、fa / ro の互換写像）、CLDR の言語別文字集合を 41 言語に広げた。判定器の候補・採点・公開 API は変えていない。現行判定器のベースラインと CF の復号制約（CP861 表が CP775 と同一、CP1256 の 8 byte が復号不能）は[検証記録](Documentation/verification/2026-09-14-name-encoding-baseline-c.md)を参照。
+
 - タイ語ファイル名判定（bd `cooViewer-fl6u`）: 分布規則専用の頻出集合を10字から15字へ広げ、tuneの実在名への発火率を7.04%から0.31%へ低減した。evalのth単名・zh-cn単名は受け入れ目標に未達で、差分と制約は[検証記録](Documentation/verification/2026-09-14-name-encoding-thai-rule.md)に記載。
 
 - 多言語ファイル名判定（bd `cooViewer-6lrc.1`。西欧ラテンの書庫 k≥10 と zh-cn 単名に残差、記録参照）: 厳密復号できる 26 legacy 候補を CLDR・文字体系・正書法で採点し、非ASCII byte 数で減衰する言語事前確率を書庫全体で一度だけ適用する。文字一般カテゴリと位置、書庫全体で一つの言語を選ぶ整合、長語・タイ語の無母音・短周期反復を扱い、復号不能名も同じ byte 尺度で集計する。漢字の二重加点を撤去し、公知の頻出ハングル音節を使う。タイ語候補には字母の頻出率・稀記号・語中数字の証拠を加え、配置適合の加点を弱める。UTF-8 優先と日本語候補間の既存決定規則を保持し、正書法自己検査 CLI と自作の多言語 fixture を追加した。測定値・制約は[検証記録](Documentation/verification/2026-09-14-name-encoding-multilingual.md)を参照。

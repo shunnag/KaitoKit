@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """記事名から再現可能な legacy encoding の名前・擬似書庫コーパスを生成する。
 
-入力: inbox/name-corpus/raw/<lang>.txt（UTF-8、1 行 1 記事名、18 言語）。
+入力: inbox/name-corpus/raw/<lang>.txt（UTF-8、1 行 1 記事名、39 言語）。
 出力: .build/name-corpus/{names.tsv,archives.tsv,summary.json}。
 TSV はヘッダ付き、引用符処理なし。k は非 ASCII 名数で、ASCII 名は追加する。
 --split all|tune|eval は元記事名の SHA-256 で分割し、派生名も同じ側へ置く。
@@ -10,6 +10,7 @@ CP1258 の正解 text は、表現できない前合成文字の声調を結合�
 """
 
 import argparse
+import codecs
 from collections import Counter
 import hashlib
 import json
@@ -27,7 +28,8 @@ WESTERN = [("cp1252", "windows-1252"), ("iso8859_15", "iso-8859-15"),
 CENTRAL = [("cp1250", "windows-1250"), ("iso8859_2", "iso-8859-2"),
            ("mac_latin2", "x-mac-centraleurroman")]
 CYRILLIC = [("iso8859_5", "iso-8859-5"), ("cp866", "cp866"), ("mac_cyrillic", "x-mac-cyrillic")]
-ENCODINGS = {
+# Task B の出力順を固定する。追加群はこの全49群の後に生成し、既存 ID を保つ。
+TASK_B_ENCODINGS = {
     "ja": [("cp932", "cp932"), ("euc_jp", "euc-jp")],
     "zh-cn": [("gb18030", "gb18030")],
     "zh-tw": [("cp950", "cp950"), ("big5hkscs", "big5-hkscs")],
@@ -41,6 +43,75 @@ ENCODINGS = {
     "el": [("cp1253", "windows-1253")],
     "tr": [("cp1254", "windows-1254")],
 }
+BALTIC = [("cp1257", "windows-1257"), ("iso8859_4", "iso-8859-4"),
+          ("iso8859_13", "iso-8859-13"), ("cp775", "cp775")]
+NORTHERN = WESTERN + [("cp865", "cp865"), ("cp861", "cp861"),
+                      ("mac_iceland", "x-mac-icelandic"), ("iso8859_10", "iso-8859-10"), ("cp437", "cp437")]
+SOUTHERN_LATIN = CENTRAL + [("cp852", "cp852"), ("mac_croatian", "x-mac-croatian")]
+SOUTHERN_CYRILLIC = [("cp1251", "windows-1251"), ("koi8_r", "koi8-r"),
+                    ("koi8_u", "koi8-u")] + CYRILLIC + [("cp855", "cp855")]
+ARABIC = [("cp1256", "windows-1256"), ("iso8859_6", "iso-8859-6"),
+          ("cp864", "cp864"), ("mac_arabic", "x-mac-arabic"), ("mac_farsi", "x-mac-farsi")]
+ENCODINGS = {
+    **TASK_B_ENCODINGS,
+    "vi": TASK_B_ENCODINGS["vi"] + [("viscii", "viscii")],
+    **{lang: TASK_B_ENCODINGS[lang] + [("cp855", "cp855")] for lang in ("uk", "ru")},
+    **{lang: WESTERN + [("cp437", "cp437")] for lang in ("es", "pt", "fr", "de", "it")},
+    **{lang: CENTRAL + [("cp852", "cp852")] for lang in ("pl", "cs", "hu")},
+    "el": TASK_B_ENCODINGS["el"] + [("iso8859_7", "iso-8859-7"), ("cp737", "cp737"),
+                                     ("cp869", "cp869"), ("mac_greek", "x-mac-greek")],
+    "tr": TASK_B_ENCODINGS["tr"] + [("iso8859_9", "iso-8859-9"), ("cp857", "cp857"),
+                                     ("mac_turkish", "x-mac-turkish")],
+    "he": [("cp1255", "windows-1255"), ("iso8859_8", "iso-8859-8"), ("cp862", "cp862")],
+    "ar": ARABIC,
+    "fa": ARABIC,
+    **{lang: BALTIC for lang in ("lt", "lv", "et")},
+    "ro": CENTRAL + [("iso8859_16", "iso-8859-16"), ("mac_romanian", "x-mac-romanian"), ("cp852", "cp852")],
+    **{lang: SOUTHERN_LATIN for lang in ("hr", "sl", "sk", "sr-Latn")},
+    **{lang: SOUTHERN_CYRILLIC for lang in ("bg", "sr", "mk", "be")},
+    **{lang: NORTHERN for lang in ("da", "nb", "sv", "fi", "nl", "is")},
+}
+
+# RFC 1456 §3 Table 1 (VISCII v1.1) の配置を、§4 Table 2 の VIQR から Unicode に転記した。
+# 出典: inbox/specs/rfc1456-viscii.txt / https://www.rfc-editor.org/rfc/rfc1456.txt
+# 0x80–FF の128文字と、C0 の6文字で追加字母は134文字。ASCII 図形文字は不変。
+VISCII_C0 = {0x02: "Ẳ", 0x05: "Ẵ", 0x06: "Ẫ", 0x14: "Ỷ", 0x19: "Ỹ", 0x1E: "Ỵ"}
+VISCII_HIGH = (
+    "ẠẮẰẶẤẦẨẬẼẸẾỀỂỄỆỐ"
+    "ỒỔỖỘỢỚỜỞỊỎỌỈỦŨỤỲ"
+    "Õắằặấầẩậẽẹếềểễệố"
+    "ồổỗỠƠộờởịỰỨỪỬơớƯ"
+    "ÀÁÂÃẢĂẳẵÈÉÊẺÌÍĨỳ"
+    "ĐứÒÓÔạỷừửÙÚỹỵÝỡư"
+    "àáâãảăữẫèéêẻìíĩỉ"
+    "đựòóôõỏọụùúũủýợỮ"
+)
+VISCII_DECODE = "".join(VISCII_C0.get(byte, chr(byte)) for byte in range(128)) + VISCII_HIGH
+VISCII_ENCODE = codecs.charmap_build(VISCII_DECODE)
+
+
+def viscii_codec(name):
+    if name != "viscii":
+        return None
+    return codecs.CodecInfo(
+        name="viscii",
+        encode=lambda text, errors="strict": codecs.charmap_encode(text, errors, VISCII_ENCODE),
+        decode=lambda data, errors="strict": codecs.charmap_decode(data, errors, VISCII_DECODE),
+    )
+
+
+codecs.register(viscii_codec)
+
+
+def encoding_batches():
+    """既存群の行 ID・乱数系列を変えず、追加 encoding と新言語を末尾へ置く。"""
+    yield from TASK_B_ENCODINGS.items()
+    for lang, encodings in ENCODINGS.items():
+        extra = [entry for entry in encodings if entry not in TASK_B_ENCODINGS.get(lang, [])]
+        if extra:
+            yield lang, extra
+
+
 SIZES = (1, 2, 3, 5, 10, 30, 100)
 ASCII_NAMES = ("cover.jpg", "001.png", "readme.txt", "Vol.01/index.html", "002.jpg", "folder/page03.png")
 SHAPE_MARKS = frozenset("\u0302\u0306\u031b")
@@ -85,7 +156,10 @@ def target_character(char, lang):
                 0x3130 <= cp <= 0x318F or 0xA960 <= cp <= 0xA97F or 0xD7B0 <= cp <= 0xD7FF)
     if lang == "th":
         return 0x0E00 <= cp <= 0x0E7F and unicodedata.category(char).startswith(("L", "M"))
-    if lang in ("uk", "ru"):
+    if lang in ("he", "ar", "fa"):
+        script = "HEBREW" if lang == "he" else "ARABIC"
+        return script in unicodedata.name(char, "") and unicodedata.category(char).startswith("L")
+    if lang in ("uk", "ru", "bg", "sr", "mk", "be"):
         return "CYRILLIC" in unicodedata.name(char, "") and unicodedata.category(char).startswith("L")
     if lang == "el":
         return "GREEK" in unicodedata.name(char, "") and unicodedata.category(char).startswith("L")
@@ -96,10 +170,36 @@ def eligible(text, lang):
     return any(target_character(c, lang) for c in text)
 
 
+def raw_path(directory, lang):
+    # セルビア語の二つの文字体系は同じ支給入力から選別する。転写は行わない。
+    return directory / ("sr.txt" if lang == "sr-Latn" else f"{lang}.txt")
+
+
+def serbian_script(text):
+    letters = {next((script for script in ("CYRILLIC", "LATIN") if script in unicodedata.name(char, "")), "OTHER")
+               for char in text if unicodedata.category(char).startswith("L")}
+    if letters == {"CYRILLIC"}:
+        return "sr"
+    if letters == {"LATIN"}:
+        return "sr-Latn"
+    return "mixed" if len(letters) > 1 else "neither"
+
+
+def legacy_text(text, lang, codec):
+    """指定された旧来の表記だけを写像し、返した scalar 列を正解 text にする。"""
+    if lang == "fa":
+        mapping = {0x06CC: "ي", **{base + n: str(n) for base in (0x0660, 0x06F0) for n in range(10)}}
+        return text.translate(mapping)
+    if lang == "ro" and codec in ("cp1250", "iso8859_2", "cp852"):
+        return text.translate(str.maketrans("ȘșȚț", "ŞşŢţ"))
+    return text
+
+
 def wait_for_inputs(directory):
     deadline = time.monotonic() + 600
     while True:
-        missing = [lang for lang in ENCODINGS if not (directory / f"{lang}.txt").is_file()]
+        missing = [lang for lang in ENCODINGS if not raw_path(directory, lang).is_file()
+                   or raw_path(directory, lang).stat().st_size == 0]
         if not missing:
             return
         remaining = deadline - time.monotonic()
@@ -113,7 +213,12 @@ def volume_label(lang, number):
     if lang == "ja" or lang.startswith("zh-"):
         return f"第{number:02d}巻"
     prefix = {"vi": "Tập ", "th": "เล่ม ", "uk": "Том ", "ru": "Том ",
-              "el": "Τόμος ", "fr": "Tome ", "de": "Band "}.get(lang, "Vol.")
+              "el": "Τόμος ", "fr": "Tome ", "de": "Band ",
+              "he": "כרך ", "ar": "المجلد ", "fa": "جلد ", "lt": "t. ", "lv": "sēj. ",
+              "et": "kd ", "ro": "Vol. ", "hr": "zv. ", "sl": "zv. ", "sk": "zv. ",
+              "sr-Latn": "tom ", "bg": "том ", "sr": "том ", "mk": "том ", "be": "том ",
+              "da": "bind ", "nb": "bind ", "sv": "bind ", "fi": "osa ", "nl": "deel ",
+              "is": "bindi "}.get(lang, "Vol.")
     return f"{prefix}{number:02d}"
 
 
@@ -204,21 +309,25 @@ def main():
             (args.out_dir / "archives.tsv").open("w", encoding="utf-8", newline="\n") as archives:
         names.write("id\tlang\ttruth_iana\thex\ttext\n")
         archives.write("group\tlang\ttruth_iana\tk\thex1,hex2,...\n")
-        for lang, encodings in ENCODINGS.items():
-            raw = (args.raw_dir / f"{lang}.txt").read_bytes()
+        for lang, encodings in encoding_batches():
+            source_path = raw_path(args.raw_dir, lang)
+            raw = source_path.read_bytes()
             lines = raw.decode("utf-8").splitlines()
-            titles = sorted({unicodedata.normalize("NFC", line.strip()) for line in lines if line.strip() and
+            selected_lines = [line for line in lines if serbian_script(line) == lang] if lang in ("sr", "sr-Latn") else lines
+            titles = sorted({unicodedata.normalize("NFC", line.strip()) for line in selected_lines if line.strip() and
                              not any(c in line for c in "\t\r\n\0") and eligible(unicodedata.normalize("NFC", line), lang)})
             if not titles:
                 raise ValueError(f"{lang}: 対象文字を含む記事名がありません")
             candidates = make_candidates(titles, lang, args.seed)
-            counts_by_split = split_counts()
-            for title in titles:
-                counts_by_split["all"]["eligible_articles"] += 1
-                counts_by_split[article_split(title)]["eligible_articles"] += 1
-            for _, source, _ in candidates:
-                counts_by_split["all"]["candidates"] += 1
-                counts_by_split[article_split(source)]["candidates"] += 1
+            first_batch = lang not in summary["languages"]
+            counts_by_split = split_counts() if first_batch else summary["languages"][lang]["split_counts"]
+            if first_batch:
+                for title in titles:
+                    counts_by_split["all"]["eligible_articles"] += 1
+                    counts_by_split[article_split(title)]["eligible_articles"] += 1
+                for _, source, _ in candidates:
+                    counts_by_split["all"]["candidates"] += 1
+                    counts_by_split[article_split(source)]["candidates"] += 1
             selected = [c for c in candidates if args.split == "all" or article_split(c[1]) == args.split]
             shorts = [name for name, _, kind in selected if kind == "short"]
             summary["languages"][lang] = {
@@ -227,12 +336,20 @@ def main():
                 "decoration_selections": sum(kind == "decoration" for _, _, kind in selected),
                 "short_candidates": len(shorts), "unique_short_candidates": len(set(shorts)),
                 "candidates": len(selected), "split_counts": counts_by_split,
+                "mapped_rows": summary["languages"].get(lang, {}).get("mapped_rows", 0),
             }
+            if lang in ("sr", "sr-Latn"):
+                summary["languages"][lang].update({
+                    "raw_file": source_path.name,
+                    "script_selected_lines": len(selected_lines),
+                    "script_partition": dict(sorted(Counter(serbian_script(line) for line in lines).items())),
+                })
             for codec, iana in encodings:
                 excluded = Counter()
                 encoded = []
                 rows_by_split = {split: 0 for split in ("all", "tune", "eval")}
                 converted = 0
+                mapped_rows = 0
                 for title, source, _ in candidates:
                     split = article_split(source)
                     include = args.split == "all" or split == args.split
@@ -250,6 +367,8 @@ def main():
                                 excluded["representable_in_cp950"] += 1
                             continue
                     original = title
+                    title = legacy_text(title, lang, codec)
+                    mapped = original != title
                     if codec == "cp1258":
                         title = cp1258_text(title)
                     try:
@@ -273,6 +392,7 @@ def main():
                     if not include:
                         continue
                     converted += original != title
+                    mapped_rows += mapped
                     hex_value = data.hex()
                     encoded.append(hex_value)
                     summary["name_rows"] += 1
@@ -295,11 +415,14 @@ def main():
                 summary["encodings"].append({"lang": lang, "truth_iana": iana, "python_codec": codec,
                                               "rows": len(encoded), "unique_bytes": len(pool),
                                               "rows_by_split": rows_by_split, "converted_text_rows": converted,
+                                              "mapped_rows": mapped_rows,
                                               "excluded": dict(sorted(excluded.items())), "archives_by_k": counts})
+                summary["languages"][lang]["mapped_rows"] += mapped_rows
                 print(f"{lang}/{iana}: {len(encoded)} names, {sum(c['groups'] for c in counts.values())} groups", flush=True)
-            for split, counts in counts_by_split.items():
-                for key, value in counts.items():
-                    summary["split_counts"][split][key] += value
+    for language in summary["languages"].values():
+        for split, counts in language["split_counts"].items():
+            for key, value in counts.items():
+                summary["split_counts"][split][key] += value
     summary["files_sha256"] = {name: hashlib.sha256((args.out_dir / name).read_bytes()).hexdigest()
                                for name in ("names.tsv", "archives.tsv")}
     (args.out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

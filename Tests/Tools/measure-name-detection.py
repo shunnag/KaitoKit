@@ -14,6 +14,7 @@ import codecs
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 import hashlib
+from importlib import import_module
 import json
 from pathlib import Path
 import platform
@@ -25,6 +26,8 @@ import time
 
 
 ROOT = Path(__file__).resolve().parents[2]
+# RFC 1456 の自前 codec は生成器の表を共有する。採点・CF 正解復号の経路は変えない。
+import_module("make-name-corpus")
 BUCKETS = ("1", "2–3", "4–7", "8+")
 LABELS = {"kaito_ja": "kaito(ja)", "kaito_none": "kaito(none)", "kaito_zh": "kaito(zh)", "udet": "udet"}
 CODECS = {
@@ -38,6 +41,12 @@ CODECS = {
     "iso-8859-1": "iso8859_1", "iso-8859-2": "iso8859_2", "iso-8859-5": "iso8859_5",
     "iso-8859-15": "iso8859_15", "koi8-r": "koi8_r", "koi8-u": "koi8_u",
     "iso-8859-7": "iso8859_7",
+    **{f"iso-8859-{i}": f"iso8859_{i}" for i in (4, 6, 8, 9, 10, 13, 16)},
+    **{alias: f"cp{i}" for i in (437, 737, 775, 852, 855, 857, 861, 862, 864, 865, 869)
+       for alias in (f"cp{i}", f"ibm{i}", f"ibm-{i}")},
+    "x-mac-arabic": "mac_arabic", "x-mac-farsi": "mac_farsi", "x-mac-icelandic": "mac_iceland",
+    "x-mac-romanian": "mac_romanian", "x-mac-croatian": "mac_croatian",
+    "x-mac-greek": "mac_greek", "x-mac-turkish": "mac_turkish", "viscii": "viscii",
     "x-mac-cyrillic": "mac_cyrillic", "macintosh": "mac_roman", "macroman": "mac_roman",
     "x-mac-centraleurroman": "mac_latin2", "euc-jp": "euc_jp", "iso-2022-jp": "iso2022_jp",
     "utf-8": "utf-8", "utf-16le": "utf-16-le", "utf-16be": "utf-16-be",

@@ -30,6 +30,40 @@ final class CLISmokeTests: XCTestCase {
             ("cp950", "ba7ebb79", "漢語"),
             ("big5-hkscs", "adbbb4e4", "香港"),
             ("cp949", "c7d1b1db", "한글"),
+            ("windows-1255", "f9ece5ed", "שלום"),
+            ("windows-1256", "dfcac7c8", "كتاب"),
+            ("windows-1257", "52ee6761", "Rīga"),
+            ("iso-8859-8", "f9ece5ed", "שלום"),
+            ("cp862", "998c858d", "שלום"),
+            ("iso-8859-6", "e3cac7c8", "كتاب"),
+            ("cp864", "a9aa", "ﺏﺕ"),
+            ("x-mac-arabic", "e3cac7c8", "كتاب"),
+            ("x-mac-farsi", "e3cac7c8", "كتاب"),
+            ("iso-8859-4", "52ef6761", "Rīga"),
+            ("iso-8859-13", "52ee6761", "Rīga"),
+            ("cp775", "528c6761", "Rīga"),
+            ("cp865", "529b64", "Rød"),
+            ("cp861", "99", "Ö"),
+            ("x-mac-icelandic", "ea736c616e64", "Ísland"),
+            ("iso-8859-10", "cd736c616e64", "Ísland"),
+            ("cp437", "477294e165", "Größe"),
+            ("iso-8859-16", "bafe", "șț"),
+            ("x-mac-romanian", "bfdf", "șț"),
+            ("cp852", "ac65e774696e61", "Čeština"),
+            ("x-mac-croatian", "e8e6f0", "čćđ"),
+            ("cp855", "a39ed0aca0e1b7de", "България"),
+            ("iso-8859-7", "c5ebebdce4e1", "Ελλάδα"),
+            ("cp737", "84a2a2e19b98", "Ελλάδα"),
+            ("cp869", "a8e5e59bddd6", "Ελλάδα"),
+            ("x-mac-greek", "b6ececc0e4e1", "Ελλάδα"),
+            ("iso-8859-9", "54fc726be765", "Türkçe"),
+            ("cp857", "5481726b8765", "Türkçe"),
+            ("x-mac-turkish", "549f726b8d65", "Türkçe"),
+            // VISCII は CF の IANA 往復だけを検証。拡張134文字は Python 側で RFC と照合する。
+            ("viscii", "566965746e616d", "Vietnam"),
+            ("x-mac-hebrew", "f9ece5ed", "שלום"),
+            ("x-mac-ukrainian", "90eef1f1e8df", "Россия"),
+            ("x-mac-thai", "c0d2c9d2e4b7c2", "ภาษาไทย"),
         ]
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }
@@ -58,8 +92,8 @@ final class CLISmokeTests: XCTestCase {
         let rows = try String(contentsOf: fixture, encoding: .utf8).split(separator: "\n").map {
             $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
         }
-        XCTAssertEqual(rows.count, 20)
-        XCTAssertEqual(Set(rows.map { $0[1] }).count, 18)
+        XCTAssertEqual(rows.count, 41)
+        XCTAssertEqual(Set(rows.map { $0[1] }).count, 39)
         let executable = try findKaitoExecutable()
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }

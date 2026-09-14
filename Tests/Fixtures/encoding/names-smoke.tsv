@@ -18,3 +18,24 @@ smoke17	hu	windows-1250	54fc6bf672	Tükör
 smoke18	el	windows-1253	c5ebebdce4e1	Ελλάδα
 smoke19	tr	windows-1254	54fc726be765	Türkçe
 smoke20	zh-cn	gb18030	d0dcc3a8	熊猫
+smoke21	he	windows-1255	f1f4f820e7e3f9	ספר חדש
+smoke22	ar	windows-1256	dfcac7c820cccfedcf	كتاب جديد
+smoke23	fa	windows-1256	e4c7e3e520cccfedcf	نامه جديد
+smoke24	lt	windows-1257	de616c696173206d69f06b6173	Žalias miškas
+smoke25	lv	windows-1257	5a61efe2206772e26d617461	Zaļā grāmata
+smoke26	et	windows-1257	4bf5726765206de46769	Kõrge mägi
+smoke27	ro	iso-8859-16	50e36475726520ba6920fe6172e3	Pădure și țară
+smoke28	hr	cp852	506c617661206b758661	Plava kuća
+smoke29	sl	windows-1250	5a656c656e612068699a61	Zelena hiša
+smoke30	sk	cp852	a66c74a0206b6e696861	Žltá kniha
+smoke31	sr-Latn	windows-1250	8e757461206b6e6a696761	Žuta knjiga
+smoke32	bg	cp855	d5d6eba020c6d4b7aca0	Нова книга
+smoke33	sr	windows-1251	c6f3f2e020ea9ce8e3e0	Жута књига
+smoke34	mk	windows-1251	c6eeebf2e020eaede8e3e0	Жолта книга
+smoke35	be	windows-1251	cdeee2e0ff20eaedb3e3e0	Новая кніга
+smoke36	da	cp865	529b6420626f67	Rød bog
+smoke37	nb	cp865	47729b6e6e20626f6b	Grønn bok
+smoke38	sv	cp437	4772946e20626f6b	Grön bok
+smoke39	fi	cp437	566968726584206b69726a61	Vihreä kirja
+smoke40	nl	windows-1252	47726f656e20636166e9	Groen café
+smoke41	is	x-mac-icelandic	4772be6e2062976b	Græn bók

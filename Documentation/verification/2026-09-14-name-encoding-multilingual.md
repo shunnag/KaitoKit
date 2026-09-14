@@ -3316,3 +3316,8 @@ codec-mismatch を除いた分母内の検出結果を数える。正しい検�
 ```
 
 未対応の udet MIME: {}
+
+## ASan 再実行(orchestrator、sandbox 外)
+
+`python3 Tests/Tools/make-name-encoding-fuzz-seeds.py` で 54 seed を生成し、`Scripts/fuzz/run-mutants.sh --count 400 --timeout 8` を
+無変更で実行: **mutants 400、crashes 0、hangs 0、sanitizer findings 0**(2026-09-14)。

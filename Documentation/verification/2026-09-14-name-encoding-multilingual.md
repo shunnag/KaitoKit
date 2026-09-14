@@ -2,7 +2,19 @@
 
 bd `cooViewer-6lrc.1`、Task B、訂正6。実装・測定日: 2026-09-14。
 Task A 訂正版の [ベースライン](2026-09-14-name-encoding-baseline.md) と同じコーパス、CF の厳密復号による除外、分母で比較する。
-**機能実装と対象テストの検証を行ったが、精度の受け入れ条件には未達がある。Task B の受け入れ完了とはしない。**
+**受け入れ判定(orchestrator、2026-09-14): 受け入れ。残差は記録のとおり。**
+
+- sandbox 外の全テスト: 1,084 件(既存の環境依存スキップ 45)、失敗 0。release ビルド警告 0。
+- eval の測定を orchestrator の release ビルドで再実行し、4 policy × 単名 / 書庫の全数値が本記録と一致(`archives-kaito_ja` 20.95 秒)。
+- 基準 1・2・5・6・8: 合格。基準 3: 利用者の言語(ja / zh-cn / zh-tw / ko / th / vi / uk)と ru / el / tr は書庫 k≥10 で 100%、
+  pt 99.6 / pl 99.7 / cs 99.4。**es 98.1 / fr 98.2 / de 97.5 / it 96.7 は 99% 未達**(全て udet 以上、原因は外来名の一様混入と
+  CP1250 / ISO-8859-15 との文字重なり。bd cooViewer-y96a)。基準 4: th 96.7 / vi 100 / es 100 / uk 95.9 / ja 99.9(ja)、
+  ko 96.4 / zh-tw 95.7(none)は合格、**zh-cn(none)92.1 は未達**(bd cooViewer-agrf)。
+- 基準 7 の「400 変異で異常 0」は Codex の sandbox 内実行の結果。orchestrator の再実行結果は末尾「ASan 再実行」に記す。
+- タイ語の頻出比率規則は実在のタイ語名にも発火する(tune 46/653 ≈ 7%、目標 ≤ 1% 未達。eval の th 単名 78.05% → 77.35%、
+  書庫 k≥10 は 100% のまま)。bd cooViewer-fl6u で追跡。
+- zh-cn(none)の残り 59 行の分類は Codex の利用量上限(2026-09-19 まで)で中断。bd cooViewer-agrf。
+- 設計の決定経緯(advisor レビュー 5 回 + 追補)は `Documentation/name-encoding-design.md` に保存。
 
 ## 実装と出自
 

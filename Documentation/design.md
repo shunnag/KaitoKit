@@ -76,9 +76,10 @@ ZIP 互換境界:
   XADMaster と同程度に entry 単位で縮退して読む。サイズ、offset、record envelope、ZIP64 値のような
   構造 field と、local extra の nonzero junk は引き続き厳密に検証する。
 - trailing data 内の EOCD-shaped sequence は、中央 directory まで整合する候補だけを採用する。候補の
-  試行は 8,192 件、読取時の再試行による ZIP64 探索・中央 directory parse・整合性検査の累積 work は
-  `2 * maxMetadataSize` に制限する。初回候補は通常の `ReadLimits` で制限し、metadata work の課金を
-  すべて免除する。予算は二つの探索窓と包含候補の再試行で共有し、兄弟巻探索は初回から課金する。
+  試行は 8,192 件、読取時の再試行による ZIP64 探索・中央 directory parse と、上限／未対応エラー後の
+  整合性検査の累積 work は `2 * maxMetadataSize` に制限する。初回候補の通常解析だけを課金免除とし、
+  通常の `ReadLimits` で制限する。整合性検査は初回も課金し、予算内に確認できなければ元の policy
+  エラーで停止する。予算は二つの探索窓と包含候補の再試行で共有し、兄弟巻探索は初回から課金する。
 
 streaming 検証契約:
 - CRC / HMAC と decoder 終端は `EntryStream` の最後の `read` で確定するため、それ以前の chunk は全

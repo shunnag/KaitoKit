@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-15
+
 - ZIP 分割巻（Task Z1、bd `cooViewer-6lrc.2`）: `.z01`…`.zip` / `.zx01`…`.zipx` を最終巻・途中巻の URL から開けるようにした。ZIP64、100 巻以上、ヘッダ・データ・中央ディレクトリの境界越えに対応し、Compat と CLI の一覧・展開・SHA に接続した。宣言巻数の上限検査、欠番の巻名付きエラー、兄弟 symlink の拒否を追加し、`.001` バイト分割の優先順位を維持する。復旧方針・残る制約・検証結果は[検証記録](Documentation/verification/2026-09-15-zip-split-volumes.md)を参照。
 
 - ファイル名判定（Task C Phase C-B）: CLDR の測定39言語を54 legacy候補へ接続し、Hebrew / Arabic / Persian、バルト・北欧・中東欧の候補と文字体系の規則、未定義 byte の事前除外を追加した。公開APIとreaderのCF復号は維持する。CP861はCF表の誤りにより対象外。PersianのCP1256では判定できてもک等8文字をCFで復号できず、既存fallbackの表記になることがある。VISCII / TCVN3と自前復号は含めない。eval の書庫（likelyLanguage ja）は 64.05% → 87.68%、日本語は単名 99.50% / 書庫 99.84% を維持、新 21 言語のうち 12 言語が書庫 k≥10 で 99% 以上。残差: トルコ語短名はアイスランド語との同一 bytes の交換で低下（CP1252 の集合から is を外せば戻る）、ギリシア語書庫の全大文字 Ά、ヘブライ語短名（udet 未満）、ru / uk 短名の MacCyrillic 大文字。1 書庫あたりの判定は最大 512 名 sample で約 36 ms。詳細は[検証記録](Documentation/verification/2026-09-14-name-encoding-languages.md)を参照。

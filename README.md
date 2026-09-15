@@ -418,6 +418,8 @@ ZIP の DOS 日時にはタイムゾーン情報がないため、現在のロ�
 Extended timestamp と NTFS timestamp は UTC の時刻として扱います。ZIP のローカルヘッダを
 open 時にすべて検証したい場合は `ReaderOptions(lazyLocalHeaders: false)` を指定してください。
 
+完全な ZipCrypto entry は 1 byte のヘッダ検査を通過した後の CRC 不一致・decoder の破損／入力不足を `wrongPassword` として報告するため、暗号化 stream 自体の破損も誤ったパスワードと判定される場合がありますが、WinZip AES は HMAC による区別を維持します。
+
 7zAES には独立した認証 tag がないため、KaitoKit は最初に復号した stream の CRC 不一致、
 または復号後の coder 構造が不正な場合を `wrongPassword` と判定します。このため、暗号化
 stream 自体の破損も `wrongPassword` として報告される場合があります。KDF の計算量上限は
@@ -428,6 +430,10 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 > A ZIP DOS timestamp carries no timezone, so it is interpreted in the current local timezone.
 > Extended timestamps and NTFS timestamps are treated as UTC. To validate every ZIP local header at
 > open time, pass `ReaderOptions(lazyLocalHeaders: false)`.
+>
+> For complete ZipCrypto entries, CRC mismatches and malformed or truncated decoder output after
+> the one-byte header check passes are reported as `wrongPassword`, so corruption of the encrypted
+> stream may also be reported as a wrong password, while WinZip AES keeps its HMAC-based distinction.
 >
 > 7zAES has no independent authentication tag, so KaitoKit reports `wrongPassword` when the CRC of
 > the first decrypted stream does not match, or when the decrypted coder structure is invalid. As a

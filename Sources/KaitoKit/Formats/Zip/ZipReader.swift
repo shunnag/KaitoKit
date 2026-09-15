@@ -19,6 +19,52 @@ final class ZipReader: FormatReader {
         case aes(extra: [UInt8], vendorVersion: UInt16, strength: UInt8)
     }
 
+    // 1 byte の検査値を誤通過した password は、復号後の破損と区別できない。
+    private final class ZipCryptoDecompressor: Decompressor {
+        private let base: any Decompressor
+        private var remaining: UInt64?
+
+        init(_ base: any Decompressor, expectedSize: UInt64?) {
+            self.base = base
+            self.remaining = expectedSize
+        }
+
+        var isFinished: Bool { base.isFinished }
+
+        func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+            do {
+                let count = try base.read(into: buffer)
+                guard count >= 0, count <= buffer.count else {
+                    throw KaitoError.malformed("decompressor returned an invalid byte count")
+                }
+                // EntryStream の宣言長検証より先に、短すぎる／長すぎる出力も正規化する。
+                if let remaining {
+                    guard UInt64(count) <= remaining else {
+                        throw KaitoError.malformed("entry output exceeds its declared size")
+                    }
+                    self.remaining = remaining - UInt64(count)
+                }
+                guard buffer.isEmpty || count > 0
+                    || (base.isFinished && (remaining ?? 0) == 0) else {
+                    throw KaitoError.truncated
+                }
+                return count
+            } catch {
+                throw Self.translate(error)
+            }
+        }
+
+        static func translate(_ error: Error) -> Error {
+            guard let kaito = error as? KaitoError else { return error }
+            switch kaito {
+            case .malformed, .truncated, .checksumMismatch:
+                return KaitoError.wrongPassword
+            default:
+                return error
+            }
+        }
+    }
+
     private struct Record {
         let localHeaderOffset: UInt64
         let compressedSize: UInt64
@@ -174,6 +220,10 @@ final class ZipReader: FormatReader {
         }
 
         let record = records[entry.index]
+        var zipCryptoErrorsAreWrongPassword = false
+        if case .traditional = record.encryption {
+            zipCryptoErrorsAreWrongPassword = !entry.isIncomplete
+        }
         let local = try localRecord(at: entry.index, limits: limits)
         let payload = try payloadSource(
             record: record,
@@ -181,7 +231,7 @@ final class ZipReader: FormatReader {
             limits: limits,
             isIncomplete: entry.isIncomplete
         )
-        let decompressor: any Decompressor
+        var decompressor: any Decompressor
         do {
             decompressor = try makeDecompressor(
                 method: record.method,
@@ -196,6 +246,11 @@ final class ZipReader: FormatReader {
             decompressor = try CopyDecompressor(
                 source: source, offset: local.dataOffset, compressedSize: 0
             )
+        } catch {
+            throw zipCryptoErrorsAreWrongPassword ? ZipCryptoDecompressor.translate(error) : error
+        }
+        if zipCryptoErrorsAreWrongPassword {
+            decompressor = ZipCryptoDecompressor(decompressor, expectedSize: entry.uncompressedSize)
         }
         // Recovery bounds unencrypted stored payload.size to available source bytes,
         // so CopyDecompressor can preserve bulk reads without recovery wrapping.
@@ -207,7 +262,8 @@ final class ZipReader: FormatReader {
             expectedCRC32: entry.isIncomplete ? nil : record.crc32,
             entryIndex: entry.index,
             limits: limits,
-            completionCheck: payload.completionCheck
+            completionCheck: payload.completionCheck,
+            checksumMismatchIsWrongPassword: zipCryptoErrorsAreWrongPassword
         )
     }
 
@@ -461,16 +517,20 @@ final class ZipReader: FormatReader {
             if isIncomplete, availableSize < UInt64(ZipCrypto.headerSize) {
                 return (source, local.dataOffset, 0, nil)
             }
-            let decrypted = try ZipCryptoByteSource(
-                source: source,
-                offset: local.dataOffset,
-                compressedSize: availableSize,
-                password: password,
-                crc32: record.storedCRC32,
-                dosTime: local.dosTime,
-                usesDataDescriptor: local.usesDataDescriptor
-            )
-            return (decrypted, 0, decrypted.length, nil)
+            do {
+                let decrypted = try ZipCryptoByteSource(
+                    source: source,
+                    offset: local.dataOffset,
+                    compressedSize: availableSize,
+                    password: password,
+                    crc32: record.storedCRC32,
+                    dosTime: local.dosTime,
+                    usesDataDescriptor: local.usesDataDescriptor
+                )
+                return (decrypted, 0, decrypted.length, nil)
+            } catch {
+                throw isIncomplete ? error : ZipCryptoDecompressor.translate(error)
+            }
 
         case let .aes(extra, _, _):
             guard let password else {

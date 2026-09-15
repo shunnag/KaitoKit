@@ -149,6 +149,20 @@ public final class FileByteSource: ByteSource {
             && ownInformation.st_ino == otherInformation.st_ino
     }
 
+    func hasSameFileIdentity(as other: FileByteSource) -> Bool {
+        hasSameFileIdentity(as: other.descriptor)
+    }
+
+    /// 追加のファイルを開かず、保持した親の葉が同じ通常ファイルか検査する。
+    fileprivate func matchesRegularFile(directory: Int32, name: String) -> Bool {
+        var own = stat()
+        var leaf = stat()
+        guard Darwin.fstat(descriptor, &own) == 0,
+              Darwin.fstatat(directory, name, &leaf, AT_SYMLINK_NOFOLLOW) == 0,
+              (leaf.st_mode & S_IFMT) == S_IFREG else { return false }
+        return own.st_dev == leaf.st_dev && own.st_ino == leaf.st_ino
+    }
+
     /// Reads bytes with `pread(2)` while respecting the captured file length.
     public func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
         guard !buffer.isEmpty, offset < length else {
@@ -178,6 +192,10 @@ public final class FileByteSource: ByteSource {
 }
 
 extension FileByteSource.DirectoryAnchor {
+    func matchesRegularFile(_ source: FileByteSource, named name: String) -> Bool {
+        source.matchesRegularFile(directory: descriptor, name: name)
+    }
+
     /// 保持済みの親から兄弟を開く。欠番は nil、symlink・FIFO・directory は拒否する。
     func openRegularFile(
         named name: String,

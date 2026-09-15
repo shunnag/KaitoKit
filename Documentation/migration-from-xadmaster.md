@@ -445,7 +445,7 @@ let readers = try (0..<workerCount).map { index in
 worker で archive 順に処理し、`-1` は per-entry に分配できます。
 
 ローカルで内容が変化しない単一 file だけを `Data(contentsOf:options:.mappedIfSafe)` で map します。
-multi-volume RAR と `.001` バイト分割セットは URL open を使い、nested ZIP/PDF/EPUB のように既にメモリ上にある内容は Data open
+multi-volume RAR、split ZIP（`.z01`…`.zip` / `.zx01`…`.zipx`）と `.001` バイト分割セットは URL open を使い、nested ZIP/PDF/EPUB のように既にメモリ上にある内容は Data open
 を使います。大きな entry は `read(_:)` の前に宣言サイズと `ReadLimits` を確認し、必要なら
 `EntryStream` へ切り替えます。
 
@@ -453,7 +453,7 @@ multi-volume RAR と `.001` バイト分割セットは URL open を使い、nes
 >
 > The usage surface of design document §2 collapses into a small value that can build a reader the
 > same way from a URL or from `Data`, as the first example shows. Keep a mmap-backed `Data` for a
-> local, fixed single volume, and a URL for multi-volume RAR or `.001` byte splits so that siblings can be resolved.
+> local, fixed single volume, and a URL for multi-volume RAR, split ZIP (`.z01`…`.zip` / `.zx01`…`.zipx`), or `.001` byte splits so that siblings can be resolved.
 >
 > Each operation of the cooViewer adapter maps as follows: the entry count is
 > `reader.entries.count`; the display name is `entry.name`; a directory is
@@ -470,7 +470,7 @@ multi-volume RAR と `.001` バイト分割セットは URL open を使い、nes
 > distributed per entry.
 >
 > Map with `Data(contentsOf:options:.mappedIfSafe)` only a local single file whose contents do not
-> change. Use a URL open for multi-volume RAR or `.001` byte splits, and a `Data` open for content already in memory, such
+> change. Use a URL open for multi-volume RAR, split ZIP, or `.001` byte splits, and a `Data` open for content already in memory, such
 > as a nested ZIP, PDF or EPUB. For a large entry, check the declared size and `ReadLimits` before
 > `read(_:)` and switch to `EntryStream` when needed.
 
@@ -502,10 +502,16 @@ multi-volume RAR と `.001` バイト分割セットは URL open を使い、nes
 - **delegate timing**: delegate は compat initialization 後に設定します。name encoding は設定直後の rebuild
   へ反映できますが、header password は modern initializer option が必要です。
 - **resource forks**: separate entry として公開しないため `entryIsResourceFork` は常に `false` です。
-- **multi-volume**: URL-backed RAR4/RAR5 と `.7z.001` / `.zip.001` 等のバイト分割に対応します。
-  `.001` から欠番まで同じ親の兄弟を連結し、既定上限は 128 巻です。`.002` 等から先頭へは戻らず、
-  先頭 symlink は兄弟を探索しない単独扱いです。Data/任意 `ByteSource` は continuation を解決しません。
-  `reopen()` は全巻の削除後も読み出せます。分割セットの `rawRecord(of:)` は `nil` です。
+- **multi-volume**: URL-backed RAR4/RAR5、split ZIP（`.z01`…`.zip` / `.zx01`…`.zipx`）、
+  `.7z.001` / `.zip.001` 等のバイト分割に対応します。既定上限は 128 巻です。
+  split ZIP は最終巻または任意の `.zNN` / `.zxNN` から開け、ZIP64 と `.z100` 以降も扱います。
+  最終巻の宣言巻数で上限を先に検査し、欠番は巻名付きエラーにし、宣言数を超えた兄弟は無視します。
+  空の中間巻も巻数に含みます。分割セットでは damaged-directory recovery を実行しません。
+  `.001` バイト分割は欠番まで同じ親の兄弟を連結し、`.002` 等から先頭へは戻りません。
+  明示的に開いた symlink は兄弟を探索しない単独扱いで、兄弟の symlink は拒否します。
+  Data/任意 `ByteSource` は continuation を解決しません。`reopen()` は全巻の削除後も読み出せます。
+  split ZIP の `rawRecord(of:)` は連結ストリームの絶対範囲を返し、`.001` バイト分割では `nil` です。
+  同名メディア交換型 spanned と split PKSFX（先頭 `.exe`）は対象外です。
 
 ISO 9660 は `ISO 9660` として列挙できます。木の優先順位は Rock Ridge（NM あり）>
 Joliet > PVD です。XADMaster の Joliet 優先と異なり、両方ある画像の symlink を保持します。
@@ -550,11 +556,16 @@ NM は書庫全体の UTF-8 / CP932 / EUC-JP 判定、Joliet は UCS-2BE、PVD �
 >   the rebuild that follows immediately, but a header password needs the modern initializer option.
 > - **Resource forks**: they are not exposed as separate entries, so `entryIsResourceFork` is always
 >   `false`.
-> - **Multi-volume**: URL-backed RAR4/RAR5 and byte splits such as `.7z.001` / `.zip.001` are supported.
->   Byte splits join siblings from `.001` until the first gap, with a default limit of 128 volumes.
->   Continuations do not rewind, and a symlink first volume is treated as a single file without siblings.
->   Data/custom-source inputs do not discover continuations. `reopen()` still works after all volumes
->   are deleted; `rawRecord(of:)` returns `nil` for concatenated sets.
+> - **Multi-volume**: URL-backed RAR4/RAR5, split ZIP (`.z01`…`.zip` / `.zx01`…`.zipx`),
+>   and byte splits such as `.7z.001` / `.zip.001` are supported. The default limit is 128 volumes.
+>   Split ZIP opens from the last or any numbered segment, including ZIP64 and `.z100` onward.
+>   Its declared count is checked before opening numbered siblings; missing volumes fail by name,
+>   and extra siblings are ignored. Empty intermediate volumes retain their disk numbers.
+>   Damaged-directory recovery is disabled for split ZIP. Byte splits join from `.001` until a gap;
+>   their continuations do not rewind. Explicit symlinks use single-file behavior; sibling symlinks
+>   are rejected. Data/custom-source inputs do not discover continuations. `reopen()` works after
+>   all volumes are deleted. Split ZIP raw records use absolute concatenated ranges; `.001` raw
+>   records remain `nil`. Same-name removable-media spanning and split PKSFX are out of scope.
 >
 > ISO 9660 is listed as `ISO 9660`. The tree priority is Rock Ridge (with NM) > Joliet > PVD.
 > Unlike XADMaster's preference for Joliet, this preserves the symbolic links of an image that has
@@ -567,7 +578,8 @@ NM は書庫全体の UTF-8 / CP932 / EUC-JP 判定、Joliet は UCS-2BE、PVD �
 stream です。対応済み container 内でも次は未対応です。
 
 - ISO の UDF、raw 2352/2336-byte sector、後続 session、interleaved / sparse / zisofs 展開。
-- ZIP multi-disk/spanned（`.z01` 等）と zstd/xz/JPEG/PPMd method。`.zip.001` バイト分割は対応。
+- ZIP の同名メディア交換型 spanned、split PKSFX（先頭 `.exe`）、method 95 (xz) / 96 (JPEG)。
+  `.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP と `.zip.001` バイト分割は対応。
 - 7z RISC-V filter (method 0x0B)。
 - RAR4 の unpack version 15/20/26、custom VM、一部の solid 構成、SFX と multi-volume の組合せ。
 - RAR5 compression version 1、file-copy redirection、RAR5 SFX、サイズ不明の暗号化 stored entry。
@@ -588,8 +600,8 @@ gzip、bzip2、xz、UNIX compress (`.Z`) は単一 entry として扱います�
 >
 > - ISO: UDF, raw 2352- and 2336-byte sectors, later sessions, and interleaved, sparse or zisofs
 >   expansion.
-> - ZIP: multi-disk and spanned archives (such as `.z01`), and the zstd, xz, JPEG and PPMd methods.
->   `.zip.001` byte splits are supported.
+> - ZIP: same-name removable-media spanning, split PKSFX (`.exe` first segment), and methods
+>   95 (xz) / 96 (JPEG). Split ZIP (`.z01`…`.zip` / `.zx01`…`.zipx`) and `.zip.001` byte splits are supported.
 > - 7z: the RISC-V filter (method 0x0B).
 > - RAR4: unpack versions 15, 20 and 26, the custom VM, some solid configurations, and SFX combined
 >   with multi-volume.

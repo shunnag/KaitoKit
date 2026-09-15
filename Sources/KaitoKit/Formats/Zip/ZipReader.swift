@@ -47,6 +47,7 @@ final class ZipReader: FormatReader {
         let offset: UInt64
         let size: UInt64
         let entryCount: Int
+        var diskLayout: ZipDiskLayout? = nil
     }
 
     private struct ArchiveNames {
@@ -61,18 +62,9 @@ final class ZipReader: FormatReader {
         let nameEncoding: String.Encoding?
     }
 
-    private struct EndRecord {
-        let offset: UInt64
-        let recordEnd: UInt64
-        let diskNumber: UInt16
-        let centralDirectoryDisk: UInt16
-        let entriesOnDisk: UInt16
-        let totalEntries: UInt16
-        let centralDirectorySize: UInt32
-        let centralDirectoryOffset: UInt32
-    }
+    private typealias EndRecord = ZipEndRecords.EndRecord
 
-    private struct EndRecordParseBudget {
+    struct EndRecordParseBudget {
         var remainingAttempts: Int
         var remainingMetadataBytes: UInt64
 
@@ -119,14 +111,15 @@ final class ZipReader: FormatReader {
     private var password: String?
     private var aesDerivedKeyCache: [WinZipAESKeyCacheKey: WinZipAESDerivedKeys] = [:]
 
-    init(source: any ByteSource, options: ReaderOptions) throws {
+    init(source: any ByteSource, options: ReaderOptions, diskLayout: ZipDiskLayout? = nil) throws {
         self.source = source
         self.password = options.password
 
         let parsedDirectory: ParsedDirectory
-        if options.recoverDamagedArchives,
+        // 巻の欠落を部分成功で隠さず、先頭の spanning 署名を descriptor と誤認しない。
+        if diskLayout == nil, options.recoverDamagedArchives,
            try source.length < UInt64(Self.endMinimumSize)
-                || (Self.findEndRecords(
+                || (ZipEndRecords.findEndRecords(
                     source: source,
                     maximumSearchSize: Self.endMinimumSize + Self.maximumCommentSize
                         + Self.maximumTrailingDataSize
@@ -136,7 +129,10 @@ final class ZipReader: FormatReader {
             )
         } else {
             parsedDirectory = try Self.locateAndParseCentralDirectory(
-                source: source, policy: options.encodingPolicy, limits: options.limits
+                source: source,
+                diskLayout: diskLayout,
+                policy: options.encodingPolicy,
+                limits: options.limits
             )
         }
         self.centralDirectoryOffset = parsedDirectory.location.offset
@@ -797,19 +793,21 @@ final class ZipReader: FormatReader {
 
     private static func locateAndParseCentralDirectory(
         source: any ByteSource,
+        diskLayout: ZipDiskLayout? = nil,
         policy: EncodingPolicy,
         limits: ReadLimits
     ) throws -> ParsedDirectory {
         var budget = EndRecordParseBudget(limits: limits)
         var attemptedEndRecordOffsets: Set<UInt64> = []
         let standardSearchSize = endMinimumSize + maximumCommentSize
-        let initialCandidates = try findEndRecords(
+        let initialCandidates = try ZipEndRecords.findEndRecords(
             source: source,
             maximumSearchSize: standardSearchSize
         )
         let initial = try parseDirectoryCandidates(
             initialCandidates,
             source: source,
+            diskLayout: diskLayout,
             policy: policy,
             limits: limits,
             budget: &budget,
@@ -825,13 +823,14 @@ final class ZipReader: FormatReader {
 
         let expandedSearchSize = standardSearchSize + maximumTrailingDataSize
         if source.length > UInt64(standardSearchSize) {
-            let expandedCandidates = try findEndRecords(
+            let expandedCandidates = try ZipEndRecords.findEndRecords(
                 source: source,
                 maximumSearchSize: expandedSearchSize
             )
             let expanded = try parseDirectoryCandidates(
                 expandedCandidates,
                 source: source,
+                diskLayout: diskLayout,
                 policy: policy,
                 limits: limits,
                 budget: &budget,
@@ -860,6 +859,7 @@ final class ZipReader: FormatReader {
     private static func parseDirectoryCandidates(
         _ candidates: [EndRecord],
         source: any ByteSource,
+        diskLayout: ZipDiskLayout? = nil,
         policy: EncodingPolicy,
         limits: ReadLimits,
         budget: inout EndRecordParseBudget,
@@ -872,6 +872,7 @@ final class ZipReader: FormatReader {
             do {
                 let parsed = try parseDirectoryCandidate(
                     source: source,
+                    diskLayout: diskLayout,
                     end: end,
                     policy: policy,
                     limits: limits,
@@ -898,6 +899,7 @@ final class ZipReader: FormatReader {
                         do {
                             let enclosingParsed = try parseDirectoryCandidate(
                                 source: source,
+                                diskLayout: diskLayout,
                                 end: enclosing,
                                 policy: policy,
                                 limits: limits,
@@ -910,6 +912,7 @@ final class ZipReader: FormatReader {
                             guard try shouldRetryEndRecordCandidateError(
                                 error,
                                 source: source,
+                                diskLayout: diskLayout,
                                 end: enclosing,
                                 limits: limits,
                                 budget: &budget
@@ -928,6 +931,7 @@ final class ZipReader: FormatReader {
                 guard try shouldRetryEndRecordCandidateError(
                     error,
                     source: source,
+                    diskLayout: diskLayout,
                     end: end,
                     limits: limits,
                     budget: &budget
@@ -943,6 +947,7 @@ final class ZipReader: FormatReader {
     private static func shouldRetryEndRecordCandidateError(
         _ error: Error,
         source: any ByteSource,
+        diskLayout: ZipDiskLayout? = nil,
         end: EndRecord,
         limits: ReadLimits,
         budget: inout EndRecordParseBudget
@@ -970,6 +975,7 @@ final class ZipReader: FormatReader {
         do {
             return try !hasCoherentDirectoryClaim(
                 source: source,
+                diskLayout: diskLayout,
                 end: end,
                 limits: limits,
                 budget: &budget
@@ -982,10 +988,30 @@ final class ZipReader: FormatReader {
 
     private static func hasCoherentDirectoryClaim(
         source: any ByteSource,
+        diskLayout: ZipDiskLayout? = nil,
         end: EndRecord,
         limits: ReadLimits,
         budget: inout EndRecordParseBudget
     ) throws -> Bool {
+        if let diskLayout {
+            var claimLimits = limits
+            claimLimits.maxEntryCount = Int.max
+            claimLimits.maxMetadataSize = UInt64.max
+            let location: DirectoryLocation
+            if try end.diskNumber == UInt16.max || end.centralDirectoryDisk == UInt16.max
+                || end.entriesOnDisk == UInt16.max || end.totalEntries == UInt16.max
+                || end.centralDirectorySize == UInt32.max || end.centralDirectoryOffset == UInt32.max
+                || hasZIP64Locator(source: source, end: end) {
+                location = try locateZIP64Directory(source: source, diskLayout: diskLayout,
+                    end: end, limits: claimLimits, budget: &budget)
+            } else {
+                location = try locateZIP32Directory(source: source, diskLayout: diskLayout,
+                    end: end, limits: claimLimits)
+            }
+            return try hasCoherentCentralDirectoryClaim(source: source, diskLayout: diskLayout,
+                archiveBase: 0, directoryStart: location.offset, directorySize: location.size,
+                entryCount: location.entryCount, upperBound: end.offset, budget: &budget)
+        }
         let usesZIP64 = end.diskNumber == UInt16.max
             || end.centralDirectoryDisk == UInt16.max
             || end.entriesOnDisk == UInt16.max
@@ -996,6 +1022,7 @@ final class ZipReader: FormatReader {
             do {
                 return try hasCoherentZIP64DirectoryClaim(
                     source: source,
+                    diskLayout: diskLayout,
                     end: end,
                     limits: limits,
                     budget: &budget
@@ -1012,6 +1039,7 @@ final class ZipReader: FormatReader {
             do {
                 if try hasCoherentZIP64DirectoryClaim(
                     source: source,
+                    diskLayout: diskLayout,
                     end: end,
                     limits: limits,
                     budget: &budget
@@ -1024,13 +1052,21 @@ final class ZipReader: FormatReader {
         }
         return try hasCoherentZIP32DirectoryClaim(
             source: source,
+            diskLayout: diskLayout,
             end: end,
             budget: &budget
         )
     }
 
+    /// 兄弟探索の段階でも、末尾ゴミにある単巻 EOCD の候補を区別する。
+    static func hasCoherentZIP32End(source: any ByteSource, end: ZipEndRecords.EndRecord,
+                                   budget: inout EndRecordParseBudget) throws -> Bool {
+        return try hasCoherentZIP32DirectoryClaim(source: source, end: end, budget: &budget)
+    }
+
     private static func hasCoherentZIP32DirectoryClaim(
         source: any ByteSource,
+        diskLayout: ZipDiskLayout? = nil,
         end: EndRecord,
         budget: inout EndRecordParseBudget
     ) throws -> Bool {
@@ -1059,6 +1095,7 @@ final class ZipReader: FormatReader {
         }
         return try hasCoherentCentralDirectoryClaim(
             source: source,
+            diskLayout: diskLayout,
             archiveBase: archiveBase,
             directoryStart: directoryStart,
             directorySize: size,
@@ -1070,6 +1107,7 @@ final class ZipReader: FormatReader {
 
     private static func hasCoherentZIP64DirectoryClaim(
         source: any ByteSource,
+        diskLayout: ZipDiskLayout? = nil,
         end: EndRecord,
         limits: ReadLimits,
         budget: inout EndRecordParseBudget
@@ -1153,6 +1191,7 @@ final class ZipReader: FormatReader {
         guard totalEntries <= UInt64(Int.max) else { return false }
         return try hasCoherentCentralDirectoryClaim(
             source: source,
+            diskLayout: diskLayout,
             archiveBase: archiveBase,
             directoryStart: directoryStart,
             directorySize: directorySize,
@@ -1164,6 +1203,7 @@ final class ZipReader: FormatReader {
 
     private static func hasCoherentCentralDirectoryClaim(
         source: any ByteSource,
+        diskLayout: ZipDiskLayout? = nil,
         archiveBase: UInt64,
         directoryStart: UInt64,
         directorySize: UInt64,
@@ -1221,7 +1261,8 @@ final class ZipReader: FormatReader {
 
             let localOffset32 = littleUInt32(fixed, at: 42)
             let localOffset: UInt64
-            if localOffset32 == UInt32.max {
+            var diskStart = UInt32(littleUInt16(fixed, at: 34))
+            if localOffset32 == UInt32.max || (diskLayout != nil && diskStart == UInt16.max) {
                 let extraOffset: UInt64
                 do {
                     extraOffset = try Checked.add(
@@ -1244,13 +1285,15 @@ final class ZipReader: FormatReader {
                         recordLimit: extra.count / 4 + 1,
                         tailPolicy: .ignoreUnparsableTail
                     )
-                    localOffset = try resolveZIP64Values(
+                    let values = try resolveZIP64Values(
                         compressed32: littleUInt32(fixed, at: 20),
                         uncompressed32: littleUInt32(fixed, at: 24),
                         localOffset32: localOffset32,
                         diskStart16: littleUInt16(fixed, at: 34),
                         fields: fields
-                    ).localHeaderOffset
+                    )
+                    localOffset = values.localHeaderOffset
+                    diskStart = values.diskStart
                 } catch {
                     return false
                 }
@@ -1260,7 +1303,8 @@ final class ZipReader: FormatReader {
 
             let absoluteLocalOffset: UInt64
             do {
-                absoluteLocalOffset = try Checked.add(archiveBase, localOffset)
+                absoluteLocalOffset = try diskLayout?.absoluteOffset(disk: UInt64(diskStart), relative: localOffset)
+                    ?? Checked.add(archiveBase, localOffset)
             } catch {
                 return false
             }
@@ -1282,6 +1326,7 @@ final class ZipReader: FormatReader {
 
     private static func parseDirectoryCandidate(
         source: any ByteSource,
+        diskLayout: ZipDiskLayout? = nil,
         end: EndRecord,
         policy: EncodingPolicy,
         limits: ReadLimits,
@@ -1297,6 +1342,7 @@ final class ZipReader: FormatReader {
         if usesZIP64 {
             let location = try locateZIP64Directory(
                 source: source,
+                diskLayout: diskLayout,
                 end: end,
                 limits: limits,
                 budget: &budget
@@ -1315,6 +1361,7 @@ final class ZipReader: FormatReader {
             do {
                 let location = try locateZIP64Directory(
                     source: source,
+                    diskLayout: diskLayout,
                     end: end,
                     limits: limits,
                     budget: &budget
@@ -1334,6 +1381,7 @@ final class ZipReader: FormatReader {
                 do {
                     let location = try locateZIP32Directory(
                         source: source,
+                        diskLayout: diskLayout,
                         end: end,
                         limits: limits
                     )
@@ -1354,6 +1402,7 @@ final class ZipReader: FormatReader {
 
         let location = try locateZIP32Directory(
             source: source,
+            diskLayout: diskLayout,
             end: end,
             limits: limits
         )
@@ -1403,13 +1452,21 @@ final class ZipReader: FormatReader {
 
     private static func locateZIP32Directory(
         source: any ByteSource,
+        diskLayout: ZipDiskLayout? = nil,
         end: EndRecord,
         limits: ReadLimits
     ) throws -> DirectoryLocation {
-        guard end.diskNumber == 0,
-              end.centralDirectoryDisk == 0,
-              end.entriesOnDisk == end.totalEntries else {
-            throw KaitoError.unsupportedMethod("spanned")
+        if let diskLayout {
+            try diskLayout.validate(end: end)
+            guard end.entriesOnDisk <= end.totalEntries else {
+                throw KaitoError.malformed("ZIP per-disk entry count exceeds total")
+            }
+        } else {
+            guard end.diskNumber == 0,
+                  end.centralDirectoryDisk == 0,
+                  end.entriesOnDisk == end.totalEntries else {
+                throw KaitoError.unsupportedMethod("spanned")
+            }
         }
         let count = Int(end.totalEntries)
         guard count <= limits.maxEntryCount else {
@@ -1419,8 +1476,10 @@ final class ZipReader: FormatReader {
         try Checked.size(size, limit: limits.maxMetadataSize)
         let relativeOffset = UInt64(end.centralDirectoryOffset)
         let beforeOffset = try Checked.sub(end.offset, size)
-        let archiveBase = try Checked.sub(beforeOffset, relativeOffset)
-        let absoluteOffset = try Checked.add(archiveBase, relativeOffset)
+        let archiveBase = try diskLayout == nil ? Checked.sub(beforeOffset, relativeOffset) : 0
+        let absoluteOffset = try diskLayout?.absoluteOffset(
+            disk: UInt64(end.centralDirectoryDisk), relative: relativeOffset, allowEnd: size == 0
+        ) ?? Checked.add(archiveBase, relativeOffset)
         let directoryEnd = try Checked.add(absoluteOffset, size)
         guard directoryEnd == end.offset, directoryEnd <= source.length else {
             throw KaitoError.malformed("ZIP central directory lies outside the file")
@@ -1429,76 +1488,49 @@ final class ZipReader: FormatReader {
             archiveBase: archiveBase,
             offset: absoluteOffset,
             size: size,
-            entryCount: count
+            entryCount: count,
+            diskLayout: diskLayout
         )
-    }
-
-    private static func findEndRecords(
-        source: any ByteSource,
-        maximumSearchSize: Int
-    ) throws -> [EndRecord] {
-        guard source.length >= UInt64(endMinimumSize) else {
-            throw KaitoError.truncated
-        }
-        let count = try Checked.toInt(
-            min(source.length, UInt64(max(endMinimumSize, maximumSearchSize)))
-        )
-        let tailOffset = try Checked.sub(source.length, UInt64(count))
-        let tail = try readExactly(source: source, offset: tailOffset, count: count)
-
-        var candidates: [EndRecord] = []
-        for index in stride(from: tail.count - endMinimumSize, through: 0, by: -1) {
-            guard littleUInt32(tail, at: index) == endSignature else { continue }
-            let commentLength = Int(littleUInt16(tail, at: index + 20))
-            let recordEnd = index + endMinimumSize + commentLength
-            guard recordEnd <= tail.count,
-                  tail.count - recordEnd <= maximumTrailingDataSize else { continue }
-            let record = EndRecord(
-                offset: try Checked.add(tailOffset, UInt64(index)),
-                recordEnd: try Checked.add(tailOffset, UInt64(recordEnd)),
-                diskNumber: littleUInt16(tail, at: index + 4),
-                centralDirectoryDisk: littleUInt16(tail, at: index + 6),
-                entriesOnDisk: littleUInt16(tail, at: index + 8),
-                totalEntries: littleUInt16(tail, at: index + 10),
-                centralDirectorySize: littleUInt32(tail, at: index + 12),
-                centralDirectoryOffset: littleUInt32(tail, at: index + 16)
-            )
-            candidates.append(record)
-        }
-        return candidates
     }
 
     private static func locateZIP64Directory(
         source: any ByteSource,
+        diskLayout: ZipDiskLayout? = nil,
         end: EndRecord,
         limits: ReadLimits,
         budget: inout EndRecordParseBudget
     ) throws -> DirectoryLocation {
-        guard (end.diskNumber == 0 || end.diskNumber == UInt16.max),
-              (end.centralDirectoryDisk == 0
-                  || end.centralDirectoryDisk == UInt16.max) else {
-            throw KaitoError.unsupportedMethod("spanned")
+        if let diskLayout {
+            try diskLayout.validate(end: end)
+        } else {
+            guard (end.diskNumber == 0 || end.diskNumber == UInt16.max),
+                  (end.centralDirectoryDisk == 0 || end.centralDirectoryDisk == UInt16.max) else {
+                throw KaitoError.unsupportedMethod("spanned")
+            }
         }
         guard end.offset >= 20 else { throw KaitoError.truncated }
         let locatorOffset = try Checked.sub(end.offset, 20)
-        let locatorBytes = try readExactly(source: source, offset: locatorOffset, count: 20)
-        var locator = ZipByteCursor(locatorBytes)
-        guard try locator.readUInt32LE() == zip64LocatorSignature else {
+        guard let locator = try ZipEndRecords.locator(source: source, end: end) else {
             throw KaitoError.malformed("ZIP64 locator is missing")
         }
-        let recordDisk = try locator.readUInt32LE()
-        let relativeRecordOffset = try locator.readUInt64LE()
-        let diskCount = try locator.readUInt32LE()
-        guard recordDisk == 0, diskCount == 1 else {
-            throw KaitoError.unsupportedMethod("spanned")
+        let relativeRecordOffset = locator.relativeRecordOffset
+        let recordOffset: UInt64
+        if let diskLayout {
+            guard UInt64(locator.diskCount) == UInt64(diskLayout.disks.count),
+                  locatorOffset >= diskLayout.disks[diskLayout.disks.count - 1].start else {
+                throw KaitoError.malformed("ZIP64 locator disagrees with the volume set")
+            }
+            recordOffset = try diskLayout.absoluteOffset(
+                disk: UInt64(locator.recordDisk), relative: relativeRecordOffset)
+            try budget.chargeMetadataBytes(56)
+        } else {
+            guard locator.recordDisk == 0, locator.diskCount == 1 else {
+                throw KaitoError.unsupportedMethod("spanned")
+            }
+            try budget.chargeMetadataBytes(min(locatorOffset, limits.maxMetadataSize))
+            recordOffset = try findZIP64RecordOffset(
+                source: source, locatorOffset: locatorOffset, limits: limits)
         }
-
-        try budget.chargeMetadataBytes(min(locatorOffset, limits.maxMetadataSize))
-        let recordOffset = try findZIP64RecordOffset(
-            source: source,
-            locatorOffset: locatorOffset,
-            limits: limits
-        )
         let fixed = try readExactly(source: source, offset: recordOffset, count: 56)
         var record = ZipByteCursor(fixed)
         guard try record.readUInt32LE() == zip64EndSignature else {
@@ -1521,8 +1553,18 @@ final class ZipReader: FormatReader {
         let totalEntries = try record.readUInt64LE()
         let directorySize = try record.readUInt64LE()
         let relativeDirectoryOffset = try record.readUInt64LE()
-        guard disk == 0, centralDisk == 0, entriesOnDisk == totalEntries else {
-            throw KaitoError.unsupportedMethod("spanned")
+        if let diskLayout {
+            guard UInt64(disk) == diskLayout.lastDiskIndex,
+                  UInt64(centralDisk) <= diskLayout.lastDiskIndex,
+                  entriesOnDisk <= totalEntries,
+                  end.diskNumber == UInt16.max || UInt32(end.diskNumber) == disk,
+                  end.centralDirectoryDisk == UInt16.max || UInt32(end.centralDirectoryDisk) == centralDisk else {
+                throw KaitoError.malformed("ZIP32 and ZIP64 disk fields disagree with the volume set")
+            }
+        } else {
+            guard disk == 0, centralDisk == 0, entriesOnDisk == totalEntries else {
+                throw KaitoError.unsupportedMethod("spanned")
+            }
         }
 
         if end.entriesOnDisk != UInt16.max,
@@ -1547,8 +1589,10 @@ final class ZipReader: FormatReader {
             throw KaitoError.limitExceeded("ZIP entry count")
         }
         try Checked.size(directorySize, limit: limits.maxMetadataSize)
-        let archiveBase = try Checked.sub(recordOffset, relativeRecordOffset)
-        let absoluteDirectoryOffset = try Checked.add(archiveBase, relativeDirectoryOffset)
+        let archiveBase = try diskLayout == nil ? Checked.sub(recordOffset, relativeRecordOffset) : 0
+        let absoluteDirectoryOffset = try diskLayout?.absoluteOffset(
+            disk: UInt64(centralDisk), relative: relativeDirectoryOffset, allowEnd: directorySize == 0
+        ) ?? Checked.add(archiveBase, relativeDirectoryOffset)
         let directoryEnd = try Checked.add(absoluteDirectoryOffset, directorySize)
         guard directoryEnd <= recordOffset, directoryEnd <= source.length else {
             throw KaitoError.malformed("ZIP64 central directory lies outside the file")
@@ -1557,7 +1601,8 @@ final class ZipReader: FormatReader {
             archiveBase: archiveBase,
             offset: absoluteDirectoryOffset,
             size: directorySize,
-            entryCount: count
+            entryCount: count,
+            diskLayout: diskLayout
         )
     }
 
@@ -1691,17 +1736,17 @@ final class ZipReader: FormatReader {
                 diskStart16: diskStart16,
                 fields: extraFields
             )
-            guard zip64.diskStart == 0 else {
+            guard location.diskLayout != nil || zip64.diskStart == 0 else {
                 throw KaitoError.unsupportedMethod("spanned")
             }
             try Checked.size(zip64.compressedSize, limit: limits.maxEntrySize)
             try Checked.size(zip64.uncompressedSize, limit: limits.maxEntrySize)
 
             let extent = recovery.isEmpty ? nil : recovery[index]
-            let absoluteLocalOffset = try extent?.headerOffset ?? Checked.add(
-                location.archiveBase,
-                zip64.localHeaderOffset
-            )
+            // 並べ替えと非重複検証にも同じ絶対位置を使うため、索引作成時に解決する。
+            let absoluteLocalOffset = try extent?.headerOffset
+                ?? location.diskLayout?.absoluteOffset(disk: UInt64(zip64.diskStart), relative: zip64.localHeaderOffset)
+                ?? Checked.add(location.archiveBase, zip64.localHeaderOffset)
             guard absoluteLocalOffset < location.offset else {
                 throw KaitoError.malformed("ZIP local header overlaps the central directory")
             }

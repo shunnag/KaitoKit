@@ -34,6 +34,33 @@ final class KaitoArchiveZipConfigurationTests: XCTestCase {
         XCTAssertNil(KaitoArchive(file: temporary.path))
     }
 
+    func testZipSplitURLAndPathInitializersReadBothEnds() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var bytes = Data([0x50, 0x4b, 7, 8]) + zipWithInvalidLocalHeader()
+        bytes[4] = 0x50
+        let end = bytes.count - 22
+        let central = 4 + 30 + 5
+        // 先頭ヘッダを途中で区切り、中央ディレクトリはディスク 1 の相対位置にする。
+        bytes[central + 42] = 4
+        bytes[end + 4] = 1
+        bytes[end + 6] = 1
+        bytes[end + 16] = UInt8(central - 16)
+        let first = directory.appendingPathComponent("compat.z01")
+        let last = directory.appendingPathComponent("compat.zip")
+        try Data(bytes.prefix(16)).write(to: first)
+        try Data(bytes.dropFirst(16)).write(to: last)
+        for url in [first, last] {
+            for archive in [try XCTUnwrap(KaitoArchive(fileURL: url)), try XCTUnwrap(KaitoArchive(file: url.path))] {
+                XCTAssertEqual(archive.numberOfEntries(), 1)
+                XCTAssertEqual(archive.name(ofEntry: 0), "a.txt")
+                XCTAssertEqual(archive.contents(ofEntry: 0), Data())
+                XCTAssertNil(archive.lastError)
+            }
+        }
+    }
+
     private func zipWithInvalidLocalHeader() -> Data {
         let name = Array("a.txt".utf8)
         var data = Data()

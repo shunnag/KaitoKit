@@ -106,14 +106,21 @@ public enum FormatDetector {
             directory: opened.directory,
             limits: options.limits
         )
+        let zipSplit = try split == nil ? ZipSplitVolumeSet.assemble(
+            url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
+        ) : nil
         let sourceURL = SplitVolumeSet.naming(forFirstVolumeName: standardized.lastPathComponent) != nil
             ? standardized.deletingPathExtension()
             : standardized
-        return try detect(
-            source: split?.source ?? opened.source,
+        let format = try detect(
+            source: split?.source ?? zipSplit?.source ?? opened.source,
             sourceURL: sourceURL,
             options: options
         )
+        guard zipSplit == nil || format == .zip else {
+            throw KaitoError.malformed("ZIP split volume set is not a ZIP archive")
+        }
+        return format
     }
 
     /// Detects using a source already opened for `sourceURL`.
@@ -158,7 +165,7 @@ public enum FormatDetector {
         }
         // 強い先頭署名を持つ既存形式の payload を BinHex の説明文として探索しない。
         let nativePrefixes: [[UInt8]] = [
-            [0x50, 0x4b, 3, 4], [0x50, 0x4b, 5, 6], [0x50, 0x4b, 7, 8],
+            [0x50, 0x4b, 3, 4], [0x50, 0x4b, 5, 6], [0x50, 0x4b, 7, 8], [0x50, 0x4b, 0x30, 0x30],
             [0x52, 0x61, 0x72, 0x21, 0x1a, 7], [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c],
             [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0], [0x1f, 0x8b], [0x1f, 0x9d],
             [0xed, 0xab, 0xee, 0xdb], [0x4d, 0x53, 0x43, 0x46]
@@ -195,7 +202,8 @@ public enum FormatDetector {
 
         if hasPrefix(prefix, [0x50, 0x4B, 0x03, 0x04])
             || hasPrefix(prefix, [0x50, 0x4B, 0x05, 0x06])
-            || hasPrefix(prefix, [0x50, 0x4B, 0x07, 0x08]) {
+            || hasPrefix(prefix, [0x50, 0x4B, 0x07, 0x08])
+            || hasPrefix(prefix, [0x50, 0x4B, 0x30, 0x30]) {
             return .zip
         }
         if hasPrefix(prefix, [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00])

@@ -124,7 +124,7 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 | UNIX compress (`.Z`) | LZW、9〜16 bit、block mode | なし | なし |
 | LZMA_Alone (`.lzma`) | 13 byte header + raw LZMA。magic が無いため拡張子・properties・辞書サイズ・range coder 先頭 byte がすべて揃ったときだけ受理し、判定は最後に回す | なし | なし |
 | 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz2` / `.tar.bz2`、`.txz` / `.tar.xz`、`.tar.zst` / `.tzst`、`.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
-| ZIP / ZIP64 | stored (0)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、Zstandard (93)、PPMd (98)、中央 directory、SFX | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001`（7-Zip `-v` のバイト分割）対応。`.z01` など multi-disk / spanned は非対応 |
+| ZIP / ZIP64 | stored (0)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、Zstandard (93)、PPMd (98)、中央 directory、SFX | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001` のバイト分割、`.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP（ZIP64・100 巻以上）対応。最終巻・途中巻から URL open |
 | 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、BZip2、Delta、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
 | RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
@@ -170,7 +170,8 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 > - **Compressed tar**: `.tgz` / `.tar.gz`, `.tbz2` / `.tar.bz2`, `.txz` / `.tar.xz` and
 >   `.tar.zst` / `.tzst` and `.tz` / `.tar.Z` are expanded and then listed with TarReader.
 > - **ZIP / ZIP64**: stored (0), Deflate (8), Deflate64 (9), BZip2 (12), LZMA (14), Zstandard (93), PPMd (98),
->   the central directory, SFX and `.zip.001` byte splits made with 7-Zip `-v` are supported; multi-disk and spanned archives such as `.z01` are not.
+>   the central directory, SFX, `.zip.001` byte splits and split ZIP sets (`.z01`…`.zip`, `.zx01`…`.zipx`)
+>   are supported, including ZIP64 and more than 99 segments. Open the last or a numbered segment by URL.
 > - **7z**: the coder chain covers a folder in which a byte-consuming coder takes the output of
 >   another coder as its input; solid folders and a bounded Mach-O/PE SFX prefix are supported.
 >   `.001` byte splits made with 7-Zip `-v`, solid and block splits are supported.
@@ -444,7 +445,8 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 - RPM は rpm 6 の簡略 cpio (`07070X`)、drpm、cpio でない payload を展開せず、
   圧縮済み payload を 1 entry として公開します。
 - ARJ、ACE は未対応です。StuffIt X (`.sitx`) は上記の codec・前処理の制約があります。StuffIt の method 4/7/9〜12、classic の未記述の暗号 flag `0x10` は読み取り時に `unsupportedMethod` を返します。
-- ZIP は multi-disk/spanned と method 95 (xz)、96 (JPEG) を扱いません。
+- ZIP は同名のリムーバブルメディアを交換する spanned、split PKSFX（先頭 `.exe`）、method 95 (xz)、96 (JPEG) を扱いません。
+  split ZIP は全巻が同じディレクトリに必要で、欠番は巻名付きエラーになります。既定上限は 128 巻、分割セットの damaged-directory recovery は対象外です。
 - zstd の外部辞書は非対応です。Dictionary_ID が非零なら `unsupportedMethod` になります。
 - 7z は zstd method と RISC-V filter (method 0x0B) を扱いません。
 - RAR4 は unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成、SFX と multi-volume の組合せを
@@ -488,8 +490,10 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 > - RPM does not expand the simplified rpm 6 cpio (`07070X`), drpm, or a payload
 >   that is not cpio; it exposes the compressed payload as a single entry instead.
 > - ARJ、ACE、StuffIt X の範囲外 codec・前処理・暗号・recovery、StuffIt method 4/7/9〜12、classic 暗号 flag `0x10` は非対応です。
-> - ZIP does not handle multi-disk or spanned archives, nor methods 95 (xz)
->   and 96 (JPEG).
+> - ZIP does not handle same-name removable-media spanning, split PKSFX (`.exe` first segment),
+>   or methods 95 (xz) and 96 (JPEG). Split ZIP requires every volume in one directory; a missing
+>   volume is an error naming that file. The default limit is 128 volumes; damaged-directory recovery
+>   is unavailable for split sets.
 > - External zstd dictionaries are unsupported; a nonzero Dictionary_ID produces `unsupportedMethod`.
 > - 7z does not handle the zstd method or the RISC-V filter (method 0x0B).
 > - RAR4 does not handle unpack versions 15, 20 and 26, the custom VM, solid configurations whose

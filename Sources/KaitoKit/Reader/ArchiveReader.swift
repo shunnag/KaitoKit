@@ -65,6 +65,7 @@ public final class ArchiveReader {
     // 拡張子・単一ストリームの名前・SFX 検出のヒント。分割セットでは .001 を除く。
     // Data と任意の ByteSource はファイル名の由来を持たない。
     private let sourceURL: URL?
+    private let zipDiskLayout: ZipDiskLayout?
     private let reader: any FormatReader
     private let options: ReaderOptions
     private let outputBudget: ArchiveOutputBudget
@@ -94,10 +95,12 @@ public final class ArchiveReader {
         sourceURL: URL? = nil,
         sourceDirectoryAnchor: FileByteSource.DirectoryAnchor? = nil,
         sourceVolumeURL: URL? = nil,
+        zipDiskLayout: ZipDiskLayout? = nil,
         options: ReaderOptions
     ) throws {
         self.source = source
         self.sourceURL = sourceURL
+        self.zipDiskLayout = zipDiskLayout
         self.options = options
         self.password = options.password
 
@@ -110,6 +113,9 @@ public final class ArchiveReader {
             skipStuffIt: true
         ) : FormatDetector.stuffItFormat(stuffItInput!.data)
 
+        if zipDiskLayout != nil, detected != .zip {
+            throw KaitoError.malformed("ZIP split volume set is not a ZIP archive")
+        }
         switch detected {
         case .tar:
             let tar = try TarReader(source: source, options: options)
@@ -117,7 +123,7 @@ public final class ArchiveReader {
             entries = tar.entries
             format = .tar
         case .zip:
-            let zip = try ZipReader(source: source, options: options)
+            let zip = try ZipReader(source: source, options: options, diskLayout: zipDiskLayout)
             reader = zip
             entries = zip.entries
             format = .zip
@@ -302,6 +308,7 @@ public final class ArchiveReader {
     ) throws {
         self.source = source
         self.sourceURL = sourceURL
+        self.zipDiskLayout = nil
         self.options = options
         self.reader = parsedReader
         self.format = parsedReader.format
@@ -327,15 +334,19 @@ public final class ArchiveReader {
             directory: opened.directory,
             limits: options.limits
         )
+        let zipSplit = try split == nil ? ZipSplitVolumeSet.assemble(
+            url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
+        ) : nil
         // 兄弟のない .001 でも .tar.gz などのヒントを保持する。
         let sourceURL = SplitVolumeSet.naming(forFirstVolumeName: standardized.lastPathComponent) != nil
             ? standardized.deletingPathExtension()
             : standardized
         return try ArchiveReader(
-            source: split?.source ?? opened.source,
+            source: split?.source ?? zipSplit?.source ?? opened.source,
             sourceURL: sourceURL,
             sourceDirectoryAnchor: split == nil ? opened.directory : nil,
             sourceVolumeURL: split == nil ? standardized : nil,
+            zipDiskLayout: zipSplit?.layout,
             options: options
         )
     }
@@ -399,13 +410,14 @@ public final class ArchiveReader {
         return try stream(entry).readAll()
     }
 
-    /// 再圧縮せずに運べる形式では生レコード範囲を返す。未対応形式・isIncomplete・分割セットは nil。
+    /// 再圧縮せずに運べる形式では生レコード範囲を返す。未対応形式・isIncomplete・.001 バイト分割セットは nil。
     /// 現在は ZIP のみ対応し、data descriptor を含む範囲と中央ディレクトリとの整合を検証する。
+    /// .zNN / .zxNN 分割巻では連結ストリーム上の絶対範囲を返す。
     /// 暗号化 entry もパスワードなしで取得できる。payload の復号・展開・完全性検証は行わない。
     /// 呼び出しからコピー完了まで、source の byte は不変でなければならない。
     public func rawRecord(of entry: ArchiveEntry) throws -> RawEntryRecord? {
         try validate(entry)
-        guard !entry.isIncomplete, !(source is ConcatenatedByteSource) else { return nil }
+        guard !entry.isIncomplete, zipDiskLayout != nil || !(source is ConcatenatedByteSource) else { return nil }
         return try reader.rawRecord(for: entry, limits: options.limits)
     }
 
@@ -465,6 +477,7 @@ public final class ArchiveReader {
         return try ArchiveReader(
             source: source,
             sourceURL: sourceURL,
+            zipDiskLayout: zipDiskLayout,
             options: reopenedOptions
         )
     }

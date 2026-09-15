@@ -652,6 +652,84 @@ final class ZipSplitVolumeTests: XCTestCase {
         }
     }
 
+    func testOversizedTrailingDirectoryClaimsDoNotHideSplitArchive() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let original = try archive()
+        let oversized = ReadLimits().maxTotalMetadataSize + 1
+        for wide in [false, true] {
+            var split = try ZipSplitFixture(original, below: directory, wide: wide) {
+                [$0.centralDirectoryOffset + 1]
+            }
+            try assertContents(ArchiveReader.open(url: split.urls.last!), equalTo: original)
+
+            // A coherent archive that exceeds the real limit must still fail.
+            var limits = ReadLimits()
+            limits.maxTotalMetadataSize = 16
+            XCTAssertThrowsError(try ArchiveReader.open(
+                url: split.urls.last!, options: ReaderOptions(limits: limits)
+            )) {
+                XCTAssertEqual($0 as? KaitoError, .limitExceeded(
+                    "size \(split.layout.centralDirectorySize) exceeds limit 16"
+                ))
+            }
+
+            let tailStart = split.layout.zip64EndRecordOffset ?? split.layout.endRecordOffset
+            var fake = Data(split.bytes[tailStart...])
+            let fakeEnd = split.layout.endRecordOffset - tailStart
+            if wide {
+                try ZipTestSupport.writeUInt64(oversized, to: &fake, at: 40)
+                try ZipTestSupport.writeUInt32(.max, to: &fake, at: fakeEnd + 12)
+                let locator = try XCTUnwrap(split.layout.zip64LocatorOffset) - tailStart
+                let lastDisk = split.starts.count - 1
+                try ZipTestSupport.writeUInt32(UInt32(lastDisk), to: &fake, at: locator + 4)
+                try ZipTestSupport.writeUInt64(
+                    UInt64(split.bytes.count - split.starts[lastDisk]), to: &fake, at: locator + 8
+                )
+            } else {
+                try ZipTestSupport.writeUInt32(
+                    try XCTUnwrap(UInt32(exactly: oversized)), to: &fake, at: fakeEnd + 12
+                )
+            }
+            split.bytes.append(fake)
+            try split.write()
+            try assertContents(ArchiveReader.open(url: split.urls.last!), equalTo: original)
+        }
+    }
+
+    func testOverLimitZIP64ClaimHasBoundedReadWork() throws {
+        var previousHeaderReads: Int?
+        for entryCount in [4_000, 20_000] {
+            let bytes = try ZipTestSupport.makeArchive(
+                entries: (0..<entryCount).map { HandZipEntry(name: "entry-\($0)") },
+                forceZIP64End: true
+            )
+            let source = ZipDiscoveryCountingSource(DataByteSource(data: bytes))
+            var limits = ReadLimits()
+            limits.maxEntryCount = 1
+            limits.maxMetadataSize = 1_024
+            limits.maxTotalMetadataSize = 128 * 1_024
+            XCTAssertThrowsError(try ArchiveReader.open(
+                source: source, options: ReaderOptions(limits: limits)
+            )) {
+                XCTAssertEqual($0 as? KaitoError, .limitExceeded("ZIP entry count"))
+            }
+            let headerReads = source.readRanges.filter {
+                $0.upperBound - $0.lowerBound == 46
+            }.count
+            XCTAssertLessThanOrEqual(UInt64(headerReads) * 46, 2 * limits.maxMetadataSize)
+            XCTAssertLessThanOrEqual(
+                try source.totalBytesRead(),
+                65_557 + limits.maxTotalMetadataSize + 4 * limits.maxMetadataSize + 4_096
+            )
+            if let previousHeaderReads {
+                XCTAssertEqual(headerReads, previousHeaderReads,
+                               "claim work must not grow with the over-limit entry count")
+            }
+            previousHeaderReads = headerReads
+        }
+    }
+
     func testDiscoveryMetadataBudgetIsSharedAcrossBothWindows() throws {
         var bytes = Data(repeating: 0xa5, count: 100)
         bytes.append(try incoherentEndRecord())

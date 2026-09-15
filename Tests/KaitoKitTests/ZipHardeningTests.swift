@@ -494,7 +494,8 @@ final class ZipHardeningTests: XCTestCase {
         }
 
         var metadataLimits = ReadLimits()
-        metadataLimits.maxMetadataSize = 16
+        // The central directory uses the aggregate limit, not the single-allocation limit.
+        metadataLimits.maxTotalMetadataSize = 16
         assertLimitExceeded {
             try ArchiveReader.open(data: archive, options: ReaderOptions(limits: metadataLimits))
         }

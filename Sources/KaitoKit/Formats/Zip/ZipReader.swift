@@ -113,8 +113,11 @@ final class ZipReader: FormatReader {
     struct EndRecordParseBudget {
         var remainingAttempts: Int
         var remainingMetadataBytes: UInt64
+        private var exemptsFirstAttempt: Bool
+        private var attemptCount = 0
 
-        init(limits: ReadLimits) {
+        init(limits: ReadLimits, exemptsFirstAttempt: Bool = false) {
+            self.exemptsFirstAttempt = exemptsFirstAttempt
             remainingAttempts = ZipReader.maximumEndRecordCandidateAttempts
             let doubled = limits.maxMetadataSize.multipliedReportingOverflow(by: 2)
             remainingMetadataBytes = doubled.overflow ? UInt64.max : doubled.partialValue
@@ -125,9 +128,16 @@ final class ZipReader: FormatReader {
                 throw KaitoError.limitExceeded("ZIP end-record candidate attempts")
             }
             remainingAttempts -= 1
+            attemptCount += 1
+        }
+
+        mutating func endFirstAttemptExemption() {
+            exemptsFirstAttempt = false
         }
 
         mutating func chargeMetadataBytes(_ count: UInt64) throws {
+            // 初回の通常解析だけを免除し、エラー後の整合性検査にも累積予算を適用する。
+            if exemptsFirstAttempt, attemptCount == 1 { return }
             guard count <= remainingMetadataBytes else {
                 throw KaitoError.limitExceeded("ZIP end-record candidate metadata work")
             }
@@ -857,7 +867,8 @@ final class ZipReader: FormatReader {
         policy: EncodingPolicy,
         limits: ReadLimits
     ) throws -> ParsedDirectory {
-        var budget = EndRecordParseBudget(limits: limits)
+        // 二つの探索窓と包含候補の再試行で共有する。兄弟探索の予算は免除しない。
+        var budget = EndRecordParseBudget(limits: limits, exemptsFirstAttempt: true)
         var attemptedEndRecordOffsets: Set<UInt64> = []
         let standardSearchSize = endMinimumSize + maximumCommentSize
         let initialCandidates = try ZipEndRecords.findEndRecords(
@@ -1032,6 +1043,9 @@ final class ZipReader: FormatReader {
         // read. Preserve those policy errors for a genuinely coherent newer
         // concatenated archive, but do not let an EOCD-shaped trailing sequence
         // with no matching directory hide an older archive.
+        // Claim checks intentionally relax policy limits, so they must charge
+        // the shared work budget even after the first parsing attempt.
+        budget.endFirstAttemptExemption()
         do {
             return try !hasCoherentDirectoryClaim(
                 source: source,
@@ -1041,6 +1055,12 @@ final class ZipReader: FormatReader {
                 budget: &budget
             )
         } catch {
+            // Only a completed, bounded check can justify an older candidate.
+            // If the work budget runs out, stop with the original policy error.
+            if case let KaitoError.limitExceeded(reason) = error,
+               reason == "ZIP end-record candidate metadata work" {
+                return false
+            }
             if isRetryableEndRecordError(error) { return true }
             throw error
         }
@@ -1057,6 +1077,7 @@ final class ZipReader: FormatReader {
             var claimLimits = limits
             claimLimits.maxEntryCount = Int.max
             claimLimits.maxMetadataSize = UInt64.max
+            claimLimits.maxTotalMetadataSize = UInt64.max
             let location: DirectoryLocation
             if try end.diskNumber == UInt16.max || end.centralDirectoryDisk == UInt16.max
                 || end.entriesOnDisk == UInt16.max || end.totalEntries == UInt16.max
@@ -1288,8 +1309,8 @@ final class ZipReader: FormatReader {
         var cursor = directoryStart
 
         // Only fixed headers are read; variable fields are bounded and skipped
-        // from their declared lengths. Every read is charged to the cumulative
-        // candidate metadata-work budget before it occurs.
+        // from their declared lengths. Every read is charged to the shared work
+        // budget before it occurs, including claims after the first attempt.
         for _ in 0..<entryCount {
             guard cursor <= directoryEnd,
                   directoryEnd - cursor >= 46 else { return false }
@@ -1533,7 +1554,9 @@ final class ZipReader: FormatReader {
             throw KaitoError.limitExceeded("ZIP entry count")
         }
         let size = UInt64(end.centralDirectorySize)
-        try Checked.size(size, limit: limits.maxMetadataSize)
+        // 中央ディレクトリは件数に比例し、単一確保の 16 MiB 上限では 100 万件と両立しない。
+        // 既存の総 metadata 上限（既定 256 MiB）を使い、メモリ上限自体は引き上げない。
+        try Checked.size(size, limit: limits.maxTotalMetadataSize)
         let relativeOffset = UInt64(end.centralDirectoryOffset)
         let beforeOffset = try Checked.sub(end.offset, size)
         let archiveBase = try diskLayout == nil ? Checked.sub(beforeOffset, relativeOffset) : 0
@@ -1648,7 +1671,8 @@ final class ZipReader: FormatReader {
         guard count <= limits.maxEntryCount else {
             throw KaitoError.limitExceeded("ZIP entry count")
         }
-        try Checked.size(directorySize, limit: limits.maxMetadataSize)
+        // ZIP32 と同じく件数に比例する中央ディレクトリは、既存の総 metadata 上限で制限する。
+        try Checked.size(directorySize, limit: limits.maxTotalMetadataSize)
         let archiveBase = try diskLayout == nil ? Checked.sub(recordOffset, relativeRecordOffset) : 0
         let absoluteDirectoryOffset = try diskLayout?.absoluteOffset(
             disk: UInt64(centralDisk), relative: relativeDirectoryOffset, allowEnd: directorySize == 0

@@ -589,6 +589,14 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
         )
     }
 
+    func testFirstZIP32CandidateCanExceedRetryMetadataBudget() throws {
+        try assertLargeFirstCandidateOpens(forceZIP64End: false)
+    }
+
+    func testFirstZIP64CandidateCanExceedRetryMetadataBudget() throws {
+        try assertLargeFirstCandidateOpens(forceZIP64End: true)
+    }
+
     func testCandidateDirectoryRetryWorkIsBounded() throws {
         let seed = try ZipTestSupport.makeArchive(entries: [
             HandZipEntry(name: "seed.txt"),
@@ -804,6 +812,66 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
             ),
             .shiftJIS
         )
+    }
+
+    private func assertLargeFirstCandidateOpens(
+        forceZIP64End: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let entryCount = 4_000
+        let entries = (0..<entryCount).map { index in
+            HandZipEntry(name: String(format: "entry-%030d.txt", index))
+        }
+        let archive = try ZipTestSupport.makeArchive(
+            entries: entries,
+            forceZIP64End: forceZIP64End
+        )
+        let layout = try ZipTestSupport.layout(of: archive)
+        var limits = ReadLimits()
+        limits.maxMetadataSize = 64 * 1_024
+        XCTAssertEqual(layout.centralDirectorySize, entryCount * (46 + 40), file: file, line: line)
+        XCTAssertGreaterThan(
+            UInt64(layout.centralDirectorySize), 2 * limits.maxMetadataSize,
+            file: file, line: line
+        )
+        if forceZIP64End {
+            XCTAssertNotNil(layout.zip64EndRecordOffset, file: file, line: line)
+            let locatorOffset = try XCTUnwrap(layout.zip64LocatorOffset, file: file, line: line)
+            // The hand-built ZIP64 end also charges the full 64 KiB locator scan.
+            XCTAssertGreaterThan(UInt64(locatorOffset), limits.maxMetadataSize, file: file, line: line)
+        }
+        let candidates = try ZipEndRecords.findEndRecords(
+            source: DataByteSource(data: archive),
+            maximumSearchSize: archive.count
+        )
+        XCTAssertEqual(candidates.count, 1, file: file, line: line)
+
+        let reader = try ArchiveReader.open(data: archive, options: ReaderOptions(limits: limits))
+        XCTAssertEqual(reader.entries.count, entryCount, file: file, line: line)
+        XCTAssertEqual(
+            reader.entries.last?.name, "entry-" + String(repeating: "0", count: 26) + "3999.txt",
+            file: file, line: line
+        )
+
+        // Keep both the directory allocation and retained-entry metadata bounded.
+        // testCandidateDirectoryRetryWorkIsBounded is the fake-newer-candidate negative control.
+        for (totalLimit, rejectedSize) in [
+            (200 * 1_024, layout.centralDirectorySize),
+            (512 * 1_024, entryCount * 256),
+        ] {
+            limits.maxTotalMetadataSize = UInt64(totalLimit)
+            XCTAssertThrowsError(
+                try ArchiveReader.open(data: archive, options: ReaderOptions(limits: limits)),
+                file: file, line: line
+            ) { error in
+                XCTAssertEqual(
+                    error as? KaitoError,
+                    .limitExceeded("size \(rejectedSize) exceeds limit \(totalLimit)"),
+                    file: file, line: line
+                )
+            }
+        }
     }
 
     private func replaceZIP64EndSentinelsWithZIP32Values(

@@ -6,6 +6,7 @@
 
 ## [Unreleased]
 
+- ZIP の EOCD 候補の再試行予算が正当な大規模書庫の初回解析まで拒否する不整合を修正した。件数に比例する中央ディレクトリを単一確保の `maxMetadataSize`（既定 16 MiB）で制限すると `maxEntryCount = 1,000,000` と両立しないため、既存の総 metadata 上限 `maxTotalMetadataSize`（既定 256 MiB）で制限し、メモリ上限は維持する。読取時の初回候補の metadata work をすべて免除し、累積予算を再試行に限定する。敵対的候補に対する試行回数・累積 work の上限と兄弟巻探索の予算は変更しない。
 - 完全な ZipCrypto entry で 1 byte のヘッダ検査を誤通過したパスワードによる CRC 不一致・decoder の破損／入力不足を `wrongPassword` に正規化した。7zAES と同様に、暗号化 stream 自体の破損も誤ったパスワードとして報告される場合がある。
 
 ## [0.6.0] - 2026-09-15

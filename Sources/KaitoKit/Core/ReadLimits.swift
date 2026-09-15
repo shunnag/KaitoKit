@@ -18,6 +18,8 @@ public struct ReadLimits: Sendable, Equatable {
     public var maxEntryCount: Int
 
     /// Maximum size of a single format metadata allocation.
+    /// The ZIP central directory grows with the entry count and is bounded by
+    /// `maxTotalMetadataSize` instead.
     public var maxMetadataSize: UInt64
 
     /// Maximum number of records accepted in one format metadata record set,
@@ -28,6 +30,7 @@ public struct ReadLimits: Sendable, Equatable {
     public var maxPathComponentCount: Int
 
     /// Maximum aggregate logical metadata retained for all entries.
+    /// Also bounds the ZIP central-directory size instead of `maxMetadataSize`.
     public var maxTotalMetadataSize: UInt64
 
     /// Maximum dictionary allocation accepted from compressed metadata.
@@ -59,10 +62,12 @@ public struct ReadLimits: Sendable, Equatable {
     ///     retained in memory. The default is 64 MiB.
     ///   - maxEntryCount: Maximum number of entries. The default is one million.
     ///   - maxMetadataSize: Maximum single metadata allocation. The default is 16 MiB.
+    ///     The ZIP central directory uses `maxTotalMetadataSize` instead.
     ///   - maxMetadataRecordCount: Maximum records in one metadata record set.
     ///     The default is 65,536.
     ///   - maxPathComponentCount: Maximum components in one path. The default is 1,024.
     ///   - maxTotalMetadataSize: Maximum aggregate retained metadata. The default is 256 MiB.
+    ///     Also bounds the ZIP central-directory size.
     ///   - maxDictionarySize: Maximum codec dictionary size. The default is 1 GiB.
     ///   - maxJPEGBlocks: StuffIt X JPEG の係数ブロック数上限。既定は 2,097,152（係数 plane は最大 512 MiB）。
     ///   - maxVolumeCount: RAR 多巻・`.001` バイト分割セットの最大巻数。既定は 128。

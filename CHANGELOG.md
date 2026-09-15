@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 完全な ZipCrypto entry で 1 byte のヘッダ検査を誤通過したパスワードによる CRC 不一致・decoder の破損／入力不足を `wrongPassword` に正規化した。7zAES と同様に、暗号化 stream 自体の破損も誤ったパスワードとして報告される場合がある。
+
 ## [0.6.0] - 2026-09-15
 
 - ZIP 分割巻（Task Z1、bd `cooViewer-6lrc.2`）: `.z01`…`.zip` / `.zx01`…`.zipx` を最終巻・途中巻の URL から開けるようにした。ZIP64、100 巻以上、ヘッダ・データ・中央ディレクトリの境界越えに対応し、Compat と CLI の一覧・展開・SHA に接続した。宣言巻数の上限検査、欠番の巻名付きエラー、兄弟 symlink の拒否を追加し、`.001` バイト分割の優先順位を維持する。復旧方針・残る制約・検証結果は[検証記録](Documentation/verification/2026-09-15-zip-split-volumes.md)を参照。

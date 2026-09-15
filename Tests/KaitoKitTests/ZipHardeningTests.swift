@@ -847,6 +847,146 @@ final class ZipHardeningTests: XCTestCase {
         }
     }
 
+    func testZipCryptoHeaderCollisionsReportWrongPasswordForStoredAndDeflatedEntries() throws {
+        let temporary = try ZipTestSupport.temporaryDirectory(label: "zipcrypto-header-collision")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let source = temporary.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+        let password = "fixed-password"
+        var random = SystemRandomNumberGenerator()
+        let storedPayload = Data((0..<4_000).map { _ in
+            UInt8.random(in: .min ... .max, using: &random)
+        })
+        let deflatedPayload = Data(String(
+            repeating: "ZipCrypto header collisions must reach the decoder\n", count: 200
+        ).utf8)
+
+        for (option, method, payload) in [
+            ("-0", UInt16(0), storedPayload), ("-9", UInt16(8), deflatedPayload),
+        ] {
+            let name = "secret-\(method).bin"
+            _ = try ZipTestSupport.write(payload, relativePath: name, below: source)
+            let archiveURL = temporary.appendingPathComponent("zipcrypto-\(method).zip")
+            try ZipTestSupport.makeInfoZip(
+                sourceDirectory: source, paths: [name], archiveURL: archiveURL,
+                options: [option, "-P", password]
+            )
+
+            let archive = try Data(contentsOf: archiveURL)
+            let layout = try ZipTestSupport.layout(of: archive)
+            let local = try XCTUnwrap(layout.localHeaderOffsets.first)
+            let flags = try ZipTestSupport.readUInt16(archive, at: local + 6)
+            XCTAssertNotEqual(flags & 1, 0)
+            XCTAssertEqual(try ZipTestSupport.readUInt16(archive, at: local + 8), method)
+            let nameLength = Int(try ZipTestSupport.readUInt16(archive, at: local + 26))
+            let extraLength = Int(try ZipTestSupport.readUInt16(archive, at: local + 28))
+            let dataOffset = local + 30 + nameLength + extraLength
+            let header = Data(archive[dataOffset..<(dataOffset + ZipCrypto.headerSize)])
+            // Info-ZIP は通常ファイルでも bit 3 を立てるため、実際の flag で検査値を選ぶ。
+            let expected = ZipCrypto.expectedHeaderCheckByte(
+                crc32: try ZipTestSupport.readUInt32(archive, at: local + 14),
+                dosTime: try ZipTestSupport.readUInt16(archive, at: local + 10),
+                usesDataDescriptor: flags & 8 != 0
+            )
+            func checkByte(for candidate: String) -> UInt8? {
+                var keys = ZipCryptoKeys(password: candidate)
+                return keys.decrypt(header).last
+            }
+
+            let colliding = try XCTUnwrap(
+                (0..<100_000).lazy.map { "wrong-\($0)" }.first {
+                    checkByte(for: $0) == expected
+                },
+                "No ZipCrypto header collision found for method \(method)"
+            )
+            XCTAssertNotEqual(colliding, password)
+            XCTAssertEqual(checkByte(for: colliding), expected)
+
+            let collided = try ArchiveReader.open(
+                url: archiveURL, options: ReaderOptions(password: colliding)
+            )
+            let entry = try XCTUnwrap(collided.entries.first)
+            XCTAssertFalse(entry.isIncomplete)
+            XCTAssertThrowsError(try collided.read(entry)) { error in
+                XCTAssertEqual(error as? KaitoError, .wrongPassword)
+            }
+            if method == 0 {
+                try assertFailedExtractionDoesNotPublish(
+                    reader: collided, entry: entry, expectedError: .wrongPassword
+                )
+            }
+
+            // 固定候補も 1/256 で衝突するため、不一致を確認してから対照に使う。
+            let nonColliding = try XCTUnwrap(
+                (0..<100_000).lazy.map {
+                    $0 == 0 ? "wrong-password" : "wrong-password-\($0)"
+                }.first { checkByte(for: $0) != expected }
+            )
+            XCTAssertNotEqual(checkByte(for: nonColliding), expected)
+            let wrong = try ArchiveReader.open(
+                url: archiveURL, options: ReaderOptions(password: nonColliding)
+            )
+            XCTAssertThrowsError(try wrong.read(wrong.entries[0])) { error in
+                XCTAssertEqual(error as? KaitoError, .wrongPassword)
+            }
+
+            let correct = try ArchiveReader.open(
+                url: archiveURL, options: ReaderOptions(password: password)
+            )
+            XCTAssertEqual(try correct.read(correct.entries[0]), payload)
+        }
+    }
+
+    func testWinZipAESAE1KeepsAuthenticationAndCRCFailuresDistinct() throws {
+        let password = "fixed-password"
+        let payload = Data("WinZip AES AE-1 authenticated CRC control\n".utf8)
+        let salt = Data(repeating: 0x5A, count: 16)
+        let keys = try WinZipAESDerivedKeys.derive(for: WinZipAESKeyCacheKey(
+            password: password, salt: salt, strength: .aes256
+        ))
+        var ctr = try WinZipAESCTR(encryptionKey: keys.encryptionKey)
+        let ciphertext = try ctr.transform(payload)
+        let extra = try ZipTestSupport.extraField(
+            identifier: 0x9901, payload: Data([1, 0, 65, 69, 3, 0, 0])
+        )
+
+        func makeArchive(ciphertext: Data, authenticatedCiphertext: Data) throws -> Data {
+            let authentication = Data(HMAC<Insecure.SHA1>.authenticationCode(
+                for: authenticatedCiphertext, using: SymmetricKey(data: keys.authenticationKey)
+            ).prefix(10))
+            let packed = salt + keys.passwordVerifier + ciphertext + authentication
+            return try ZipTestSupport.makeArchive(entries: [
+                HandZipEntry(name: "secret", uncompressedData: payload, compressedData: packed,
+                             method: 99, flags: 0x0801, localExtra: extra, centralExtra: extra),
+            ])
+        }
+
+        let valid = try ArchiveReader.open(
+            data: makeArchive(ciphertext: ciphertext, authenticatedCiphertext: ciphertext),
+            options: ReaderOptions(password: password)
+        )
+        XCTAssertEqual(try valid.read(valid.entries[0]), payload)
+
+        var damaged = ciphertext
+        damaged[0] ^= 1
+        for validHMAC in [false, true] {
+            // tag を再計算した破損は AE-1 の CRC だけが検出する。
+            let reader = try ArchiveReader.open(
+                data: makeArchive(
+                    ciphertext: damaged,
+                    authenticatedCiphertext: validHMAC ? damaged : ciphertext
+                ),
+                options: ReaderOptions(password: password)
+            )
+            XCTAssertThrowsError(try reader.read(reader.entries[0])) { error in
+                XCTAssertEqual(
+                    error as? KaitoError,
+                    validHMAC ? .checksumMismatch(entry: 0) : .wrongPassword
+                )
+            }
+        }
+    }
+
     func testWinZipAESRequiresPasswordAndRejectsWrongPassword() throws {
         try ZipTestSupport.requireExecutable(
             ZipTestSupport.sevenZipPath,

@@ -34,10 +34,37 @@ enum ZipEndRecords {
                        diskCount: littleUInt32(bytes, at: 16))
     }
 
+    private struct DiscoveryState {
+        var budget: ZipReader.EndRecordParseBudget
+        var attemptedOffsets: Set<UInt64> = []
+        var fallback: UInt64?
+        var candidateError: Error?
+    }
+
     static func lastDiskIndex(source: any ByteSource, limits: ReadLimits) throws -> UInt64? {
         guard source.length >= UInt64(endMinimumSize) else { return nil }
-        let candidates = try findEndRecords(source: source, maximumSearchSize:
-            endMinimumSize + maximumCommentSize + maximumTrailingDataSize)
+        let standardSearchSize = endMinimumSize + maximumCommentSize
+        var state = DiscoveryState(budget: ZipReader.EndRecordParseBudget(limits: limits))
+        let initial = try findEndRecords(source: source, maximumSearchSize: standardSearchSize)
+        if let last = try selectLastDiskIndex(initial, source: source, state: &state) {
+            return last
+        }
+        // 通常の URL open で大きな末尾読取を増やさず、有効候補がないときだけ探索を広げる。
+        if source.length > UInt64(standardSearchSize) {
+            let expanded = try findEndRecords(source: source, maximumSearchSize:
+                standardSearchSize + maximumTrailingDataSize)
+            if let last = try selectLastDiskIndex(expanded, source: source, state: &state) {
+                return last
+            }
+        }
+        if let fallback = state.fallback { return fallback }
+        if let error = state.candidateError { throw error }
+        return nil
+    }
+
+    private static func selectLastDiskIndex(
+        _ candidates: [EndRecord], source: any ByteSource, state: inout DiscoveryState
+    ) throws -> UInt64? {
         // 候補を昇順に走査して包含を記録し、多数の署名でも二重ループにしない。
         let ascending = Array(candidates.reversed())
         var enclosedOffsets: Set<UInt64> = []
@@ -51,41 +78,39 @@ enum ZipEndRecords {
             }
             if candidate.recordEnd <= enclosingEnd { enclosedOffsets.insert(candidate.offset) }
         }
-        var budget = ZipReader.EndRecordParseBudget(limits: limits)
-        var fallback: UInt64?
-        var candidateError: Error?
-        var examined = 0
         for candidate in candidates {
-            examined += 1
-            guard examined <= 8_192 else {
-                throw KaitoError.limitExceeded("ZIP end-record candidate attempts")
-            }
+            // 二つの窓で同じ候補を重複計上せず、予算自体は探索全体で共有する。
+            guard state.attemptedOffsets.insert(candidate.offset).inserted else { continue }
+            try state.budget.chargeAttempt()
             if enclosedOffsets.contains(candidate.offset) { continue }
             do {
-                let last = try declaredLastDisk(source: source, end: candidate, budget: &budget)
-                fallback = fallback ?? last
+                let last = try declaredLastDisk(source: source, end: candidate, budget: &state.budget)
+                state.fallback = state.fallback ?? last
                 // 中央ディレクトリを最終巻で確認できる場合だけ、偽の末尾候補を除く。
                 // 前の巻にある索引の正当性は全巻を連結した後で検証する。
-                if candidates.count > 1, candidate.centralDirectorySize != UInt32.max,
+                if candidate.centralDirectorySize != UInt32.max,
                    candidate.centralDirectoryOffset != UInt32.max {
-                    if last == 0, candidate.totalEntries > 0,
-                       try !ZipReader.hasCoherentZIP32End(source: source, end: candidate, budget: &budget) {
+                    let directoryEnd = try Checked.add(
+                        UInt64(candidate.centralDirectoryOffset), UInt64(candidate.centralDirectorySize))
+                    // 標準窓に偽候補が一つだけ見える場合も、通常の ZIP32 位置と異なれば検証する。
+                    // 通常の単巻は追加読取なしで進み、ZIP64 locator がある候補は従来どおり扱う。
+                    let needsCoherenceCheck = try candidates.count > 1
+                        || (directoryEnd != candidate.offset && locator(source: source, end: candidate) == nil)
+                    if last == 0, candidate.totalEntries > 0, needsCoherenceCheck,
+                       try !ZipReader.hasCoherentZIP32End(source: source, end: candidate, budget: &state.budget) {
                         continue
                     }
-                    if last > 0, UInt64(candidate.centralDirectoryDisk) == last,
+                    if needsCoherenceCheck, last > 0, UInt64(candidate.centralDirectoryDisk) == last,
                        try locator(source: source, end: candidate) == nil {
-                        let directoryEnd = try Checked.add(UInt64(candidate.centralDirectoryOffset), UInt64(candidate.centralDirectorySize))
                         if directoryEnd != candidate.offset { continue }
                     }
                 }
                 return last
             } catch let error as KaitoError {
                 if case .limitExceeded = error { throw error }
-                candidateError = candidateError ?? error
+                state.candidateError = state.candidateError ?? error
             }
         }
-        if let fallback { return fallback }
-        if let candidateError { throw candidateError }
         return nil
     }
 

@@ -64,6 +64,7 @@ macOS 27.0（26A428）、Apple Silicon、Apple Swift 6.4、Swift 6 strict concur
   `openat` や最終巻の再オープンによる identity 検証より前に拒否する。
   `.zNN` から開く場合、宣言を読むための最終巻取得だけはこの検査に先行する。
   明示 symlink は `.001` と同じ単巻扱い、兄弟 symlink / 非通常ファイルは拒否する。
+- **二段階の末尾探索**: URL の巻探索は標準 65,557 byte から始め、有効候補がない場合だけ最大 1,114,133 byte に広げる。候補試行数・metadata work の予算は二つの窓で共有し、同じ候補を再試行しない。
 - **候補走査**: コメント包含判定は線形走査、候補試行回数と metadata work は上限付き。
   偽 EOCD や CD コメント内の偽 locator により、通常 ZIP / SFX の読取先を変えない。
 - **公開 API**: 既存シグネチャの変更も追加もない。CLI / Compat 実装の変更も不要。

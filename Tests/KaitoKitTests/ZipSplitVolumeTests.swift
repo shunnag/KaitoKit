@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Synchronization
 @testable import KaitoKit
 import XCTest
 
@@ -152,6 +153,26 @@ private struct ZipSplitFixture {
             let end = index + 1 < starts.count ? starts[index + 1] : bytes.count
             try Data(bytes[starts[index]..<end]).write(to: urls[index])
         }
+    }
+}
+
+private final class ZipDiscoveryCountingSource: ByteSource {
+    private let source: any ByteSource
+    private let ranges = Mutex<[Range<UInt64>]>([])
+
+    init(_ source: any ByteSource) { self.source = source }
+    var length: UInt64 { source.length }
+    var readRanges: [Range<UInt64>] { ranges.withLock { $0 } }
+
+    func totalBytesRead() throws -> UInt64 {
+        try readRanges.reduce(0) { try Checked.add($0, Checked.sub($1.upperBound, $1.lowerBound)) }
+    }
+
+    func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
+        let count = try source.read(into: buffer, at: offset)
+        let end = try Checked.add(offset, UInt64(count))
+        ranges.withLock { $0.append(offset..<end) }
+        return count
     }
 }
 
@@ -589,6 +610,84 @@ final class ZipSplitVolumeTests: XCTestCase {
             try split.write()
             try assertContents(ArchiveReader.open(url: split.urls.last!), equalTo: original)
         }
+    }
+
+    func testURLDiscoveryReadsOnlyStandardTailForPlainZIP() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let original = try ZipTestSupport.makeArchive(entries: [
+            HandZipEntry(name: "large.bin", uncompressedData: Data(repeating: 7, count: 2 * 1024 * 1024))
+        ])
+        let standardSize = UInt64(ZipEndRecords.endMinimumSize + ZipEndRecords.maximumCommentSize)
+        for name in ["plain.zip", "plain.zipx"] {
+            let url = directory.appendingPathComponent(name)
+            try original.write(to: url)
+            let source = ZipDiscoveryCountingSource(try FileByteSource(url: url))
+            // URL open と同じ探索 helper を計測し、reader 本体の索引読取は合算しない。
+            XCTAssertEqual(try ZipEndRecords.lastDiskIndex(source: source, limits: ReadLimits()), 0)
+            XCTAssertEqual(source.readRanges, [(try Checked.sub(source.length, standardSize))..<source.length])
+            XCTAssertLessThanOrEqual(try source.totalBytesRead(), standardSize)
+            try assertContents(ArchiveReader.open(url: url), equalTo: original)
+        }
+    }
+
+    func testDiscoveryExpandsForTrailingDataAndRejectedStandardCandidate() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let original = try archive()
+        let standardSize = UInt64(ZipEndRecords.endMinimumSize + ZipEndRecords.maximumCommentSize)
+        for rejectedCandidate in [false, true] {
+            var split = try ZipSplitFixture(original, below: directory) { _ in [100, 200] }
+            split.bytes.append(Data(repeating: 0xa5, count: 120_000))
+            if rejectedCandidate { split.bytes.append(try incoherentEndRecord()) }
+            try split.write()
+            let source = ZipDiscoveryCountingSource(try FileByteSource(url: split.urls.last!))
+            XCTAssertEqual(try ZipEndRecords.lastDiskIndex(source: source, limits: ReadLimits()), 2)
+            XCTAssertEqual(source.readRanges.first, (try Checked.sub(source.length, standardSize))..<source.length)
+            XCTAssertTrue(source.readRanges.contains(0..<source.length))
+            for url in [split.urls[0], split.urls.last!] {
+                try assertContents(ArchiveReader.open(url: url), equalTo: original)
+                XCTAssertEqual(try FormatDetector.detect(url: url), .zip)
+            }
+        }
+    }
+
+    func testDiscoveryMetadataBudgetIsSharedAcrossBothWindows() throws {
+        var bytes = Data(repeating: 0xa5, count: 100)
+        bytes.append(try incoherentEndRecord())
+        bytes.append(Data(repeating: 0xa5, count: 120_000))
+        bytes.append(try incoherentEndRecord())
+        let source = ZipDiscoveryCountingSource(DataByteSource(data: bytes))
+        var limits = ReadLimits()
+        // 各偽候補の固定ヘッダは 46 byte。二窓目で予算をリセットすると誤って通る。
+        limits.maxMetadataSize = 23
+        XCTAssertThrowsError(try ZipEndRecords.lastDiskIndex(source: source, limits: limits)) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("ZIP end-record candidate metadata work"))
+        }
+        let newestEnd = try Checked.sub(source.length, 22)
+        let newestDirectory = (try Checked.sub(newestEnd, 46))..<newestEnd
+        XCTAssertEqual(source.readRanges.filter { $0 == newestDirectory }.count, 1)
+    }
+
+    func testDiscoveryAttemptCapIsSharedAcrossBothWindows() throws {
+        var end = try incoherentEndRecord()
+        try ZipTestSupport.writeUInt16(.max, to: &end, at: 4)
+        var bytes = Data()
+        for _ in 0..<8_193 { bytes.append(end) }
+        let source = ZipDiscoveryCountingSource(DataByteSource(data: bytes))
+        XCTAssertThrowsError(try ZipEndRecords.lastDiskIndex(source: source, limits: ReadLimits())) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("ZIP end-record candidate attempts"))
+        }
+        XCTAssertTrue(source.readRanges.contains(0..<source.length))
+    }
+
+    private func incoherentEndRecord() throws -> Data {
+        var end = Data(repeating: 0, count: ZipEndRecords.endMinimumSize)
+        try ZipTestSupport.writeUInt32(0x0605_4b50, to: &end, at: 0)
+        try ZipTestSupport.writeUInt16(1, to: &end, at: 8)
+        try ZipTestSupport.writeUInt16(1, to: &end, at: 10)
+        try ZipTestSupport.writeUInt32(46, to: &end, at: 12)
+        return end
     }
 
     func testInfoZipSplitAndZIP64AgreeWithSevenZipAndCLI() throws {

@@ -25,7 +25,8 @@ final class XZDecompressor: Decompressor {
     private var streamWasInitialized = false
     private var finished = false
 
-    init(source: any ByteSource, offset: UInt64 = 0, compressedSize: UInt64? = nil) throws {
+    init(source: any ByteSource, offset: UInt64 = 0, compressedSize: UInt64? = nil,
+         limits: ReadLimits) throws {
         let size: UInt64
         if let compressedSize {
             size = compressedSize
@@ -37,6 +38,8 @@ final class XZDecompressor: Decompressor {
         self.source = source
         self.compressedEnd = end
         self.sourceOffset = offset
+        let window = try BoundedByteSource(source: source, baseOffset: offset, length: size)
+        try XZResourceValidator.validate(source: window, dictionaryLimit: limits.maxDictionarySize)
         try initializeStream()
     }
 

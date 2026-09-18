@@ -360,6 +360,18 @@ final class SevenZipFolderDecoderFactory {
                     length: decrypted.length
                 ))
 
+            case let .swap(width):
+                try requireArity(coder, inputs: 1)
+                guard coder.properties.isEmpty else {
+                    throw KaitoError.malformed("7z Swap has unexpected properties")
+                }
+                guard try inputSize(coder.firstInput) == expectedSize else {
+                    throw KaitoError.malformed("7z Swap input and output sizes differ")
+                }
+                return .stream(try SwapFilterDecompressor(
+                    input: inputValue(coder.firstInput).asStream(), width: width, expectedSize: expectedSize
+                ))
+
             case .delta:
                 try requireArity(coder, inputs: 1)
                 guard coder.properties.count == 1 else {
@@ -555,6 +567,7 @@ enum SevenZipMethodKind: Equatable {
     case bzip2
     case aes
     case delta
+    case swap(Int)
     case branch(SevenZipBranchFilter)
     case bcj2
     case unsupported(String)
@@ -571,6 +584,8 @@ enum SevenZipMethod {
         case [0x04, 0x02, 0x02]: return .bzip2
         case [0x06, 0xF1, 0x07, 0x01]: return .aes
         case [0x03]: return .delta
+        case [0x02, 0x03, 0x02]: return .swap(2)
+        case [0x02, 0x03, 0x04]: return .swap(4)
         case [0x04], [0x03, 0x03, 0x01, 0x03]: return .branch(.x86)
         case [0x05], [0x03, 0x03, 0x02, 0x05]: return .branch(.powerPC)
         case [0x07], [0x03, 0x03, 0x05, 0x01]: return .branch(.arm)
@@ -596,6 +611,7 @@ enum SevenZipMethod {
         case .deflate: return "Deflate"
         case .bzip2: return "BZip2"
         case .aes: return "7zAES-256"
+        case let .swap(width): return "Swap\(width)"
         case .delta:
             return coder.properties.count == 1
                 ? "Delta:\(Int(coder.properties[0]) + 1)"

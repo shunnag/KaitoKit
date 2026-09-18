@@ -185,7 +185,11 @@ public final class ArchiveReader {
                 password = rar.resolvedPassword
             }
         case .lha:
-            let signatures = try FormatDetector.findLHASignatures(source: source)
+            // FormatDetector accepts a lone terminator only with an LHA
+            // filename hint. There is no member header for the SFX scanner.
+            let signatures = source.length == 1
+                ? [FormatDetector.LHASignatureMatch(offset: 0)]
+                : try FormatDetector.findLHASignatures(source: source)
             guard !signatures.isEmpty else {
                 throw KaitoError.unsupportedFormat
             }
@@ -260,7 +264,7 @@ public final class ArchiveReader {
             reader = xar
             entries = xar.entries
             format = .xar
-        case .gzip, .bzip2, .xz, .zstd, .compress, .lzma:
+        case .gzip, .bzip2, .xz, .zstd, .lz4, .compress, .lzma:
             let single = try SingleFileReader(
                 source: source,
                 format: detected,
@@ -535,7 +539,7 @@ public final class ArchiveReader {
         if name.hasSuffix(".tar.gz") || name.hasSuffix(".tgz") {
             return .gzip
         }
-        if name.hasSuffix(".tar.bz2") || name.hasSuffix(".tbz2") {
+        if name.hasSuffix(".tar.bz2") || name.hasSuffix(".tbz2") || name.hasSuffix(".tbz") {
             return .bzip2
         }
         if name.hasSuffix(".tar.xz") || name.hasSuffix(".txz") {
@@ -543,6 +547,10 @@ public final class ArchiveReader {
         }
         if name.hasSuffix(".tar.zst") || name.hasSuffix(".tzst") {
             return .zstd
+        }
+        if name.hasSuffix(".tar.lz4") { return .lz4 }
+        if name.hasSuffix(".tar.lzma") || name.hasSuffix(".tlz") {
+            return .lzma
         }
         // 既存の LZWDecoder と tar staging を .tar.Z / .tZ にも適用する。
         if name.hasSuffix(".tar.z") || name.hasSuffix(".tz") {

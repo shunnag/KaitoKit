@@ -227,10 +227,10 @@ final class XarReader: FormatReader {
         case .stored: decoder = try CopyDecompressor(source: window, offset: 0, compressedSize: data.length)
         case .zlib, .rfc6713Zlib: decoder = try DeflateDecompressor(source: window, offset: 0, compressedSize: data.length, zlibWrapped: true)
         case .bzip2: decoder = try Bzip2Decompressor(source: window, offset: 0, compressedSize: data.length)
-        case .xz: decoder = try XZDecompressor(source: window)
+        case .xz: decoder = try XZDecompressor(source: window, limits: limits)
         case .lzma:
             let prefix = try readByteRange(source: window, offset: 0, count: Checked.toInt(min(6, window.length)))
-            if prefix == [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0] { decoder = try XZDecompressor(source: window) }
+            if prefix == [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0] { decoder = try XZDecompressor(source: window, limits: limits) }
             else {
                 let header = try LZMAAloneHeader.read(source: window, limits: limits)
                 if let size = header.uncompressedSize, size != data.size { throw KaitoError.malformed("xar lzma size") }

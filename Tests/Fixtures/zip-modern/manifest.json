@@ -1,0 +1,16 @@
+{
+  "payload_size": 38400,
+  "payload_sha256": "16f3e0211c947966c0e1e379ac87c947174a6b227df976fe95373940be9449b4",
+  "password": "KaitoFixture",
+  "archives": {
+    "xz.zip": "b6bd9417116ff49fc46f9900a5a479d0ad375b04ad37195fdd888c0f10b52ebf",
+    "xz-aes.zip": "7bd4f2b06d7826039363735aeed7feb8c441eafd8276b4a96735325b5ea09d8d",
+    "xz-zipcrypto.zip": "4d90a98ea20df106279af11a976de9a6dec8b3d5bef1944b54f351fe2635e2c1",
+    "zstd93.zip": "99a7bc929b76c9559746b2dbaf3772972991ef0a346362f8c65c4da3801a1540",
+    "zstd20.zip": "1ebcc48bdba94bd6069c705ff69944d6d35135836a5c5e2f60fbdaf7c455b821",
+    "zstd-aes93.zip": "2b87c56dfcce27c0813b294aabdd0ed2f4309597fb22b37db1ee11fe7aea1cb8",
+    "zstd-aes20.zip": "5832be605e9948776b83f184f31aea917177e1f7cf74cffadf1011966846818a",
+    "small-dictionary.xz": "d1d5d061c0182abd7528ee166dd492e67cc0facb2873397bd947b9332c23ab1f",
+    "empty.xz": "0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275"
+  }
+}

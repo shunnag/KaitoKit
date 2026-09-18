@@ -3,13 +3,14 @@ import Foundation
 /// Detects supported archive containers from their structural signatures.
 ///
 /// zstd は通常 frame と先頭の skippable frame の両方を検出する。
-/// Zstandard detection includes ordinary and leading skippable frames.
+/// LZ4 と Zstandard で共通の skippable frame は、最初の通常 frame で区別する。
+/// Skippable-only streams retain the existing Zstandard classification.
 ///
 /// Detection uses a stable order so ambiguous inputs behave consistently:
 ///
 /// 1. A checksum-valid tar member header wins
 ///    over bytes in its pathname that resemble a shorter stream signature.
-/// 2. Native markers are checked in this order: ZIP, RAR, 7-Zip, XZ, xar, zstd, RPM, CAB,
+/// 2. Native markers are checked in this order: ZIP, RAR, 7-Zip, XZ, xar, LZ4/zstd, RPM, CAB,
 ///    structurally plausible LHA, gzip, bzip2, UNIX compress, then `!<arch>` / `!<thin>` ar, structurally valid ASCII cpio.
 ///    LHA precedes the two-byte stream markers because its header supplies a
 ///    method and a bounded size envelope.
@@ -92,8 +93,9 @@ public enum FormatDetector {
     ///
     /// File URLs inspect a bounded Mach-O or PE prefix by default. If content
     /// recognition does not decide the result, `.tar` and `.Z` extensions are
-    /// used as hints. LZMA_Alone requires a `.lzma` extension and a plausible
-    /// header, and is checked before binary cpio.
+    /// used as hints. LZMA_Alone requires a `.lzma` or `.tlz` extension and a plausible
+    /// header, and is checked before binary cpio. A single LHA terminator
+    /// requires a `.lha` or `.lzh` file name because it has no unique magic.
     public static func detect(
         url: URL,
         options: ReaderOptions = ReaderOptions()
@@ -167,7 +169,7 @@ public enum FormatDetector {
         let nativePrefixes: [[UInt8]] = [
             [0x50, 0x4b, 3, 4], [0x50, 0x4b, 5, 6], [0x50, 0x4b, 7, 8], [0x50, 0x4b, 0x30, 0x30],
             [0x52, 0x61, 0x72, 0x21, 0x1a, 7], [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c],
-            [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0], [0x1f, 0x8b], [0x1f, 0x9d],
+            [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0], [0x04, 0x22, 0x4d, 0x18], [0x02, 0x21, 0x4c, 0x18], [0x1f, 0x8b], [0x1f, 0x9d],
             [0xed, 0xab, 0xee, 0xdb], [0x4d, 0x53, 0x43, 0x46]
         ]
         if nativePrefixes.contains(where: { hasPrefix(bytes, $0) }) || XarHeader.probe(bytes)
@@ -217,7 +219,8 @@ public enum FormatDetector {
             return .xz
         }
         if XarHeader.probe(prefix) { return .xar }
-        if ZstdFrameHeader.hasMagic(prefix) { return .zstd }
+        if hasPrefix(prefix, [0x04, 0x22, 0x4d, 0x18]) || hasPrefix(prefix, [0x02, 0x21, 0x4c, 0x18]) { return .lz4 }
+        if ZstdFrameHeader.hasMagic(prefix) { return try skippableStreamFormat(source: source, limits: limits) }
         if hasPrefix(prefix, [0xED, 0xAB, 0xEE, 0xDB]) { return .rpm }
         if prefix.count > 25, hasPrefix(prefix, [0x4D, 0x53, 0x43, 0x46]), prefix[25] == 1 { return .cab }
         if try isLHAHeader(prefix, sourceLength: source.length) {
@@ -267,9 +270,16 @@ public enum FormatDetector {
             if pathExtension.caseInsensitiveCompare("Z") == .orderedSame {
                 return .compress
             }
+            // Empty LHA has only its end marker. Require both its exact
+            // one-byte representation and an explicit name hint; arbitrary
+            // zero-filled data must never become an editable LHA archive.
+            if ["lha", "lzh"].contains(pathExtension.lowercased()),
+               source.length == 1, prefix == [0] {
+                return .lha
+            }
             // LZMA SDK lzma-specification.txt (2015-06-14) の header を
             // 最後に検査する。magic が無いため拡張子だけでは受理しない。
-            if pathExtension.caseInsensitiveCompare("lzma") == .orderedSame,
+            if ["lzma", "tlz"].contains(pathExtension.lowercased()),
                LZMAAloneHeader.isPlausible(prefix, limits: limits) {
                 return .lzma
             }
@@ -277,6 +287,31 @@ public enum FormatDetector {
 
         if CpioHeader.probeBinary(source: source, recoverDamagedArchives: recoverDamagedArchives) { return .cpio }
         throw KaitoError.unsupportedFormat
+    }
+
+    // LZ4 and Zstandard deliberately share the skippable-frame range. Seek over
+    // each payload without allocating it. Malformed/pure skippable streams keep
+    // the previous classification and receive validation in their reader.
+    private static func skippableStreamFormat(source: any ByteSource, limits: ReadLimits) throws -> ArchiveFormat {
+        var position: UInt64 = 0
+        var records = 0
+        while source.length - position >= 4 {
+            let bytes = try readByteRange(source: source, offset: position, count: 4)
+            let magic = littleEndianUInt32(bytes, at: 0)
+            if magic == LZ4FrameDecompressor.magic || magic == LZ4FrameDecompressor.legacyMagic { return .lz4 }
+            guard ZstdFrameHeader.isSkippable(magic) else { return .zstd }
+            guard records < limits.maxMetadataRecordCount else {
+                throw KaitoError.limitExceeded("skippable frame count")
+            }
+            records += 1
+            guard source.length - position >= 8 else { return .zstd }
+            let sizeBytes = try readByteRange(source: source, offset: position + 4, count: 4)
+            let size = littleEndianUInt32(sizeBytes, at: 0)
+            position += 8
+            guard size <= source.length - position else { return .zstd }
+            position += size
+        }
+        return .zstd
     }
 
     private static func hasPrefix(_ bytes: [UInt8], _ signature: [UInt8]) -> Bool {

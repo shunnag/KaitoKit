@@ -573,6 +573,22 @@ final class ZipReader: FormatReader {
                     self?.aesDerivedKeyCache[cacheKey] = derivedKeys
                 }
             }
+            if record.method == 95 {
+                // XZ checks every block's dictionary before native decoding, then
+                // rereads the stream. AES random access authenticates the entire
+                // ciphertext each time. Snapshot one sequential authenticated pass
+                // to keep this linear, without weakening mutable-source checks.
+                var stagingLimits = limits
+                stagingLimits.maxEntrySize = decryptedSource.length
+                stagingLimits.inMemorySingleFileLimit = min(limits.inMemorySingleFileLimit, 4 * 1_024 * 1_024)
+                let compressedStream = try EntryStream(
+                    decompressor: CopyDecompressor(source: decryptedSource, offset: 0,
+                                                   compressedSize: decryptedSource.length),
+                    length: decryptedSource.length, expectedCRC32: nil, entryIndex: -1,
+                    limits: stagingLimits, completionCheck: completionCheck)
+                let staged = try SingleFileMaterializer.materialize(compressedStream, limits: stagingLimits)
+                return (staged, 0, staged.length, nil)
+            }
             return (
                 result.source,
                 0,
@@ -663,11 +679,13 @@ final class ZipReader: FormatReader {
                 expectedSize: uncompressedSize,
                 memorySizeLimit: limits.maxDictionarySize
             )
-        case 93:
+        case 20, 93:
+            // APPNOTE: 20 is the deprecated Zstandard identifier; decode both IDs.
             return try ZstdDecompressor(source: source, offset: offset, compressedSize: compressedSize,
                                         expectedSize: uncompressedSize, limits: limits)
-        case 95, 96:
-            throw KaitoError.unsupportedMethod(String(method))
+        case 95:
+            return try XZDecompressor(source: source, offset: offset,
+                                      compressedSize: compressedSize, limits: limits)
         default:
             throw KaitoError.unsupportedMethod(String(method))
         }
@@ -2240,7 +2258,7 @@ final class ZipReader: FormatReader {
         case 9: "deflate64"
         case 12: "bzip2"
         case 14: "lzma"
-        case 93: "zstd"
+        case 20, 93: "zstd"
         case 95: "xz"
         case 96: "jpeg"
         case 98: "ppmd"

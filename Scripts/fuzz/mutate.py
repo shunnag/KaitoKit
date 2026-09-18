@@ -124,7 +124,7 @@ def zip_payload_ranges(data: bytes) -> list[tuple[int, int]]:
             if candidate >= 0:
                 archive_base = candidate
 
-    supported_methods = {8, 9, 12, 14, 99}  # Deflate, Deflate64, BZip2, LZMA, AES.
+    supported_methods = {8, 9, 12, 14, 20, 93, 95, 98, 99}  # Includes both Zstandard IDs, XZ, PPMd and AES.
     ranges: list[tuple[int, int]] = []
     cursor = 0
     while True:
@@ -592,6 +592,57 @@ def lha_payload_ranges(data: bytes) -> list[tuple[int, int]]:
     return []
 
 
+def lz4_payload_ranges(data: bytes) -> list[tuple[int, int]]:
+    """Locate modern and legacy LZ4 blocks using the public frame grammar."""
+    cursor = 0
+    ranges = []
+    while cursor + 4 <= len(data):
+        magic = struct.unpack_from("<I", data, cursor)[0]
+        cursor += 4
+        if 0x184D2A50 <= magic <= 0x184D2A5F:
+            if cursor + 4 > len(data):
+                return ranges
+            size = struct.unpack_from("<I", data, cursor)[0]
+            cursor += 4 + size
+            continue
+        if magic == 0x184C2102:
+            while cursor + 4 <= len(data):
+                word = struct.unpack_from("<I", data, cursor)[0]
+                if word in (0x184C2102, 0x184D2204) or 0x184D2A50 <= word <= 0x184D2A5F:
+                    break
+                cursor += 4
+                if word == 0:
+                    break
+                end = cursor + word
+                if word > 8 * 1024 * 1024 + (8 * 1024 * 1024) // 255 + 16 or end > len(data):
+                    return ranges
+                ranges.append((cursor, end))
+                cursor = end
+            continue
+        if magic != 0x184D2204 or cursor + 3 > len(data):
+            return ranges
+        flags = data[cursor]
+        if flags >> 6 != 1:
+            return ranges
+        cursor += 3 + (8 if flags & 8 else 0) + (4 if flags & 1 else 0)
+        while cursor + 4 <= len(data):
+            word = struct.unpack_from("<I", data, cursor)[0]
+            cursor += 4
+            if word == 0:
+                cursor += 4 if flags & 4 else 0
+                break
+            size = word & 0x7FFFFFFF
+            end = cursor + size
+            if end > len(data):
+                return ranges
+            if size:
+                ranges.append((cursor, end))
+            cursor = end + (4 if flags & 16 else 0)
+        else:
+            return ranges
+    return ranges
+
+
 def compressed_payload_ranges(data: bytes) -> list[tuple[int, int]]:
     return (
         zip_payload_ranges(data)
@@ -599,6 +650,7 @@ def compressed_payload_ranges(data: bytes) -> list[tuple[int, int]]:
         + rar4_payload_ranges(data)
         + rar5_payload_ranges(data)
         + lha_payload_ranges(data)
+        + lz4_payload_ranges(data)
     )
 
 

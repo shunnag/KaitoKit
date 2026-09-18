@@ -1,0 +1,105 @@
+{
+  "tool": "7-Zip 26.03 (arm64)",
+  "password": "KaitoFixture",
+  "source": "https://github.com/ip7z/7zip/blob/main/DOC/Methods.txt",
+  "entries": {
+    "first.bin": {
+      "size": 262403,
+      "sha256": "a078b4e0753e13ab07561237b0d9507f9446982a7ae013b8285a713d26bb29d9"
+    },
+    "second.bin": {
+      "size": 1027,
+      "sha256": "318e252cf75fc244620e81039294bf77f79a5b5c24edcc51fa8dc9b9bed6a311"
+    },
+    "empty": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "fixtures": [
+    {
+      "file": "swap2-plain.7z.b64",
+      "sha256": "2191eb02c96de4a79d7e0db264675b366b5727d8cd6bb97373c844d32ff7340f",
+      "method": "Swap2",
+      "encrypted": false,
+      "arguments": [
+        "a",
+        "-bd",
+        "-y",
+        "-t7z",
+        "-m0=Swap2",
+        "-m1=LZMA2",
+        "-ms=on",
+        "-mhc=off",
+        "ARCHIVE",
+        "first.bin",
+        "second.bin",
+        "empty"
+      ]
+    },
+    {
+      "file": "swap2-aes.7z.b64",
+      "sha256": "757fcf6fef339c17384ec49c089b0c513761d7f5c5e970abfae7148acb4b91ba",
+      "method": "Swap2",
+      "encrypted": true,
+      "arguments": [
+        "a",
+        "-bd",
+        "-y",
+        "-t7z",
+        "-m0=Swap2",
+        "-m1=LZMA2",
+        "-ms=on",
+        "-mhc=off",
+        "-pKaitoFixture",
+        "-mhe=on",
+        "ARCHIVE",
+        "first.bin",
+        "second.bin",
+        "empty"
+      ]
+    },
+    {
+      "file": "swap4-plain.7z.b64",
+      "sha256": "a96d9662b5f8c6f5331f9222653fab6f1b3fa1567d143b925c8a8aa0980db3c3",
+      "method": "Swap4",
+      "encrypted": false,
+      "arguments": [
+        "a",
+        "-bd",
+        "-y",
+        "-t7z",
+        "-m0=Swap4",
+        "-m1=LZMA2",
+        "-ms=on",
+        "-mhc=off",
+        "ARCHIVE",
+        "first.bin",
+        "second.bin",
+        "empty"
+      ]
+    },
+    {
+      "file": "swap4-aes.7z.b64",
+      "sha256": "0c51296d700657321f344f773a859358493dbe1b3bd1d536f8efae594521c652",
+      "method": "Swap4",
+      "encrypted": true,
+      "arguments": [
+        "a",
+        "-bd",
+        "-y",
+        "-t7z",
+        "-m0=Swap4",
+        "-m1=LZMA2",
+        "-ms=on",
+        "-mhc=off",
+        "-pKaitoFixture",
+        "-mhe=on",
+        "ARCHIVE",
+        "first.bin",
+        "second.bin",
+        "empty"
+      ]
+    }
+  ]
+}

@@ -493,6 +493,7 @@ public final class KaitoArchive {
         case "bzip2": "Bzip2"
         case "xz": "XZ"
         case "zstd": "Zstandard"
+        case "lz4": "LZ4"
         case "compress": "Compress"
         case "lzma": "LZMA_Alone"
         default: reader.format.rawValue

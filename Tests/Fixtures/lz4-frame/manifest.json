@@ -1,0 +1,294 @@
+{
+  "tool": "*** lz4 v1.10.0 64-bit multithread, by Yann Collet ***",
+  "specifications": [
+    "https://github.com/lz4/lz4/blob/dev/doc/lz4_Frame_format.md",
+    "https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md",
+    "https://github.com/Cyan4973/xxHash/blob/release/doc/xxhash_spec.md"
+  ],
+  "fixtures": [
+    {
+      "name": "empty",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-B4",
+        "-BI",
+        "-BX",
+        "--content-size"
+      ],
+      "size": 15,
+      "sha256": "1829a9507d05badea902f965a15399c2e319389efb3577ddd9a70063d1c68a5b",
+      "decoded_size": 0,
+      "decoded_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "tiny",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-B4",
+        "-BI",
+        "-BX",
+        "--content-size"
+      ],
+      "size": 512,
+      "sha256": "f2cec0ac3ff52e8adc73380101d5a710b4a0d1e186df4ec495fa6ecaf26ef4ab",
+      "decoded_size": 1033,
+      "decoded_sha256": "e28a99eda349e29dde69fe63be0ce3fa1c3d0d14591e289ea4d5fa18d7808108"
+    },
+    {
+      "name": "independent-64k",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-B4",
+        "-BI",
+        "-BX",
+        "--content-size"
+      ],
+      "size": 3292,
+      "sha256": "913cefbc24c2ff71d1bb52401df3dd149add655ef670e8d689c78d693447d4ff",
+      "decoded_size": 262403,
+      "decoded_sha256": "8bd3550e17fd246794485494966dabffcc7097dc959e0e1e36b2b4f513292a14"
+    },
+    {
+      "name": "linked-64k",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-B4",
+        "-BD",
+        "-BX",
+        "--content-size"
+      ],
+      "size": 2330,
+      "sha256": "c1bee17cc12ea3b1808ec14e738bad5932ab331fb547459c379c322ad543acc3",
+      "decoded_size": 262403,
+      "decoded_sha256": "8bd3550e17fd246794485494966dabffcc7097dc959e0e1e36b2b4f513292a14"
+    },
+    {
+      "name": "independent-256k",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-B5",
+        "-BI",
+        "--content-size"
+      ],
+      "size": 3180,
+      "sha256": "6248ee763495df527ee0d96c61c5c1047d21eb68f0b893d0995d677f8bacd891",
+      "decoded_size": 524399,
+      "decoded_sha256": "86e63a9178034249d8856f0cc00eaa4eef0ed567da26f2a84a1c3987f1ad8fc1"
+    },
+    {
+      "name": "independent-1m",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-B6",
+        "-BI",
+        "--content-size"
+      ],
+      "size": 4748,
+      "sha256": "ed418babad7d861ea882cd6f9f233a462c01093b685cf5aae385adcd7be947b5",
+      "decoded_size": 1048699,
+      "decoded_sha256": "5731be5c2822ae1a9ccb699a96ca8126149390269fb2c7adee4907431cc57ec6"
+    },
+    {
+      "name": "independent-4m",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-B7",
+        "-BI",
+        "--content-size"
+      ],
+      "size": 17054,
+      "sha256": "6c566feb8af705af28cd551941e83b3b3cf909ae569dfd38a13a7e98843ace4a",
+      "decoded_size": 4194389,
+      "decoded_sha256": "51aaae08dfdba9f80c3c31192775badbb06ccfb1c2202bd5d2f089950db9013b"
+    },
+    {
+      "name": "stored",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-B4",
+        "-BI",
+        "-BX",
+        "--content-size"
+      ],
+      "size": 65626,
+      "sha256": "a086071eae4e52e5520e6d248eb09e4cec50f4f5628f77634cb36516c6ee37e8",
+      "decoded_size": 65587,
+      "decoded_sha256": "a2f401bf5f60c8906723fd1642e2bb3021911f1833e7d014dc40965ba4924a93"
+    },
+    {
+      "name": "no-checksum",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-B4",
+        "-BD",
+        "--no-frame-crc"
+      ],
+      "size": 2298,
+      "sha256": "8af039af324a3e774b891c6ed79d1ccccc873ecaf14f81642ca51bce93ed3677",
+      "decoded_size": 262403,
+      "decoded_sha256": "8bd3550e17fd246794485494966dabffcc7097dc959e0e1e36b2b4f513292a14"
+    },
+    {
+      "name": "tar-linked",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-B4",
+        "-BD",
+        "-BX",
+        "--content-size"
+      ],
+      "size": 1648,
+      "sha256": "81196c48f097a8a6ad9afec6aab6af16333d59e9e04eb4d46069d42e54998045",
+      "decoded_size": 143360,
+      "decoded_sha256": "bb5c0eb4ee7155b7e6f431080d1c43a9c38b7d6765aa19448d925cc9519b0dca"
+    },
+    {
+      "name": "legacy-empty",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-l"
+      ],
+      "size": 4,
+      "sha256": "defd720fd1eb30161f269798941ef3ab079c370f55bff045c08903d44f9f31e0",
+      "decoded_size": 0,
+      "decoded_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "legacy-tiny",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-l"
+      ],
+      "size": 489,
+      "sha256": "7023e722591bb211c39b8db70211696f3f0910ec1085230701e0a4e7d661cb9f",
+      "decoded_size": 1033,
+      "decoded_sha256": "e28a99eda349e29dde69fe63be0ce3fa1c3d0d14591e289ea4d5fa18d7808108"
+    },
+    {
+      "name": "legacy-8m-exact",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-l"
+      ],
+      "size": 33398,
+      "sha256": "d58de5bf8a372a3d997ad3defa4f721eea913edc8eb70837ba8b3dfd946393c1",
+      "decoded_size": 8388608,
+      "decoded_sha256": "e11e218315ee6130cc78a3ffd1edceb3d36caac8c9485011210d18b94991f10f"
+    },
+    {
+      "name": "legacy-8m-tail",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-l"
+      ],
+      "size": 33454,
+      "sha256": "72973ea251110a0d1a61b105a66a2f1385a0be271750f792eb861440b66968df",
+      "decoded_size": 8388661,
+      "decoded_sha256": "9f1e8eb5af33f87cd4116260432bee3cebb6c8e6a2c9831fa6dce85457ee7e9b"
+    },
+    {
+      "name": "legacy-incompressible",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-l"
+      ],
+      "size": 65854,
+      "sha256": "3dd0cf69588e4a3def74a9278db09b18e2890a3d79a82dc2e9f01ff3ce49260e",
+      "decoded_size": 65587,
+      "decoded_sha256": "a2f401bf5f60c8906723fd1642e2bb3021911f1833e7d014dc40965ba4924a93"
+    },
+    {
+      "name": "legacy-tar",
+      "arguments": [
+        "-T1",
+        "-q",
+        "-f",
+        "-l"
+      ],
+      "size": 1269,
+      "sha256": "ef3eec567ae7b75a87af4336d134c1505ebe99029cf49504c57b918fa84179fd",
+      "decoded_size": 143360,
+      "decoded_sha256": "bb5c0eb4ee7155b7e6f431080d1c43a9c38b7d6765aa19448d925cc9519b0dca"
+    }
+  ],
+  "xxh32_vectors": [
+    {
+      "length": 0,
+      "xxh32": "02cc5d05"
+    },
+    {
+      "length": 1,
+      "xxh32": "ad95251d"
+    },
+    {
+      "length": 3,
+      "xxh32": "2416b032"
+    },
+    {
+      "length": 15,
+      "xxh32": "99fadac8"
+    },
+    {
+      "length": 16,
+      "xxh32": "ccf6227c"
+    },
+    {
+      "length": 17,
+      "xxh32": "9f7a49d7"
+    },
+    {
+      "length": 31,
+      "xxh32": "bd3d0a3a"
+    },
+    {
+      "length": 32,
+      "xxh32": "5f483538"
+    },
+    {
+      "length": 33,
+      "xxh32": "fd84d7e7"
+    },
+    {
+      "length": 255,
+      "xxh32": "99308db8"
+    },
+    {
+      "length": 65536,
+      "xxh32": "a41ac475"
+    },
+    {
+      "length": 65539,
+      "xxh32": "bf3e2a50"
+    }
+  ]
+}

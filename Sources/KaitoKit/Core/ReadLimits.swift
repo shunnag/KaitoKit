@@ -11,7 +11,8 @@ public struct ReadLimits: Sendable, Equatable {
 
     /// Maximum expanded single-file stream retained in memory while opening a
     /// compressed tar archive. Larger streams are staged in an unlinked
-    /// temporary file. The default is 64 MiB.
+    /// temporary file. The default is 64 MiB. AES-encrypted ZIP XZ also uses
+    /// this limit for authenticated compressed staging, with a 4 MiB ceiling.
     public var inMemorySingleFileLimit: UInt64
 
     /// Maximum number of entries accepted from one archive.

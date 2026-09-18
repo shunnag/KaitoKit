@@ -8,6 +8,11 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-09-18-lz4-legacy.md](2026-09-18-lz4-legacy.md) | 2026-09-18 | LZ4 legacy・8 MiB境界・混在連結・CLI差分・上限 | 未コミット |
+| [2026-09-18-lz4-frame.md](2026-09-18-lz4-frame.md) | 2026-09-18 | LZ4 frame・XXH32・圧縮tar・連結・skippable・上限 | 未コミット |
+| [2026-09-18-sevenzip-swap.md](2026-09-18-sevenzip-swap.md) | 2026-09-18 | 7z Swap2/Swap4・solid・AES・分割・プレビューと編集 | 未コミット |
+| [2026-09-18-zip-methods.md](2026-09-18-zip-methods.md) | 2026-09-18 | ZIP 20/95・暗号化・分割・編集・読み取り量の回帰 | 未コミット |
+| [2026-09-17-release-hardening.md](2026-09-17-release-hardening.md) | 2026-09-17 | 圧縮tar別名、空LHA、XZの辞書上限、全件とsanitizer | 未コミット |
 | [2026-09-08-performance-rar-lha.md](2026-09-08-performance-rar-lha.md) | 2026-09-08 | RAR29 と LHA の高速化（CRC16 の slice-by-eight 化、重複一致の周期コピー、静的 Huffman の一次 lookup） | `7a1d210` |
 | [2026-09-08-performance-stability.md](2026-09-08-performance-stability.md) | 2026-09-08 | PPMd の毎シンボル検査除去と安定性の再確認 | `7a1d210` |
 | [2026-09-08-review-fixes-verification.md](2026-09-08-review-fixes-verification.md) | 2026-09-08 | 敵対レビュー指摘（展開先を脱出する symbolic link を含む）の修正検証 | `7a1d210` |

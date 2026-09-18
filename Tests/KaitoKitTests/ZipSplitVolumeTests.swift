@@ -227,6 +227,31 @@ final class ZipSplitVolumeTests: XCTestCase {
         XCTAssertEqual(ZipSplitVolumeSet.volumeName(naming, number: 106), "comic.z106")
     }
 
+    func testXZAndLegacyZstandardAcrossZIP32AndZIP64Volumes() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for name in ["xz.zip", "xz-aes.zip", "xz-zipcrypto.zip", "zstd20.zip", "zstd-aes20.zip"] {
+            let original = try ModernZIPFixtures.data(name)
+            let payload = try ModernZIPFixtures.payloadRange(original)
+            for wide in [false, true] {
+                // Split a local header, compressed/encrypted payload, and central record.
+                let split = try ZipSplitFixture(original, below: directory, name: name,
+                    wide: wide, sentinelDisk: wide) {
+                    [12, payload.lowerBound + 4 + payload.count / 2, $0.centralDirectoryOffset + 17]
+                }
+                let options = ReaderOptions(password: ModernZIPFixtures.password)
+                for volume in split.urls {
+                    let reader = try ArchiveReader.open(url: volume, options: options)
+                    XCTAssertEqual(try reader.read(reader.entries[0]), ModernZIPFixtures.payload)
+                }
+                let retained = try ArchiveReader.open(url: split.urls.last!, options: options)
+                for url in split.urls { try FileManager.default.removeItem(at: url) }
+                let reopened = try retained.reopen()
+                XCTAssertEqual(try reopened.read(reopened.entries[0]), ModernZIPFixtures.payload)
+            }
+        }
+    }
+
     func testZIP32LocalHeaderDataAndCentralDirectoryCrossBoundaries() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

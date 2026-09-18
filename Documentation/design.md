@@ -116,7 +116,7 @@ streaming 検証契約:
 
 1. ZIP/CBZ(stored, deflate, bzip2, deflate64, LZMA, ZipCrypto, WinZip AES, ZIP64, CP932 名)
 2. RAR/CBR(RAR 2.9/3.x, RAR 5.x, solid, 分割、暗号化)
-3. 7z/CB7(LZMA, LZMA2, PPMd, BCJ/BCJ2, Delta, Deflate, BZip2, AES-256, solid/ブロック)
+3. 7z/CB7(LZMA, LZMA2, PPMd, BCJ/BCJ2, Delta, Swap2/Swap4, Deflate, BZip2, AES-256, solid/ブロック)
 4. LHA/LZH(lh0, lh4〜lh7, lh1, lz4/lz5/lzs, ヘッダ level 0/1/2, SJIS 名, 0x46 コードページ)
 5. tar 系(ustar/pax/GNU)+ gz/bz2/xz/zstd(xz は Compression framework)
 6. ISO 9660（PVD / Joliet / Rock Ridge、multi-extent、stored）
@@ -616,6 +616,32 @@ folder 末尾の奇数 raw block の pad 欠落、最終 frame 末尾の余剰 1
 - 汎用 algorithm の参照として、既存 KaitoKit BCJ / Delta、XZ Utils の 0BSD IA-64 branch encoding 解説、RFC 7693 / 8018、BLAKE2 / AES / NIST の公開仕様を使う。これらは RAR5 container や LZ grammar を定義する形式固有資料とは区別する。
 - 参照はいずれも「挙動と仕様」を学ぶためで、コードを写さない。ライセンスは MIT 単一。
 - 作業中に禁止対象 source を誤って開いた incident とその是正は、この節に開示する。現在の実装入力に関する記述は、その incident をなかったことにする記述ではない。
+
+2026-09-18 の incident 開示。RISC-V filter の公開仕様を探したWeb検索結果に、
+XZ の `riscv.c` と Linux の `xz_dec_bcj.c` の実装断片が自動表示された。
+実装ページを開いたりコードを転記したりはしていないが、表示自体を参照範囲の逸脱として記録する。
+同じsessionではRISC-V decoderを実装せず、既存の未対応拒否を維持した。
+Swap2/Swap4の実装と独立fixtureはこの検索前に作成済みで、検索断片はその入力に含めていない。
+今後のRISC-V追加には、許可された資料から独立に確定した仕様とblack-box vectorを別途そろえる。
+
+2026-09-18 の追加incident開示。lzipの公式マニュアルのFile formatを確認する検索結果に、
+同じマニュアル後半のReference source codeからCRC・member header/trailer処理等の断片が
+自動表示された。仕様節だけを求めた検索でも参考実装を含み得ることを確認した。
+lzipの製品コード・fixtureはまだ作成しておらず、このsessionではlzipの実装を行わない。
+既存LZMAの改変も行っていない。今後は参考実装を含まない、許可された独立仕様を別途用意する。
+LZ4の作業には既存のFrame/Block形式仕様と公式CLIの入出力だけを用い、この断片を用いない。
+
+LZ4 legacyの実装入力は公開 `lz4_Frame_format.md` v1.6.4のLegacy frame節と
+既存LZ4 Block仕様だけである。8 MiBの独立block、圧縮サイズ、EOF/既知magic境界、
+Linuxのzero end markerを定義として用いる。LZ4 1.10.0 CLIでプロジェクト所有の入力を
+生成・展開し、両方向の連結をblack-boxで比較した。CLIはmodern→legacy連結とzero
+end markerを拒否するため、それらはCLI互換実績には含めない。短い中間blockはCLI互換で
+受理する。legacyにはchecksum/declared sizeがなく、末尾block全体の脱落を検出できない。
+[legacy追補](verification/2026-09-18-lz4-legacy.md)に境界・資源上限と検証範囲を記録する。
+
+Swap2/Swap4の実装入力は公式 `Methods.txt` のID、既存 `Decompressor` 契約、
+7zz 26.03の `SwapN + Copy` 出力だけである。
+[2026-09-18 の検証記録](verification/2026-09-18-sevenzip-swap.md)に由来・境界・統合検証を記した。
 
 RAR 関連 source file ごとの実装入力は次のとおり。表の「black-box」は生成物と展開結果だけを
 指し、実行ファイルの source は含まない。

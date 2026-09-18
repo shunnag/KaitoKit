@@ -1,8 +1,8 @@
 import Darwin
 import Foundation
 
-/// Materializes a decoded single-file stream as a random-access source for a
-/// container reader. Small streams remain in memory; larger streams are moved
+/// Materializes a decoded single-file or decrypted compressed ZIP stream as a
+/// random-access source. Small streams remain in memory; larger streams are moved
 /// to an already-unlinked temporary file whose descriptor owns its lifetime.
 enum SingleFileMaterializer {
     private static let bufferSize = 256 * 1_024

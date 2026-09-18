@@ -120,12 +120,13 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 | gzip | RFC 1952、FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT、DEFLATE、CRC32/ISIZE | なし | concatenated member 対応 |
 | bzip2 | BZip2 block size 1〜9 | なし | concatenated stream 対応 |
 | xz | XZ container、Apple Compression の LZMA、footer/padding | なし | concatenated stream 対応 |
-| zstd | RFC 8878、`.zst` / `.tar.zst` / `.tzst`、RPM payload、ZIP method 93、XXH64 checksum。辞書は非対応 | なし | 連結 frame・skippable frame 対応 |
+| zstd | RFC 8878、`.zst` / `.tar.zst` / `.tzst`、RPM payload、ZIP method 20/93、XXH64 checksum。辞書は非対応 | なし | 連結 frame・skippable frame 対応 |
+| LZ4 frame | `.lz4` / `.tar.lz4`、独立／連続block、stored block、header/block/contentのXXH32、宣言サイズ、legacy 8 MiB block | なし | 連結・skippable frame対応。外部辞書は非対応。legacyにはchecksum・宣言サイズがない |
 | UNIX compress (`.Z`) | LZW、9〜16 bit、block mode | なし | なし |
-| LZMA_Alone (`.lzma`) | 13 byte header + raw LZMA。magic が無いため拡張子・properties・辞書サイズ・range coder 先頭 byte がすべて揃ったときだけ受理し、判定は最後に回す | なし | なし |
-| 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz2` / `.tar.bz2`、`.txz` / `.tar.xz`、`.tar.zst` / `.tzst`、`.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
-| ZIP / ZIP64 | stored (0)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、Zstandard (93)、PPMd (98)、中央 directory、SFX | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001` のバイト分割、`.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP（ZIP64・100 巻以上）対応。最終巻・途中巻から URL open |
-| 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、BZip2、Delta、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
+| LZMA_Alone (`.lzma` / `.tlz`) | 13 byte header + raw LZMA。magic が無いため拡張子・properties・辞書サイズ・range coder 先頭 byte がすべて揃ったときだけ受理し、判定は最後に回す | なし | なし |
+| 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz` / `.tbz2` / `.tar.bz2`、`.tar.lzma` / `.tlz`、`.txz` / `.tar.xz`、`.tar.zst` / `.tzst`、`.tar.lz4`、`.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
+| ZIP / ZIP64 | stored (0)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、Zstandard (20/93)、XZ (95)、PPMd (98)、中央 directory、SFX | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001` のバイト分割、`.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP（ZIP64・100 巻以上）対応。最終巻・途中巻から URL open |
+| 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、BZip2、Delta、Swap2/Swap4、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
 | RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
 | LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
@@ -162,18 +163,21 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 > - **bzip2, xz, UNIX compress (`.Z`)**: BZip2 block sizes 1 to 9; the XZ container with Apple
 >   Compression's LZMA, footer and padding; LZW 9 to 16 bit with block mode. No encryption. bzip2
 >   and xz support concatenated streams; `.Z` has none.
-> - **zstd**: RFC 8878 streams (`.zst`, `.tar.zst`, `.tzst`), RPM payloads and ZIP method 93,
+> - **zstd**: RFC 8878 streams (`.zst`, `.tar.zst`, `.tzst`), RPM payloads and ZIP method 20/93,
 >   including concatenated/skippable frames and XXH64 checksum verification. Dictionaries are unsupported.
-> - **LZMA_Alone (`.lzma`)**: a 13-byte header plus raw LZMA. Because the format has no magic, it is
+> - **LZ4 frame**: `.lz4` and `.tar.lz4`, independent/linked blocks, stored blocks,
+>   XXH32 header/block/content checksums, concatenated/skippable frames, and legacy 8 MiB
+>   blocks. External dictionaries are unsupported. Legacy frames have no checksum or declared size.
+> - **LZMA_Alone (`.lzma` / `.tlz`)**: a 13-byte header plus raw LZMA. Because the format has no magic, it is
 >   accepted only when the extension, the properties, the dictionary size and the first byte of the
 >   range coder all agree, and detection is left until last.
-> - **Compressed tar**: `.tgz` / `.tar.gz`, `.tbz2` / `.tar.bz2`, `.txz` / `.tar.xz` and
->   `.tar.zst` / `.tzst` and `.tz` / `.tar.Z` are expanded and then listed with TarReader.
-> - **ZIP / ZIP64**: stored (0), Deflate (8), Deflate64 (9), BZip2 (12), LZMA (14), Zstandard (93), PPMd (98),
+> - **Compressed tar**: `.tgz` / `.tar.gz`, `.tbz` / `.tbz2` / `.tar.bz2`, `.tar.lzma` / `.tlz`, `.txz` / `.tar.xz` and
+>   `.tar.zst` / `.tzst`, `.tar.lz4` and `.tz` / `.tar.Z` are expanded and then listed with TarReader.
+> - **ZIP / ZIP64**: stored (0), Deflate (8), Deflate64 (9), BZip2 (12), LZMA (14), Zstandard (20/93), XZ (95), PPMd (98),
 >   the central directory, SFX, `.zip.001` byte splits and split ZIP sets (`.z01`…`.zip`, `.zx01`…`.zipx`)
 >   are supported, including ZIP64 and more than 99 segments. Open the last or a numbered segment by URL.
 > - **7z**: the coder chain covers a folder in which a byte-consuming coder takes the output of
->   another coder as its input; solid folders and a bounded Mach-O/PE SFX prefix are supported.
+>   another coder as its input; Swap2/Swap4 byte-order filters, solid folders and a bounded Mach-O/PE SFX prefix are supported.
 >   `.001` byte splits made with 7-Zip `-v`, solid and block splits are supported.
 > - **RAR4 / RAR5**: LZ and PPMd of the listed unpack versions, the listed filters, solid mode, and
 >   a bounded SFX prefix. Multi-volume works from URL-backed input, including encrypted volumes for
@@ -440,6 +444,21 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 > consequence, corruption of the encrypted stream itself may also be reported as `wrongPassword`.
 > The KDF work limit is set by `ReaderOptions.maxSevenZipAESCyclesPower`.
 
+XZ は全 block と連結 stream の辞書を `maxDictionarySize` で制限します。
+AES暗号化されたZIP XZは、認証済み圧縮入力を最大4 MiB（`inMemorySingleFileLimit`がより小さければその値）まで
+メモリに保持し、それ以上は作成直後unlinkする非公開一時ファイルへ送ります。これにより全blockの事前検査が
+暗号文全体を繰り返し読み直すことを防ぎます。詳細は[ZIP追加検証](Documentation/verification/2026-09-18-zip-methods.md)を参照。
+空の LHA は正確な1 byteの終端と `.lha` / `.lzh` の名前 hint が必要です。
+名前のない Data / ByteSource からは終端だけで形式を識別しません。
+修正・全件検証は[リリース前横断検証](Documentation/verification/2026-09-17-release-hardening.md)を参照。
+
+> XZ checks every block and concatenated stream against `maxDictionarySize` before native decoding.
+> AES-encrypted ZIP XZ stages its authenticated compressed input once, retaining at most the lesser
+> of 4 MiB and `inMemorySingleFileLimit`; larger inputs use a private, immediately unlinked temporary
+> file. This keeps preflight reads linear and requires temporary disk space for large encrypted members.
+> An empty LHA requires exactly one terminator byte and a `.lha` / `.lzh` filename hint;
+> an unnamed Data / ByteSource cannot identify it from that ambiguous byte alone.
+
 ## 既知の制限
 
 - ISO は Rock Ridge（NM あり）> Joliet > PVD の順で名前の木を選びます。UDF、raw sector image、
@@ -451,7 +470,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 - RPM は rpm 6 の簡略 cpio (`07070X`)、drpm、cpio でない payload を展開せず、
   圧縮済み payload を 1 entry として公開します。
 - ARJ、ACE は未対応です。StuffIt X (`.sitx`) は上記の codec・前処理の制約があります。StuffIt の method 4/7/9〜12、classic の未記述の暗号 flag `0x10` は読み取り時に `unsupportedMethod` を返します。
-- ZIP は同名のリムーバブルメディアを交換する spanned、split PKSFX（先頭 `.exe`）、method 95 (xz)、96 (JPEG) を扱いません。
+- ZIP は同名のリムーバブルメディアを交換する spanned、split PKSFX（先頭 `.exe`）、method 96 (JPEG)、97 (WavPack) を扱いません。
   split ZIP は全巻が同じディレクトリに必要で、欠番は巻名付きエラーになります。既定上限は 128 巻、分割セットの damaged-directory recovery は対象外です。
 - zstd の外部辞書は非対応です。Dictionary_ID が非零なら `unsupportedMethod` になります。
 - 7z は zstd method と RISC-V filter (method 0x0B) を扱いません。
@@ -461,7 +480,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 - LHA は `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` を一覧できますが、読み取り時に
   `unsupportedMethod` になります。resource fork は separate entry として公開しません。
 - XZ は Apple Compression が扱う XZ container が対象で、同 liblzma が知らない RISC-V filter 付き
-  stream は読めません。raw `.lzma` (LZMA_Alone) は `.lzma` 拡張子付きのときだけ対象です。gzip/bzip2/xz の
+  stream は読めません。LZMA_Alone は `.lzma` / `.tlz` 拡張子と妥当なheaderがあるときだけ対象です。gzip/bzip2/xz の
   concatenated stream は一つの entry として連結した出力を返します。
 - gzip/bzip2/xz/`.Z` の出力サイズは読み終えるまで不明です。modern API では `nil`、compat API では
   `entryHasSize == false` / `Int64.max` になります。
@@ -497,7 +516,7 @@ stream 自体の破損も `wrongPassword` として報告される場合があ�
 >   that is not cpio; it exposes the compressed payload as a single entry instead.
 > - ARJ、ACE、StuffIt X の範囲外 codec・前処理・暗号・recovery、StuffIt method 4/7/9〜12、classic 暗号 flag `0x10` は非対応です。
 > - ZIP does not handle same-name removable-media spanning, split PKSFX (`.exe` first segment),
->   or methods 95 (xz) and 96 (JPEG). Split ZIP requires every volume in one directory; a missing
+>   or methods 96 (JPEG) and 97 (WavPack). Split ZIP requires every volume in one directory; a missing
 >   volume is an error naming that file. The default limit is 128 volumes; damaged-directory recovery
 >   is unavailable for split sets.
 > - External zstd dictionaries are unsupported; a nonzero Dictionary_ID produces `unsupportedMethod`.

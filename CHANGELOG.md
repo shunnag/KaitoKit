@@ -6,6 +6,15 @@
 
 ## [Unreleased]
 
+- LZ4 frameの読み取りを追加。単体・圧縮tar・連結・skippable・独立／連続block・各XXH32を検証し、分割・一時ディスク・展開上限に接続した。legacy frameも8 MiB block・連結・圧縮tarを読み取る。外部辞書は非対応。公開enum `ArchiveFormat` に `.lz4` を追加したため、利用側の網羅的switchにはcaseの追加が必要。[現行frame](Documentation/verification/2026-09-18-lz4-frame.md)・[legacy追補](Documentation/verification/2026-09-18-lz4-legacy.md)。
+- 7z Swap2/Swap4 filterを追加。solidのmember境界・暗号化・分割を独立7zz fixtureで検証。[検証記録](Documentation/verification/2026-09-18-sevenzip-swap.md)。
+
+- ZIP XZ（95）と旧Zstandard（20）の読み取りを追加。暗号化・分割・ZIP64・descriptor・辞書上限と接続した。AES XZの全block検査では認証済み圧縮入力を上限付きで一時保持し、暗号文の繰り返し読み取りを防ぐ。[検証記録](Documentation/verification/2026-09-18-zip-methods.md)。
+
+- 圧縮 tar の `.tar.lzma` / `.tlz` / `.tbz` を既存 codec と TarReader に接続した。
+- `.lha` / `.lzh` と正確な1 byte終端の組合せを空 LHA として受理し、全項目削除後の再編集を可能にした。名前のないデータは従来どおり曖昧な終端だけで識別しない。
+- XZ の全block・連結streamの辞書を、Apple Compressionに渡す前に `ReadLimits.maxDictionarySize` と照合する。単体・圧縮tar/RPM・xarに適用。再現、境界テスト、全件・sanitizer結果は[横断検証](Documentation/verification/2026-09-17-release-hardening.md)を参照。
+
 ## [0.6.1] - 2026-09-17
 
 - ZIP の EOCD 候補の再試行予算が正当な大規模書庫の初回解析まで拒否する不整合を修正した。件数に比例する中央ディレクトリを単一確保の `maxMetadataSize`（既定 16 MiB）で制限すると `maxEntryCount = 1,000,000` と両立しないため、既存の総 metadata 上限 `maxTotalMetadataSize`（既定 256 MiB）で制限し、メモリ上限は維持する。初回候補の通常解析だけを課金免除とし、上限／未対応エラー後の整合性検査と再試行には累積 work の上限を適用する。分割 ZIP の整合性検査も新しい総 metadata 上限に対応し、不正な末尾候補を除外できるようにした。試行回数の上限と兄弟巻探索の予算は変更しない。

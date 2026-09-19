@@ -102,10 +102,12 @@ final class XZResourceLimitTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let input = directory.appendingPathComponent("input")
         try payload.write(to: input)
-        _ = try ZipTestSupport.checkedRun("/opt/homebrew/bin/xz",
+        let xz = ZipTestSupport.xzPath
+        try ZipTestSupport.requireExecutable(xz)
+        _ = try ZipTestSupport.checkedRun(xz,
             arguments: ["--threads=1", "--keep"] + arguments + [input.path], currentDirectory: directory)
         let output = input.appendingPathExtension("xz")
-        _ = try ZipTestSupport.checkedRun("/opt/homebrew/bin/xz", arguments: ["--test", output.path], currentDirectory: directory)
+        _ = try ZipTestSupport.checkedRun(xz, arguments: ["--test", output.path], currentDirectory: directory)
         return try Data(contentsOf: output)
     }
 

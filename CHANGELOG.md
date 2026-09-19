@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-19
+
 - ZIP・tar・7z・LHA の `reopen()` は解析済み entry と位置情報を共有する。ZIP の local header cache は初回利用時に確保し、展開予算の初期合計も再計算しない。reader ごとの検証・decoder・password・鍵 cache は独立させ、分割 ZIP の巻配置と圧縮 tar の staging も保持する（K9）。10k / 100k entry の前後測定と失敗文は [検証記録](Documentation/verification/2026-09-19-release-review.md#k9-share-parsed-state-on-reopen)を参照。
 
 - StuffIt SFX の候補 header 検証を `maxMetadataSize` の累積読み取り予算で制限した。StuffIt 5 の scan 時の header 読み取りは 64 KiB までとし、大きい header の全 CRC は選択後の parser で一度だけ検証する（K10）。

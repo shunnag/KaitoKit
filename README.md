@@ -1,7 +1,7 @@
 # KaitoKit (解凍Kit)
 
 KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。tar、ZIP / ZIP64、7z、
-RAR4 / RAR5、LHA / LZH、StuffIt classic / StuffIt 5 / StuffIt X、ISO 9660、cpio、ar（.deb を含む）、xar（.pkg を含む）、CAB、RPM に加え、gzip、bzip2、xz、zstd、UNIX compress (`.Z`) と圧縮 tar を扱います。
+RAR4 / RAR5、LHA / LZH、StuffIt classic / StuffIt 5 / StuffIt X、ISO 9660、cpio、ar（.deb を含む）、xar（.pkg を含む）、CAB、RPM に加え、gzip、bzip2、xz、zstd、LZ4、LZMA（`.lzma` / `.tlz`）、UNIX compress (`.Z`) と圧縮 tar を扱います。
 書庫の検出から列挙、ストリーミング読み取り、展開までを一つのパイプラインとして提供します。
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon / Intel
@@ -12,7 +12,7 @@ RAR4 / RAR5、LHA / LZH、StuffIt classic / StuffIt 5 / StuffIt X、ISO 9660、c
 >
 > KaitoKit is a pure-Swift archive reading framework for macOS. It handles tar, ZIP / ZIP64, 7z,
 > RAR4 / RAR5, LHA / LZH, StuffIt classic / StuffIt 5 / StuffIt X, ISO 9660, cpio, ar (including `.deb`), xar (including `.pkg`), CAB and RPM,
-> plus gzip, bzip2, xz, zstd, UNIX compress (`.Z`) and compressed tar.
+> plus gzip, bzip2, xz, zstd, LZ4, LZMA (`.lzma` / `.tlz`), UNIX compress (`.Z`) and compressed tar.
 > Detection, listing, streaming reads and extraction are provided as one pipeline.
 >
 > - Requires macOS 26 or later, Swift 6, Apple Silicon or Intel.
@@ -124,7 +124,7 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 | LZ4 frame | `.lz4` / `.tar.lz4`、独立／連続block、stored block、header/block/contentのXXH32、宣言サイズ、legacy 8 MiB block | なし | 連結・skippable frame対応。外部辞書は非対応。legacyにはchecksum・宣言サイズがない |
 | UNIX compress (`.Z`) | LZW、9〜16 bit、block mode | なし | なし |
 | LZMA_Alone (`.lzma` / `.tlz`) | 13 byte header + raw LZMA。magic が無いため拡張子・properties・辞書サイズ・range coder 先頭 byte がすべて揃ったときだけ受理し、判定は最後に回す | なし | なし |
-| 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz` / `.tbz2` / `.tar.bz2`、`.tar.lzma` / `.tlz`、`.txz` / `.tar.xz`、`.tar.zst` / `.tzst`、`.tar.lz4`、`.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
+| 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz` / `.tbz2` / `.tar.bz2`、`.tar.lzma` / `.tlz`、`.txz` / `.tar.xz`、`.tar.zst` / `.tzst`、`.tar.lz4`、`.taz` / `.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
 | ZIP / ZIP64 | stored (0)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、Zstandard (20/93)、XZ (95)、PPMd (98)、中央 directory、SFX | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001` のバイト分割、`.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP（ZIP64・100 巻以上）対応。最終巻・途中巻から URL open |
 | 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、BZip2、Delta、Swap2/Swap4、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
 | RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
@@ -172,7 +172,7 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 >   accepted only when the extension, the properties, the dictionary size and the first byte of the
 >   range coder all agree, and detection is left until last.
 > - **Compressed tar**: `.tgz` / `.tar.gz`, `.tbz` / `.tbz2` / `.tar.bz2`, `.tar.lzma` / `.tlz`, `.txz` / `.tar.xz` and
->   `.tar.zst` / `.tzst`, `.tar.lz4` and `.tz` / `.tar.Z` are expanded and then listed with TarReader.
+>   `.tar.zst` / `.tzst`, `.tar.lz4` and `.taz` / `.tz` / `.tar.Z` are expanded and then listed with TarReader.
 > - **ZIP / ZIP64**: stored (0), Deflate (8), Deflate64 (9), BZip2 (12), LZMA (14), Zstandard (20/93), XZ (95), PPMd (98),
 >   the central directory, SFX, `.zip.001` byte splits and split ZIP sets (`.z01`…`.zip`, `.zx01`…`.zipx`)
 >   are supported, including ZIP64 and more than 99 segments. Open the last or a numbered segment by URL.
@@ -271,6 +271,8 @@ CP1256 の欠落8文字は判定用の表にだけ補っており、ペルシア
 
 圧縮 tar の展開結果は `ReadLimits.inMemorySingleFileLimit` 以下なら memory、それより大きければ
 直ちに unlink した一時 file descriptor に保持します。どちらも同じ `TarReader` API を公開します。
+`reopen()` はこの展開済み source を共有し、再展開・一時 file の再作成を行いません。
+staging は chunk ごとに task の cancellation を確認します。
 
 > **Names and compressed tar staging**
 >
@@ -282,6 +284,8 @@ CP1256 の欠落8文字は判定用の表にだけ補っており、ペルシア
 > The expansion of a compressed tar is held in memory when it is at or below
 > `ReadLimits.inMemorySingleFileLimit`, and otherwise in an immediately unlinked temporary file
 > descriptor. Both paths expose the same `TarReader` API.
+> `reopen()` shares that staged source without decoding or creating another temporary file.
+> Staging checks task cancellation at each chunk.
 
 LHA の directory 属性は method だけでなく末尾 separator と MS-DOS directory bit からも判定します。
 このため OS/2 の extended-attribute payload を持つ subdirectory も子 entry の親として扱えます。
@@ -561,9 +565,14 @@ serial queue で直列化し、並列展開には `reopen()` で作った独立 
 `solidGroup >= 0` の entry は同じ worker へ割り当て、`solidGroup == -1` は entry 単位で並列化できます。
 
 `ReadLimits` は `maxEntrySize`、`maxTotalUncompressedSize`、`maxInMemorySize`、
-`inMemorySingleFileLimit`、entry/metadata/path/dictionary/volume 上限などをまとめます。利用する corpus と
+`inMemorySingleFileLimit`、`stagingFreeSpaceReserve`、`maxSevenZipHeaderKDFWork`、
+entry/metadata/path/dictionary/volume 上限などをまとめます。利用する corpus と
 端末の memory budget に合わせて open 前に設定してください。`read(_:)` より大きい entry は
 `EntryStream` で処理し、最後の 0 または error まで読み切って CRC と stream footer を確定します。
+`stagingFreeSpaceReserve` は一時 volume の空き容量下限（既定 1 GiB）です。disk staging の開始前と
+256 MiB 書き込みごとに確認し、下回れば `limitExceeded("staging free space")` を返します。
+`maxSevenZipHeaderKDFWork` は 7z の open 中に行う header KDF の SHA-256 round 総数を制限します
+（既定 `4 * (1 << 24)`）。cache hit と direct key は消費せず、entry 読み取り時の派生は対象外です。
 
 `Data(contentsOf:options:.mappedIfSafe)` は、呼出中に内容が変わらないローカルの単一 file で使います。
 RAR multi-volume は sibling file を解決できる `ArchiveReader.open(url:)` を使い、nested archive のように
@@ -582,10 +591,16 @@ RAR multi-volume は sibling file を解決できる `ArchiveReader.open(url:)` 
 > `solidGroup == -1` can be parallelized one entry at a time.
 >
 > `ReadLimits` collects `maxEntrySize`, `maxTotalUncompressedSize`, `maxInMemorySize`,
-> `inMemorySingleFileLimit`, and the entry, metadata, path, dictionary and volume limits. Configure
+> `inMemorySingleFileLimit`, `stagingFreeSpaceReserve`, `maxSevenZipHeaderKDFWork`, and the entry,
+> metadata, path, dictionary and volume limits. Configure
 > it before opening, to match your corpus and the device's memory budget. Handle entries larger than
 > `read(_:)` allows with `EntryStream`, reading through to the final 0 or error so that the CRC and
 > the stream footer are finalized.
+> `stagingFreeSpaceReserve` defaults to 1 GiB of available temporary-volume space. It is checked
+> before disk staging and every 256 MiB written; falling below it throws
+> `limitExceeded("staging free space")`. `maxSevenZipHeaderKDFWork` limits the aggregate SHA-256
+> rounds used by 7z header KDFs during open, defaulting to `4 * (1 << 24)`. Cache hits and direct
+> keys consume no rounds, and entry-time derivations are excluded.
 >
 > Use `Data(contentsOf:options:.mappedIfSafe)` only for a local single file whose contents do not
 > change during the call. Use `ArchiveReader.open(url:)` for multi-volume RAR so that sibling files

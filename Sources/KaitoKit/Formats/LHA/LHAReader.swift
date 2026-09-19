@@ -3,8 +3,8 @@ import Foundation
 /// Reader for the independent-member LHA/LZH container.
 final class LHAReader: FormatReader {
     let format: ArchiveFormat = ArchiveFormat.lha
-    private(set) var entries: [ArchiveEntry]
-    private(set) var nameEncoding: String.Encoding?
+    let entries: [ArchiveEntry]
+    let nameEncoding: String.Encoding?
 
     private let source: any ByteSource
     private let records: [LHAEntryRecord]
@@ -25,6 +25,18 @@ final class LHAReader: FormatReader {
         self.entries = parsed.entries
         self.nameEncoding = parsed.nameEncoding
         self.records = parsed.records
+    }
+
+    private init(source: any ByteSource, entries: [ArchiveEntry],
+                 nameEncoding: String.Encoding?, records: [LHAEntryRecord]) {
+        self.source = source
+        self.entries = entries
+        self.nameEncoding = nameEncoding
+        self.records = records
+    }
+
+    func reopened(options: ReaderOptions) -> sending LHAReader {
+        LHAReader(source: source, entries: entries, nameEncoding: nameEncoding, records: records)
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {

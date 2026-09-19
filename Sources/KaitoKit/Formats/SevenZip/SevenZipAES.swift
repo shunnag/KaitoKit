@@ -47,11 +47,13 @@ struct SevenZipAESKeyCacheKey: Hashable, Sendable {
 }
 
 final class SevenZipAESKeyCache {
+    @TaskLocal static var didDeriveKey: (@Sendable () -> Void)?
     private var values: [SevenZipAESKeyCacheKey: Data] = [:]
 
     func key(
         password: String,
-        properties: SevenZipAESProperties
+        properties: SevenZipAESProperties,
+        chargeKDFWork: (UInt64) throws -> Void = { _ in }
     ) throws -> Data {
         let passwordBytes = Self.passwordBytes(password)
         let cacheKey = SevenZipAESKeyCacheKey(
@@ -60,6 +62,11 @@ final class SevenZipAESKeyCache {
             cyclesPower: properties.cyclesPower
         )
         if let cached = values[cacheKey] { return cached }
+        // Direct-key mode performs no SHA-256 rounds. Charge immediately before
+        // a cache miss so rejected work never reaches the derivation loop.
+        let rounds = properties.cyclesPower == 0x3F
+            ? 0 : try Checked.shiftLeft(1, by: UInt64(properties.cyclesPower))
+        try chargeKDFWork(rounds)
         let derived = try Self.derive(cacheKey)
         values[cacheKey] = derived
         return derived
@@ -80,6 +87,7 @@ final class SevenZipAESKeyCache {
     }
 
     private static func derive(_ key: SevenZipAESKeyCacheKey) throws -> Data {
+        didDeriveKey?()
         if key.cyclesPower == 0x3F {
             var direct = Data()
             direct.reserveCapacity(32)

@@ -3,6 +3,39 @@ import Foundation
 import XCTest
 
 final class CompressedTarAliasTests: XCTestCase {
+    func testTAZAliasListsTarMembersAndReopensAfterUnlink() throws {
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/compress") else {
+            throw XCTSkip("compress is required to generate the tar.Z fixture")
+        }
+        let directory = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let input = directory.appendingPathComponent("fixture.tar")
+        try TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "folder/payload.txt", contents: Data("payload".utf8))
+        ]).write(to: input)
+        _ = try ZipTestSupport.checkedRun("/usr/bin/compress", arguments: ["-f", "-b", "16", input.path],
+                                              currentDirectory: directory)
+        let bytes = try Data(contentsOf: input.appendingPathExtension("Z"))
+        for suffix in ["taz", "TAZ"] {
+            for threshold in [UInt64(0), UInt64.max] {
+                let url = directory.appendingPathComponent("archive." + suffix)
+                try bytes.write(to: url)
+                let reader = try ArchiveReader.open(url: url, options: ReaderOptions(
+                    limits: ReadLimits(inMemorySingleFileLimit: threshold)))
+                XCTAssertEqual(reader.format, .tar, "\(suffix) must be a compressed-tar alias")
+                XCTAssertEqual(reader.entries.map(\.name), ["folder/payload.txt"],
+                               "\(suffix) must list tar members")
+                try FileManager.default.removeItem(at: url)
+                guard reader.format == .tar else { continue }
+                XCTAssertEqual(try reader.read(reader.entries[0]), Data("payload".utf8))
+                let reopened = try reader.reopen()
+                XCTAssertEqual(reopened.format, .tar)
+                XCTAssertEqual(reopened.entries.map(\.name), ["folder/payload.txt"])
+                XCTAssertEqual(try reopened.read(reopened.entries[0]), Data("payload".utf8))
+            }
+        }
+    }
+
     private func fixture(in directory: URL, codec: String = "lzma", lc: Int = 3) throws -> Data {
         let output = directory.appendingPathComponent("generated")
         _ = try ZipTestSupport.checkedRun("/usr/bin/python3", arguments: ["-c", """

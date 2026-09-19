@@ -3,6 +3,19 @@ import KaitoKit
 import XCTest
 
 final class TarHardeningTests: XCTestCase {
+    func testListingLargeMembersReadsOnlySmallHeaderWindows() throws {
+        let payload = Data(repeating: 0x61, count: 1_024 * 1_024)
+        let tar = try TarTestSupport.makeTar(entries: (0..<64).map {
+            HandTarEntry(name: "member-\($0).bin", contents: payload)
+        })
+        let source = CountingByteSource(DataByteSource(tar))
+        let reader = try ArchiveReader.open(source: source)
+        XCTAssertEqual(reader.entries.count, 64)
+        XCTAssertLessThan(source.bytesRead, 512 * 1_024,
+                          "tar listing must not prefetch large member bodies")
+        XCTAssertEqual(try reader.read(reader.entries[63]), payload)
+    }
+
     func testRecoveryRetainsTarHeadersAndAvailablePayloadWithoutRelaxingLimits() throws {
         let first = Data("first".utf8)
         let last = Data(repeating: 0xA5, count: 16_384)

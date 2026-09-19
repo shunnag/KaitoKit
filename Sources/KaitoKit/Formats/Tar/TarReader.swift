@@ -6,7 +6,7 @@ final class TarReader: FormatReader {
         "path", "linkpath", "size", "mtime", "uid", "gid", "hdrcharset"
     ]
 
-    private struct Record {
+    private struct Record: Sendable {
         let dataOffset: UInt64
         let size: UInt64
     }
@@ -28,8 +28,8 @@ final class TarReader: FormatReader {
     }
 
     let format: ArchiveFormat = .tar
-    private(set) var entries: [ArchiveEntry]
-    private(set) var nameEncoding: String.Encoding?
+    let entries: [ArchiveEntry]
+    let nameEncoding: String.Encoding?
     private let records: [Record]
     private let source: any ByteSource
 
@@ -44,6 +44,18 @@ final class TarReader: FormatReader {
         entries = parsed.entries
         nameEncoding = parsed.nameEncoding
         records = parsed.records
+    }
+
+    private init(source: any ByteSource, entries: [ArchiveEntry],
+                 nameEncoding: String.Encoding?, records: [Record]) {
+        self.source = source
+        self.entries = entries
+        self.nameEncoding = nameEncoding
+        self.records = records
+    }
+
+    func reopened(options: ReaderOptions) -> sending TarReader {
+        TarReader(source: source, entries: entries, nameEncoding: nameEncoding, records: records)
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
@@ -80,7 +92,9 @@ final class TarReader: FormatReader {
         var longLink: [UInt8]?
         var pendingMetadataFloor: UInt64 = 0
         var foundTerminator = false
-        var byteReader = try ByteReader(source: source)
+        // Headers are separated by member bodies, which listing must not
+        // prefetch. Extension payloads use their own bounded ranged reads.
+        var byteReader = try ByteReader(source: source, bufferCapacity: 4 * 1_024)
 
         while offset < source.length {
             let remaining = try Checked.sub(source.length, offset)
@@ -111,7 +125,7 @@ final class TarReader: FormatReader {
                 try Checked.size(headerSize, limit: limits.maxMetadataSize)
                 if recoverDamagedArchives, headerSize > source.length - dataOffset { break }
                 let payload = try readPayload(
-                    reader: &byteReader,
+                    source: source,
                     offset: dataOffset,
                     size: headerSize
                 )
@@ -508,14 +522,11 @@ final class TarReader: FormatReader {
     }
 
     private static func readPayload(
-        reader: inout ByteReader,
+        source: any ByteSource,
         offset: UInt64,
         size: UInt64
     ) throws -> [UInt8] {
-        let count = try Checked.toInt(size)
-        guard count > 0 else { return [] }
-        try reader.seek(to: offset)
-        return Array(try reader.readBytes(count))
+        try readByteRange(source: source, offset: offset, count: Checked.toInt(size))
     }
 
     private static func nextHeaderOffset(

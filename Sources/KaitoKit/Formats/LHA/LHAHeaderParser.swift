@@ -7,7 +7,7 @@ import Foundation
 // the portable/Unix extension chain, and the interoperable Windows-time and
 // 64-bit-size extensions. Lhasa was used only as a black-box oracle.
 
-struct LHAEntryRecord {
+struct LHAEntryRecord: Sendable {
     let method: String
     let dataOffset: UInt64
     let compressedSize: UInt64

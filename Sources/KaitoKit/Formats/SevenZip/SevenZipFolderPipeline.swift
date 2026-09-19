@@ -217,7 +217,7 @@ final class SevenZipFolderDecoderFactory {
         self.isEncrypted = folder.coders.contains { SevenZipMethod.kind(for: $0.methodID) == .aes }
     }
 
-    func makeDecoder() throws -> any Decompressor {
+    func makeDecoder(chargeKDFWork: (UInt64) throws -> Void = { _ in }) throws -> any Decompressor {
         var activeOutputs = Set<Int>()
 
         func inputSize(_ inputIndex: Int) throws -> UInt64 {
@@ -345,7 +345,8 @@ final class SevenZipFolderDecoderFactory {
                     bytes: coder.properties,
                     maximumCyclesPower: maximumAESCyclesPower
                 )
-                let key = try keyCache.key(password: password, properties: properties)
+                let key = try keyCache.key(password: password, properties: properties,
+                                          chargeKDFWork: chargeKDFWork)
                 let decrypted = try SevenZipAESByteSource(
                     source: input.source,
                     ciphertextOffset: input.offset,
@@ -479,13 +480,13 @@ final class SevenZipFolderDecoderFactory {
         )
     }
 
-    func decodeAll(limit: UInt64) throws -> Data {
+    func decodeAll(limit: UInt64, chargeKDFWork: (UInt64) throws -> Void = { _ in }) throws -> Data {
         try Checked.size(finalSize, limit: limit)
         let count = try Checked.toInt(finalSize)
         var result = Data(count: count)
         let decoder: any Decompressor
         do {
-            decoder = try makeDecoder()
+            decoder = try makeDecoder(chargeKDFWork: chargeKDFWork)
         } catch {
             throw translateEncryptedError(error)
         }
@@ -705,6 +706,7 @@ final class SevenZipFolderCoordinator {
             if remaining == 0, endsFolder { try verifyCompletion() }
             return actual
         } catch {
+            self.decoder = nil
             throw factory.translateEncryptedError(error)
         }
     }
@@ -717,6 +719,7 @@ final class SevenZipFolderCoordinator {
             completionVerified = false
             checksumCoversWholeFolder = true
         } catch {
+            self.decoder = nil
             throw factory.translateEncryptedError(error)
         }
     }
@@ -747,6 +750,7 @@ final class SevenZipFolderCoordinator {
             }
             try restart()
         } catch {
+            self.decoder = nil
             throw factory.translateEncryptedError(error)
         }
     }
@@ -769,6 +773,7 @@ final class SevenZipFolderCoordinator {
                 }
                 position = try Checked.add(position, UInt64(actual))
             } catch {
+                self.decoder = nil
                 throw factory.translateEncryptedError(error)
             }
         }
@@ -776,13 +781,13 @@ final class SevenZipFolderCoordinator {
 
     private func verifyCompletion() throws {
         guard !completionVerified else { return }
+        // Completion and failure both release the decoder. A later request
+        // must rebuild from the factory rather than reuse partially read input.
+        defer { self.decoder = nil }
         guard position == factory.finalSize,
               let decoder else {
             throw KaitoError.malformed("7z folder ended at the wrong size")
         }
-        // 完了後の decoder は後方 seek で再利用しない。必要な場合は
-        // factory から再構築できるため、辞書や PPMd arena をここで解放する。
-        defer { self.decoder = nil }
         do {
             if !decoder.isFinished {
                 var extra: UInt8 = 0
@@ -800,6 +805,7 @@ final class SevenZipFolderCoordinator {
             }
             completionVerified = true
         } catch {
+            self.decoder = nil
             throw factory.translateEncryptedError(error)
         }
     }

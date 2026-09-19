@@ -6,6 +6,17 @@ import Foundation
 /// to an already-unlinked temporary file whose descriptor owns its lifetime.
 enum SingleFileMaterializer {
     private static let bufferSize = 256 * 1_024
+    private static let spaceCheckInterval = 256 * 1_024 * 1_024
+
+    // A task-local dependency keeps deterministic volume tests isolated from
+    // other readers, including concurrent opens.
+    @TaskLocal static var availableTemporarySpace: @Sendable () throws -> UInt64 = {
+        var information = statvfs()
+        guard statvfs(NSTemporaryDirectory(), &information) == 0 else {
+            throw KaitoError.io(errno)
+        }
+        return try Checked.mul(UInt64(information.f_bavail), UInt64(information.f_frsize))
+    }
 
     static func materialize(
         _ stream: EntryStream,
@@ -19,6 +30,7 @@ enum SingleFileMaterializer {
         memory.reserveCapacity(try Checked.toInt(reserve))
 
         var descriptor: Int32 = -1
+        var bytesSinceSpaceCheck = 0
         var decodedSize: UInt64 = 0
         var buffer = [UInt8](repeating: 0, count: bufferSize)
         defer {
@@ -28,6 +40,7 @@ enum SingleFileMaterializer {
         }
 
         while true {
+            try Task.checkCancellation()
             let count = try buffer.withUnsafeMutableBytes { storage in
                 try stream.read(into: storage)
             }
@@ -44,16 +57,20 @@ enum SingleFileMaterializer {
             }
 
             if descriptor < 0 {
+                try checkTemporarySpace(limits: limits)
                 descriptor = try openUnlinkedTemporaryFile()
                 try memory.withUnsafeBytes { bytes in
-                    try writeAll(bytes, to: descriptor)
+                    try writeStaged(bytes, to: descriptor, limits: limits,
+                                    bytesSinceSpaceCheck: &bytesSinceSpaceCheck)
                 }
                 memory.removeAll(keepingCapacity: false)
             }
             try buffer.withUnsafeBytes { bytes in
-                try writeAll(
+                try writeStaged(
                     UnsafeRawBufferPointer(rebasing: bytes[..<count]),
-                    to: descriptor
+                    to: descriptor,
+                    limits: limits,
+                    bytesSinceSpaceCheck: &bytesSinceSpaceCheck
                 )
             }
         }
@@ -67,6 +84,34 @@ enum SingleFileMaterializer {
         )
         descriptor = -1
         return source
+    }
+
+    private static func checkTemporarySpace(limits: ReadLimits) throws {
+        guard try availableTemporarySpace() >= limits.stagingFreeSpaceReserve else {
+            throw KaitoError.limitExceeded("staging free space")
+        }
+    }
+
+    private static func writeStaged(
+        _ bytes: UnsafeRawBufferPointer,
+        to descriptor: Int32,
+        limits: ReadLimits,
+        bytesSinceSpaceCheck: inout Int
+    ) throws {
+        var offset = 0
+        while offset < bytes.count {
+            if bytesSinceSpaceCheck == spaceCheckInterval {
+                try checkTemporarySpace(limits: limits)
+                bytesSinceSpaceCheck = 0
+            }
+            // The initial in-memory prefix can itself exceed an interval.
+            // Bound each write so that spilling that prefix also checks space.
+            let count = min(bytes.count - offset, spaceCheckInterval - bytesSinceSpaceCheck)
+            try writeAll(UnsafeRawBufferPointer(rebasing: bytes[offset..<(offset + count)]),
+                         to: descriptor)
+            bytesSinceSpaceCheck += count
+            offset += count
+        }
     }
 
     private static func openUnlinkedTemporaryFile() throws -> Int32 {

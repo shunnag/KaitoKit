@@ -6,6 +6,20 @@
 
 ## [Unreleased]
 
+- ZIP・tar・7z・LHA の `reopen()` は解析済み entry と位置情報を共有する。ZIP の local header cache は初回利用時に確保し、展開予算の初期合計も再計算しない。reader ごとの検証・decoder・password・鍵 cache は独立させ、分割 ZIP の巻配置と圧縮 tar の staging も保持する（K9）。10k / 100k entry の前後測定と失敗文は [検証記録](Documentation/verification/2026-09-19-release-review.md#k9-share-parsed-state-on-reopen)を参照。
+
+- StuffIt SFX の候補 header 検証を `maxMetadataSize` の累積読み取り予算で制限した。StuffIt 5 の scan 時の header 読み取りは 64 KiB までとし、大きい header の全 CRC は選択後の parser で一度だけ検証する（K10）。
+- StuffIt X の auxiliary-only stream は宣言長を `maxEntrySize` と照合し、所有 entry の stream を返す前に遅延検証する。列挙時の過大な展開を防ぎ、検証成功は reader ごとに記憶する（K11）。
+- `.taz` を大文字小文字を区別しない compressed-tar alias に追加した（K12）。再現時の失敗文・追加テスト・外部オラクルの結果は [release review 追補](Documentation/verification/2026-09-19-release-review.md#k10-bound-stuffit-sfx-candidate-validation-work)を参照。
+
+- 圧縮 tar の `reopen()` は展開済み source を共有するようにした。preview ごとの再展開と一時 descriptor の増加を防ぎ、元ファイルの unlink 後も再利用できる（K1）。
+- 圧縮 tar の staging で chunk ごとに task cancellation を確認し、巨大書庫の open を中断できるようにした（K2）。
+- `ReadLimits.stagingFreeSpaceReserve`（既定 1 GiB）を追加。一時 volume の空き容量を spill 前と 256 MiB 書き込みごとに確認し、展開サイズ上限を解除した場合の volume 枯渇を抑える（K3）。
+- tar の header cursor を 4 KiB に縮小し、PAX / GNU 拡張本文は直接範囲読み取りにした。大きい member の列挙で不要な本文を先読みしない（K4）。
+- `ReadLimits.maxSevenZipHeaderKDFWork`（既定 `4 * (1 << 24)` SHA-256 rounds）を追加。7z の open 時の cache miss に累積上限を設け、異なる salt を並べた header の過大な KDF 処理を防ぐ（K5）。
+- 7z solid decoder を read / discard / 完了確認などの失敗時に解放する。CRC のない後続 member が破損状態から読み出されることを防ぐ（K6）。
+- サイズ上限を `.max` にした既知長・未知長 entry と再読み取りの回帰テストを追加。aggregate の残量・再生分の加算と entry の境界検査に overflow がないことを確認した（K7）。再現時の失敗文・追加テスト・RAR4 の受容する制約は[release review 検証記録](Documentation/verification/2026-09-19-release-review.md)を参照。
+
 - LZ4 frameの読み取りを追加。単体・圧縮tar・連結・skippable・独立／連続block・各XXH32を検証し、分割・一時ディスク・展開上限に接続した。legacy frameも8 MiB block・連結・圧縮tarを読み取る。外部辞書は非対応。公開enum `ArchiveFormat` に `.lz4` を追加したため、利用側の網羅的switchにはcaseの追加が必要。[現行frame](Documentation/verification/2026-09-18-lz4-frame.md)・[legacy追補](Documentation/verification/2026-09-18-lz4-legacy.md)。
 - 7z Swap2/Swap4 filterを追加。solidのmember境界・暗号化・分割を独立7zz fixtureで検証。[検証記録](Documentation/verification/2026-09-18-sevenzip-swap.md)。
 

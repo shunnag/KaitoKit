@@ -6,6 +6,92 @@ import XCTest
 
 final class StuffItXReaderTests: XCTestCase {
     typealias Writer = StuffItXContainerTests.Writer
+
+    func testLargeDarkhorseAuxiliaryIsNotDecodedUntilOwnerRead() throws {
+        let source = CountingByteSource(DataByteSource(Self.auxiliaryArchive(
+            declared: 1 << 30, body: Data([20]), method: 2)))
+        var opened: ArchiveReader?
+        XCTAssertNoThrow(opened = try ArchiveReader.open(source: source),
+                         "listing must not decode an auxiliary-only Darkhorse stream")
+        XCTAssertLessThan(source.bytesRead, 1_024 * 1_024)
+        guard let reader = opened else { return }
+        XCTAssertEqual(reader.entries.map(\.name), ["owner"])
+        XCTAssertFalse(reader.entries[0].isEncrypted)
+        source.reset()
+        // The truncated range-code prefix must be checked before the caller
+        // obtains a stream capable of returning the owner's ordinary bytes.
+        XCTAssertThrowsError(try reader.stream(reader.entries[0])) {
+            XCTAssertEqual($0 as? KaitoError, .truncated)
+        }
+        XCTAssertGreaterThan(source.bytesRead, 0)
+    }
+
+    func testAuxiliaryDeclaredLengthIsCheckedAgainstEntryLimit() throws {
+        let archives = [Self.auxiliaryArchive(declared: 5, body: Data("ABCDE".utf8)),
+                        try StuffItXCryptoTests.archive(auxiliary: true)]
+        for archive in archives {
+            XCTAssertThrowsError(try ArchiveReader.open(data: archive, options: ReaderOptions(
+                limits: ReadLimits(maxEntrySize: 4, maxTotalUncompressedSize: .max))),
+                "declared auxiliary length must respect maxEntrySize") {
+                guard case KaitoError.limitExceeded = $0 else { return XCTFail("\($0)") }
+            }
+            XCTAssertNoThrow(try ArchiveReader.open(data: archive, options: ReaderOptions(
+                limits: ReadLimits(maxEntrySize: 5, maxTotalUncompressedSize: .max))))
+        }
+    }
+
+    func testAuxiliaryVerificationIsCachedPerReader() throws {
+        let source = CountingByteSource(DataByteSource(Self.auxiliaryArchive(
+            declared: 5, body: Data("ABCDE".utf8), ownerBody: nil)))
+        let reader = try ArchiveReader.open(source: source)
+        XCTAssertFalse(reader.entries[0].isEncrypted)
+        source.reset()
+        XCTAssertEqual(try reader.read(reader.entries[0]), Data())
+        XCTAssertGreaterThan(source.bytesRead, 0, "the first owner read must verify its auxiliary")
+        source.reset()
+        XCTAssertEqual(try reader.read(reader.entries[0]), Data())
+        XCTAssertEqual(source.bytesRead, 0, "verified auxiliaries must not be decoded again")
+        let reopened = try reader.reopen()
+        source.reset()
+        XCTAssertEqual(try reopened.read(reopened.entries[0]), Data())
+        XCTAssertGreaterThan(source.bytesRead, 0, "reopen must have an independent verification cache")
+    }
+
+    func testCorruptAuxiliaryFailsBeforeOwnerStreamIsReturned() throws {
+        var opened: ArchiveReader?
+        XCTAssertNoThrow(opened = try ArchiveReader.open(data: Self.auxiliaryArchive(
+            declared: 5, body: Data("ABCDE".utf8), corruptChecksum: true)),
+            "auxiliary integrity errors must be deferred until owner access")
+        guard let reader = opened else { return }
+        for _ in 0..<2 {
+            XCTAssertThrowsError(try reader.stream(reader.entries[0])) {
+                XCTAssertEqual($0 as? KaitoError, .checksumMismatch(entry: -1))
+            }
+        }
+    }
+
+    private static func auxiliaryArchive(
+        declared: UInt64, body: Data, method: UInt64? = nil,
+        corruptChecksum: Bool = false, ownerBody: Data? = Data("OK".utf8)
+    ) -> Data {
+        var w = Writer(data: Data("StuffIt!".utf8))
+        w.element(2, [(1,2),(2,0)])
+        var catalog = Writer(); catalog.p2(1); catalog.string(Data("owner".utf8)); catalog.p2(0); catalog.align()
+        w.element(5, [(5,UInt64(catalog.data.count))]); w.frames([catalog.data]); w.frames([])
+        // Publish the ordinary stream first to exercise auxiliary registration
+        // independently of stream and entry order.
+        if let ownerBody {
+            w.element(3, [(2,2),(3,20),(4,0),(5,UInt64(ownerBody.count))], extra: 0)
+            w.element(1, [(1,20),(5,UInt64(ownerBody.count))]); w.frames([ownerBody]); w.frames([])
+        }
+        w.element(3, [(2,2),(3,10),(4,0),(5,1)], extra: 3)
+        var algorithms: [(UInt64,UInt64,UInt64?)] = [(2,0,nil)]
+        if let method { algorithms.append((1,method,nil)) }
+        w.element(1, [(1,10),(5,declared)], algorithms); w.frames([body])
+        var crc = checksum(body); if corruptChecksum { crc[0] ^= 1 }
+        w.frames([crc]); w.element(0)
+        return w.data
+    }
     static func checksum(_ data: Data) -> Data {
         let value = CRC32.checksum(data)
         return Data((0..<4).map { UInt8(truncatingIfNeeded: value >> (24 - 8 * $0)) })
@@ -130,7 +216,13 @@ final class StuffItXReaderTests: XCTestCase {
         XCTAssertTrue(reader.entries[0].formatSpecific["auxiliaryForks"]!.contains("streamLength=5"))
         XCTAssertEqual(try reader.read(reader.entries[0]),Data())
         var corrupt = w.data; corrupt[corrupt.count - 6] ^= 1
-        XCTAssertThrowsError(try ArchiveReader.open(data:corrupt))
+        var opened: ArchiveReader?
+        XCTAssertNoThrow(opened = try ArchiveReader.open(data: corrupt))
+        if let opened {
+            XCTAssertThrowsError(try opened.read(opened.entries[0])) {
+                XCTAssertEqual($0 as? KaitoError, .checksumMismatch(entry: -1))
+            }
+        }
     }
     func testObjectAndResourceLimits() throws {
         for limits in [ReadLimits(maxEntryCount: 2), ReadLimits(maxMetadataSize: 1),

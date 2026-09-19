@@ -1,8 +1,143 @@
 import Foundation
+import Synchronization
 @testable import KaitoKit
 import XCTest
 
 final class SingleFileArchiveReaderIntegrationTests: XCTestCase {
+    func testStagingFreeSpaceReserveRechecksAfter256MiBAndClosesFailedSpill() throws {
+        let calls = Mutex(0)
+        let source = StagingZeroSource(length: 256 * 1_024 * 1_024 + 1)
+        let limits = ReadLimits(inMemorySingleFileLimit: 0, stagingFreeSpaceReserve: 1_024)
+        let stream = try EntryStream(source: source, offset: 0, length: source.length, limits: limits)
+        let descriptors = try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count
+        try SingleFileMaterializer.$availableTemporarySpace.withValue({
+            calls.withLock {
+                $0 += 1
+                return $0 == 1 ? UInt64.max : 0
+            }
+        }) {
+            XCTAssertThrowsError(try SingleFileMaterializer.materialize(stream, limits: limits)) {
+                XCTAssertEqual($0 as? KaitoError, .limitExceeded("staging free space"))
+            }
+        }
+        XCTAssertEqual(calls.withLock { $0 }, 2, "staging must recheck space after 256 MiB")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count, descriptors)
+    }
+
+    func testStagingFreeSpaceReserveRejectsSpillWithoutLeakingDescriptor() throws {
+        let bytes = try smallCompressedTar()
+        let calls = Mutex(0)
+        let descriptors = try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count
+        try SingleFileMaterializer.$availableTemporarySpace.withValue({
+            calls.withLock { $0 += 1 }
+            return 1_023
+        }) {
+            XCTAssertThrowsError(try ArchiveReader.open(source: DataByteSource(bytes),
+                sourceURL: URL(fileURLWithPath: "/archive.tgz"),
+                options: ReaderOptions(limits: ReadLimits(inMemorySingleFileLimit: 0,
+                    stagingFreeSpaceReserve: 1_024)))) {
+                XCTAssertEqual($0 as? KaitoError, .limitExceeded("staging free space"))
+            }
+        }
+        XCTAssertEqual(calls.withLock { $0 }, 1, "spilling must query available temporary space")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count, descriptors)
+    }
+
+    func testStagingFreeSpaceReserveAllowsSpillAtReserve() throws {
+        let bytes = try smallCompressedTar()
+        for available in [UInt64(1_024), .max] {
+            let calls = Mutex(0)
+            let reader = try SingleFileMaterializer.$availableTemporarySpace.withValue({
+                calls.withLock { $0 += 1 }
+                return available
+            }) {
+                try ArchiveReader.open(source: DataByteSource(bytes),
+                    sourceURL: URL(fileURLWithPath: "/archive.tgz"),
+                    options: ReaderOptions(limits: ReadLimits(inMemorySingleFileLimit: 0,
+                        stagingFreeSpaceReserve: 1_024)))
+            }
+            XCTAssertEqual(calls.withLock { $0 }, 1, "small spills need one free-space check")
+            XCTAssertEqual(try reader.read(reader.entries[0]), Data("payload".utf8))
+        }
+    }
+
+    func testStagingFreeSpaceReserveDoesNotQueryForMemory() throws {
+        let bytes = try smallCompressedTar()
+        let calls = Mutex(0)
+        let reader = try SingleFileMaterializer.$availableTemporarySpace.withValue({
+            calls.withLock { $0 += 1 }
+            return 0
+        }) {
+            try ArchiveReader.open(source: DataByteSource(bytes),
+                sourceURL: URL(fileURLWithPath: "/archive.tgz"),
+                options: ReaderOptions(limits: ReadLimits(inMemorySingleFileLimit: .max)))
+        }
+        XCTAssertEqual(calls.withLock { $0 }, 0)
+        XCTAssertEqual(try reader.read(reader.entries[0]), Data("payload".utf8))
+        XCTAssertEqual(ReadLimits().stagingFreeSpaceReserve, 1_024 * 1_024 * 1_024)
+    }
+
+    private func smallCompressedTar() throws -> Data {
+        try filter("/usr/bin/gzip", input: TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "page.txt", contents: Data("payload".utf8)),
+        ]))
+    }
+
+    func testCancelledCompressedTarStagingStopsBeforeSpilling() async throws {
+        let payload = Data(repeating: 0x61, count: 4 * 1_024 * 1_024)
+        let tar = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "large.bin", contents: payload)])
+        let bytes = try filter("/usr/bin/gzip", input: tar)
+        let task = Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            do {
+                _ = try ArchiveReader.open(source: DataByteSource(bytes),
+                    sourceURL: URL(fileURLWithPath: "/archive.tgz"),
+                    options: ReaderOptions(limits: ReadLimits(inMemorySingleFileLimit: 0)))
+                return false
+            } catch is CancellationError { return true }
+        }
+        let cancelled = try await task.value
+        XCTAssertTrue(cancelled, "compressed-tar staging must propagate CancellationError")
+    }
+
+    func testCompressedTarReopenReusesStagedMemoryWithoutReadingCompressedSource() throws {
+        try assertCompressedTarReopenReusesStaging(threshold: .max)
+    }
+
+    func testCompressedTarReopenReusesSpilledDescriptorWithoutReadingCompressedSource() throws {
+        try assertCompressedTarReopenReusesStaging(threshold: 0)
+    }
+
+    private func assertCompressedTarReopenReusesStaging(threshold: UInt64) throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let payload = Data("staged tar member\n".utf8)
+        let tar = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "page.txt", contents: payload)])
+        let url = temporary.appendingPathComponent("archive.tar.gz")
+        try filter("/usr/bin/gzip", input: tar).write(to: url)
+        let source = CountingByteSource(try FileByteSource(url: url))
+        let reader = try ArchiveReader.open(source: source, sourceURL: url,
+            options: ReaderOptions(limits: ReadLimits(inMemorySingleFileLimit: threshold)))
+        XCTAssertEqual(reader.format, .tar)
+        XCTAssertEqual(reader.entries.map(\.name), ["page.txt"])
+        try FileManager.default.removeItem(at: url)
+        source.reset()
+        let descriptors = try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count
+
+        let second = try reader.reopen()
+        XCTAssertEqual(source.bytesRead, 0, "reopen must reuse the staged tar source")
+        XCTAssertEqual(second.entries, reader.entries)
+        XCTAssertEqual(second.format, .tar)
+        XCTAssertEqual(try second.read(second.entries[0]), payload)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count,
+                       descriptors, "reopen must not create another staging descriptor")
+        let third = try second.reopen()
+        XCTAssertEqual(source.bytesRead, 0, "successive reopens must keep sharing staged bytes")
+        XCTAssertEqual(third.entries, reader.entries)
+        XCTAssertEqual(try third.read(third.entries[0]), payload)
+        withExtendedLifetime((reader, second, third)) {}
+    }
+
     func testArchiveReaderDispatchesSingleFileFormatsAndReopens() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }
@@ -205,5 +340,16 @@ final class SingleFileArchiveReaderIntegrationTests: XCTestCase {
             )
         }
         return result
+    }
+}
+
+private struct StagingZeroSource: ByteSource {
+    let length: UInt64
+    func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
+        guard offset < length else { return 0 }
+        let count = Int(min(UInt64(buffer.count), length - offset))
+        UnsafeMutableRawBufferPointer(rebasing: buffer[..<count])
+            .initializeMemory(as: UInt8.self, repeating: 0)
+        return count
     }
 }

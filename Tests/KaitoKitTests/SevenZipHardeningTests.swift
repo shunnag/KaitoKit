@@ -1,9 +1,177 @@
 import Foundation
+import Synchronization
 @testable import KaitoKit
 import XCTest
 
 final class SevenZipHardeningTests: XCTestCase {
     private static let signature: [UInt8] = [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]
+
+    func testSolidDecoderErrorDropsStateAndRejectsForwardEntryWithoutCRCs() throws {
+        let reader = try SevenZipReader(source: DataByteSource(makeCorruptSolidArchive()), options: ReaderOptions())
+        XCTAssertEqual(reader.entries.map(\.name), ["a", "b"])
+        XCTAssertTrue(reader.entries.allSatisfy { $0.crc32 == nil && $0.solidGroup >= 0 })
+        let first = try reader.stream(for: reader.entries[0], limits: ReadLimits())
+        var prefix = [UInt8](repeating: 0, count: 16)
+        XCTAssertEqual(try prefix.withUnsafeMutableBytes { try first.read(into: $0) }, 16)
+        XCTAssertEqual(prefix, [UInt8](repeating: 0x41, count: 16))
+        XCTAssertThrowsError(try first.readAll()) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("invalid LZMA2 control byte"))
+        }
+        XCTAssertFalse(reader.hasRetainedDecoderState, "failed solid decoder must be released")
+        XCTAssertThrowsError(try reader.stream(for: reader.entries[1], limits: ReadLimits()).readAll(),
+                             "forward entry must not reuse a failed solid decoder") {
+            XCTAssertEqual($0 as? KaitoError, .malformed("invalid LZMA2 control byte"))
+        }
+        XCTAssertFalse(reader.hasRetainedDecoderState)
+    }
+
+    func testSolidDiscardErrorDropsDecoderState() throws {
+        let reader = try SevenZipReader(source: DataByteSource(makeCorruptSolidArchive()), options: ReaderOptions())
+        XCTAssertThrowsError(try reader.stream(for: reader.entries[1], limits: ReadLimits())) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("invalid LZMA2 control byte"))
+        }
+        XCTAssertFalse(reader.hasRetainedDecoderState, "failed solid discard must release its decoder")
+    }
+
+    private func makeCorruptSolidArchive() -> Data {
+        // LZMA2 raw chunks make the failure boundary explicit: 16 valid bytes,
+        // an invalid control, then a valid continuation. Continuing after the
+        // error would silently deliver the later chunk when CRCs are absent.
+        let packed: [UInt8] = [1, 0, 15] + [UInt8](repeating: 0x41, count: 16)
+            + [3, 2, 0, 31] + [UInt8](repeating: 0x42, count: 32) + [0]
+        let header: [UInt8] = [
+            SevenZipNID.header.rawValue, SevenZipNID.mainStreamsInfo.rawValue,
+            SevenZipNID.packInfo.rawValue, 0, 1, SevenZipNID.size.rawValue, UInt8(packed.count), 0,
+            SevenZipNID.unpackInfo.rawValue, SevenZipNID.folder.rawValue, 1, 0,
+            1, 0x21, 0x21, 1, 0, // LZMA2, minimum dictionary
+            SevenZipNID.codersUnpackSize.rawValue, 48, 0,
+            SevenZipNID.subStreamsInfo.rawValue, SevenZipNID.numUnpackStream.rawValue, 2,
+            SevenZipNID.size.rawValue, 32, 0, 0,
+            SevenZipNID.filesInfo.rawValue, 2,
+            SevenZipNID.name.rawValue, 9, 0, 0x61, 0, 0, 0, 0x62, 0, 0, 0, 0, 0,
+        ]
+        return makeArchive(packedData: packed, nextHeader: header)
+    }
+
+    func testHeaderKDFWorkStopsBeforeFifthDistinctDerivation() throws {
+        let archive = makeAESFoldersArchive()
+        let derivations = Mutex(0)
+        try SevenZipAESKeyCache.$didDeriveKey.withValue({ derivations.withLock { $0 += 1 } }) {
+            XCTAssertThrowsError(try ArchiveReader.open(data: archive, options: ReaderOptions(
+                limits: ReadLimits(maxSevenZipHeaderKDFWork: 4 * 256), password: "p"))) {
+                XCTAssertEqual($0 as? KaitoError, .limitExceeded("7z header KDF work"))
+            }
+        }
+        XCTAssertEqual(derivations.withLock { $0 }, 4,
+                       "header KDF budget must stop before the fifth derivation")
+    }
+
+    func testHeaderKDFWorkIsSharedByEncodedHeaderAndAdditionalStreams() throws {
+        // AES-CBC of a 42-byte kHeader containing one additional AES folder
+        // (salt 0x11 repeated 16 times, one 16-byte stream at PackPos 0).
+        // Generated with SHA256(concat(salt + UTF16LE("p") + LE64(i), i=0..<256))
+        // and OpenSSL AES-256-CBC, zero IV, six zero padding bytes. The outer
+        // salt is 0x22 repeated 16 times, so both stages require a cache miss.
+        let ciphertext: [UInt8] = [
+            0x05, 0x28, 0x56, 0xF5, 0xAA, 0xEB, 0x07, 0x28, 0xEB, 0x57, 0xC0, 0x61,
+            0xF1, 0x6F, 0x9E, 0x42, 0xCC, 0x2E, 0xE0, 0xDE, 0x0A, 0x6D, 0xE9, 0x14,
+            0xEE, 0x1A, 0xB2, 0xD0, 0x10, 0xC6, 0x0D, 0x26, 0xFA, 0x50, 0x72, 0x53,
+            0x4B, 0xE6, 0x01, 0x6F, 0xB7, 0x66, 0x54, 0x2E, 0x01, 0x94, 0xFC, 0x47,
+        ]
+        var header: [UInt8] = [SevenZipNID.encodedHeader.rawValue,
+            SevenZipNID.packInfo.rawValue, 16, 1, SevenZipNID.size.rawValue, 48, 0,
+            SevenZipNID.unpackInfo.rawValue, SevenZipNID.folder.rawValue, 1, 0,
+            1, 0x24, 0x06, 0xF1, 0x07, 0x01, 18, 0x88, 0xF0]
+        header += [UInt8](repeating: 0x22, count: 16)
+        header += [SevenZipNID.codersUnpackSize.rawValue, 42, 0, 0]
+        let archive = makeArchive(packedData: [UInt8](repeating: 0, count: 16) + ciphertext,
+                                  nextHeader: header)
+        for (budget, expectedDerivations) in [(255, 0), (256, 1), (512, 2)] {
+            let derivations = Mutex(0)
+            try SevenZipAESKeyCache.$didDeriveKey.withValue({ derivations.withLock { $0 += 1 } }) {
+                let options = ReaderOptions(limits: ReadLimits(maxSevenZipHeaderKDFWork: UInt64(budget)),
+                                            password: "p")
+                if budget == 512 {
+                    XCTAssertNoThrow(try ArchiveReader.open(data: archive, options: options))
+                } else {
+                    XCTAssertThrowsError(try ArchiveReader.open(data: archive, options: options)) {
+                        XCTAssertEqual($0 as? KaitoError, .limitExceeded("7z header KDF work"))
+                    }
+                }
+            }
+            XCTAssertEqual(derivations.withLock { $0 }, expectedDerivations)
+        }
+    }
+
+    func testHeaderKDFWorkAllowsSufficientBudget() throws {
+        let derivations = Mutex(0)
+        let reader = try SevenZipAESKeyCache.$didDeriveKey.withValue({ derivations.withLock { $0 += 1 } }) {
+            try ArchiveReader.open(data: makeAESFoldersArchive(), options: ReaderOptions(
+                limits: ReadLimits(maxSevenZipHeaderKDFWork: 6 * 256), password: "p"))
+        }
+        XCTAssertTrue(reader.entries.isEmpty)
+        XCTAssertEqual(derivations.withLock { $0 }, 6)
+        XCTAssertEqual(ReadLimits().maxSevenZipHeaderKDFWork, 4 * (1 << 24))
+    }
+
+    func testHeaderKDFWorkChargesCacheMissesOnly() throws {
+        let derivations = Mutex(0)
+        let reader = try SevenZipAESKeyCache.$didDeriveKey.withValue({ derivations.withLock { $0 += 1 } }) {
+            try ArchiveReader.open(data: makeAESFoldersArchive(distinctSalts: false), options: ReaderOptions(
+                limits: ReadLimits(maxSevenZipHeaderKDFWork: 256), password: "p"))
+        }
+        XCTAssertTrue(reader.entries.isEmpty)
+        XCTAssertEqual(derivations.withLock { $0 }, 1)
+    }
+
+    func testHeaderKDFWorkDoesNotChargeDirectKeys() throws {
+        XCTAssertNoThrow(try ArchiveReader.open(data: makeAESFoldersArchive(cyclesPower: 0x3F),
+            options: ReaderOptions(limits: ReadLimits(maxSevenZipHeaderKDFWork: 0), password: "p")))
+    }
+
+    func testHeaderKDFWorkDoesNotLimitRepeatedEntryStreams() throws {
+        let derivations = Mutex(0)
+        try SevenZipAESKeyCache.$didDeriveKey.withValue({ derivations.withLock { $0 += 1 } }) {
+            let reader = try ArchiveReader.open(data: makeAESFoldersArchive(entries: true),
+                options: ReaderOptions(limits: ReadLimits(maxSevenZipHeaderKDFWork: 0), password: "p"))
+            XCTAssertEqual(derivations.withLock { $0 }, 0)
+            XCTAssertEqual(reader.entries.count, 6)
+            for entry in reader.entries {
+                let first = try reader.stream(entry).readAll()
+                XCTAssertEqual(first.count, 16)
+                XCTAssertEqual(try reader.stream(entry).readAll(), first)
+            }
+            XCTAssertEqual(derivations.withLock { $0 }, 6)
+        }
+    }
+
+    private func makeAESFoldersArchive(
+        distinctSalts: Bool = true, cyclesPower: UInt8 = 8, entries: Bool = false
+    ) -> Data {
+        // Six independent AES folders, with no CRCs. The opaque additional
+        // streams need not be referenced by FilesInfo to incur open-time work.
+        var header: [UInt8] = [SevenZipNID.header.rawValue,
+            (entries ? SevenZipNID.mainStreamsInfo : .additionalStreamsInfo).rawValue,
+            SevenZipNID.packInfo.rawValue, 0, 6, SevenZipNID.size.rawValue]
+        header += [UInt8](repeating: 16, count: 6)
+        header += [SevenZipNID.end.rawValue, SevenZipNID.unpackInfo.rawValue,
+                   SevenZipNID.folder.rawValue, 6, 0]
+        for index in 0..<6 {
+            header += [1, 0x24, 0x06, 0xF1, 0x07, 0x01, 18, 0x80 | cyclesPower, 0xF0]
+            header += [UInt8](repeating: distinctSalts ? UInt8(index) : 0, count: 16)
+        }
+        header += [SevenZipNID.codersUnpackSize.rawValue]
+        header += [UInt8](repeating: 16, count: 6)
+        header += [SevenZipNID.end.rawValue, SevenZipNID.end.rawValue]
+        if entries {
+            header += [SevenZipNID.filesInfo.rawValue, 6]
+            let names: [UInt8] = [0] + (0..<6).flatMap { [UInt8(0x61 + $0), 0, 0, 0] }
+            appendProperty(.name, bytes: names, to: &header)
+            header.append(SevenZipNID.end.rawValue)
+        }
+        header.append(SevenZipNID.end.rawValue)
+        return makeArchive(packedData: [UInt8](repeating: 0, count: 6 * 16), nextHeader: header)
+    }
 
     func testTruncatedFixedAndNextHeadersAreRejected() throws {
         let valid = makeArchive(nextHeader: [SevenZipNID.header.rawValue, SevenZipNID.end.rawValue])

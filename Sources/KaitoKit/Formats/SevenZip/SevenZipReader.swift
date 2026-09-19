@@ -22,8 +22,19 @@ final class SevenZipReader: FormatReader {
         let isEncrypted: Bool
     }
 
+    private struct HeaderKDFWorkBudget {
+        var remaining: UInt64
+
+        mutating func charge(_ rounds: UInt64) throws {
+            guard rounds <= remaining else {
+                throw KaitoError.limitExceeded("7z header KDF work")
+            }
+            remaining -= rounds
+        }
+    }
+
     let format: ArchiveFormat = .sevenZip
-    private(set) var entries: [ArchiveEntry]
+    let entries: [ArchiveEntry]
     let nameEncoding: String.Encoding? = nil
 
     private let source: any ByteSource
@@ -39,6 +50,10 @@ final class SevenZipReader: FormatReader {
 
     var resolvedPassword: String? { password }
 
+    var hasRetainedDecoderState: Bool {
+        coordinators.values.contains { $0.hasRetainedDecoderState }
+    }
+
     init(source: any ByteSource, options: ReaderOptions) throws {
         self.source = source
         self.limits = options.limits
@@ -50,6 +65,7 @@ final class SevenZipReader: FormatReader {
             limit: options.limits.maxTotalMetadataSize
         )
         var resolvedPassword = options.password
+        var headerKDFBudget = HeaderKDFWorkBudget(remaining: options.limits.maxSevenZipHeaderKDFWork)
         let nextHeader = try Self.readNextHeader(source: source, limits: options.limits)
         let decodedHeader = try Self.decodeNextHeader(
             nextHeader.bytes,
@@ -58,6 +74,7 @@ final class SevenZipReader: FormatReader {
             limits: options.limits,
             maximumAESCyclesPower: options.maxSevenZipAESCyclesPower,
             keyCache: keyCache,
+            headerKDFBudget: &headerKDFBudget,
             packedStreamVerifier: packedStreamVerifier,
             metadataBudget: metadataBudget,
             password: &resolvedPassword,
@@ -72,6 +89,7 @@ final class SevenZipReader: FormatReader {
                 limits: options.limits,
                 maximumAESCyclesPower: options.maxSevenZipAESCyclesPower,
                 keyCache: keyCache,
+                headerKDFBudget: &headerKDFBudget,
                 packedStreamVerifier: packedStreamVerifier,
                 metadataBudget: metadataBudget,
                 password: &resolvedPassword,
@@ -113,6 +131,27 @@ final class SevenZipReader: FormatReader {
         self.keyCache = keyCache
         self.packedStreamVerifier = packedStreamVerifier
         self.password = resolvedPassword
+    }
+
+    private init(source: any ByteSource, options: ReaderOptions, entries: [ArchiveEntry],
+                 streams: SevenZipStreamsInfo?, packedRanges: [[Int: SevenZipPackRange]], records: [Record]) {
+        self.source = source
+        self.limits = options.limits
+        self.maximumAESCyclesPower = options.maxSevenZipAESCyclesPower
+        self.entries = entries
+        self.streams = streams
+        self.packedRanges = packedRanges
+        self.records = records
+        self.keyCache = SevenZipAESKeyCache()
+        self.packedStreamVerifier = SevenZipPackedStreamVerifier(source: source)
+        self.password = options.password
+    }
+
+    func reopened(options: ReaderOptions) -> sending SevenZipReader {
+        // No folder coordinator, verified-pack cache or derived key crosses
+        // the reader boundary, including keys used to decode the header.
+        SevenZipReader(source: source, options: options, entries: entries,
+                       streams: streams, packedRanges: packedRanges, records: records)
     }
 
     func setPassword(_ password: String?) {
@@ -250,6 +289,7 @@ final class SevenZipReader: FormatReader {
         limits: ReadLimits,
         maximumAESCyclesPower: UInt8,
         keyCache: SevenZipAESKeyCache,
+        headerKDFBudget: inout HeaderKDFWorkBudget,
         packedStreamVerifier: SevenZipPackedStreamVerifier,
         metadataBudget: SevenZipMetadataBudget,
         password: inout String?,
@@ -282,6 +322,7 @@ final class SevenZipReader: FormatReader {
             limits: limits,
             maximumAESCyclesPower: maximumAESCyclesPower,
             keyCache: keyCache,
+            headerKDFBudget: &headerKDFBudget,
             packedStreamVerifier: packedStreamVerifier,
             password: &password,
             passwordProvider: passwordProvider
@@ -306,6 +347,7 @@ final class SevenZipReader: FormatReader {
         limits: ReadLimits,
         maximumAESCyclesPower: UInt8,
         keyCache: SevenZipAESKeyCache,
+        headerKDFBudget: inout HeaderKDFWorkBudget,
         packedStreamVerifier: SevenZipPackedStreamVerifier,
         metadataBudget: SevenZipMetadataBudget,
         password: inout String?,
@@ -324,6 +366,7 @@ final class SevenZipReader: FormatReader {
                 limits: limits,
                 maximumAESCyclesPower: maximumAESCyclesPower,
                 keyCache: keyCache,
+                headerKDFBudget: &headerKDFBudget,
                 packedStreamVerifier: packedStreamVerifier,
                 password: &password,
                 passwordProvider: passwordProvider
@@ -339,6 +382,7 @@ final class SevenZipReader: FormatReader {
         limits: ReadLimits,
         maximumAESCyclesPower: UInt8,
         keyCache: SevenZipAESKeyCache,
+        headerKDFBudget: inout HeaderKDFWorkBudget,
         packedStreamVerifier: SevenZipPackedStreamVerifier,
         password: inout String?,
         passwordProvider: (any PasswordProvider)?
@@ -352,6 +396,7 @@ final class SevenZipReader: FormatReader {
                 limits: limits,
                 maximumAESCyclesPower: maximumAESCyclesPower,
                 keyCache: keyCache,
+                headerKDFBudget: &headerKDFBudget,
                 packedStreamVerifier: packedStreamVerifier,
                 password: password
             )
@@ -369,6 +414,7 @@ final class SevenZipReader: FormatReader {
                 limits: limits,
                 maximumAESCyclesPower: maximumAESCyclesPower,
                 keyCache: keyCache,
+                headerKDFBudget: &headerKDFBudget,
                 packedStreamVerifier: packedStreamVerifier,
                 password: supplied
             )
@@ -383,6 +429,7 @@ final class SevenZipReader: FormatReader {
         limits: ReadLimits,
         maximumAESCyclesPower: UInt8,
         keyCache: SevenZipAESKeyCache,
+        headerKDFBudget: inout HeaderKDFWorkBudget,
         packedStreamVerifier: SevenZipPackedStreamVerifier,
         password: String?
     ) throws -> [Data] {
@@ -407,7 +454,9 @@ final class SevenZipReader: FormatReader {
             )
             aggregate = try Checked.add(aggregate, factory.finalSize)
             try Checked.size(aggregate, limit: limit)
-            folderData.append(try factory.decodeAll(limit: limit))
+            folderData.append(try factory.decodeAll(limit: limit) {
+                try headerKDFBudget.charge($0)
+            })
         }
 
         var result: [Data] = []

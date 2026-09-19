@@ -2,6 +2,7 @@ import Foundation
 
 private final class ArchiveOutputBudget {
     private let limit: UInt64
+    private let declaredTotal: UInt64
     private var total: UInt64
     private var unknownEntrySizes: [Int: UInt64] = [:]
     private var limitWasExceeded = false
@@ -17,7 +18,20 @@ private final class ArchiveOutputBudget {
             }
             declaredTotal = next.partialValue
         }
+        self.declaredTotal = declaredTotal
         self.total = declaredTotal
+    }
+
+    private init(limit: UInt64, declaredTotal: UInt64) {
+        self.limit = limit
+        self.declaredTotal = declaredTotal
+        self.total = declaredTotal
+    }
+
+    func reopened() -> sending ArchiveOutputBudget {
+        // The immutable entry sum was checked at open. Reset runtime charges
+        // and terminal failures without walking a large shared entry array.
+        ArchiveOutputBudget(limit: limit, declaredTotal: declaredTotal)
     }
 
     func ensureUsable() throws {
@@ -62,8 +76,9 @@ private final class ArchiveOutputBudget {
 /// an inexpensive independent reader that shares the immutable byte source.
 public final class ArchiveReader {
     private let source: any ByteSource
+    private let stagedTarSource: (any ByteSource)?
     // 拡張子・単一ストリームの名前・SFX 検出のヒント。分割セットでは .001 を除く。
-    // Data と任意の ByteSource はファイル名の由来を持たない。
+    // Data と名前ヒントのない ByteSource はファイル名の由来を持たない。
     private let sourceURL: URL?
     private let zipDiskLayout: ZipDiskLayout?
     private let reader: any FormatReader
@@ -116,6 +131,7 @@ public final class ArchiveReader {
         if zipDiskLayout != nil, detected != .zip {
             throw KaitoError.malformed("ZIP split volume set is not a ZIP archive")
         }
+        var stagedTarSource: (any ByteSource)?
         switch detected {
         case .tar:
             let tar = try TarReader(source: source, options: options)
@@ -284,6 +300,7 @@ public final class ArchiveReader {
                     limits: options.limits
                 )
                 let tar = try TarReader(source: tarSource, options: options)
+                stagedTarSource = tarSource
                 reader = tar
                 entries = tar.entries
                 format = .tar
@@ -294,6 +311,7 @@ public final class ArchiveReader {
             }
         }
 
+        self.stagedTarSource = stagedTarSource
         self.outputBudget = try ArchiveOutputBudget(
             entries: entries,
             limit: options.limits.maxTotalUncompressedSize
@@ -308,20 +326,21 @@ public final class ArchiveReader {
         sharing source: any ByteSource,
         sourceURL: URL?,
         options: ReaderOptions,
-        parsedReader: any FormatReader
+        parsedReader: any FormatReader,
+        outputBudget: ArchiveOutputBudget,
+        zipDiskLayout: ZipDiskLayout? = nil,
+        stagedTarSource: (any ByteSource)? = nil
     ) throws {
         self.source = source
+        self.stagedTarSource = stagedTarSource
         self.sourceURL = sourceURL
-        self.zipDiskLayout = nil
+        self.zipDiskLayout = zipDiskLayout
         self.options = options
         self.reader = parsedReader
         self.format = parsedReader.format
         self.entries = parsedReader.entries
         self.password = options.password
-        self.outputBudget = try ArchiveOutputBudget(
-            entries: parsedReader.entries,
-            limit: options.limits.maxTotalUncompressedSize
-        )
+        self.outputBudget = outputBudget
     }
 
     /// Opens an archive stored at a file URL.
@@ -369,6 +388,17 @@ public final class ArchiveReader {
         options: ReaderOptions = ReaderOptions()
     ) throws -> ArchiveReader {
         try ArchiveReader(source: source, options: options)
+    }
+
+    /// Opens a byte source with a URL hint for URL-dependent format detection.
+    /// `sourceURL` is an optional filename hint for compressed tar aliases and
+    /// single-file entry names. The primary archive bytes come from `source`.
+    public static func open(
+        source: any ByteSource,
+        sourceURL: URL?,
+        options: ReaderOptions = ReaderOptions()
+    ) throws -> ArchiveReader {
+        try ArchiveReader(source: source, sourceURL: sourceURL, options: options)
     }
 
     /// Returns a forward-only stream for an entry.
@@ -462,27 +492,35 @@ public final class ArchiveReader {
     public func reopen() throws -> sending ArchiveReader {
         var reopenedOptions = options
         reopenedOptions.password = password
-        if let rar5 = reader as? RAR5Reader {
+        let parsedReader: any FormatReader
+        if let zip = reader as? ZipReader {
+            parsedReader = zip.reopened(options: reopenedOptions)
+        } else if let tar = reader as? TarReader {
+            parsedReader = tar.reopened(options: reopenedOptions)
+        } else if let sevenZip = reader as? SevenZipReader {
+            parsedReader = sevenZip.reopened(options: reopenedOptions)
+        } else if let lha = reader as? LHAReader {
+            parsedReader = lha.reopened(options: reopenedOptions)
+        } else if let rar5 = reader as? RAR5Reader {
+            parsedReader = rar5.reopened(options: reopenedOptions)
+        } else if let rar4 = reader as? RAR4Reader {
+            parsedReader = rar4.reopened(options: reopenedOptions)
+        } else {
             return try ArchiveReader(
-                sharing: source,
+                source: source,
                 sourceURL: sourceURL,
-                options: reopenedOptions,
-                parsedReader: rar5.reopened(options: reopenedOptions)
-            )
-        }
-        if let rar4 = reader as? RAR4Reader {
-            return try ArchiveReader(
-                sharing: source,
-                sourceURL: sourceURL,
-                options: reopenedOptions,
-                parsedReader: rar4.reopened(options: reopenedOptions)
+                zipDiskLayout: zipDiskLayout,
+                options: reopenedOptions
             )
         }
         return try ArchiveReader(
-            source: source,
+            sharing: stagedTarSource ?? source,
             sourceURL: sourceURL,
+            options: reopenedOptions,
+            parsedReader: parsedReader,
+            outputBudget: outputBudget.reopened(),
             zipDiskLayout: zipDiskLayout,
-            options: reopenedOptions
+            stagedTarSource: stagedTarSource
         )
     }
 
@@ -552,8 +590,8 @@ public final class ArchiveReader {
         if name.hasSuffix(".tar.lzma") || name.hasSuffix(".tlz") {
             return .lzma
         }
-        // 既存の LZWDecoder と tar staging を .tar.Z / .tZ にも適用する。
-        if name.hasSuffix(".tar.z") || name.hasSuffix(".tz") {
+        // 既存の LZWDecoder と tar staging を .tar.Z / .tZ / .taz にも適用する。
+        if name.hasSuffix(".tar.z") || name.hasSuffix(".tz") || name.hasSuffix(".taz") {
             return .compress
         }
         return nil

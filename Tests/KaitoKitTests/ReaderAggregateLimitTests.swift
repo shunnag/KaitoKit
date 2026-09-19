@@ -3,6 +3,30 @@ import KaitoKit
 import XCTest
 
 final class ReaderAggregateLimitTests: XCTestCase {
+    func testMaximumSizeLimitsAllowKnownUnknownAndReplayedEntries() throws {
+        let known = Data("known".utf8)
+        let unknown = Data("unknown output".utf8)
+        let archive = RAR5TestSupport.archive(blocks: [
+            RAR5TestSupport.storedFile(name: "known.bin", contents: known),
+            RAR5TestSupport.storedFile(name: "unknown.bin", contents: unknown, fileFlags: 0x0008),
+        ])
+        let reader = try ArchiveReader.open(data: archive, options: ReaderOptions(limits: ReadLimits(
+            maxEntrySize: .max, maxTotalUncompressedSize: .max)))
+        XCTAssertEqual(reader.entries.map(\.uncompressedSize), [UInt64(known.count), nil])
+        XCTAssertEqual(try reader.read(reader.entries[1]), unknown)
+        XCTAssertEqual(try reader.read(reader.entries[1]), unknown)
+        XCTAssertEqual(try reader.read(reader.entries[0]), known)
+
+        // Interleaving a partial replay with a complete replay also exercises
+        // replayAllowance + unallocatedAllowance at the UInt64 boundary.
+        let partial = try reader.stream(reader.entries[1])
+        var prefix = [UInt8](repeating: 0, count: 3)
+        XCTAssertEqual(try prefix.withUnsafeMutableBytes { try partial.read(into: $0) }, 3)
+        XCTAssertEqual(Data(prefix), unknown.prefix(3))
+        XCTAssertEqual(try reader.stream(reader.entries[1]).readAll(), unknown)
+        XCTAssertEqual(try partial.readAll(), unknown.dropFirst(3))
+    }
+
     func testDefaultTotalUncompressedLimitIs64GiB() {
         XCTAssertEqual(
             ReadLimits().maxTotalUncompressedSize,

@@ -4,6 +4,59 @@ import Foundation
 import XCTest
 
 final class StuffItSFXTests: XCTestCase {
+    func testStuffIt5SFXCandidateValidationHasACumulativeByteBudget() throws {
+        let scanSize = 16_384, first = 8_192
+        var block = Array(StuffItContainerTests.sit5().prefix(100))
+        StuffItContainerTests.put(UInt64(first), 4, 84, &block)
+        StuffItContainerTests.put(UInt64(first), 4, 94, &block)
+        block[98] = 0; block[99] = 0
+        let offsets = Array(stride(from: 2, through: scanSize, by: 100))
+        var bytes = [UInt8](repeating: 0, count: offsets.last! + first)
+        bytes[0] = 0x4d; bytes[1] = 0x5a
+        for offset in offsets { bytes.replaceSubrange(offset..<offset + 100, with: block) }
+        // Later candidates lie inside earlier headers. Work backwards so every
+        // recorded CRC is wrong even after all overlapping fields are final.
+        for offset in offsets.reversed() {
+            let header = Array(bytes[offset..<offset + first])
+            StuffItContainerTests.put(UInt64(CRC16.checksum(header) ^ 1), 2, offset + 98, &bytes)
+        }
+        let source = CountingByteSource(DataByteSource(Data(bytes)))
+        XCTAssertThrowsError(try ArchiveReader.open(source: source, options: ReaderOptions(
+            limits: ReadLimits(maxMetadataSize: 32_768), maximumSFXScanSize: UInt64(scanSize),
+            scanForSFXInData: true))) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("StuffIt SFX scan"))
+        }
+        XCTAssertLessThan(source.bytesRead, 128 * 1_024,
+                          "StuffIt SFX candidate validation must have a cumulative byte budget")
+    }
+
+    func testLargeStuffIt5SFXHeaderIsValidatedOnceByParser() throws {
+        let original = Array(StuffItContainerTests.sit5())
+        let first = 100 + 4 + 2 * 65_535
+        var header = Array(original.prefix(100)) + [UInt8](repeating: 0x63, count: first - 100)
+        header[83] |= 0x20 // Comment and auxiliary lengths each fit their 16-bit fields.
+        StuffItContainerTests.put(65_535, 2, 100, &header)
+        StuffItContainerTests.put(65_535, 2, 102, &header)
+        StuffItContainerTests.put(UInt64(first + original.count - 100), 4, 84, &header)
+        StuffItContainerTests.put(UInt64(first), 4, 94, &header)
+        header[98] = 0; header[99] = 0
+        StuffItContainerTests.put(UInt64(CRC16.checksum(header)), 2, 98, &header)
+        let stub = Data([0x4d, 0x5a]) + Data(repeating: 0, count: 126)
+        let wrapped = stub + Data(header + original.dropFirst(100))
+        let source = CountingByteSource(DataByteSource(wrapped))
+        XCTAssertEqual(try StuffItSFX.find(source: source, maximumScanSize: 128, limits: ReadLimits()), 128)
+        XCTAssertLessThan(source.bytesRead, 64 * 1_024,
+                          "SFX scanning must defer large StuffIt 5 header CRCs to the parser")
+        let options = ReaderOptions(maximumSFXScanSize: 128, scanForSFXInData: true)
+        let reader = try ArchiveReader.open(source: source, options: options)
+        XCTAssertEqual(reader.entries.map(\.name), ["A"])
+        XCTAssertEqual(try reader.read(reader.entries[0]), Data("AB".utf8))
+        var corrupt = wrapped; corrupt[stub.count + first - 1] ^= 1
+        XCTAssertThrowsError(try ArchiveReader.open(data: corrupt, options: options)) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("StuffIt 5 archive header CRC"))
+        }
+    }
+
     func testInvalidCandidatesAreSkippedForAllThreeContainers() throws {
         let classic = StuffItContainerTests.classic(), sit5 = StuffItContainerTests.sit5()
         let sitx = StuffItXReaderTests.archive()

@@ -472,6 +472,15 @@ final class SevenZipIntegrationTests: XCTestCase {
         )
     }
 
+    func testHeaderKDFDefaultBudgetOpensAndExtractsEncryptedFixture() throws {
+        let fixture = try makeEncryptedFixture(headerEncryption: true)
+        defer { try? FileManager.default.removeItem(at: fixture.temporary) }
+        let reader = try ArchiveReader.open(url: fixture.archive,
+            options: ReaderOptions(password: fixture.password))
+        let entry = try XCTUnwrap(reader.entries.first { $0.name == fixture.entryName })
+        XCTAssertEqual(try reader.read(entry), fixture.payload)
+    }
+
     func testAESWithoutHeaderEncryptionReportsPasswordErrorsAtEntryRead() throws {
         try SevenZipTestSupport.requireSevenZip()
         let fixture = try makeEncryptedFixture(headerEncryption: false)

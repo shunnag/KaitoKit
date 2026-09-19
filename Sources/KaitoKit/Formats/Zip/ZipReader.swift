@@ -13,7 +13,7 @@ final class ZipReader: FormatReader {
     private static let maximumTrailingDataSize = 1 * 1_024 * 1_024
     private static let maximumEndRecordCandidateAttempts = 8_192
 
-    private enum Encryption {
+    private enum Encryption: Sendable {
         case none
         case traditional
         case aes(extra: [UInt8], vendorVersion: UInt16, strength: UInt8)
@@ -65,7 +65,7 @@ final class ZipReader: FormatReader {
         }
     }
 
-    private struct Record {
+    private struct Record: Sendable {
         let localHeaderOffset: UInt64
         let compressedSize: UInt64
         let uncompressedSize: UInt64
@@ -152,15 +152,15 @@ final class ZipReader: FormatReader {
     }
 
     let format: ArchiveFormat = .zip
-    private(set) var entries: [ArchiveEntry]
-    private(set) var nameEncoding: String.Encoding?
+    let entries: [ArchiveEntry]
+    let nameEncoding: String.Encoding?
 
     private let source: any ByteSource
     private let centralDirectoryOffset: UInt64
     private let records: [Record]
     private let localHeaderOrder: [Int]
     private let localHeaderOrderPositions: [Int]
-    private var localRecords: [LocalRecord?]
+    private var localRecords: [LocalRecord?] = []
     private var validatedLocalRangePosition = -1
     // 通常の読取は従来どおり payload まで。descriptor を含む検証の進捗は分離する。
     private var validatedRawRangePosition = -1
@@ -209,13 +209,34 @@ final class ZipReader: FormatReader {
         }
         self.localHeaderOrder = localHeaderOrder
         self.localHeaderOrderPositions = localHeaderOrderPositions
-        self.localRecords = Array(repeating: nil, count: parsedDirectory.records.count)
-
         if !options.lazyLocalHeaders || options.recoverDamagedArchives {
             for index in records.indices {
                 _ = try localRecord(at: index, limits: options.limits)
             }
         }
+    }
+
+    private init(source: any ByteSource, options: ReaderOptions,
+                 centralDirectoryOffset: UInt64, records: [Record],
+                 localHeaderOrder: [Int], localHeaderOrderPositions: [Int],
+                 entries: [ArchiveEntry], nameEncoding: String.Encoding?) {
+        self.source = source
+        self.centralDirectoryOffset = centralDirectoryOffset
+        self.records = records
+        self.localHeaderOrder = localHeaderOrder
+        self.localHeaderOrderPositions = localHeaderOrderPositions
+        self.entries = entries
+        self.nameEncoding = nameEncoding
+        self.password = options.password
+    }
+
+    func reopened(options: ReaderOptions) -> sending ZipReader {
+        // Parsed arrays are immutable COW values. Local validation progress,
+        // cached headers and derived AES keys start empty in each reader.
+        ZipReader(source: source, options: options, centralDirectoryOffset: centralDirectoryOffset,
+                  records: records, localHeaderOrder: localHeaderOrder,
+                  localHeaderOrderPositions: localHeaderOrderPositions,
+                  entries: entries, nameEncoding: nameEncoding)
     }
 
     func setPassword(_ password: String?) {
@@ -316,6 +337,9 @@ final class ZipReader: FormatReader {
     }
 
     private func resolveLocalRecord(at index: Int, limits: ReadLimits) throws -> LocalRecord {
+        // Keep reopen independent of entry count; allocate this mutable cache
+        // only when the new reader first needs a local header.
+        if localRecords.isEmpty { localRecords = Array(repeating: nil, count: records.count) }
         if let cached = localRecords[index] { return cached }
         let central = records[index]
         let fixedSize: UInt64 = 30

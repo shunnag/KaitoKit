@@ -15,6 +15,10 @@ public struct ReadLimits: Sendable, Equatable {
     /// this limit for authenticated compressed staging, with a 4 MiB ceiling.
     public var inMemorySingleFileLimit: UInt64
 
+    /// Minimum available space on the temporary volume while staging to disk.
+    /// The default is 1 GiB, checked before spilling and every 256 MiB written.
+    public var stagingFreeSpaceReserve: UInt64
+
     /// Maximum number of entries accepted from one archive.
     public var maxEntryCount: Int
 
@@ -52,6 +56,11 @@ public struct ReadLimits: Sendable, Equatable {
     /// hit the reader-owned key cache do not consume the budget again.
     public var maxRAR5HeaderKDFWork: UInt64
 
+    /// Maximum aggregate SHA-256 rounds for 7z header key derivations at open.
+    /// Cache hits and direct keys consume no rounds; entry reads are unbudgeted.
+    /// The default permits four derivations at cycle power 24.
+    public var maxSevenZipHeaderKDFWork: UInt64
+
     /// Creates a set of archive resource limits.
     ///
     /// - Parameters:
@@ -61,6 +70,8 @@ public struct ReadLimits: Sendable, Equatable {
     ///   - maxInMemorySize: Maximum size for `read` operations. The default is 1 GiB.
     ///   - inMemorySingleFileLimit: Maximum expanded compressed-tar stream
     ///     retained in memory. The default is 64 MiB.
+    ///   - stagingFreeSpaceReserve: Minimum available temporary-volume space
+    ///     while staging to disk. The default is 1 GiB.
     ///   - maxEntryCount: Maximum number of entries. The default is one million.
     ///   - maxMetadataSize: Maximum single metadata allocation. The default is 16 MiB.
     ///     The ZIP central directory uses `maxTotalMetadataSize` instead.
@@ -75,11 +86,14 @@ public struct ReadLimits: Sendable, Equatable {
     ///   - maxRAR5HeaderKDFWork: Maximum aggregate RAR5 encrypted-header KDF
     ///     work. The default permits four derivations at the maximum accepted
     ///     iteration exponent.
+    ///   - maxSevenZipHeaderKDFWork: Maximum aggregate 7z header SHA-256 rounds.
+    ///     The default is `4 * (1 << 24)`; entry-time derivations are excluded.
     public init(
         maxEntrySize: UInt64 = 4 * 1_024 * 1_024 * 1_024,
         maxTotalUncompressedSize: UInt64 = 64 * 1_024 * 1_024 * 1_024,
         maxInMemorySize: UInt64 = 1 * 1_024 * 1_024 * 1_024,
         inMemorySingleFileLimit: UInt64 = 64 * 1_024 * 1_024,
+        stagingFreeSpaceReserve: UInt64 = 1_024 * 1_024 * 1_024,
         maxEntryCount: Int = 1_000_000,
         maxMetadataSize: UInt64 = 16 * 1_024 * 1_024,
         maxMetadataRecordCount: Int = 65_536,
@@ -88,12 +102,14 @@ public struct ReadLimits: Sendable, Equatable {
         maxDictionarySize: UInt64 = 1 * 1_024 * 1_024 * 1_024,
         maxJPEGBlocks: Int = 2_097_152,
         maxVolumeCount: Int = 128,
-        maxRAR5HeaderKDFWork: UInt64 = 4 * ((UInt64(1) << 24) + 32)
+        maxRAR5HeaderKDFWork: UInt64 = 4 * ((UInt64(1) << 24) + 32),
+        maxSevenZipHeaderKDFWork: UInt64 = 4 * (UInt64(1) << 24)
     ) {
         self.maxEntrySize = maxEntrySize
         self.maxTotalUncompressedSize = maxTotalUncompressedSize
         self.maxInMemorySize = maxInMemorySize
         self.inMemorySingleFileLimit = inMemorySingleFileLimit
+        self.stagingFreeSpaceReserve = stagingFreeSpaceReserve
         self.maxEntryCount = max(0, maxEntryCount)
         self.maxMetadataSize = maxMetadataSize
         self.maxMetadataRecordCount = max(0, maxMetadataRecordCount)
@@ -103,5 +119,6 @@ public struct ReadLimits: Sendable, Equatable {
         self.maxJPEGBlocks = max(0, maxJPEGBlocks)
         self.maxVolumeCount = max(0, maxVolumeCount)
         self.maxRAR5HeaderKDFWork = maxRAR5HeaderKDFWork
+        self.maxSevenZipHeaderKDFWork = maxSevenZipHeaderKDFWork
     }
 }

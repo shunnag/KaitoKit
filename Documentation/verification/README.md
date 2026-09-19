@@ -8,6 +8,7 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-09-19-release-review.md](2026-09-19-release-review.md) | 2026-09-19 | 圧縮tar再利用・中断・空き容量、tar先読み、7z KDF・solid、最大上限 | 未コミット |
 | [2026-09-18-lz4-legacy.md](2026-09-18-lz4-legacy.md) | 2026-09-18 | LZ4 legacy・8 MiB境界・混在連結・CLI差分・上限 | 未コミット |
 | [2026-09-18-lz4-frame.md](2026-09-18-lz4-frame.md) | 2026-09-18 | LZ4 frame・XXH32・圧縮tar・連結・skippable・上限 | 未コミット |
 | [2026-09-18-sevenzip-swap.md](2026-09-18-sevenzip-swap.md) | 2026-09-18 | 7z Swap2/Swap4・solid・AES・分割・プレビューと編集 | 未コミット |

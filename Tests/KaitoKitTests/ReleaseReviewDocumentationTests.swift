@@ -9,11 +9,11 @@ final class ReleaseReviewDocumentationTests: XCTestCase {
 
     func testFollowupReviewDocumentsSFXAuxiliaryAndTAZChanges() throws {
         let changelog = try String(contentsOf: root.appendingPathComponent("CHANGELOG.md"), encoding: .utf8)
-        let unreleased = try XCTUnwrap(changelog.components(separatedBy: "## [Unreleased]").last?
+        let release = try XCTUnwrap(changelog.components(separatedBy: "## [0.7.0]").last?
             .components(separatedBy: "\n## [").first)
         for (item, detail) in [(10, "StuffIt"), (11, "auxiliary"), (12, ".taz")] {
-            XCTAssertTrue(unreleased.contains("K\(item)") && unreleased.contains(detail),
-                          "Unreleased must document K\(item)")
+            XCTAssertTrue(release.contains("K\(item)") && release.contains(detail),
+                          "0.7.0 must document K\(item)")
         }
         let record = try String(contentsOf: root.appendingPathComponent(
             "Documentation/verification/2026-09-19-release-review.md"), encoding: .utf8)

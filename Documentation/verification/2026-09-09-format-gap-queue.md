@@ -48,12 +48,12 @@ C の形式は brew で writer を入れれば独立確認が増えるが、必�
 | 4 | **xar** | XML TOC + zlib/bzip2/lzma heap | A(checked-in)| `cooViewer-7wbx` | 実装済み `deed11d` |
 | 5 | **Deb** | `ar` の中の `debian-binary` + `control.tar.*` + `data.tar.*` | B | 未作成 | 対応済み(ar reader が兼ねる) |
 | 6 | **RPM** | lead + signature/header(index+store)+ cpio payload | B | 未作成 | 実装済み `975cde6` |
-| 7 | **CAB** | MSZIP(Deflate)/ LZX / Quantum、folder 跨ぎ | C | 未作成 | None+MSZIP 実装済み `efb978b`。LZX/Quantum は c1vj.5 / c1vj.6 |
-| 8 | **ZIP method 93/95/96/98** | Zipx: zstd / xz / JPEG / PPMd | A | `cooViewer-th30` | — |
+| 7 | **CAB** | MSZIP(Deflate)/ LZX / Quantum、folder 跨ぎ | C | 未作成 | None+MSZIP 実装済み `efb978b`。LZX 実装済み(2026-09-12)。Quantum は一覧のみ |
+| 8 | **ZIP method 93/95/96/98** | Zipx: zstd / xz / JPEG / PPMd | A | `cooViewer-th30` | 93/98 実装済み(2026-09-11/12)、95 と 20 実装済み(2026-09-18)。96 は仕様非公開で未対応 |
 | 9 | **ARJ** | 古典 DOS 書庫 | C | 未作成 | — |
 | 10 | **ZOO** | 古典 | C | 未作成 | — |
 | 11 | **ARC / PAK / Squeeze / Crunch / LBR** | CP/M・DOS 系。RLE と LZW が主 | C | 未作成 | — |
-| 12 | **StuffIt / StuffIt X** | Mac 古典。SIT は方式が多い | C | `cooViewer-gu28` | — |
+| 12 | **StuffIt / StuffIt X** | Mac 古典。SIT は方式が多い | C | `cooViewer-gu28` | 実装済み(2026-09-13、slice 1〜8) |
 | 13 | **Compact Pro / PackIt / DiskDoubler** | Mac 古典 | C | 未作成 | — |
 | 14 | **LZX / PowerPacker / ADF / DMS** | Amiga | C | 未作成 | — |
 | 15 | **ACE**(旧形式のみ)| XADMaster も 2.0 は非対応 | C | 未作成 | — |
@@ -82,3 +82,11 @@ XADMaster との差を埋める本キューの対象からは外す。
 
 SWF / PDF / NDS / NSA / SAR は「書庫の展開」ではなく「メディアの抽出」なので、
 KaitoKit の対象外とする(XADMaster との差として残ることは記録しておく)。
+
+## 2026-09-20 追記
+
+キューの 1〜8 と 12 は v0.7.0 までに実装済み(8 の method 96 と 7 の Quantum を除く)。
+9〜18 と、既存形式の中で読めない方式、キューに無かった候補(DMG/UDIF + HFS+、UDF、WIM、
+CHM、lzip、brotli、7z zstd、uuencode、既存形式の穴など)は
+[2026-09-20 の候補調査](2026-09-20-format-candidates.md)で出自・オラクル・再利用・工数を
+付けて整理し直した。本表の順位はそちらで置き換える。

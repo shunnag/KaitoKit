@@ -70,6 +70,12 @@ public struct ReaderOptions: Sendable {
     /// Whether optional RAR5 BLAKE2sp digests are verified when present.
     public var verifyRAR5Blake2sp: Bool
 
+    /// How AppleDouble sidecars in ZIP and tar archives (`__MACOSX/._name`, `._name`) are exposed.
+    /// The default, ``AppleDoublePolicy/merge``, removes them and publishes any resource fork they carry
+    /// as `name/..namedfork/rsrc`. Encrypted sidecars cannot be inspected without a password and stay
+    /// listed (``AppleDoublePolicy/hide`` still removes the ones below `__MACOSX/`).
+    public var appleDoublePolicy: AppleDoublePolicy
+
     /// Creates reader options.
     public init(
         encodingPolicy: EncodingPolicy = .automatic(),
@@ -82,8 +88,10 @@ public struct ReaderOptions: Sendable {
         verifyRAR5Blake2sp: Bool = true,
         maximumSFXScanSize: UInt64 = 1 * 1_024 * 1_024,
         scanForSFXInData: Bool = false,
-        recoverDamagedArchives: Bool = false
+        recoverDamagedArchives: Bool = false,
+        appleDoublePolicy: AppleDoublePolicy = .merge
     ) {
+        self.appleDoublePolicy = appleDoublePolicy
         self.maximumSFXScanSize = min(
             maximumSFXScanSize,
             1 * 1_024 * 1_024

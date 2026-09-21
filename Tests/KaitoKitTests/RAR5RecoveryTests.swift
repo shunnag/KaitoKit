@@ -251,6 +251,7 @@ final class RAR5RecoveryTests: XCTestCase {
             else if name.contains("emoji130") { options.password = String(repeating: "😀", count: 130) }
             else if name.contains("password-full") { options.password = String(repeating: "e\u{301}", count: 65) }
             else if name.contains("header_encrypted") { options.password = "secret" }
+            else if name.contains("file-copy-aes") { options.password = "KaitoFixture" }
             let reader = try ArchiveReader.open(data: archive, options: options)
             XCTAssertTrue(reader.entries.allSatisfy { !$0.isIncomplete }, name)
             options.recoverDamagedArchives = true

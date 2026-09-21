@@ -2,9 +2,36 @@
 // XADMaster / The Unarchiver / stuffit-go 等の実装ソースは参照していない。
 import Foundation
 
+/// MacBinary / AppleSingle / BinHex 4 の wrapper header が持つ file の属性。payload が StuffIt でないとき、
+/// wrapper 自身を書庫（data fork + resource fork の 1 file）として公開するのに使う。
+struct MacWrapperInfo {
+    enum Kind: String {
+        case macBinary
+        case appleSingle
+        case binHex
+    }
+    let kind: Kind
+    /// wrapper が持つ元の file 名（Mac OS Roman / Shift_JIS 等の生 byte）。AppleSingle は Real Name entry が無ければ nil。
+    var name: [UInt8]?
+    var type: UInt32?
+    var creator: UInt32?
+    var finderFlags: UInt16?
+    var created: Date?
+    var modified: Date?
+    var comment: [UInt8]?
+}
+
 struct StuffItEnvelope {
     let data: any ByteSource
     let resource: (any ByteSource)?
+    /// wrapper を剥がしたときの属性。分割 set や SFX、生の StuffIt では nil。
+    var wrapper: MacWrapperInfo? = nil
+}
+
+/// Mac OS の日時（1904-01-01 からの秒、UTC 扱い）。0 は未設定。
+func macEpochDate(_ seconds: UInt64) -> Date? {
+    guard seconds != 0 else { return nil }
+    return Date(timeIntervalSince1970: Double(seconds) - 2_082_844_800)
 }
 
 enum StuffItWrapper {
@@ -55,8 +82,18 @@ enum StuffItWrapper {
         let secondary = UInt64(StuffItHeader.be16(b, 120))
         let dataOffset = 128 + ((secondary + 127) & ~UInt64(127))
         let resourceOffset = try Checked.add(dataOffset, (dataSize + 127) & ~UInt64(127))
+        // MacBinary II の header: 名前 @1〜、type @65、creator @69、Finder flags 上位 @73 / 下位 @101、
+        // 作成 @91、更新 @95（1904 起点の秒）、コメント長 @99。
+        var info = MacWrapperInfo(kind: .macBinary)
+        info.name = Array(b[2..<(2 + Int(b[1]))])
+        info.type = UInt32(StuffItHeader.be32(b, 65))
+        info.creator = UInt32(StuffItHeader.be32(b, 69))
+        info.finderFlags = UInt16(b[73]) << 8 | UInt16(b[101])
+        info.created = macEpochDate(StuffItHeader.be32(b, 91))
+        info.modified = macEpochDate(StuffItHeader.be32(b, 95))
         return try StuffItEnvelope(data: region(source, offset: dataOffset, length: dataSize),
-                                  resource: resourceSize == 0 ? nil : region(source, offset: resourceOffset, length: resourceSize))
+                                  resource: resourceSize == 0 ? nil : region(source, offset: resourceOffset, length: resourceSize),
+                                  wrapper: info)
     }
     private static func appleSingle(_ source: any ByteSource, littleEndian: Bool, limits: ReadLimits) throws -> StuffItEnvelope {
         let header = try readByteRange(source: source, offset: 0, count: 26)
@@ -73,21 +110,45 @@ enum StuffItWrapper {
         let descriptors = try readByteRange(source: source, offset: 26, count: count * 12)
         let bodyStart = UInt64(26 + count * 12)
         var data: (any ByteSource)?, resource: (any ByteSource)?
+        var info = MacWrapperInfo(kind: .appleSingle)
         for p in stride(from: 0, to: descriptors.count, by: 12) {
             let id = integer(descriptors, p, 4), offset = integer(descriptors, p + 4, 4), length = integer(descriptors, p + 8, 4)
             guard offset >= bodyStart, try Checked.add(offset, length) <= source.length else {
                 throw KaitoError.malformed("AppleSingle descriptor extent")
             }
-            if id == 1 {
+            switch id {
+            case 1:
                 guard data == nil else { throw KaitoError.malformed("AppleSingle duplicate data fork") }
                 data = try region(source, offset: offset, length: length)
-            } else if id == 2 {
+            case 2:
                 guard resource == nil else { throw KaitoError.malformed("AppleSingle duplicate resource fork") }
                 resource = try region(source, offset: offset, length: length)
+            case 3 where length > 0 && length <= 1024:
+                // Real Name entry。
+                info.name = try readByteRange(source: source, offset: offset, count: Int(length))
+            case 4 where length > 0 && length <= 65536:
+                info.comment = try readByteRange(source: source, offset: offset, count: Int(length))
+            case 8 where length >= 16:
+                // File Dates Info: 2000-01-01 00:00:00 UTC からの符号付き秒（create、modify、backup、access）。
+                let dates = try readByteRange(source: source, offset: offset, count: 16)
+                func date(_ o: Int) -> Date? {
+                    let value = Int32(bitPattern: UInt32(integer(dates, o, 4)))
+                    return value == Int32.min ? nil : Date(timeIntervalSince1970: Double(value) + 946_684_800)
+                }
+                info.created = date(0)
+                info.modified = date(4)
+            case 9 where length >= 16:
+                // Finder Info: FInfo（type、creator は 4 文字コードなので byte 順のまま、flags は数値）。
+                let finder = try readByteRange(source: source, offset: offset, count: 16)
+                info.type = UInt32(StuffItHeader.be32(finder, 0))
+                info.creator = UInt32(StuffItHeader.be32(finder, 4))
+                info.finderFlags = UInt16(integer(finder, 8, 2))
+            default:
+                break
             }
         }
         guard let data else { throw KaitoError.unsupportedFormat }
-        return StuffItEnvelope(data: data, resource: resource)
+        return StuffItEnvelope(data: data, resource: resource, wrapper: info)
     }
     private static func binHex(_ source: any ByteSource, offset: UInt64, limits: ReadLimits) throws -> StuffItEnvelope {
         let input = try StuffItPackedInput(source: source, offset: offset, size: source.length - offset)
@@ -149,7 +210,14 @@ enum StuffItWrapper {
         guard xmodem(output[dataOffset..<resourceOffset - 2]) == crc(at: resourceOffset - 2),
               xmodem(output[resourceOffset..<end - 2]) == crc(at: end - 2) else { throw KaitoError.malformed("BinHex fork CRC") }
         let decoded = DataByteSource(data: output)
+        // BinHex header: 名前長、名前、version、type、creator、flags、data 長、resource 長。
+        var info = MacWrapperInfo(kind: .binHex)
+        info.name = Array(h[1..<(1 + Int(n))])
+        info.type = UInt32(StuffItHeader.be32(h, Int(n) + 2))
+        info.creator = UInt32(StuffItHeader.be32(h, Int(n) + 6))
+        info.finderFlags = StuffItHeader.be16(h, Int(n) + 10)
         return try StuffItEnvelope(data: region(decoded, offset: UInt64(dataOffset), length: d),
-                                  resource: r == 0 ? nil : region(decoded, offset: UInt64(resourceOffset), length: r))
+                                  resource: r == 0 ? nil : region(decoded, offset: UInt64(resourceOffset), length: r),
+                                  wrapper: info)
     }
 }

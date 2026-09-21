@@ -11,6 +11,8 @@ struct ISORockRidge {
     var parent: UInt32?
     var unsupported: String?
     var virtualSize: UInt64?
+    /// ZF entry（zisofs、version 1 / "pz"）。version や algorithm が違えば `unsupported` になる。
+    var zisofs: ISOZisofsInfo?
 
     private static func start(in area: [UInt8]) -> Int? {
         for offset in [0, 14] where area.count >= offset + 7 {
@@ -63,7 +65,12 @@ struct ISORockRidge {
                 let b = Array(area[pos..<pos+length])
                 pos += length
                 if signature == "ST" { break }
-                guard b[3] == 1 else { continue }
+                // 未知の version の entry は読まないが、ZF だけは version 2（zisofs2）を含めて
+                // 「圧縮された本文をそのまま返さない」ために unsupported を立てる。
+                guard b[3] == 1 else {
+                    if signature == "ZF" { result.unsupported = "zisofs" }
+                    continue
+                }
                 switch signature {
                 case "CE" where length >= 28:
                     guard continuation == nil else { throw KaitoError.malformed("iso CE chain") }
@@ -125,7 +132,17 @@ struct ISORockRidge {
                         result.virtualSize = UInt64(ISOBytes.number(b, 4, width: 4)) << 32
                             | UInt64(ISOBytes.number(b, 12, width: 4))
                     }
-                case "ZF": result.unsupported = "zisofs"
+                case "ZF":
+                    // zisofs 仕様: length 16、version 1、"pz"、header size 4 (×4 byte)、log2 block 15〜17、
+                    // 展開後サイズは 7.3.3（両 endian。little endian 側を採る）。
+                    if length == 16, b[3] == 1, b[4] == 0x70, b[5] == 0x7A, b[6] == 4, (15...17).contains(b[7]),
+                       !ISOBytes.mismatch(b, 8, width: 4) {
+                        let size = UInt64(ISOBytes.number(b, 8, width: 4))
+                        result.zisofs = ISOZisofsInfo(blockSizeLog2: Int(b[7]), uncompressedSize: size)
+                    } else {
+                        // version 2 / 他 algorithm（zisofs2）や壊れた entry は従来どおり読まない。
+                        result.unsupported = "zisofs"
+                    }
                 default: break
                 }
             }

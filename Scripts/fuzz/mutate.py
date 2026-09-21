@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import random
 import struct
+import zlib
 from pathlib import Path
 
 
@@ -124,7 +125,7 @@ def zip_payload_ranges(data: bytes) -> list[tuple[int, int]]:
             if candidate >= 0:
                 archive_base = candidate
 
-    supported_methods = {8, 9, 12, 14, 20, 93, 95, 98, 99}  # Includes both Zstandard IDs, XZ, PPMd and AES.
+    supported_methods = {1, 2, 3, 4, 5, 6, 8, 9, 12, 14, 20, 93, 95, 98, 99}  # PKZIP 1.x methods, both Zstandard IDs, XZ, PPMd and AES.
     ranges: list[tuple[int, int]] = []
     cursor = 0
     while True:
@@ -643,6 +644,134 @@ def lz4_payload_ranges(data: bytes) -> list[tuple[int, int]]:
     return ranges
 
 
+def lzip_payload_ranges(data: bytes) -> list[tuple[int, int]]:
+    """Locate the LZMA stream of every lzip member by walking member sizes backwards (§2)."""
+    ranges = []
+    end = len(data)
+    while end >= 26:
+        member_size = struct.unpack_from("<Q", data, end - 8)[0]
+        if member_size < 26 or member_size > end:
+            break
+        start = end - member_size
+        if data[start:start + 4] != b"LZIP":
+            break
+        ranges.append((start + 6, end - 20))
+        end = start
+    ranges.reverse()
+    return ranges
+
+
+def _chm_encint(data: bytes, index: int, end: int) -> tuple[int, int]:
+    value = 0
+    while index < end:
+        byte = data[index]
+        index += 1
+        value = (value << 7) | (byte & 0x7F)
+        if not byte & 0x80:
+            return value, index
+    raise ValueError("chm encint")
+
+
+def chm_payload_ranges(data: bytes) -> list[tuple[int, int]]:
+    """Locate the LZX-compressed section content of a CHM (ITSF 3) through its PMGL directory entries."""
+    if len(data) < 0x60 or data[:4] != b"ITSF" or struct.unpack_from("<I", data, 4)[0] != 3:
+        return []
+    directory_offset, directory_length = struct.unpack_from("<QQ", data, 0x48)
+    content_offset = struct.unpack_from("<Q", data, 0x58)[0]
+    if directory_offset + directory_length > len(data) or data[directory_offset:directory_offset + 4] != b"ITSP":
+        return []
+    header_length, _, chunk_size = struct.unpack_from("<III", data, directory_offset + 8)
+    chunk_count = struct.unpack_from("<I", data, directory_offset + 0x2C)[0]
+    ranges = []
+    for chunk in range(min(chunk_count, 4096)):
+        base = directory_offset + header_length + chunk * chunk_size
+        if base + chunk_size > len(data) or data[base:base + 4] != b"PMGL":
+            continue
+        free = struct.unpack_from("<I", data, base + 4)[0]
+        count = struct.unpack_from("<H", data, base + chunk_size - 2)[0]
+        index, end = base + 0x14, base + chunk_size - min(free, chunk_size)
+        try:
+            for _ in range(count):
+                name_length, index = _chm_encint(data, index, end)
+                name = data[index:index + name_length]
+                index += name_length
+                section, index = _chm_encint(data, index, end)
+                offset, index = _chm_encint(data, index, end)
+                length, index = _chm_encint(data, index, end)
+                if section == 0 and name.startswith(b"::DataSpace/Storage/") and name.endswith(b"/Content") and length:
+                    start = content_offset + offset
+                    if start + length <= len(data):
+                        ranges.append((start, start + length))
+        except (ValueError, IndexError):
+            continue
+    return ranges
+
+
+def arj_payload_ranges(data: bytes) -> list[tuple[int, int]]:
+    """Locate the compressed data of every ARJ member (method 1-4) by walking the headers from offset 0."""
+    ranges = []
+    if len(data) < 4 or data[0] != 0x60 or data[1] != 0xEA:
+        return ranges
+    cursor = 0
+    first = True
+    for _ in range(100_000):
+        if cursor + 4 > len(data) or data[cursor] != 0x60 or data[cursor + 1] != 0xEA:
+            break
+        basic = struct.unpack_from("<H", data, cursor + 2)[0]
+        if basic == 0 or basic > 2600 or cursor + 4 + basic + 4 > len(data):
+            break
+        header = data[cursor + 4:cursor + 4 + basic]
+        if zlib.crc32(header) != struct.unpack_from("<I", data, cursor + 4 + basic)[0]:
+            break
+        cursor += 4 + basic + 4
+        while True:                                     # extended headers
+            if cursor + 2 > len(data):
+                return ranges
+            size = struct.unpack_from("<H", data, cursor)[0]
+            cursor += 2
+            if size == 0:
+                break
+            cursor += size + 4
+        if first:
+            first = False
+            continue
+        method, compressed = header[5], struct.unpack_from("<I", header, 12)[0]
+        if 1 <= method <= 4 and compressed and cursor + compressed <= len(data):
+            ranges.append((cursor, cursor + compressed))
+        cursor += compressed
+    return ranges
+
+
+def dmg_payload_ranges(data: bytes) -> list[tuple[int, int]]:
+    """Locate the compressed chunks of a UDIF disk image through its koly trailer and blkx plist."""
+    if len(data) < 512 or data[-512:-508] != b"koly":
+        return []
+    import plistlib
+    koly = data[-512:]
+    data_fork = struct.unpack_from(">Q", koly, 24)[0]
+    xml_offset, xml_length = struct.unpack_from(">QQ", koly, 216)
+    if xml_offset + xml_length > len(data):
+        return []
+    try:
+        plist = plistlib.loads(data[xml_offset:xml_offset + xml_length])
+        blocks = plist["resource-fork"]["blkx"]
+    except Exception:
+        return []
+    ranges = []
+    for block in blocks:
+        table = block.get("Data", b"")
+        if len(table) < 204 or table[:4] != b"mish":
+            continue
+        count = struct.unpack_from(">I", table, 200)[0]
+        for index in range(min(count, (len(table) - 204) // 40)):
+            kind, _, _, _, offset, length = struct.unpack_from(">IIQQQQ", table, 204 + index * 40)
+            if kind & 0x80000000 and kind != 0xFFFFFFFF and length:
+                start = data_fork + offset
+                if start + length <= len(data):
+                    ranges.append((start, start + length))
+    return ranges
+
+
 def compressed_payload_ranges(data: bytes) -> list[tuple[int, int]]:
     return (
         zip_payload_ranges(data)
@@ -651,6 +780,10 @@ def compressed_payload_ranges(data: bytes) -> list[tuple[int, int]]:
         + rar5_payload_ranges(data)
         + lha_payload_ranges(data)
         + lz4_payload_ranges(data)
+        + lzip_payload_ranges(data)
+        + chm_payload_ranges(data)
+        + arj_payload_ranges(data)
+        + dmg_payload_ranges(data)
     )
 
 

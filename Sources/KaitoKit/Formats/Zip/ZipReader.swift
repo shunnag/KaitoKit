@@ -638,6 +638,22 @@ final class ZipReader: FormatReader {
                 offset: offset,
                 compressedSize: compressedSize
             )
+        case 1, 2, 3, 4, 5, 6:
+            // APPNOTE §5.1〜5.3 の旧 method（PKZIP 1.x）。stream に終端が無く、宣言サイズで止める。
+            guard let uncompressedSize else {
+                throw KaitoError.malformed("ZIP method \(method) requires a known uncompressed size")
+            }
+            switch method {
+            case 1:
+                return try ShrinkDecompressor(source: source, offset: offset, compressedSize: compressedSize,
+                                              expectedSize: uncompressedSize)
+            case 6:
+                return try ImplodeDecompressor(source: source, offset: offset, compressedSize: compressedSize,
+                                               expectedSize: uncompressedSize, flags: flags)
+            default:
+                return try ReduceDecompressor(source: source, offset: offset, compressedSize: compressedSize,
+                                              expectedSize: uncompressedSize, factor: Int(method) - 1)
+            }
         case 8:
             return try DeflateDecompressor(
                 source: source,
@@ -2278,6 +2294,9 @@ final class ZipReader: FormatReader {
     private static func methodDescription(_ method: UInt16) -> String {
         switch method {
         case 0: "stored"
+        case 1: "shrink"
+        case 2, 3, 4, 5: "reduce\(method - 1)"
+        case 6: "implode"
         case 8: "deflate"
         case 9: "deflate64"
         case 12: "bzip2"

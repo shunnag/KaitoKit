@@ -7,6 +7,7 @@ final class ISOReader: FormatReader {
         var sections: [ISOSection]
         var totalLength: UInt64
         var unsupported: String?
+        var zisofs: ISOZisofsInfo? = nil
     }
     private struct Pending {
         let parent: Int?
@@ -38,8 +39,12 @@ final class ISOReader: FormatReader {
     let nameEncoding: String.Encoding?
     private let source: any ByteSource
     private let records: [Record]
+    /// ISO 9660 / UDF hybrid で UDF の木を選んだときの file system。entry と stream はこちらが持つ。
+    private let udf: UDFFileSystem?
 
     init(source: any ByteSource, options: ReaderOptions) throws {
+        // BIN/CUE などの生 sector image は user data だけの 2048 byte block に写してから読む。
+        let source = try RawSectorByteSource.wrapUnlessPlainImage(source) ?? source
         self.source = source
         let budget = ISOMetadataBudget(options.limits)
         var primary: [UInt8]?
@@ -55,6 +60,24 @@ final class ISOReader: FormatReader {
                [64, 67, 69].contains(b[90]), supplementary == nil { supplementary = b }
         }
         guard let primary else { throw KaitoError.unsupportedFormat }
+        // hybrid: CD001 の集合の後ろに ECMA-167 の認識列があれば UDF の木を優先する（長い名前、symlink、
+        // 権限を持ち、DVD-Video などでは UDF 側が正）。UDF 側の構造が読めなければ従来の木へ戻す。
+        // 上限超過は利用者の設定なので握りつぶさない。
+        if try UDFVolume.hasRecognitionSequence(source: source, pureOnly: false) {
+            do {
+                let fileSystem = try UDFFileSystem(source: source, options: options)
+                udf = fileSystem
+                entries = fileSystem.entries
+                records = []
+                nameEncoding = .utf8
+                return
+            } catch KaitoError.limitExceeded(let reason) {
+                throw KaitoError.limitExceeded(reason)
+            } catch {
+                // malformed / truncated / unsupported: ISO 9660 の木で続ける。
+            }
+        }
+        udf = nil
         var pvd: Tree?
         var rootError: Error?
         do { pvd = try Self.prepare(primary, source: source, budget: budget) }
@@ -94,11 +117,18 @@ final class ISOReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
+        if let udf { return try udf.stream(for: entry, limits: limits) }
         guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
             throw KaitoError.notFound("iso entry index \(entry.index)")
         }
         let record = records[entry.index]
         if let reason = record.unsupported { throw KaitoError.unsupportedMethod("ISO 9660 \(reason)") }
+        if let zisofs = record.zisofs, record.sections.count == 1 {
+            return try EntryStream(
+                decompressor: ISOZisofsDecompressor(source: source, section: record.sections[0], info: zisofs, limits: limits),
+                length: zisofs.uncompressedSize, expectedCRC32: nil, entryIndex: entry.index, limits: limits
+            )
+        }
         if record.sections.count == 1 {
             return try EntryStream(source: source, offset: record.sections[0].offset,
                                    length: record.sections[0].length, limits: limits)
@@ -211,7 +241,14 @@ final class ISOReader: FormatReader {
                 let foreign = volume.setSize > 1 && sections.contains { $0.sequence != volume.sequence }
                 if foreign { unsupported = "otherVolume" }
                 else if sections.contains(where: { $0.unit != 0 }) { unsupported = "interleaved" }
+                // zisofs は単一 extent の file だけに適用される（仕様）。
+                var zisofs = kind == .file && !foreign && unsupported == nil ? rr.zisofs : nil
+                if zisofs != nil, sections.count != 1 { unsupported = "zisofs multi-extent"; zisofs = nil }
                 if let unsupported { specific["unsupported"] = unsupported }
+                if let zisofs {
+                    specific["zisofsBlockSize"] = String(zisofs.blockSize)
+                    try Checked.size(zisofs.uncompressedSize, limit: budget.limits.maxEntrySize)
+                }
                 if let size = rr.virtualSize { specific["virtualSize"] = String(size) }
                 if child.flags & 1 != 0 { specific["hidden"] = "true" }
                 if volume.mismatch || sections.contains(where: { $0.mismatch }) { specific["bothEndianMismatch"] = "true" }
@@ -223,13 +260,16 @@ final class ISOReader: FormatReader {
                 if kind == .file {
                     for section in sections {
                         total = try Checked.add(total, UInt64(section.length))
-                        if !foreign { ranges.append(try volume.range(lba: section.lba, ea: section.ea, length: UInt64(section.length))) }
+                        // 長さ 0 の extent は block を持たない。libarchive は空 file の LBA に
+                        // 0xFFFFFFF0 を書くため、位置は検証せず空 section にする。
+                        if section.length == 0 { ranges.append(ISOSection(offset: 0, length: 0)) }
+                        else if !foreign { ranges.append(try volume.range(lba: section.lba, ea: section.ea, length: UInt64(section.length))) }
                     }
                     try Checked.size(total, limit: budget.limits.maxEntrySize)
                 } else if !foreign, kind == .directory {
                     _ = try volume.range(lba: child.lba, ea: child.ea, length: UInt64(child.length))
-                } else if !foreign {
-                    // symlink も不正な extent を許さない (通常 dataLength は 0)。
+                } else if !foreign, first.length != 0 {
+                    // symlink も不正な extent を許さない (通常 dataLength は 0 で、その場合は位置を見ない)。
                     _ = try volume.range(lba: first.lba, ea: first.ea, length: UInt64(first.length))
                 }
                 if kind != .file { ranges = [ISOSection(offset: 0, length: 0)] }
@@ -250,7 +290,8 @@ final class ISOReader: FormatReader {
                 result.append(Pending(parent: node.parent, bytes: name, rrName: rrName, kind: kind,
                                       date: rr.modified ?? child.date, permissions: rr.mode.map { UInt16($0 & 0o7777) },
                                       link: rr.link, specific: specific,
-                                      record: Record(sections: ranges, totalLength: total, unsupported: unsupported)))
+                                      record: Record(sections: ranges, totalLength: zisofs?.uncompressedSize ?? total,
+                                                     unsupported: unsupported, zisofs: zisofs)))
                 if let descent {
                     // 親の再開位置を保存し、子を即座に辿る先行順。兄弟は ISO record 順を保つ。
                     // 再開時は既読 record を使い、directory 数・metadata 予算を二重加算しない。
@@ -335,9 +376,11 @@ final class ISOReader: FormatReader {
             entries.append(ArchiveEntry(index: entries.count,
                 rawName: RawName(bytes: rawPaths[index]!, declaredEncoding: joliet ? .utf16BigEndian : nil, isDirectoryHint: item.kind == .directory),
                 name: components.joined(separator: "/"), pathComponents: components, kind: item.kind,
-                uncompressedSize: item.record.totalLength, compressedSize: item.record.totalLength,
+                uncompressedSize: item.record.totalLength,
+                compressedSize: item.record.zisofs != nil ? item.record.sections.reduce(0) { $0 + $1.length } : item.record.totalLength,
                 modificationDate: item.date, posixPermissions: item.permissions, isEncrypted: false, solidGroup: -1,
-                crc32: nil, methodDescription: "ISO 9660 (stored)", formatSpecific: specific,
+                crc32: nil, methodDescription: item.record.zisofs != nil ? "zisofs (zlib)" : "ISO 9660 (stored)",
+                formatSpecific: specific,
                 isIncomplete: item.record.unsupported == "otherVolume"))
             records.append(item.record)
         }

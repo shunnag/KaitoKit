@@ -94,7 +94,8 @@ public enum FormatDetector {
     /// File URLs inspect a bounded Mach-O or PE prefix by default. If content
     /// recognition does not decide the result, `.tar` and `.Z` extensions are
     /// used as hints. LZMA_Alone requires a `.lzma` or `.tlz` extension and a plausible
-    /// header, and is checked before binary cpio. A single LHA terminator
+    /// header, and brotli requires a `.br` or `.tbr` extension, a valid stream header and a
+    /// successful trial decode; both are checked before binary cpio. A single LHA terminator
     /// requires a `.lha` or `.lzh` file name because it has no unique magic.
     public static func detect(
         url: URL,
@@ -111,11 +112,17 @@ public enum FormatDetector {
         let zipSplit = try split == nil ? ZipSplitVolumeSet.assemble(
             url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
         ) : nil
+        let stuffItSplit = try split == nil && zipSplit == nil ? StuffItSplitSet.assemble(
+            firstVolumeURL: standardized, source: opened.source, directory: opened.directory, limits: options.limits
+        ) : nil
+        let cue = try split == nil && zipSplit == nil && stuffItSplit == nil ? CueSheet.assemble(
+            url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
+        ) : nil
         let sourceURL = SplitVolumeSet.naming(forFirstVolumeName: standardized.lastPathComponent) != nil
             ? standardized.deletingPathExtension()
             : standardized
         let format = try detect(
-            source: split?.source ?? zipSplit?.source ?? opened.source,
+            source: split?.source ?? zipSplit?.source ?? stuffItSplit.map { $0 as any ByteSource } ?? cue ?? opened.source,
             sourceURL: sourceURL,
             options: options
         )
@@ -152,10 +159,34 @@ public enum FormatDetector {
         return prefix == Array("StuffIt!".utf8) ? .stuffItX : .stuffIt
     }
 
+    /// envelope の形式: payload が StuffIt なら classic / X、そうでなければ wrapper 自身（MacBinary /
+    /// AppleSingle / BinHex 4）を 1 file の書庫として扱う。
+    static func envelopeFormat(_ envelope: StuffItEnvelope) throws -> ArchiveFormat {
+        let inner = try readByteRange(source: envelope.data, offset: 0, count: Int(min(envelope.data.length, 100)))
+        if StuffItHeader.signature(inner) != nil || inner.starts(with: "StuffIt!".utf8) {
+            return try stuffItFormat(envelope.data)
+        }
+        switch envelope.wrapper?.kind {
+        case .macBinary: return .macBinary
+        case .appleSingle: return .appleSingle
+        case .binHex: return .binHex
+        case nil: return try stuffItFormat(envelope.data)
+        }
+    }
+
     // wrapper は一段だけ剥がす。内側の他形式へは再帰的に dispatch しない。
     static func stuffItInput(source: any ByteSource, prefix: [UInt8]? = nil, limits: ReadLimits,
                              maximumSFXScanSize: UInt64 = 0) throws -> StuffItEnvelope? {
+        // URL open で連結済みの分割セットは data fork と resource fork をそのまま渡す。
+        if let split = source as? StuffItSplitSource {
+            return StuffItEnvelope(data: split, resource: split.resourceFork)
+        }
         let bytes = try prefix ?? readByteRange(source: source, offset: 0, count: Int(min(source.length, 512)))
+        // Data で開いた分割 part は、単独で R+D を覆う場合だけ連結なしで成立する。
+        if StuffItSplitHeader(bytes) != nil,
+           let split = try StuffItSplitSet.assemble(firstVolumeURL: nil, source: source, directory: nil, limits: limits) {
+            return StuffItEnvelope(data: split, resource: split.resourceFork)
+        }
         if TarReader.isPlausibleMemberHeader(bytes) { return nil }
         if bytes.starts(with: "StuffIt?".utf8) { throw KaitoError.unsupportedFormat }
         if StuffItHeader.signature(bytes) != nil || bytes.starts(with: "StuffIt!".utf8) {
@@ -176,10 +207,8 @@ public enum FormatDetector {
             || ZstdFrameHeader.hasMagic(bytes) || isBzip2Header(bytes)
             || ArReader.isPlausibleArchive(bytes, sourceLength: source.length) { return nil }
         if try isLHAHeader(bytes, sourceLength: source.length) { return nil }
-        guard let envelope = try StuffItWrapper.unwrap(source: source, prefix: bytes, limits: limits) else { return nil }
-        let inner = try readByteRange(source: envelope.data, offset: 0, count: Int(min(envelope.data.length, 100)))
-        guard StuffItHeader.signature(inner) != nil || inner.starts(with: "StuffIt!".utf8) else { throw KaitoError.unsupportedFormat }
-        return envelope
+        // wrapper の payload が StuffIt でなくても、wrapper 自身を 1 file の書庫として公開する（envelopeFormat）。
+        return try StuffItWrapper.unwrap(source: source, prefix: bytes, limits: limits)
     }
 
     private static func detect(
@@ -199,7 +228,7 @@ public enum FormatDetector {
         }
 
         if !skipStuffIt, let envelope = try stuffItInput(source: source, prefix: prefix, limits: limits, maximumSFXScanSize: sfxScanSize) {
-            return try stuffItFormat(envelope.data)
+            return try envelopeFormat(envelope)
         }
 
         if hasPrefix(prefix, [0x50, 0x4B, 0x03, 0x04])
@@ -215,9 +244,22 @@ public enum FormatDetector {
         if hasPrefix(prefix, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]) {
             return .sevenZip
         }
+        // UDIF（.dmg）は先頭が最初の chunk の圧縮 data（bzip2 / xz / zlib の magic）なので、単一 file の
+        // 圧縮形式より先に末尾の koly で判定する。
+        if try UDIFTrailer.read(source: source) != nil { return .dmg }
         if hasPrefix(prefix, [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00]) {
             return .xz
         }
+        // draft-diaz-lzip §2: `LZIP` + version。version 1 以外は reader 側で unsupportedMethod にする。
+        if hasPrefix(prefix, LzipMember.magic), prefix.count > 4 {
+            return .lzip
+        }
+        if hasPrefix(prefix, PbzxHeader.magic) { return .pbzx }
+        if hasPrefix(prefix, WIMHeader.signature) { return .wim }
+        if hasPrefix(prefix, CFBHeader.signature) { return .compoundFile }
+        if hasPrefix(prefix, CHMHeader.signature), prefix.count >= 8, [2, 3].contains(CHMBytes.u32(prefix, 4)) { return .chm }
+        // ARJ: 先頭の header id + CRC の合う main header。DOS SFX（MZ）は下の実行形式 prefix の走査で扱う。
+        if hasPrefix(prefix, ARJHeader.identifier), try ARJReader.findMainHeader(source: source, maximumScan: 0) != nil { return .arj }
         if XarHeader.probe(prefix) { return .xar }
         if hasPrefix(prefix, [0x04, 0x22, 0x4d, 0x18]) || hasPrefix(prefix, [0x02, 0x21, 0x4c, 0x18]) { return .lz4 }
         if ZstdFrameHeader.hasMagic(prefix) { return try skippableStreamFormat(source: source, limits: limits) }
@@ -253,6 +295,11 @@ public enum FormatDetector {
         if try findLHASFXSignature(source: source) != nil {
             return .lha
         }
+        // ARJ の DOS SFX（MZ の後ろに main header）。
+        if sfxScanSize > 0, prefix.count >= 2, prefix[0] == 0x4D, prefix[1] == 0x5A,
+           try ARJReader.findMainHeader(source: source, maximumScan: min(sfxScanSize, maximumSFXScanSize)) != nil {
+            return .arj
+        }
 
         // 既存の native ZIP 復旧・SFX 判定を優先する。書庫 payload 内の CD001 が
         // 既存の検出結果を奪わないよう、ISO の固定 offset probe はその後に置く。
@@ -260,7 +307,19 @@ public enum FormatDetector {
         if source.length >= 34816 {
             let sector = try read(source: source, at: 32768, count: 2048)
             if ISOReader.isPlausibleVolumeDescriptor(sector) { return .iso }
+            // ECMA-167 2/8.3.1: CD001 を持たず BEA01 … NSR02|NSR03 … TEA01 の認識列だけがある image は
+            // UDF 専用。CD001 を伴う hybrid は `.iso` として ISOReader が UDF の木を選ぶ。
+            if try UDFVolume.hasRecognitionSequence(source: source, pureOnly: true) { return .udf }
+            // ECMA-130 の生 sector image（BIN/CUE、.img、.mdf）: 2352 / 2448 / 2336 byte の sector から
+            // user data を取り出した上で同じ判定を行う。
+            if let raw = try RawSectorByteSource.wrapIfRaw(source) {
+                let sector = try read(source: raw, at: 32768, count: 2048)
+                if ISOReader.isPlausibleVolumeDescriptor(sector) { return .iso }
+                if try UDFVolume.hasRecognitionSequence(source: raw, pureOnly: true) { return .udf }
+            }
         }
+        // 生の Apple disk image: GPT / APM / bare の HFS+ volume（koly 付きは上で判定済み）。
+        if try DMGReader.detect(source: source, limits: limits) { return .dmg }
 
         if let fileName {
             let pathExtension = URL(fileURLWithPath: fileName).pathExtension
@@ -282,6 +341,12 @@ public enum FormatDetector {
             if ["lzma", "tlz"].contains(pathExtension.lowercased()),
                LZMAAloneHeader.isPlausible(prefix, limits: limits) {
                 return .lzma
+            }
+            // brotli (RFC 7932) にも magic が無い。`.br` / `.tbr` の名前と、有効な WBITS を持つ
+            // stream header、先頭 chunk の試し復号がそろったときだけ受理する。
+            if ["br", "tbr"].contains(pathExtension.lowercased()),
+               BrotliDecompressor.isPlausibleStream(source: source, limits: limits) {
+                return .brotli
             }
         }
 
@@ -341,7 +406,7 @@ public enum FormatDetector {
         let scanSize = min(maximumScanSize, maximumSFXScanSize)
         guard scanSize > 0 else { return nil }
 
-        let longestSignatureSize: UInt64 = 8
+        let longestSignatureSize: UInt64 = 26
         let maximumRead = try Checked.add(scanSize, longestSignatureSize)
         let count = try Checked.toInt(min(source.length, maximumRead))
         guard count >= 4 else { return nil }
@@ -354,6 +419,7 @@ public enum FormatDetector {
         let rar4: [UInt8] = [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00]
         let rar5: [UInt8] = rar4.dropLast() + [0x01, 0x00]
         let sevenZip: [UInt8] = [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]
+        let cabinet: [UInt8] = [0x4D, 0x53, 0x43, 0x46]
 
         let maximumStart = min(Int(scanSize), bytes.count - 4)
         guard maximumStart >= 1 else { return nil }
@@ -371,6 +437,13 @@ public enum FormatDetector {
             }
             if matches(bytes, signature: sevenZip, at: index) {
                 return SFXSignatureMatch(offset: UInt64(index), format: .sevenZip)
+            }
+            // MS-CAB の CFHEADER: signature の後 reserved1 = 0、versionMinor = 3、versionMajor = 1。
+            // 実行形式の中の偶然の "MSCF" を除くため、offset 0 の判定と同じ版数まで確認する。
+            if matches(bytes, signature: cabinet, at: index), index + 26 <= bytes.count,
+               bytes[index + 4...index + 7].allSatisfy({ $0 == 0 }),
+               bytes[index + 24] == 3, bytes[index + 25] == 1 {
+                return SFXSignatureMatch(offset: UInt64(index), format: .cab)
             }
         }
         return nil

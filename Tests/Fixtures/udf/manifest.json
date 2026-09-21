@@ -1,0 +1,102 @@
+{
+  "payload": {
+    "forked.txt": {
+      "kind": "file",
+      "size": 10,
+      "sha256": "f080b24373c7b6f0bc3c0f894907f6cb643a305a7b5f8975282922d7b50b56df"
+    },
+    "link-to-readme": {
+      "kind": "symlink",
+      "target": "readme.txt"
+    },
+    "readme.txt": {
+      "kind": "file",
+      "size": 2880,
+      "sha256": "efe110a6cc29d1711091a93ff160466004e53f7a835209094e1131983276f25e"
+    },
+    "sub": {
+      "kind": "directory"
+    },
+    "sub/deeper": {
+      "kind": "directory"
+    },
+    "sub/deeper/empty": {
+      "kind": "file",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "sub/deeper/one.txt": {
+      "kind": "file",
+      "size": 1,
+      "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"
+    },
+    "sub/link-up": {
+      "kind": "symlink",
+      "target": "sub/deeper/one.txt"
+    },
+    "sub/small.bin": {
+      "kind": "file",
+      "size": 2304,
+      "sha256": "a8b2beedb2cb53792d92eb492452bf399e8ba7fa5659c1c916b0ec7410e06cc5"
+    },
+    "日本語 名前.txt": {
+      "kind": "file",
+      "size": 8,
+      "sha256": "8f25aabe30a0e7bd7cb4b72d9d0873db4d63ba0f279b6d1f4335783ee9d7b710"
+    }
+  },
+  "hybrid102.iso": {
+    "rawSize": 1142784,
+    "sha256": "3852f82d4d624597c427ffcc4a66e7e5e437b001b5f4ad7cf62188edae95476a",
+    "encodedSize": 6509,
+    "writer": "hdiutil makehybrid -iso -joliet -udf -udf-version 1.02"
+  },
+  "pure150.iso": {
+    "rawSize": 1140736,
+    "sha256": "e20180e2f905680781e988dc5f9f08fd7d39146443b185fcc8255f30e16c4ce0",
+    "encodedSize": 4864,
+    "writer": "hdiutil makehybrid -udf -udf-version 1.50"
+  },
+  "sparable150-relocated.iso": {
+    "rawSize": 1140736,
+    "sha256": "3d5b9df39771c318310a568185caa853a5690929fa7e63555e0ea3224f0e9e98",
+    "encodedSize": 5010,
+    "writer": "pure150.iso + sparable partition map with a relocated packet (synthetic)"
+  },
+  "vat150.iso": {
+    "rawSize": 1140736,
+    "sha256": "0c6bb32c035978f93fc15b709bec78f1f1b2cc32e66b991c08ff3cfbd855d5ec",
+    "encodedSize": 5115,
+    "writer": "pure150.iso + virtual partition map with a UDF 1.50 style VAT (synthetic)"
+  },
+  "vat2x.iso": {
+    "rawSize": 1140736,
+    "sha256": "1de3f4397d69fcfa9cda7f6ac0a999548f55811865778647b473f580c9c2421f",
+    "encodedSize": 5119,
+    "writer": "pure150.iso + virtual partition map with a UDF 2.x style VAT (synthetic)"
+  },
+  "icb-two-entries.iso": {
+    "rawSize": 1140736,
+    "sha256": "f8d7ecdcab83e64226ede4fd60add74b2251f414cd30810c1a4d37e9b4fd106b",
+    "encodedSize": 4928,
+    "writer": "pure150.iso + two-block ICB (direct entry, terminal entry), strategy 4 (synthetic)"
+  },
+  "icb-chain-4096.iso": {
+    "rawSize": 1140736,
+    "sha256": "dacb9ee8c462304a176b0103306f3ab6ad82277f9abb01cecc23586470f5ce1a",
+    "encodedSize": 5018,
+    "writer": "pure150.iso + strategy 4096 chain (stale DE, IE -> current DE, TE); macOS rejects strategy 4096 (synthetic, no oracle)"
+  },
+  "udf201-512.img": {
+    "rawSize": 10562048,
+    "sha256": "ed6ce39da020cff8f6d1a66e65be7f7334dbe09a2185fe2f9f6872a2dbbb791d",
+    "encodedSize": 18059,
+    "writer": "hdiutil create -fs UDF (newfs_udf 2.01, 512-byte blocks)"
+  },
+  "udf260-meta.img": {
+    "rawSize": 8388608,
+    "sha256": "24a917819693f88e79c07669e36ad73996682434c0532c34cd22125aad7e34c4",
+    "encodedSize": 15587,
+    "writer": "newfs_udf -b 2048 -r 2.60 (metadata partition)"
+  }
+}

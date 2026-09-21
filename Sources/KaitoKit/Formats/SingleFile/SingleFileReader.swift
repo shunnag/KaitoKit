@@ -1,6 +1,6 @@
 import Foundation
 
-// gzip / bzip2 / XZ / zstd / LZ4 / UNIX compress / LZMA_Alone を単一 entry として公開する。
+// gzip / bzip2 / XZ / zstd / LZ4 / UNIX compress / LZMA_Alone / lzip / brotli / pbzx を単一 entry として公開する。
 final class SingleFileReader: FormatReader {
     let format: ArchiveFormat
     let entries: [ArchiveEntry]
@@ -72,6 +72,24 @@ final class SingleFileReader: FormatReader {
         case .lzma:
             let header = try LZMAAloneHeader.read(source: source, limits: options.limits)
             uncompressedSize = header.uncompressedSize
+            storedName = Self.fallbackName(fallbackFileName, format: format)
+            modificationDate = nil
+
+        case .lzip:
+            // 末尾の member size を辿る索引で全 member の構造と合計サイズを open 時に確定する。
+            uncompressedSize = try LzipMemberIndex(source: source, limits: options.limits).totalDataSize
+            storedName = Self.fallbackName(fallbackFileName, format: format)
+            modificationDate = nil
+
+        case .brotli:
+            // header の window を辞書上限と照合する。サイズと checksum は形式に無い。
+            _ = try BrotliDecompressor.validateHeader(source: source, limits: options.limits)
+            storedName = Self.fallbackName(fallbackFileName, format: format)
+            modificationDate = nil
+
+        case .pbzx:
+            // chunk 表を歩いて展開後サイズを確定する（chunk 数と合計は上限で制限）。
+            uncompressedSize = try PbzxDecompressor.contentSize(source: source, limits: options.limits)
             storedName = Self.fallbackName(fallbackFileName, format: format)
             modificationDate = nil
 
@@ -164,13 +182,19 @@ final class SingleFileReader: FormatReader {
                 expectedSize: header.uncompressedSize,
                 dictionarySizeLimit: limits.maxDictionarySize
             )
+        case .lzip:
+            return try LzipDecompressor(source: source, limits: limits)
+        case .brotli:
+            return try BrotliDecompressor(source: source, limits: limits)
+        case .pbzx:
+            return try PbzxDecompressor(source: source, limits: limits)
         default:
             throw KaitoError.unsupportedFormat
         }
     }
 
     static let supportedFormats: Set<ArchiveFormat> = [
-        .gzip, .bzip2, .xz, .zstd, .lz4, .compress, .lzma
+        .gzip, .bzip2, .xz, .zstd, .lz4, .compress, .lzma, .lzip, .brotli, .pbzx
     ]
 
     private struct StoredName {
@@ -223,9 +247,16 @@ final class SingleFileReader: FormatReader {
             suffixes = [".tar.lz4", ".lz4"]
         case .lzma:
             suffixes = [".tar.lzma", ".tlz", ".lzma"]
+        case .lzip:
+            suffixes = [".tar.lz", ".tlz", ".lz"]
+        case .brotli:
+            suffixes = [".tar.br", ".tbr", ".br"]
+        case .pbzx:
+            suffixes = [".pbzx"]
         default:
             suffixes = []
         }
+
 
         var resolved = supplied
         if let suffix = suffixes.first(where: { lowered.hasSuffix($0) }) {
@@ -233,7 +264,8 @@ final class SingleFileReader: FormatReader {
             if !resolved.isEmpty,
                suffix.hasPrefix(".tar.") || suffix == ".tgz" ||
                 suffix == ".tbz2" || suffix == ".tbz" ||
-                suffix == ".txz" || suffix == ".tz" || suffix == ".tzst" || suffix == ".tlz" {
+                suffix == ".txz" || suffix == ".tz" || suffix == ".tzst" || suffix == ".tlz" ||
+                suffix == ".tbr" {
                 resolved += ".tar"
             }
         }
@@ -273,6 +305,9 @@ final class SingleFileReader: FormatReader {
         case .lz4: "LZ4"
         case .compress: "LZW (compress)"
         case .lzma: "LZMA (Alone)"
+        case .lzip: "LZMA (lzip)"
+        case .brotli: "Brotli"
+        case .pbzx: "XZ (pbzx)"
         default: format.rawValue
         }
     }

@@ -270,6 +270,209 @@ final class CLISmokeTests: XCTestCase {
         XCTAssertTrue(hashes.contains("e05455bcbbec58463277e8874036e57bdcf8c49c792a23ce03d6baba0765271c"))
     }
 
+    /// 2026-09-20 に追加した単一 stream 形式の `detect` 名と `list` の method 名。
+    func testDetectAndListNameTheNewSingleFileFormats() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let temp = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let executable = try findKaitoExecutable()
+        for (fixture, name, detected, method) in [
+            ("lzip/one.lz.b64", "one.lz", "lzip", "LZMA (lzip)"),
+            ("brotli/one.br.b64", "one.br", "brotli", "Brotli"),
+            ("pbzx/text.pbzx.b64", "text.pbzx", "pbzx", "XZ (pbzx)"),
+        ] {
+            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/\(fixture)"), encoding: .utf8)
+            let url = temp.appendingPathComponent(name)
+            try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
+            XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), detected, name)
+            let listing = try runKaito(executable, arguments: ["list", url.path])
+            XCTAssertEqual(listing.split(separator: "\n").count, 1, name)
+            XCTAssertTrue(listing.contains("\t\(method)\tplain\t"), "\(name): \(listing)")
+        }
+    }
+
+    /// UDF 専用 image は `udf`、hybrid は `iso` と検出し、どちらも UDF の木を `UDF (stored)` で一覧する。
+    func testDetectAndListUDFImages() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let temp = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let executable = try findKaitoExecutable()
+        for (fixture, detected) in [("udf201-512.img", "udf"), ("hybrid102.iso", "iso")] {
+            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/udf/\(fixture).gz.b64"), encoding: .utf8)
+            let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
+            let url = temp.appendingPathComponent(fixture)
+            try gzip.read(gzip.entries[0]).write(to: url)
+            XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), detected, fixture)
+            let listing = try runKaito(executable, arguments: ["list", url.path])
+            XCTAssertTrue(listing.contains("\t2880\tfile\tUDF (stored)\tplain\treadme.txt"), "\(fixture): \(listing)")
+            XCTAssertTrue(listing.contains("\tsymlink\tUDF (stored)\tplain\tlink-to-readme"), fixture)
+            if fixture == "udf201-512.img" {
+                XCTAssertTrue(listing.contains("\tforked.txt/..namedfork/rsrc\tfork=resource"), listing)
+            }
+            let hashes = try runKaito(executable, arguments: ["sha", url.path])
+            XCTAssertTrue(hashes.contains("efe110a6cc29d1711091a93ff160466004e53f7a835209094e1131983276f25e\treadme.txt"), fixture)
+        }
+    }
+
+    /// WIM は `wim` と検出し、LZX resource を `WIM LZX` で一覧、SHA-1 検証付きで読む。
+    func testDetectAndListWIM() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let temp = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let executable = try findKaitoExecutable()
+        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/wim/lzx.wim.b64"), encoding: .utf8)
+        let url = temp.appendingPathComponent("lzx.wim")
+        try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
+        XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "wim")
+        let listing = try runKaito(executable, arguments: ["list", url.path])
+        XCTAssertTrue(listing.contains("\t56270\tfile\tWIM LZX\tplain\ttext.txt"), listing)
+        let hashes = try runKaito(executable, arguments: ["sha", url.path])
+        XCTAssertTrue(hashes.contains("\ttext.txt"), hashes)
+        XCTAssertFalse(hashes.contains("ERROR"), hashes)
+    }
+
+    /// MacBinary / AppleSingle / BinHex の単体は wrapper 名で検出し、data / resource の 2 fork を一覧する。
+    func testDetectAndListMacWrappers() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let temp = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let executable = try findKaitoExecutable()
+        for (fixture, detected, method) in [("readme.txt.bin", "macbinary", "MacBinary (stored)"),
+                                            ("readme.txt.as", "applesingle", "AppleSingle (stored)"),
+                                            ("readme.txt.hqx", "binhex", "BinHex 4.0 (RLE90)")] {
+            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/macwrappers/\(fixture).b64"), encoding: .utf8)
+            let url = temp.appendingPathComponent(fixture)
+            try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
+            XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), detected, fixture)
+            let listing = try runKaito(executable, arguments: ["list", url.path])
+            XCTAssertTrue(listing.contains("\t823\tfile\t\(method)\tplain\treadme.txt\tfork=data"), "\(fixture): \(listing)")
+            XCTAssertTrue(listing.contains("\t416\tfile\t\(method)\tplain\treadme.txt/..namedfork/rsrc\tfork=resource"), fixture)
+        }
+    }
+
+    /// PKZIP 1.x の旧 method は shrink / reduceN / implode の名前で一覧され、sha が通る。
+    func testListLegacyZipMethods() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let temp = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let executable = try findKaitoExecutable()
+        for (fixture, method) in [("shrink.zip", "shrink"), ("reduce4.zip", "reduce4"), ("implode-8k-3trees.zip", "implode")] {
+            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/zip-legacy/\(fixture).b64"), encoding: .utf8)
+            let url = temp.appendingPathComponent(fixture)
+            try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
+            let listing = try runKaito(executable, arguments: ["list", url.path])
+            XCTAssertTrue(listing.contains("\t31680\tfile\t\(method)\tplain\ttext.txt"), "\(fixture): \(listing)")
+            let hashes = try runKaito(executable, arguments: ["sha", url.path])
+            XCTAssertTrue(hashes.contains("5a3bb49b57d40193fbe5ad5869b029c01f2bdfe046f8a4368438178b923f1c10\ttext.txt"), "\(fixture): \(hashes)")
+            XCTAssertFalse(hashes.contains("ERROR"), hashes)
+        }
+    }
+
+    /// BIN/CUE の生 sector image は `iso` と検出され、`.cue` からも同じ一覧になる。
+    func testDetectAndListRawSectorImageAndCueSheet() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let temp = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let executable = try findKaitoExecutable()
+        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/bincue/mode1.bin.gz.b64"), encoding: .utf8)
+        let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
+        let bin = temp.appendingPathComponent("mode1.bin")
+        try gzip.read(gzip.entries[0]).write(to: bin)
+        let cue = temp.appendingPathComponent("mode1.cue")
+        try FileManager.default.copyItem(at: root.appendingPathComponent("Fixtures/bincue/mode1.cue"), to: cue)
+        for url in [bin, cue] {
+            XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "iso", url.lastPathComponent)
+            let hashes = try runKaito(executable, arguments: ["sha", url.path])
+            XCTAssertTrue(hashes.contains("e05455bcbbec58463277e8874036e57bdcf8c49c792a23ce03d6baba0765271c\tdata.bin"), "\(url.lastPathComponent): \(hashes)")
+            XCTAssertFalse(hashes.contains("ERROR"), hashes)
+        }
+    }
+
+    /// compound file は `cfb` と検出し、storage を directory、stream を stored file として一覧する。
+    func testDetectAndListCompoundFile() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let temp = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let executable = try findKaitoExecutable()
+        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/cfb/v4.cfb.gz.b64"), encoding: .utf8)
+        let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
+        let url = temp.appendingPathComponent("v4.cfb")
+        try gzip.read(gzip.entries[0]).write(to: url)
+        XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "cfb")
+        let listing = try runKaito(executable, arguments: ["list", url.path])
+        XCTAssertTrue(listing.contains("\t0\tdirectory\tstored\tplain\tStorage One/Deeper"), listing)
+        XCTAssertTrue(listing.contains("\t20000\tfile\tstored\tplain\tlarge-a.bin"), listing)
+        XCTAssertTrue(listing.contains("\t100\tfile\tstored\tplain\t[5]SummaryInformation"), listing)
+        let hashes = try runKaito(executable, arguments: ["sha", url.path])
+        XCTAssertFalse(hashes.contains("ERROR"), hashes)
+    }
+
+    /// CHM は `chm` と検出し、LZX section の file を `LZX`、section 0 の file を `stored` として一覧する。
+    func testDetectAndListCHM() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let temp = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let executable = try findKaitoExecutable()
+        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/chm/basic.chm.gz.b64"), encoding: .utf8)
+        let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
+        let url = temp.appendingPathComponent("basic.chm")
+        try gzip.read(gzip.entries[0]).write(to: url)
+        XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "chm")
+        let listing = try runKaito(executable, arguments: ["list", url.path])
+        XCTAssertTrue(listing.contains("\t70000\tfile\tLZX\tplain\timages/logo.bin"), listing)
+        XCTAssertTrue(listing.contains("\t68\tfile\tstored\tplain\t#SYSTEM"), listing)
+        XCTAssertTrue(listing.contains("\t0\tdirectory\tstored\tplain\ttopics/sub"), listing)
+        let hashes = try runKaito(executable, arguments: ["sha", url.path])
+        XCTAssertFalse(hashes.contains("ERROR"), hashes)
+    }
+
+    /// ARJ（素の書庫と DOS SFX）は `arj` と検出し、method 名で一覧する。
+    func testDetectAndListARJ() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let temp = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let executable = try findKaitoExecutable()
+        for fixture in ["basic.arj", "sfx.exe"] {
+            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/arj/\(fixture).b64"), encoding: .utf8)
+            let url = temp.appendingPathComponent(fixture)
+            try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
+            XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "arj", fixture)
+            let listing = try runKaito(executable, arguments: ["list", url.path])
+            XCTAssertTrue(listing.contains("\t26400\tfile\tcompressed most\tplain\tREADME.TXT"), "\(fixture): \(listing)")
+            XCTAssertTrue(listing.contains("\t768\tfile\tstored\tplain\tSTORED.BIN"), fixture)
+            XCTAssertTrue(listing.contains("\t1400\tfile\tcompressed most\tplain\t日本語.TXT"), fixture)
+            let hashes = try runKaito(executable, arguments: ["sha", url.path])
+            XCTAssertTrue(hashes.contains("8d1126c536d13946d9fd277a295e1fe7ff3941edb04f94b99c2b3fb5999a029a\tREADME.TXT"), "\(fixture): \(hashes)")
+            XCTAssertFalse(hashes.contains("ERROR"), hashes)
+        }
+    }
+
+    /// DMG は `dmg` と検出し、HFS+ volume の file を `HFS+ (stored)`、fork と decmpfs を含めて一覧する。
+    func testDetectAndListDMG() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let temp = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let executable = try findKaitoExecutable()
+        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/dmg/hfs-lzfse.dmg.gz.b64"), encoding: .utf8)
+        let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
+        let url = temp.appendingPathComponent("hfs-lzfse.dmg")
+        try gzip.read(gzip.entries[0]).write(to: url)
+        XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "dmg")
+        let listing = try runKaito(executable, arguments: ["list", url.path])
+        XCTAssertTrue(listing.contains("\t200000\tfile\tHFS+ (stored)\tplain\tfragmented.bin"), listing)
+        XCTAssertTrue(listing.contains("\t20\tfile\tHFS+ (stored)\tplain\treadme.txt/..namedfork/rsrc\tfork=resource"), listing)
+        XCTAssertTrue(listing.contains("\tsymlink\tHFS+ (stored)\tplain\tlink-to-nested"), listing)
+        XCTAssertTrue(listing.contains("\tfile\tHFS+ compressed (decmpfs)\tplain\tcompressed.txt"), listing)
+        // decmpfs の file は `sha` で失敗として数えられる（終了コード非 0）ので、その file を持たない raw image で確かめる。
+        let rawText = try String(contentsOf: root.appendingPathComponent("Fixtures/dmg/hfs-raw.dmg.gz.b64"), encoding: .utf8)
+        let rawGzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: rawText, options: .ignoreUnknownCharacters)))
+        let rawURL = temp.appendingPathComponent("hfs-raw.dmg")
+        try rawGzip.read(rawGzip.entries[0]).write(to: rawURL)
+        let hashes = try runKaito(executable, arguments: ["sha", rawURL.path])
+        XCTAssertTrue(hashes.contains("c6ced9f772ab08b591a1d3a1057bf4fd267ab64b1536d170f61722afb16677de\treadme.txt"), hashes)
+        XCTAssertFalse(hashes.contains("ERROR"), hashes)
+    }
+
     func testListCpioFixture() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/newc.cpio.b64"), encoding: .utf8)

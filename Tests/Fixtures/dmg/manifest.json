@@ -1,0 +1,110 @@
+{
+  "payload": {
+    "empty.txt": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fragmented.bin": {
+      "size": 200000,
+      "sha256": "725af8c8618d9f5e15e02987d54bb41840ee1793c0ea46c3e26c75cc402d841b"
+    },
+    "hardlink-to-readme": {
+      "size": 10,
+      "sha256": "c6ced9f772ab08b591a1d3a1057bf4fd267ab64b1536d170f61722afb16677de",
+      "hardlink": true
+    },
+    "script.sh": {
+      "size": 18,
+      "sha256": "299001868fb8c02fd431c336c6d058f5558c5dff5b5af5e6fe04b870a6a9cbba"
+    },
+    "日本語.txt": {
+      "size": 19,
+      "sha256": "1f06c4462778e16d84ec28f021875dbff3352d5c7d2534c0039d39ef8a3e559b"
+    },
+    "link-to-nested": {
+      "symlink": "sub/nested.txt"
+    },
+    "readme.txt": {
+      "size": 10,
+      "sha256": "c6ced9f772ab08b591a1d3a1057bf4fd267ab64b1536d170f61722afb16677de",
+      "hardlink": true
+    },
+    "data.bin": {
+      "size": 20000,
+      "sha256": "a06327736240383e10a0974abfd86f3a904851c4bb2d116adf94992e69915cff"
+    },
+    "sub/nested.txt": {
+      "size": 7,
+      "sha256": "370a8c04b8a65bb4494275eec227f1b694db04c76da6b0b8ae88ed1ab19790a3"
+    },
+    "sub/deeper/deep.txt": {
+      "size": 5,
+      "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+    },
+    "readme.txt/..namedfork/rsrc": {
+      "size": 20,
+      "sha256": "0cb150c72bf19f6d78a3e5bf2acf321133804de0c7c6bc520b225a826be1d965"
+    },
+    "hardlink-to-readme/..namedfork/rsrc": {
+      "size": 20,
+      "sha256": "0cb150c72bf19f6d78a3e5bf2acf321133804de0c7c6bc520b225a826be1d965"
+    },
+    "compressed.txt": {
+      "size": 57000,
+      "sha256": "1529342ad87ce73c260a1fa429559fc1f2bd861ac8cca998d0264e7bc90a6439",
+      "decmpfs": true
+    }
+  },
+  "images": {
+    "hfs-zlib.dmg": {
+      "size": 55233,
+      "sha256": "0db846f0b15faa93620e854e2f801467c7e0cc43e19c117c9cc4822ced8bfd2a",
+      "note": "UDZO: zlib chunks; the fragmented file uses the extents overflow B-tree; compressed.txt is decmpfs"
+    },
+    "hfs-bzip2.dmg": {
+      "size": 50655,
+      "sha256": "5ab47cb82de5198cc38ef4fd66aab85ba9dc648180c06685eb417ed50f17ed9d",
+      "note": "UDBZ: bzip2 chunks (the file starts with a BZh magic)"
+    },
+    "hfs-lzfse.dmg": {
+      "size": 45235,
+      "sha256": "01f1327c1beb71d467739d190cd198cee1b293179131a09bff5a7b8e3cfa9cb0",
+      "note": "ULFO: lzfse chunks"
+    },
+    "hfs-lzma.dmg": {
+      "size": 32603,
+      "sha256": "03acaea1ef0e1ff89bc80b7a3934816c58b178268f81d15787407f48771cc248",
+      "note": "ULMO: lzma chunks (xz containers; the file starts with the xz magic)"
+    },
+    "hfs-adc.dmg": {
+      "size": 142641,
+      "sha256": "666529a24efe2a2d653988e62a03dcf7b5967c6e718bea892737857e887b6037",
+      "note": "UDCO: ADC chunks, which KaitoKit does not decode (unsupportedMethod)"
+    },
+    "hfs-raw.dmg": {
+      "size": 95092,
+      "sha256": "9b686dcca548192d09c66547c5fb7c5f20083129fa9ab662683d70bed183d405",
+      "note": "UDRO from a small folder: raw and zero-fill chunks only"
+    },
+    "hfs-apm-zlib.dmg": {
+      "size": 16665,
+      "sha256": "2a6006ff8f9d70c04179e53af54bc31861a0a0b04a5c6eb46d84c87ba0730214",
+      "note": "the small folder behind an Apple Partition Map (hdiutil -layout SPUD)"
+    },
+    "hfs-bare-zlib.dmg": {
+      "size": 9205,
+      "sha256": "05937fe792b67b7edfbad0afd9b9828c960b0dde653a5576e4b964bd1ffdde13",
+      "note": "the small folder as a bare HFS+ volume without a partition map (hdiutil -layout NONE)"
+    },
+    "iso-zlib.dmg": {
+      "size": 5065,
+      "sha256": "36273edaba83456394bcd7407c97aad8e0598302a42aaa7bc734edf57627a271",
+      "note": "an ISO 9660 / Joliet image (hdiutil makehybrid) wrapped in UDZO"
+    },
+    "apfs-zlib.dmg": {
+      "size": 12344,
+      "sha256": "b947df0f62534d4c023fff1aa54909bdefc72a19a3aee64ca3b15d7719aa4d48",
+      "note": "an APFS volume in UDZO: unsupportedMethod"
+    }
+  }
+}

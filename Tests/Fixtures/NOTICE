@@ -218,6 +218,75 @@ decoder implementation sources were consulted. All payloads are synthetic.
       19d001c8d84c8cc6bee128a5e5bf2535725dce70a1d51ee78d50e0e33d2aff78
       7fbab68453f4d62cc71d0e4f0d24ec3e92ab5e29c1768ae365222a5ce33f40ef
 
+Generated fixture sets added 2026-09-20 (project-owned inputs, MIT)
+------------------------------------------------------------------
+  sevenzip-zstd/*.7z.b64  — Homebrew libarchive 3.8.9 bsdtar (zstd-in-7z), checked with zstd 1.5.7 + bsdtar.
+  lzip/*.lz.b64           — generate.py framing + Python lzma raw LZMA1; bundle.tar.lz by bsdtar --lzip;
+                            all checked with XZ Utils `xz -d --format=lzip`.
+  brotli/*.br.b64         — brotli CLI 1.2.0 writer and reader.
+  pbzx/*.pbzx.b64         — macOS pkgbuild Payload (pbzx) + generate.py re-wraps; checked with xz + bsdtar.
+  iso/zisofs-32k.iso.gz.b64, iso/zisofs-128k.iso.gz.b64 — GNU xorriso 1.5.8 zisofs images (133,120 bytes
+                            each before gzip); SHA-256 of the images:
+                            56f348583c7c4307125b3afa40f184a95980fa5aa13a06e9b645acd21317e13d (32k),
+                            3093b44dd690b19d8f5b4e96d97a8465ad8dc9ba4c12f5ea6f38afaf9695ae61 (128k).
+  udf/*.gz.b64 (2026-09-21) — macOS hdiutil makehybrid (UDF 1.02 hybrid, 1.50), hdiutil create -fs UDF
+                            (newfs_udf 2.01, 512-byte blocks) and newfs_udf -r 2.60 (metadata partition), plus
+                            three images derived from pure150.iso by generate.py (sparable partition with a
+                            relocated packet, virtual partition with a UDF 1.50 style and a 2.x style VAT).
+                            Every image was mounted read-only with hdiutil and matched the payload digests
+                            recorded in manifest.json (image SHA-256 values are there too).
+  appledouble/finder.zip.b64, appledouble/mac.tar.b64 (2026-09-21) — macOS ditto (--sequesterRsrc) and bsdtar
+                            with a project-owned 3-file tree carrying resource forks and an xattr; generate.sh,
+                            SHA256SUMS.
+  wim/*.wim.b64 (2026-09-21) — generate.py's own WIM writer with stored / XPRESS / LZX resources (encoders written
+                            from [MS-XCA] and [MS-PATCH] prose + the WIM whitepaper), every archive verified by 7-Zip
+                            extraction; sevenzip-copy.wim.b64 is written by 7-Zip 26.03 itself.
+  macwrappers/*.b64 (2026-09-21) — generate.py's own MacBinary II / AppleSingle v2 / BinHex 4.0 writers around a
+                            project-owned text + resource fork; each verified fork-for-fork with The Unarchiver's
+                            lsar / unar 1.10.8.
+  zip-legacy/*.zip.b64 (2026-09-21) — generate.py's own Shrink / Reduce / Implode encoders (written from PKWARE
+                            APPNOTE 6.3.10 §5.1-5.3 prose) around project-owned payloads; Shrink and Implode
+                            archives verified by Info-ZIP unzip 6.00, 7-Zip 26.03 and deark 1.7.3, Reduce by deark.
+                            experiments/ holds the black-box scripts that settled the partial-clear convention.
+  bincue/*.bin.gz.b64, bincue/*.cue (2026-09-21) — generate.py wraps the project-owned rr-joliet.iso and pure150.iso
+                            fixtures into ECMA-130 raw sectors (Mode 1 / Mode 2 ± sub-header, 2448 with sub-channel,
+                            2336); EDC / ECC fields are zero or seeded noise, not valid codes. Verified by unwrapping
+                            back to the source image (no installed tool reads raw-sector images).
+  cfb/*.cfb.gz.b64 (2026-09-21) — generate.py's own [MS-CFB] writer (version 3 / 4, interleaved chains, DIFAT
+                            sectors) around project-owned streams; every archive verified by 7-Zip 26.03 extraction.
+  chm/*.chm.gz.b64 (2026-09-21) — generate.py's own ITSF writer plus the project's CAB LZX encoder
+                            (Scripts/fixtures/make-cab-lzx.py) around project-owned HTML / binary payloads; every
+                            archive verified by 7-Zip 26.03 extraction.
+  arj/*.b64 (2026-09-21) — generate.py's own ARJ writer and lh6-compatible static-Huffman encoder around
+                            project-owned payloads (a CP932 name included); basic / backslash verified by 7-Zip 26.03,
+                            deark 1.7.3 and unar 1.10.8, the SFX by 7-Zip and unar, nodata by a 7-Zip listing, garbled
+                            (flag only, bytes xor 0x5A) by no reader.
+  dmg/*.dmg.gz.b64 (2026-09-22) — generate.sh: macOS hdiutil / the HFS+ driver / ditto (black-box writers) around a
+                            project-owned payload; every HFS+ image mounted read-only with hdiutil and compared with the
+                            payload, the compressed ones also extracted with 7-Zip 26.03.
+  Each directory carries README.md, generate.py / generate.sh and (except iso/ and appledouble/) manifest.json
+  with per-file SHA-256 values. All tools were used only as black-box writers / readers; no decoder source was consulted.
+
+RAR5 file-copy fixtures (project-generated, MIT, 2026-09-20)
+------------------------------------------------------------
+  rar5/file-copy.rar.b64 (11,147 bytes decoded)
+  rar5/file-copy-solid.rar.b64 (11,144 bytes decoded)
+  rar5/file-copy-aes.rar.b64 (11,417 bytes decoded, password KaitoFixture)
+    Commands: rar 7.23 a -ma5 -idq -m3 -oi1:1 [-s] [-pKaitoFixture] archive.rar
+              a.txt b.txt sub/c.txt d.txt
+    Inputs: a.txt / b.txt / sub/c.txt are the same 20,000-byte project-owned text
+            (Python random.Random(5) over "kaito reference fixture \n"),
+            d.txt is "different content\n". RAR stores b.txt and sub/c.txt as
+            file references (redirection type 5) to a.txt.
+    Entry SHA-256: text ac15dd767cb2eed6421721727c17c45970f4a7cb41dbb84487782d8290b7dad1,
+                   d.txt 94b306c8e7bf7f836da506b6c80297ecfead0481e6fe11086d8433d304a129eb
+    Archive SHA-256 (same order):
+      fa825333b0ae0c32e64e86e10e660da2b52817080671335d8e75633bf80df5d8
+      d7b4f05690b2fda10da34e275962526155a3ffc0b1e55a6ea5a548204007d262
+      670d501f12ee1b5cdbdcfc2b8913caadd69b666855cae88a0c2b2edb39e682e9
+    RAR 7.23 was used only as a black-box writer; unrar lt confirmed the record
+    types and target names. No decoder source was consulted.
+
 Batch 14 RAR5 password fixtures (project-generated, MIT)
 ------------------------------------------------------
 Generated 2026-09-08 by RAR 6.24 / 7.23 as black-box writers in the task

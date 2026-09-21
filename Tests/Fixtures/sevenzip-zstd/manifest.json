@@ -1,0 +1,59 @@
+{
+  "writer": "bsdtar 3.8.9 - libarchive 3.8.9 zlib/1.2.12 liblzma/5.8.4 bz2lib/1.0.8 liblz4/1.10.0 libzstd/1.5.7 expat/expat_2.7.4 CommonCrypto/system libb2/system",
+  "oracles": [
+    "7zz 26.03 (listing only)",
+    "zstd 1.5.7 (carved packed stream)",
+    "bsdtar (extraction)"
+  ],
+  "method": "04 F7 11 01 (Methods.txt: 04 F7 11 xx reserved for Tino Reichardt; 01 = ZSTD)",
+  "entries": {
+    "first.bin": {
+      "size": 262403,
+      "sha256": "a078b4e0753e13ab07561237b0d9507f9446982a7ae013b8285a713d26bb29d9"
+    },
+    "second.bin": {
+      "size": 1027,
+      "sha256": "318e252cf75fc244620e81039294bf77f79a5b5c24edcc51fa8dc9b9bed6a311"
+    },
+    "empty": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "fixtures": [
+    {
+      "file": "zstd-l1.7z.b64",
+      "sha256": "a7e9753ed2ad5b5b24e3cf5413f7261610c127f7cc49ba79d0851269ce4d1e42",
+      "level": 1,
+      "packedSize": 564,
+      "arguments": [
+        "--format",
+        "7zip",
+        "--options",
+        "7zip:compression=zstd,7zip:compression-level=1",
+        "-cf",
+        "ARCHIVE",
+        "first.bin",
+        "second.bin",
+        "empty"
+      ]
+    },
+    {
+      "file": "zstd-l19.7z.b64",
+      "sha256": "7c16e0fcaf5696e29c99418ffc0eb9218808c546701aee5f261b092cc63730ef",
+      "level": 19,
+      "packedSize": 563,
+      "arguments": [
+        "--format",
+        "7zip",
+        "--options",
+        "7zip:compression=zstd,7zip:compression-level=19",
+        "-cf",
+        "ARCHIVE",
+        "first.bin",
+        "second.bin",
+        "empty"
+      ]
+    }
+  ]
+}

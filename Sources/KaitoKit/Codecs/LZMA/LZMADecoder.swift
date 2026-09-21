@@ -61,13 +61,17 @@ public final class LZMADecoder: Decompressor {
     ///   - properties: Exactly five LZMA1 property bytes.
     ///   - expectedSize: Known output size, or `nil` to require an end marker.
     ///   - dictionarySizeLimit: Maximum accepted dictionary allocation.
+    ///   - outputSizeHint: end marker 終端の stream で、容器が別途宣言する出力サイズ。
+    ///     辞書の確保量を抑えるためだけに使い、終端判定には使わない。宣言より長い出力は
+    ///     容器側の検証で拒否される前提で、超過分の参照は invalid distance になる。
     public convenience init(
         source: any ByteSource,
         offset: UInt64,
         compressedSize: UInt64,
         properties: [UInt8],
         expectedSize: UInt64?,
-        dictionarySizeLimit: UInt64
+        dictionarySizeLimit: UInt64,
+        outputSizeHint: UInt64? = nil
     ) throws {
         guard properties.count == 5 else {
             throw KaitoError.malformed("LZMA properties must contain five bytes")
@@ -87,10 +91,10 @@ public final class LZMADecoder: Decompressor {
         // 既知の出力全体より古い byte を参照することはできないため、その場合は
         // 宣言辞書を全量確保せずに同じ復号結果を得られる。
         let retainedDictionarySize: UInt64
-        if let expectedSize {
+        if let bound = expectedSize ?? outputSizeHint {
             retainedDictionarySize = min(
                 effectiveDictionarySize,
-                max(UInt64(1), expectedSize)
+                max(UInt64(1), bound)
             )
         } else {
             retainedDictionarySize = effectiveDictionarySize
@@ -269,6 +273,17 @@ public final class LZMADecoder: Decompressor {
     /// Indicates whether the known output size or LZMA end marker was reached.
     public var isFinished: Bool {
         finished
+    }
+
+    /// 範囲復号器が消費した入力の直後の絶対 offset。end marker で終わる stream の
+    /// 実長（lzip の member size 検証）に使う。range decoder が無ければ `nil`。
+    var consumedInputOffset: UInt64? {
+        rangeDecoder?.consumedOffset
+    }
+
+    /// end marker に到達し、与えた圧縮範囲を byte 単位で使い切ったかどうか。
+    var consumedEntireInput: Bool {
+        finished && (rangeDecoder?.consumedAllInput ?? false)
     }
 
     /// Decodes at most one 256 KiB output chunk into `buffer`.
@@ -903,6 +918,10 @@ private struct LZMARangeDecoder {
     var isFinishedOK: Bool { code == 0 && !overrun }
     var consumedAllInput: Bool {
         nextSourceOffset == endOffset && inputPosition == inputCount && !overrun
+    }
+    /// 消費済み入力の直後の絶対 offset。先読みして未消費の byte は含めない。
+    var consumedOffset: UInt64 {
+        nextSourceOffset &- UInt64(inputCount &- inputPosition)
     }
 
     init(

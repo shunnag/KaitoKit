@@ -160,6 +160,11 @@ enum ZipTestSupport {
         executableName: "xz",
         fallbackPaths: ["/opt/homebrew/bin/xz", "/usr/local/bin/xz"]
     )
+    static let brotliPath = resolveExecutablePath(
+        environmentVariable: "KAITO_BROTLI",
+        executableName: "brotli",
+        fallbackPaths: ["/opt/homebrew/bin/brotli", "/usr/local/bin/brotli"]
+    )
     static let pythonPath = "/usr/bin/python3"
 
     static func makePEPrefix(count: Int, fill: UInt8 = 0x90) -> Data {
@@ -259,6 +264,8 @@ enum ZipTestSupport {
                 requiredEnvironmentVariable = "KAITO_REQUIRE_7ZZ"
             } else if path == xzPath {
                 requiredEnvironmentVariable = "KAITO_REQUIRE_XZ"
+            } else if path == brotliPath {
+                requiredEnvironmentVariable = "KAITO_REQUIRE_BROTLI"
             } else {
                 requiredEnvironmentVariable = nil
             }

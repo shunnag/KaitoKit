@@ -105,13 +105,37 @@ install_seed "$LHA_LH4_SEED" "$OUTPUT_DIR/lha-lh4.lzh"
 install_seed "$LHA_LH6_SEED" "$OUTPUT_DIR/lha-lh6.lzh"
 install_seed "$LHA_LH7_SEED" "$OUTPUT_DIR/lha-lh7.lzh"
 
+# PKZIP 1.x の旧 method（7-Zip は書けないので自作 encoder の fixture を使う）。
+install_seed "$ROOT_DIR/Tests/Fixtures/zip-legacy/shrink.zip.b64" "$OUTPUT_DIR/zip-shrink.zip"
+install_seed "$ROOT_DIR/Tests/Fixtures/zip-legacy/reduce4.zip.b64" "$OUTPUT_DIR/zip-reduce4.zip"
+install_seed "$ROOT_DIR/Tests/Fixtures/zip-legacy/implode-8k-3trees.zip.b64" "$OUTPUT_DIR/zip-implode.zip"
+
+# ARJ の method 1（lh6 互換）member。
+install_seed "$ROOT_DIR/Tests/Fixtures/arj/basic.arj.b64" "$OUTPUT_DIR/arj-method1.arj"
+
+# CHM の LZX section と DMG の zlib chunk（fixture、gzip + base64）。
+for pair in "chm/basic.chm.gz.b64:chm-lzx.chm" "dmg/hfs-zlib.dmg.gz.b64:dmg-zlib.dmg"; do
+    python3 - "$ROOT_DIR/Tests/Fixtures/${pair%%:*}" "$OUTPUT_DIR/${pair##*:}" <<'PY'
+import base64, gzip, sys
+from pathlib import Path
+source, destination = map(Path, sys.argv[1:])
+destination.write_bytes(gzip.decompress(base64.b64decode(b"".join(source.read_bytes().split()), validate=True)))
+PY
+done
+
 python3 - "$SCRIPT_DIR/mutate.py" \
     "$OUTPUT_DIR/rar4-lz.rar" \
     "$OUTPUT_DIR/rar4-ppmd.rar" \
     "$OUTPUT_DIR/rar5-lz.rar" \
     "$OUTPUT_DIR/lha-lh4.lzh" \
     "$OUTPUT_DIR/lha-lh6.lzh" \
-    "$OUTPUT_DIR/lha-lh7.lzh" <<'PY'
+    "$OUTPUT_DIR/lha-lh7.lzh" \
+    "$OUTPUT_DIR/zip-shrink.zip" \
+    "$OUTPUT_DIR/zip-reduce4.zip" \
+    "$OUTPUT_DIR/zip-implode.zip" \
+    "$OUTPUT_DIR/chm-lzx.chm" \
+    "$OUTPUT_DIR/arj-method1.arj" \
+    "$OUTPUT_DIR/dmg-zlib.dmg" <<'PY'
 import importlib.util
 from pathlib import Path
 import sys

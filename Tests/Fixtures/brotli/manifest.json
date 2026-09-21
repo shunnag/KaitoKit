@@ -1,0 +1,139 @@
+{
+  "writer": "brotli 1.2.0",
+  "reader": "brotli 1.2.0 (-d)",
+  "fixtures": [
+    {
+      "file": "text-q1.br.b64",
+      "size": 13080,
+      "sha256": "78828640d2c459638b98b3a62a27994f7c8c573d6aa5c158e900bc5e044c79ec",
+      "dataSize": 24000,
+      "dataSHA256": "3f4ba7886f4fa4c399481673e0b68d053664e54187bacde11120180d757923fc",
+      "options": [
+        "-q",
+        "1"
+      ],
+      "firstByte": "8f"
+    },
+    {
+      "file": "text-q11.br.b64",
+      "size": 12664,
+      "sha256": "f068e45f79d07e48b9de66ffc132db6b1c00999c5b700e5d810fc592c6d7c84a",
+      "dataSize": 24000,
+      "dataSHA256": "3f4ba7886f4fa4c399481673e0b68d053664e54187bacde11120180d757923fc",
+      "options": [
+        "-q",
+        "11"
+      ],
+      "firstByte": "1f"
+    },
+    {
+      "file": "binary-q5.br.b64",
+      "size": 535,
+      "sha256": "34b4e0a7b6781ceb9fa80f48965a0712d24252c4385a734a4b02637c2c19dc8e",
+      "dataSize": 22048,
+      "dataSHA256": "31a3082fe4cad0d905711a598871e28064a66998fac56a0837c25a5ef64103cc",
+      "options": [
+        "-q",
+        "5"
+      ],
+      "firstByte": "1f"
+    },
+    {
+      "file": "random-q5.br.b64",
+      "size": 8196,
+      "sha256": "ba22c1b60c4589409cbca909ebcb4a0491d4d82d90904ef4ceca82ec03671526",
+      "dataSize": 8192,
+      "dataSHA256": "50e1c8f01de86b2991d2cfea0ac3af784cf614a9fefc35bcf9be2a4305d8fa97",
+      "options": [
+        "-q",
+        "5"
+      ],
+      "firstByte": "8f"
+    },
+    {
+      "file": "window-10.br.b64",
+      "size": 12813,
+      "sha256": "cd502832369ec048427de794725981a89aae9a03d9998d2c59136c60dc15a5a8",
+      "dataSize": 24000,
+      "dataSHA256": "3f4ba7886f4fa4c399481673e0b68d053664e54187bacde11120180d757923fc",
+      "options": [
+        "-q",
+        "9",
+        "-w",
+        "10"
+      ],
+      "firstByte": "a1"
+    },
+    {
+      "file": "window-16.br.b64",
+      "size": 13240,
+      "sha256": "721cc918b33c3433634eab5b7249244bed30c2ba1d9a96279884aca3a5d60dcc",
+      "dataSize": 24000,
+      "dataSHA256": "3f4ba7886f4fa4c399481673e0b68d053664e54187bacde11120180d757923fc",
+      "options": [
+        "-q",
+        "9",
+        "-w",
+        "16"
+      ],
+      "firstByte": "e2"
+    },
+    {
+      "file": "window-17.br.b64",
+      "size": 13297,
+      "sha256": "55b233fb17b5b34294e943ce18e32b17810c20a5f076ecc0c8584755cf07cc12",
+      "dataSize": 24000,
+      "dataSHA256": "3f4ba7886f4fa4c399481673e0b68d053664e54187bacde11120180d757923fc",
+      "options": [
+        "-q",
+        "9",
+        "-w",
+        "17"
+      ],
+      "firstByte": "81"
+    },
+    {
+      "file": "large-window.br.b64",
+      "size": 13298,
+      "sha256": "f2988c01d96e4a0e734809e4cdba37fc004ef3ae77c19db17983deef5bff1cc0",
+      "dataSize": 24000,
+      "dataSHA256": "3f4ba7886f4fa4c399481673e0b68d053664e54187bacde11120180d757923fc",
+      "options": [
+        "-q",
+        "9",
+        "--large_window=30"
+      ],
+      "firstByte": "11"
+    },
+    {
+      "file": "empty.br.b64",
+      "size": 1,
+      "sha256": "8a8de823d5ed3e12746a62ef169bcf372be0ca44f0a1236abc35df05d96928e1",
+      "dataSize": 0,
+      "dataSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "options": [],
+      "firstByte": "3f"
+    },
+    {
+      "file": "one.br.b64",
+      "size": 5,
+      "sha256": "05a36e3579757747892d34b1299c82f4a9f063bb6e7bc159e092049865b73aad",
+      "dataSize": 1,
+      "dataSHA256": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1",
+      "options": [],
+      "firstByte": "0f"
+    },
+    {
+      "file": "bundle.tar.br.b64",
+      "size": 3150,
+      "sha256": "c3027aa88c55edc0ac42443d2fa23b1f650edb74cee5a4358adca714a2b1daed",
+      "dataSize": 10240,
+      "dataSHA256": "394d6b960d89f3afa6801009bb204a7631363335fe42b012082e25a3d5e0222d",
+      "options": [
+        "-q",
+        "5"
+      ],
+      "firstByte": "1f"
+    }
+  ]
+}

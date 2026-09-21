@@ -8,6 +8,26 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-09-22-dmg.md](2026-09-22-dmg.md) | 2026-09-22 | Apple Disk Image（UDIF）と HFS+ の読み取り追加、hdiutil fixture の mount / 7-Zip 照合、extents overflow と hard link の確認 | v0.8.0 |
+| [2026-09-21-arj.md](2026-09-21-arj.md) | 2026-09-21 | ARJ の読み取り追加、method 1〜3 = lh6 の黒箱確定（実物 11 書庫）、自作 writer / encoder fixture の 3 reader 照合 | v0.8.0 |
+| [2026-09-21-chm.md](2026-09-21-chm.md) | 2026-09-21 | CHM（ITSF）の読み取り追加、LZX の reset interval / block の黒箱確定、自作 writer fixture の 7-Zip 照合、実物 2 本の一致 | v0.8.0 |
+| [2026-09-21-cfb.md](2026-09-21-cfb.md) | 2026-09-21 | Compound File（MS-CFB）の読み取り追加、自作 writer fixture の 7-Zip 照合、MSI 名の制約 | v0.8.0 |
+| [2026-09-21-bincue.md](2026-09-21-bincue.md) | 2026-09-21 | BIN/CUE 生 sector image（2352 / 2448 / 2336）の ISO / UDF 読み取り、`.cue` の解決、自作 wrapper fixture | v0.8.0 |
+| [2026-09-21-zip-legacy.md](2026-09-21-zip-legacy.md) | 2026-09-21 | ZIP Shrink / Reduce / Implode の追加、部分クリア規約の黒箱確定、自作 encoder fixture の unzip / 7-Zip / deark 照合 | v0.8.0 |
+| [2026-09-21-macwrappers.md](2026-09-21-macwrappers.md) | 2026-09-21 | MacBinary / AppleSingle / BinHex 単体（StuffIt でない payload）の公開、unar 照合 | v0.8.0 |
+| [2026-09-21-wim.md](2026-09-21-wim.md) | 2026-09-21 | WIM の読み取り追加、LZX の WIM 変種の黒箱確定、XPRESS decoder、自作 encoder fixture の 7-Zip 照合 | v0.8.0 |
+| [2026-09-21-appledouble.md](2026-09-21-appledouble.md) | 2026-09-21 | ZIP / tar の AppleDouble sidecar 方針（merge / hide / expose）、ditto・bsdtar fixture | v0.8.0 |
+| [2026-09-21-udf.md](2026-09-21-udf.md) | 2026-09-21 | UDF 1.02〜2.60 の読み取り追加、hdiutil / newfs_udf fixture、macOS UDF driver 照合、sparable / VAT の合成検証 | v0.8.0 |
+| [2026-09-20-stuffit-split.md](2026-09-20-stuffit-split.md) | 2026-09-20 | classic StuffIt 分割セットの連結、fork 復元、unar 照合 | v0.8.0 |
+| [2026-09-20-tar-sparse.md](2026-09-20-tar-sparse.md) | 2026-09-20 | tar GNU sparse 0.0 / 0.1 / 1.0 の展開、bsdtar 照合 | v0.8.0 |
+| [2026-09-20-pbzx.md](2026-09-20-pbzx.md) | 2026-09-20 | pbzx の黒箱計測と読み取り、圧縮 cpio の連鎖、PE 内 CAB | v0.8.0 |
+| [2026-09-20-iso-zisofs.md](2026-09-20-iso-zisofs.md) | 2026-09-20 | ISO zisofs の展開、xorriso fixture、長さ 0 extent の LBA、libarchive writer の不具合 | v0.8.0 |
+| [2026-09-20-rar5-file-copy.md](2026-09-20-rar5-file-copy.md) | 2026-09-20 | RAR5 file copy 参照の本文公開、solid / AES、上限の加算 | v0.8.0 |
+| [2026-09-20-brotli.md](2026-09-20-brotli.md) | 2026-09-20 | brotli の追加、WBITS / large window の検査、試し復号による検出、Apple Compression の出力引き出し | v0.8.0 |
+| [2026-09-20-lzip.md](2026-09-20-lzip.md) | 2026-09-20 | lzip の追加、member 索引、XZ Utils 照合、`.tlz` の判別 | v0.8.0 |
+| [2026-09-20-sevenzip-zstd.md](2026-09-20-sevenzip-zstd.md) | 2026-09-20 | 7z Zstandard coder 04F71101 の追加、libarchive fixture、properties と上限 | v0.8.0 |
+| [2026-09-20-sevenzip-bcj-large-payload.md](2026-09-20-sevenzip-bcj-large-payload.md) | 2026-09-20 | 7z x86 BCJ / ARM64 filter の符号境界の折り返し修正、7zz オラクル掃引 | v0.8.0 |
+| [2026-09-20-format-candidates.md](2026-09-20-format-candidates.md) | 2026-09-20 | 追加できる形式の候補調査（出自・オラクル・再利用・工数）、7z BCJ/ARM64 filter の 1 MiB 超バグの再現、文書の陳腐化の修正 | v0.8.0 |
 | [2026-09-19-release-review.md](2026-09-19-release-review.md) | 2026-09-19 | 圧縮tar再利用・中断・空き容量、tar先読み、7z KDF・solid、最大上限 | 未コミット |
 | [2026-09-18-lz4-legacy.md](2026-09-18-lz4-legacy.md) | 2026-09-18 | LZ4 legacy・8 MiB境界・混在連結・CLI差分・上限 | 未コミット |
 | [2026-09-18-lz4-frame.md](2026-09-18-lz4-frame.md) | 2026-09-18 | LZ4 frame・XXH32・圧縮tar・連結・skippable・上限 | 未コミット |

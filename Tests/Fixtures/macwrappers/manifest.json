@@ -1,0 +1,48 @@
+{
+  "data": {
+    "size": 823,
+    "sha256": "483eebef2b901614fc93bfe3e6fc37940531f239e82da48b01cc22d099c95b82"
+  },
+  "resource": {
+    "size": 416,
+    "sha256": "fbe90c2709ed87e2d83fda75260f72776cf87619efdfccfde6e69be9ed357c51"
+  },
+  "files": {
+    "readme.txt.bin": {
+      "size": 1536,
+      "sha256": "cc6ed793cec2f9dd5d3f5f8e34cfd63ef109955bb77baa0be18b3f1c032833fe",
+      "name": "readme.txt",
+      "oracle": "lsar/unar 1.10.8: listed and extracted, forks identical"
+    },
+    "kanji.bin": {
+      "size": 1536,
+      "sha256": "7a6ec2f35df801037c034f106baee7ca35021b8a89f90c691d1a59fbc6c38921",
+      "name": "テスト.txt",
+      "oracle": "lsar/unar 1.10.8: listed and extracted, forks identical"
+    },
+    "readme.txt.as": {
+      "size": 1383,
+      "sha256": "567b96cfd0664a411724c56542563ff854998391cf1a48faf2749ca27effc399",
+      "name": "readme.txt",
+      "oracle": "lsar/unar 1.10.8: listed and extracted, forks identical"
+    },
+    "readme-le.txt.as": {
+      "size": 1383,
+      "sha256": "afebbac42d244f539b2b72e942efb756029180b09a215c17170546449c1d7f85",
+      "name": "readme.txt",
+      "oracle": "lsar/unar 1.10.8: listed and extracted, forks identical"
+    },
+    "readme.txt.hqx": {
+      "size": 1188,
+      "sha256": "76aac754420e0f9c27f303c7da855a019ecbec69a20853f65384330c84d597a8",
+      "name": "readme.txt",
+      "oracle": "lsar/unar 1.10.8: listed and extracted, forks identical"
+    },
+    "noresource.bin": {
+      "size": 1024,
+      "sha256": "18453b6a6c0faba0e7c35e78a9c89e7c3fb964dc6f1f3e021cf43cf34db19805",
+      "name": "plain.txt",
+      "oracle": "lsar/unar 1.10.8: listed and extracted, forks identical"
+    }
+  }
+}

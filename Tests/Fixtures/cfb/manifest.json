@@ -1,0 +1,222 @@
+{
+  "payload": {
+    "small.txt": {
+      "size": 31,
+      "sha256": "47c2c0b99b7e5fd62dbf785e2fb8355ef4e9f1c332dcdb02f410efe459ea5ff9",
+      "published": "small.txt"
+    },
+    "exactly4095.bin": {
+      "size": 4095,
+      "sha256": "6f18519264a07cbda54c9b4994ae2255353e34654ecbedb0bc71400fc29516de",
+      "published": "exactly4095.bin"
+    },
+    "exactly4096.bin": {
+      "size": 4096,
+      "sha256": "e5aebe73ca9eebe27b82cf9293ce34495b8ebd1d6e2007970bbe6c2ae042f275",
+      "published": "exactly4096.bin"
+    },
+    "large-a.bin": {
+      "size": 20000,
+      "sha256": "997cb8d754f2df805a5e4feec71d3b197b6a38537e6c62bb7421c25ef1f7e0b4",
+      "published": "large-a.bin"
+    },
+    "large-b.txt": {
+      "size": 18000,
+      "sha256": "14ea9c14a854fcc17c1882861ac03a10d8ab38bfbf328228a60b96bfdc9b9e34",
+      "published": "large-b.txt"
+    },
+    "empty.txt": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "published": "empty.txt"
+    },
+    "Storage One/inner.txt": {
+      "size": 14,
+      "sha256": "94e322af55a674735d20ecc06de98418584ddeab4234cd88edd9c18ad8a14c8a",
+      "published": "Storage One/inner.txt"
+    },
+    "Storage One/Deeper/deepest.bin": {
+      "size": 512,
+      "sha256": "110009dcee21620b166f3abfecb5eff7a873be729d1c2d53822e7acc5f34eb9b",
+      "published": "Storage One/Deeper/deepest.bin"
+    },
+    "Storage One/Deeper/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn": {
+      "size": 26,
+      "sha256": "45dff3b95f774ad8928683811af80ee45bf7358e46d5e62a90958d892bead050",
+      "published": "Storage One/Deeper/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+    },
+    "\u0005SummaryInformation": {
+      "size": 100,
+      "sha256": "ef7b1a941866d62f3df3df08d41886376a9e8a9bef1f1b5783f0ed9ee9f5c095",
+      "published": "[5]SummaryInformation"
+    },
+    "日本語ストレージ/名前.txt": {
+      "size": 19,
+      "sha256": "1f06c4462778e16d84ec28f021875dbff3352d5c7d2534c0039d39ef8a3e559b",
+      "published": "日本語ストレージ/名前.txt"
+    },
+    "filler.bin": {
+      "size": 7200000,
+      "sha256": "4f8e006788058cdc3574f711d9adc4a35932d34b9fb3e2a567e6218caa000a8c",
+      "published": "filler.bin"
+    },
+    "䡀㽿䅤䈯䠶": {
+      "size": 20,
+      "sha256": "300a62d799541d2b355989b5deeace076557a3d8da0bbf8f91e13ae1692a0332",
+      "published": "!_Tables"
+    },
+    "䡀㼿䕷䑬㹪䒲䠯": {
+      "size": 24,
+      "sha256": "0c02c69fa0682b1987f7b9b85ca6d335966ce1a9f67636c456da6e016320c0e7",
+      "published": "!_StringPool"
+    },
+    "䌋䄱䜵䀾䄵䓳䇨䛎䠨": {
+      "size": 29,
+      "sha256": "aae8a4a9bb6b2935c3c33f14d5ff55d764c7d4816fd6557b2a29c6e6464ad4fc",
+      "published": "Binary.WrappedExe"
+    },
+    "䈶䘷䞳䄦䠥": {
+      "size": 21,
+      "sha256": "2912644dffac57ce06d4d3a585a4ee61580a01673c649577e475e7893094effd",
+      "published": "setup.cab"
+    },
+    "㡀㣂㥄㧆㩈": {
+      "size": 22,
+      "sha256": "d172988d8a02c5a879b9dc1b055edfed2316d83fb148cc3b62d3ac4ed2d4e8d1",
+      "published": "0123456789"
+    },
+    "㫊㭌㯎㱐㳒㵔㷖㹘㻚㽜㿞䁠䃢㡾": {
+      "size": 40,
+      "sha256": "e6713831a8c2f2f683cbc504616e84fe296cf9f52afe95f703b0cffdb1168f52",
+      "published": "ABCDEFGHIJKLMNOPQRSTUVWXYZ.1"
+    },
+    "䅤䇦䉨䋪䍬䏮䑰䓲䕴䗶䙸䛺䝼㢾": {
+      "size": 40,
+      "sha256": "8b1887a494979df6975a557e740d41a7d6261504a6615cb50cb6e5680c96580b",
+      "published": "abcdefghijklmnopqrstuvwxyz.2"
+    },
+    "㫊䁌䃢䅤䛦䝼䟾": {
+      "size": 26,
+      "sha256": "b8ea55c831ea690c8c9664e7d25f65dd85849f0c71fac0a8b18564e9d800ca8f",
+      "published": "ABCXYZabcxyz._"
+    },
+    "䇲䠧": {
+      "size": 15,
+      "sha256": "d9c9152a002b1446af796179e756b879606b1d6c2d30afe2bb50da7191de96a1",
+      "published": "odd"
+    },
+    "䡀䡀䠅": {
+      "size": 15,
+      "sha256": "9bdf1cee9186a88a047306e20a8c1142f2ab0496d38f5fd5f798e1edc409bfe0",
+      "published": "!!5"
+    },
+    "䌖䈻䟧䄗䈰㩾": {
+      "size": 24,
+      "sha256": "a62991c9e094af1f668cd730c89cb445ccdcfc24708f6765b7ba02c74835cf55",
+      "published": "Mixed_Name.9"
+    },
+    "䡁䠂": {
+      "size": 40,
+      "sha256": "3e197f34e4ea62a79a73a2de85321f6fb6091c41f55efdb306c717e1de7b2091",
+      "published": "䡁2"
+    },
+    "plain-name.txt": {
+      "size": 6,
+      "sha256": "dacf36547c7774a0a170806363b5d412991fbc0d6260b2c00b1d3a80a816c23f",
+      "published": "plain-name.txt"
+    }
+  },
+  "v3.cfb": {
+    "size": 51712,
+    "sha256": "390b1e25c6cb654cf70e1b483d752d3152ec807ac2a11e4f5caf0410c8001a6e",
+    "note": "version 3 (512-byte sectors), mini stream, nested storages",
+    "files": [
+      "\u0005SummaryInformation",
+      "Storage One/Deeper/deepest.bin",
+      "Storage One/Deeper/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "Storage One/inner.txt",
+      "empty.txt",
+      "exactly4095.bin",
+      "exactly4096.bin",
+      "large-a.bin",
+      "large-b.txt",
+      "small.txt",
+      "日本語ストレージ/名前.txt"
+    ]
+  },
+  "v3-interleaved.cfb": {
+    "size": 51712,
+    "sha256": "756ac377efe735d227345a33bf8b8d2948cfc716cb52e1bab2ce8c9253799bf6",
+    "note": "version 3 with the large streams' sectors interleaved",
+    "files": [
+      "\u0005SummaryInformation",
+      "Storage One/Deeper/deepest.bin",
+      "Storage One/Deeper/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "Storage One/inner.txt",
+      "empty.txt",
+      "exactly4095.bin",
+      "exactly4096.bin",
+      "large-a.bin",
+      "large-b.txt",
+      "small.txt",
+      "日本語ストレージ/名前.txt"
+    ]
+  },
+  "v4.cfb": {
+    "size": 69632,
+    "sha256": "e2473b72c4f094943460cac5b069bb6673bab0d18c669eb071729f0213282e68",
+    "note": "version 4 (4096-byte sectors, 64-bit sizes)",
+    "files": [
+      "\u0005SummaryInformation",
+      "Storage One/Deeper/deepest.bin",
+      "Storage One/Deeper/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "Storage One/inner.txt",
+      "empty.txt",
+      "exactly4095.bin",
+      "exactly4096.bin",
+      "large-a.bin",
+      "large-b.txt",
+      "small.txt",
+      "日本語ストレージ/名前.txt"
+    ]
+  },
+  "v3-difat.cfb": {
+    "size": 7309312,
+    "sha256": "a8abbda2d6782b5215b42b028eccd6bd6a862655ad27d7f0af1ecec2d6f2a5fb",
+    "note": "version 3 with 112 FAT sectors: the DIFAT continues in a DIFAT sector",
+    "files": [
+      "\u0005SummaryInformation",
+      "Storage One/Deeper/deepest.bin",
+      "Storage One/Deeper/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "Storage One/inner.txt",
+      "empty.txt",
+      "exactly4095.bin",
+      "exactly4096.bin",
+      "filler.bin",
+      "large-a.bin",
+      "large-b.txt",
+      "small.txt",
+      "日本語ストレージ/名前.txt"
+    ]
+  },
+  "msi-names.cfb": {
+    "size": 4608,
+    "sha256": "d452b41f25a605b1b90e9119801ca032868c260081d4cd2a88376278cf9b001e",
+    "note": "stream names packed the Windows Installer way (root CLSID zero); 7-Zip decodes them",
+    "files": [
+      "plain-name.txt",
+      "㡀㣂㥄㧆㩈",
+      "㫊㭌㯎㱐㳒㵔㷖㹘㻚㽜㿞䁠䃢㡾",
+      "㫊䁌䃢䅤䛦䝼䟾",
+      "䅤䇦䉨䋪䍬䏮䑰䓲䕴䗶䙸䛺䝼㢾",
+      "䇲䠧",
+      "䈶䘷䞳䄦䠥",
+      "䌋䄱䜵䀾䄵䓳䇨䛎䠨",
+      "䌖䈻䟧䄗䈰㩾",
+      "䡀㼿䕷䑬㹪䒲䠯",
+      "䡀㽿䅤䈯䠶",
+      "䡀䡀䠅",
+      "䡁䠂"
+    ]
+  }
+}

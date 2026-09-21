@@ -114,7 +114,7 @@ streaming 検証契約:
 
 ## 5. 形式の優先順位(cooViewer と日本語コミック用途)
 
-1. ZIP/CBZ(stored, deflate, bzip2, deflate64, LZMA, ZipCrypto, WinZip AES, ZIP64, CP932 名)
+1. ZIP/CBZ(stored, shrink, reduce, implode, deflate, bzip2, deflate64, LZMA, ZipCrypto, WinZip AES, ZIP64, CP932 名)
 2. RAR/CBR(RAR 2.9/3.x, RAR 5.x, solid, 分割、暗号化)
 3. 7z/CB7(LZMA, LZMA2, PPMd, BCJ/BCJ2, Delta, Swap2/Swap4, Deflate, BZip2, AES-256, solid/ブロック)
 4. LHA/LZH(lh0, lh4〜lh7, lh1, lz4/lz5/lzs, ヘッダ level 0/1/2, SJIS 名, 0x46 コードページ)
@@ -643,6 +643,180 @@ Swap2/Swap4の実装入力は公式 `Methods.txt` のID、既存 `Decompressor` 
 7zz 26.03の `SwapN + Copy` 出力だけである。
 [2026-09-18 の検証記録](verification/2026-09-18-sevenzip-swap.md)に由来・境界・統合検証を記した。
 
+7z Zstandard coder（2026-09-20）の実装入力は公式 `Methods.txt`（24.02）の ID `04 F7 11 01`、
+既存の RFC 8878 実装、および Homebrew libarchive 3.8.9 `bsdtar` の出力の黒箱観察（packed stream の
+配置と 5 byte の properties）だけである。7-Zip ZS / NanaZip / p7zip / libarchive の source は
+開いていない。[2026-09-20 の検証記録](verification/2026-09-20-sevenzip-zstd.md)。
+
+lzip（2026-09-20）の実装入力は draft-diaz-lzip-14 §2 "File Format" の散文だけである。
+`inbox/lzip/draft-diaz-lzip-14-prose.txt`（SHA-256
+`52e63dc6e3e4ded7f1c389d1ba341ea0d47bd28c5602c10eda37e48566f6f6bf`）は §3.1–3.5（lzd 参照実装に
+沿った復号手順）と付録 A（参照ソース）を除いて保存した写しで、2026-09-18 の incident で
+表示された参考実装の断片は使っていない。CRC-32 の多項式と「消費 byte 数 = member size − 26」は
+仕様の散文に無く、fixture の黒箱検証で確定した。lzip / plzip / lzlib / libarchive / XZ Utils の
+source は開いていない。[2026-09-20 の検証記録](verification/2026-09-20-lzip.md)。
+
+brotli（2026-09-20）の実装入力は RFC 7932 §9.1（stream header の WBITS）と §1.5.1（bit の詰め方）、
+RFC 9841 §6（large window の 14 bit header）と §8.1（shared brotli framing の署名が WBITS の無効
+組合せであること）、および Apple Compression の公開 API だけである。`inbox/brotli/`（SHA256SUMS
+付き）に両 RFC を保存した。復号本体は OS の decoder で、google/brotli を含む第三者実装の source は
+開いていない。brotli CLI 1.2.0 は fixture の黒箱 writer / reader としてだけ実行した。
+[2026-09-20 の検証記録](verification/2026-09-20-brotli.md)。
+
+RAR5 file copy（2026-09-20）の実装入力は RAR 5.0 technote の redirection record と既存 RAR5Reader、
+RAR 7.23 / UNRAR 7.23 の黒箱出力だけである。technote は参照先の順序も参照 header の Unpacked size の
+意味も述べておらず、「先行する参照先だけを解決する」は UNRAR 7.23 が後方参照の展開を拒む観察から、
+「宣言サイズの一致を要求する」は `rar u` 後の不整合な参照を UNRAR が新しい内容で複製する観察から
+定めた KaitoKit 固有の検査である。
+[2026-09-20 の検証記録](verification/2026-09-20-rar5-file-copy.md)。
+
+ISO 9660 zisofs（2026-09-20）の実装入力は "Description of the zisofs Format"（Thomas Schmitt、
+libburnia、distribute freely。`inbox/zisofs/zisofs_format.txt`、SHA-256
+`8038f426a084ad4a560240739b0d8c3b5d98751c28b26b7d88b1004e955790b9`）、RFC 1950、既存 ISO reader である。
+zisofs-tools / libisofs / Linux kernel / libarchive の source は開いていない。xorriso は fixture の
+黒箱 writer としてだけ実行した。[2026-09-20 の検証記録](verification/2026-09-20-iso-zisofs.md)。
+
+MacBinary / AppleSingle / BinHex 4 の単体公開（2026-09-21）は既存 wrapper parser（入力: 利用者所有の再構築レポート
+Ch.00 / 06 の散文）の出力を 1 file の書庫として公開するだけで、新しい形式入力は無い。fixture は同じ散文から書いた
+自作 writer（Python）の出力で、The Unarchiver 1.10.8 の `lsar` / `unar`（黒箱）が名前・data fork・resource fork を
+同じ内容に展開することを確認した。[2026-09-21 の検証記録](verification/2026-09-21-macwrappers.md)。
+
+WIM（2026-09-21）の実装入力は Microsoft の公開 whitepaper "Windows Imaging File Format (WIM)"（2007、
+download.microsoft.com、`inbox/wim/wim.rtf`、SHA-256
+`397772cca016508194d13ac860633b56b4f2f94cbf7476e2112f557ad61cfe0c`。文書の複製を禁じる通常の著作権表示を
+持ち、「この仕様に基づいて開発された製品」への免責を含む）、[MS-XCA]（Open Specification、`inbox/wim/MS-XCA.pdf`、
+`e7806b36adc81b75f50bf57559c55420fcaadeb98a0435e8865d2eb3512d5e9e`）の LZ77+Huffman の散文と擬似コード、
+[MS-FSCC] 2.1.2.4 / 2.1.2.5（reparse data buffer）、既存の [MS-PATCH] 由来 LZX decoder である。whitepaper に無い
+点は黒箱で確定した: DIRENTRY の固定部は struct より 4 byte 長い 102 byte で root entry の後にも終端が要る
+（7-Zip 製 WIM の dump と 7-Zip の受理）、LZX chunk は E8 header bit を持たず変換サイズ 12,000,000 で
+block header に「1 bit = 32768 / 0 + 16 bit size」の flag を持ち末尾の生 block に pad byte が無い（利用者所有の
+Microsoft 製 boot.wim、29,335 entry の全 resource SHA-1 一致）、reparse resource は REPARSE_DATA_BUFFER の
+header を含む（7-Zip が symlink を作る）。7-Zip は compressed WIM を書けないので、XPRESS / LZX の fixture は
+仕様の散文から書いた自作 encoder（Python）の出力を 7-Zip が展開して原本と一致することで検証した。
+7-Zip / wimlib / Windows の WIM・LZX・XPRESS 実装 source は開いていない。
+[2026-09-21 の検証記録](verification/2026-09-21-wim.md)。
+
+ZIP / tar の AppleDouble sidecar 方針（2026-09-21）の実装入力は Apple の公開 developer note
+"AppleSingle/AppleDouble Formats for Foreign Files"（1990）の header 記述（既存の StuffIt AppleSingle unwrap と
+同じ出自）と、macOS の `ditto -c -k --sequesterRsrc` / bsdtar が書く sidecar の黒箱観察（Finder 情報 + xattr の
+entry 9 と resource fork の entry 2）である。XADMaster の `XADMacArchiveParser` は動作の参考（fork へ畳む見え方）
+に留め、source は開いていない。[2026-09-21 の検証記録](verification/2026-09-21-appledouble.md)。
+
+UDF（2026-09-21）の実装入力は ECMA-167 3rd edition（1997、ecma-international.org、`inbox/udf/ecma-167.pdf`、
+SHA-256 `6efe0f591e21da2b17288076b2653dc616800bdc94f83e74acba9279c84c34b7`）、OSTA UDF 2.60（`inbox/udf/udf260.pdf`、
+`e338ef7f06cb4c8ef9511fef337b3b12bf3ba29a3a2de85ae84dfd316f5ae71b`）と UDF 1.50（VAT の旧形式のため。
+`inbox/udf/udf150.pdf`、`f4ecee7ebc3f0132e5f846a7f8cadd3cee19d8246202e1643699ffe3ec8a3e8a`。osta.org が 502 を返した
+ため 2 つは Wayback Machine の保存分）の仕様本文である。UDF 仕様の本文を読む過程で §6.4 の OSTA Compressed
+Unicode の sample C code と §6.5 の CRC 表も画面に表示されたが、実装は §2.1.1 の散文と ECMA-167 3/7.2.6 の
+多項式から書き、表や code は写していない。writer は macOS の
+hdiutil（makehybrid、create -fs UDF）と newfs_udf、真値は macOS の UDF driver（`hdiutil attach` した実体の
+SHA-256）を黒箱で用い、7-Zip は symlink を含む UDF を "Unsupported feature" で開けないため補助に留めた。
+sparable partition と VAT は newfs_udf で mount できる標本を作れず、pure150 fixture の volume 構造を仕様どおりに
+書き換えた合成 image を macOS の driver が mount して原本と一致することで検証した。Linux udf、libudf、
+7-Zip、UDFClient などの UDF 実装 source は開いていない。
+[2026-09-21 の検証記録](verification/2026-09-21-udf.md)。
+
+Apple Disk Image / HFS+（2026-09-22）の実装入力は、UDIF について Joachim Metz "Mac OS disk image types"（libmodi の
+GFDL 1.3 文書、`inbox/dmg/libmodi-disk-image-types.asciidoc`、SHA256SUMS。裁定 1 の範囲）の koly / mish / blkx の表と
+chunk 種別（0x80000007 LZFSE、0x80000008 LZMA を含む）、HFS Plus について Apple Technote TN1150 "HFS Plus Volume
+Format"（`inbox/dmg/tn1150.html`）の構造体と散文（volume header、fork data、B-tree node と header record、key の pad
+規則、catalog の folder / file / thread record、extents overflow key、BSD info、hard link の indirect node file と
+`\0\0\0\0HFS+ Private Data`、symbolic link の data fork）、partition 表について UEFI 仕様の GPT header / entry の
+位置と Inside Macintosh: Devices の Apple Partition Map の field 位置、UF_COMPRESSED について chflags(2) の man page
+である。CC0 の Archive Team wiki（Apple Disk Image）と Jonathan Levin の "Demystifying the DMG File Format"（2013、
+license 表示無し）は照合にだけ用いた。hdiutil の ULMO chunk が xz container であること、blkx の Name が空で CFName も
+空になること、hdiutil が partition 表を GPT にすることは hdiutil 出力の黒箱観察。decmpfs（HFS+ 圧縮）の on-disk 形式は
+TN1150 に無く Apple の header file（APSL）は開いていないので、UF_COMPRESSED の file は一覧だけにした。ADC（UDCO）の
+bitstream にも公開の記述が無い。fixture は macOS の hdiutil（create / convert / makehybrid）、HFS+ driver、ditto が
+書いた image で、真値は `hdiutil attach` した実体、独立 reader は 7-Zip（hard link と decmpfs と resource fork は
+7-Zip の見え方が異なるため mount だけで確認）。libdmg / dmg2img / 7-Zip / XADMaster / hfsplus / libhfs などの実装 source
+は開いていない。[2026-09-22 の検証記録](verification/2026-09-22-dmg.md)。
+
+ARJ（2026-09-21）の実装入力は ARJ 2.86 配布物（`inbox/arj/arj286.exe`、sac.sk から取得、SHA256SUMS）に含まれる
+TECHNOTE.TXT（2005 年 9 月版）の散文と、CC0 の Archive Team wiki "ARJ"（fileformats.archiveteam.org、
+`inbox/arj/archiveteam-arj.html`）である。technote 末尾の find_header() の C 抜粋は、文書を読む前に切除して
+`inbox/arj/technote-2012-prose.txt` を作った（切除の際に関数の宣言行 4 行が画面に出たが、本文の手順（id → size ≤ 2600
+→ CRC）は散文に書かれているものと同じで、実装はその散文から行った）。圧縮 method 1〜3 の bitstream は technote に
+記述が無く、wiki の「LHA の lh6 と本質的に同じ、窓は 26 KB」に基づいて既存の LHA static-Huffman decoder を lh6 の
+parameter で使う。候補調査の裁定 5（開示済みの ARJ / ar002 `read_pt_len` スニペット）については利用者が 2026-09-21
+に「注意深く進めて」と指示した。ARJ 用の decoder code は新たに書いておらず、既存 LHA decoder（その出自は本節の LHA
+の項に記録済み）を parameter 違いで呼ぶだけであり、bitstream の同一性は利用者所有の実物 11 書庫 203 file（DOS SFX 5 本
+を含む）が 7-Zip と byte 一致し、うち MAPS.ARJ は deark / unar とも一致したことで黒箱確認した。method 4 の
+bitstream は公開の記述が見つからず非対応。fixture の method 1 data は LHA lh5/lh6 の公開記述から書いた自作 encoder
+（Python）の出力で、7-Zip / deark / unar が原本と同じ内容に展開する。UNARJ / Open-Source ARJ / 7-Zip / deark /
+XADMaster の ARJ 実装 source は開いていない（UNARJ の source を含む配布物は取得していない）。
+[2026-09-21 の検証記録](verification/2026-09-21-arj.md)。
+
+HTML Help / CHM（2026-09-21）の実装入力は Matthew T. Russotto の "Microsoft's HTML Help (.chm) format"
+（2001–2003。russotto.net が到達不能のため Wayback Machine の保存分 `inbox/chm/chmformat-wayback.html`。「無改変の複製と
+配布を許す」著作権表示を持つ RE 散文）と、Paul Wise / Jed Wing の "Unofficial (Preliminary) HTML Help Specification"
+（GNU GPL v2+ の文書、`inbox/chm/chmspec/`、SHA256SUMS。ITSF 節は Russotto への追補）である。GPL 文書を入力に使う
+ことは候補調査の裁定 1 として利用者が 2026-09-21 に認めた。LZX 本体は既存の [MS-PATCH] 由来 decoder（CAB と同じ
+bitstream）で、CHM 固有の点—reset interval ごとに LZ 状態と E8 位置を含む全状態を捨てて新しい stream として読む、
+0x8000 byte の block ごとに 16 bit 境界を取る、展開後の section は 0x8000 の倍数に padding される—は Russotto の
+記述を、利用者所有の実物 2 本（`inbox/chm/pinball.chm`、`TVTest.chm`。fixture には含めない）と自作 fixture の 7-Zip
+展開で黒箱確認した。CHM を書ける導入済みツールは無いので、fixture は Russotto の配置どおりに書いた自作 writer（Python）
+と既存の CAB LZX encoder（`Scripts/fixtures/make-cab-lzx.py`）の出力を 7-Zip が展開して原本と一致することで検証した。
+7-Zip は ITSF version 2 の自作 file を "Is not archive" と拒むため version 2 の fixture は無い。chmlib / libmspack /
+7-Zip / kchmviewer などの CHM 実装 source は開いていない。[2026-09-21 の検証記録](verification/2026-09-21-chm.md)。
+
+Microsoft Compound File（2026-09-21）の実装入力は [MS-CFB] v20240423（Microsoft Open Specification、
+`inbox/cfb/MS-CFB.pdf`、SHA-256 `9d0d61e34495347ee32f3de5b06f2d59953cc60607ea72605d4162d21a34863f`）§2.1〜2.9 の
+散文と表である。Windows Installer が stream 名に使う詰め込み表記（U+3800〜U+4840 の UTF-16 unit）は公開仕様が
+無い（Windows Installer SDK も記述しない）。候補調査の裁定 4（GPL / LGPL ツールの挙動だけを参照する）を利用者が
+2026-09-21 に認めたので、7-Zip 26.03 の一覧を黒箱の基準に、利用者所有の実物 MSI の 23 名と自作 file の探り
+（数字・`.`・`_`・単独の `!`・U+47FF・範囲外の unit・root CLSID の有無）から写像を確定した: U+3800〜U+47FF は
+2 文字（下位 6 bit が先）、U+4800〜U+483F は 1 文字、U+4840 は `!`、字母は 0-9 A-Z a-z . _。7-Zip の MSI 名処理の
+source は開いていない。制御文字で始まる名前を `[5]SummaryInformation` と綴るのも 7-Zip の一覧の見え方に合わせた。CFB を書ける導入済みツールは無い（7-Zip は読むだけ）ので、fixture は仕様の
+散文から書いた自作 writer（Python）の出力を 7-Zip が展開して原本と一致することで検証した。この過程で、どの stream
+にも属さない FAT 上の孤立 sector を多数持つ file を 7-Zip が開かないことを黒箱で観察し、DIFAT sector を要する
+fixture は 7.2 MB の実 stream で作った。7-Zip / libgsf / olefile / Apache POI などの CFB 実装 source は開いていない。
+[2026-09-21 の検証記録](verification/2026-09-21-cfb.md)。
+
+BIN/CUE などの生 sector CD image（2026-09-21）の実装入力は ECMA-130 2nd edition（1996、ecma-international.org、
+`inbox/bincue/ecma-130.pdf`、SHA-256 `576fb91e38e850b7597767ea48402a33e79a89ae4f7d41290e884142ad47f7b8`）§14 の sector
+配置（sync 12 byte、header 4 byte と byte 15 の Sector Mode、Mode 1 の user data 2048 byte、Mode 2 の 2336 byte）である。
+ECMA-130 に無い CD-ROM XA の 8 byte sub-header、2448 byte 版の sub-channel 96 byte、sync / header を落とした 2336 byte
+版は仕様を読まず、logical sector 16 に ISO 9660 の `CD001` か ECMA-167 の `BEA01` が現れる位置から user data の
+開始位置を黒箱で決める（sub-header の中身は解釈しない）。EDC / ECC は検証しない（独立 oracle が無い）。CUE sheet
+には公開の正式な仕様が無く、`FILE` / `TRACK` の 2 keyword だけを一般に知られた綴りで読む。導入済みの 7-Zip /
+bsdtar / hdiutil は生 sector image を読めないので、fixture は既存の ISO / UDF fixture を自作 writer（Python）で
+sector に包んだもので、剥がすと元 image に戻ることと、既存 ISO / UDF reader と同じ entry・内容になることで検証した。
+libcdio / cdrdao / bchunk / XADMaster などの生 sector 実装 source は開いていない。
+[2026-09-21 の検証記録](verification/2026-09-21-bincue.md)。
+
+ZIP の Shrink / Reduce / Implode（2026-09-21）の実装入力は PKWARE APPNOTE.TXT 6.3.10 §5.1〜5.3
+（pkware.cachefly.net、`inbox/zip-legacy/APPNOTE.TXT`、SHA-256
+`0b993022a7d320a0bf704e6980bea36fafd17a6066ab994db0a0c16278a50cd6`）の散文である。APPNOTE が暗黙にしている点は
+黒箱で確定した: bit は byte 内で LSB 先頭に詰められ stream に終端記号は無い（宣言サイズで止める）、Shrink の
+部分クリア（256,2）では直前に出した code も葉なら解放され、次の code で「直前 + 先頭 byte」を最下位の解放 code
+に登録する（この規約の stream だけを Info-ZIP unzip 6.00 / 7-Zip 26.03 / deark 1.7.3 の 3 者が受理し、直前 code を保護する
+案と登録を省く案は 3 者とも拒む）、Reduce の follower set は S(255) から順に 6 bit の個数と 8 bit の値で並び
+要素 1 個の set の index も 1 bit で読む（APPNOTE の B(N) の定義は 0 bit とも読めるが deark は 1 bit だけを受理）、
+Implode の Shannon-Fano 木は §5.3.8 の手順で code を作って bit 反転して読む。PKZIP は手元に無く、7-Zip も
+これらの method を書けないので、fixture は仕様の散文から書いた自作 encoder（Python）の出力を unzip / 7-Zip /
+deark（Reduce は deark のみ。unzip は UNREDUCE 無しで build され 7-Zip は Reduce を持たない）が原本と同じ内容に
+展開することで検証した。deark の Reduce は距離より長い copy を拒むため、Reduce の fixture は重なる copy を含まない。
+Info-ZIP / 7-Zip / deark / PKZIP の Shrink・Reduce・Implode 実装 source は開いていない。
+[2026-09-21 の検証記録](verification/2026-09-21-zip-legacy.md)。
+
+classic StuffIt 分割セット（2026-09-20）の実装入力は利用者所有の再構築レポート
+`inbox/stuffit/report/06-wrappers-and-segments.md` §"Classic StuffIt split files" の散文（既存の StuffIt
+出自一覧の一部）と、合成 part を unar 1.10.8（The Unarchiver CLI、黒箱）が同じ内容に展開する観察である。
+XADMaster の split parser source は開いていない。
+[2026-09-20 の検証記録](verification/2026-09-20-stuffit-split.md)。
+
+pbzx（2026-09-20）の実装入力は macOS 27.2 の `pkgbuild` / `xar` 出力の黒箱計測（xz CLI と bsdtar で
+chunk 構造を確定）と既存 XZ / cpio reader だけで、Apple の文書も第三者の pbzx 実装・記事も参照して
+いない。tar の GNU sparse（2026-09-20）は libarchive `tar(5)`（BSD-2-Clause）の散文と
+`bsdtar --format pax` 出力の黒箱観察を入力とし、GNU tar manual（GFDL）と実装 source は参照していない。
+PE prefix 内 CAB は既存 MS-CAB 実装の署名判定を SFX 走査へ広げたもの。
+[pbzx](verification/2026-09-20-pbzx.md)、[tar sparse](verification/2026-09-20-tar-sparse.md)。
+
+7z x86 BCJ / ARM64 filter の符号境界の修正（2026-09-20）は、KaitoKit 自身のコードと 7zz 26.03 の
+`-m1=Copy -mhc=off` 出力から推定した折り返し規則だけを入力とし、filter 実装ソースは開いていない。
+[2026-09-20 の修正記録](verification/2026-09-20-sevenzip-bcj-large-payload.md)。
+
 RAR 関連 source file ごとの実装入力は次のとおり。表の「black-box」は生成物と展開結果だけを
 指し、実行ファイルの source は含まない。
 
@@ -911,7 +1085,7 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   全 frame の宣言サイズがあれば合計を entry に公開し、欠落があれば nil とする。
   fixture 46 件は決定的 text / binary / random / repetitive / empty / one byte、level 1/3/9/19/22、
   checksum / content size の有無、thread / rsyncable / long、連結・skippable、辞書拒否、tar・ZIP・RPM。
-  80 通りの実行時 matrix と 7zz の第二オラクルも備える。未対応は外部辞書と 7z の zstd method。
+  80 通りの実行時 matrix と 7zz の第二オラクルも備える。未対応は外部辞書（7z の zstd method は 2026-09-20 に対応）。
   件数・時間・コマンド・破損入力の受理範囲は [検証記録](verification/2026-09-12-zstd.md) に記録する。
 
 > Zstandard (2026-09-12, bd cooViewer-c1vj.3): six codec files implement bounded streaming decoding,
@@ -921,7 +1095,7 @@ prose ページであることを確認し、`source-archive` を含む URL は�
 > still bounds block size and match distance. Header lookahead is 4 KiB and bodies above that are read
 > directly. Standalone and tar streams, RPM and ZIP 93 share the decoder. Known frame sizes are summed; any unknown size makes the entry size unknown.
 > The corpus has 46 fixed fixtures plus a 80-case runtime matrix and a 7zz oracle.
-> External dictionaries and zstd inside 7z remain unsupported; see the verification record for results.
+> External dictionaries remain unsupported (the 7z zstd method was added on 2026-09-20); see the verification record for results.
 
 - LZMA / LZMA2 bit tree 先読み（2026-09-12、bd `cooViewer-r897`）:
   `decodeBit(probability:store:)` と旧 signature の薄い wrapper を分け、通常木・逆順木・
@@ -1080,7 +1254,8 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   - 2026-09-11 (bd cooViewer-yd18): RAR5 の単独 SFX に対応し、上限 1 MiB 内の署名位置へ source を寄せて読む。
   - M3 の明示的な RAR5 非対応は file-copy redirection の展開、RAR5 SFX と分割の併用、
     Data / 任意 `ByteSource` からの sibling volume 継続、サイズ不明の暗号化 stored entry である。
-    redirection type 5 は一覧と 0-byte read / stream を行えるが、copy target の展開は行わない。
+    redirection type 5 は一覧と 0-byte read / stream を行えるが、copy target の展開は行わない
+    （2026-09-20 に変更: 解決できる参照は参照先の本文を返す `.file` として公開する）。
     compression method 1〜5 の algorithm version 1 は stream 作成時に拒否し、stored method 0 は
     圧縮 grammar を使わない。version 2 以上も対象 entry の stream 作成時に拒否する。
   - 最終 RAR5 release `bench` の warm median は `book-rar5.cbr` extract 29.965 ms、
@@ -1112,7 +1287,7 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   (LZ・標準 VM フィルタ 6 種・PPMd var.H・solid・AES-128・ヘッダ暗号化・分割・SFX 前置)。RAR5 corpus と実書庫、
   RAR4 の st1200(19 JPEG)と libarchive の BSD 試験書庫が `rar` オラクル / XADMaster と一致。第 1 段の敵対
   レビュー(35 エージェント)で見つかった E8 の 16 MiB 位置還元漏れ・未知サイズ entry の無限ループ・
-  decoder dictionary 上限の適用時点は第 2 段で修正。未対応: RAR5 圧縮 v1、file-copy リダイレクトの展開、
+  decoder dictionary 上限の適用時点は第 2 段で修正。未対応: RAR5 圧縮 v1、file-copy リダイレクトの展開（2026-09-20 に対応）、
   RAR4 unpack version 15/20/26、
   SFX と分割の併用。Swift 6.3.3(Xcode 26.6)では暗黙メンバ推論と private 構造体の init に互換修正が必要だった。
 - M4(本変更): LHA / LZH header level 0 / 1 / 2 / 3、header byte sum / optional 0x00 CRC16、
@@ -1177,7 +1352,8 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   - RAR5 redirection type 4 (hard link) / 5 (file reference) は宣言サイズにかかわらず
     `uncompressedSize == compressedSize == 0` の body なし entry とし、read / stream は 0 byte を返す。
     solid chain と archive output budget に参加させず、type 4 は既に展開した先行 file への hard link として
-    展開する。type 5 の copy 展開は引き続き非対応である。
+    展開する。type 5 の copy 展開は引き続き非対応である（2026-09-20 に変更: 先行する同一サイズの file に
+    解決できる type 5 は参照先の本文を返す `.file` として公開し、解決できないものだけ zero-body に残す）。
   - `ArchiveReader.extract` の hard-link provenance key は、最寄りの存在する ancestor を
     `resolvingSymlinksInPath()` して未作成 suffix を戻す。これにより未作成の `/private/tmp`
     root と作成後の `/tmp` spelling、および `/tmp` 下の relative root で tar / RAR5 hard link を継続できる。
@@ -1356,7 +1532,8 @@ NFC 正規化し、内容は展開木の全ファイルの SHA-256 で比較す�
 - RAR5 redirection type 1 / 2 / 3 は header target の UTF-8 bytes を read / stream の内容とする。
   direct read と solid predecessor の捨て読みの双方に適用し、宣言サイズとの不一致は malformed、
   出力上限超過は limitExceeded とする。target は header CRC で検証済みであり、data-body の
-  checksum は適用しない。公開サイズと type 4 / 5 の zero-body 動作は維持する。
+  checksum は適用しない。公開サイズと type 4 / 5 の zero-body 動作は維持する（type 5 は 2026-09-20 に
+  解決できる参照だけ `.file` へ変更）。
 - 新規入力は task の実測仕様、既存 KaitoKit コード、RAR 6.24 の生成物と展開結果だけである。
   禁止対象の実装ソースは参照していない。小さな base64 fixture と出自を Tests/Fixtures に追加し、
   暗号化 stored、solid 再読と並行 stream、UTF-8 target、type 1〜3、サイズ不一致と上限を検証する。

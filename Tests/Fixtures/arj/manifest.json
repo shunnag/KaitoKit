@@ -1,0 +1,71 @@
+{
+  "payload": {
+    "README.TXT": {
+      "size": 26400,
+      "sha256": "8d1126c536d13946d9fd277a295e1fe7ff3941edb04f94b99c2b3fb5999a029a"
+    },
+    "DATA/TABLE.BIN": {
+      "size": 30000,
+      "sha256": "bd833e751b19089b0167bc7ba3c4f7a23ead0659257b33d0f4905e5b21e6eaca"
+    },
+    "DATA/SUB/DEEP.TXT": {
+      "size": 300,
+      "sha256": "4a1376878d2b874dccf9261d4dcd2f95fbe1b9ab7c56676478927a5b03227b01"
+    },
+    "EMPTY.TXT": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "STORED.BIN": {
+      "size": 768,
+      "sha256": "f3a25aa93aa2fbba28d79260535bbd6a5eb0fc1c24a8b0f04e12b484c1dfe363"
+    },
+    "日本語.TXT": {
+      "size": 1400,
+      "sha256": "accd95e82f748052768bedc4484624d23a3496177201f72ee75cba0effa25069"
+    }
+  },
+  "basic.arj": {
+    "size": 11899,
+    "sha256": "97a7039d65386e6333114f5386d59dee03ca7d3d2352f77c5a70a094f670b36d",
+    "note": "method 1 (lh6-equivalent) + stored, directories, CP932 name, PATHSYM names",
+    "verifiedBy": [
+      "7zz",
+      "deark",
+      "unar"
+    ]
+  },
+  "backslash.arj": {
+    "size": 11899,
+    "sha256": "b85917b728499a8e977b8cfd456f9f5e7492b148cd935a4e1adc86c6dfe43934",
+    "note": "DOS names with backslash separators (no PATHSYM flag)",
+    "verifiedBy": [
+      "7zz",
+      "deark",
+      "unar"
+    ]
+  },
+  "sfx.exe": {
+    "size": 13525,
+    "sha256": "966c825f81d12f71f52820fc695b6a6a3d78e47d32e9739f9d1b436968dfe4f3",
+    "note": "ARJ main header after an MZ stub and a decoy header id",
+    "verifiedBy": [
+      "7zz",
+      "unar"
+    ]
+  },
+  "nodata.arj": {
+    "size": 11951,
+    "sha256": "6bcab4db250d2129d616b070f8de0f15210ef207533ef1be50ee3304d64825ae",
+    "note": "a method 9 (no data, size 0) member after the payload; 7-Zip lists it but cannot extract it",
+    "verifiedBy": [
+      "7zz (listing only)"
+    ]
+  },
+  "garbled.arj": {
+    "size": 11899,
+    "sha256": "40cc31877d37c855f7e35142b9cdd2d384b28f27c243ed8536dd101eb14c17aa",
+    "note": "README.TXT flagged garbled (bytes xor 0x5A); readers refuse it",
+    "verifiedBy": []
+  }
+}

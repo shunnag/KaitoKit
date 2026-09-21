@@ -1,0 +1,46 @@
+{
+  "source": {
+    "rr-joliet.iso": "87bd02dfdb4450166e3376462f39dbd8928651c3ae35dd1c84d7376c201eeedc",
+    "pure150.iso": "e20180e2f905680781e988dc5f9f08fd7d39146443b185fcc8255f30e16c4ce0"
+  },
+  "mode1.bin": {
+    "size": 89376,
+    "sha256": "a369e6f6e6292b177236975799daec0400c91b1a68792276224ed3331505e753",
+    "note": "Mode 1, 2352-byte sectors, zero EDC/ECC"
+  },
+  "mode1-garbage.bin": {
+    "size": 89376,
+    "sha256": "8b9b840851d2be0172e0d65194ac7e6e6385b12b16c8d55166696cce17e59180",
+    "note": "Mode 1 with pseudo-random trailer bytes"
+  },
+  "mode2-subheader.bin": {
+    "size": 89376,
+    "sha256": "396096658264435ad5ddfc6a93852a05225d061c708496c2510b3869a23599ba",
+    "note": "Mode 2 with an 8-byte sub-header (CD-ROM XA style)"
+  },
+  "mode2-plain.bin": {
+    "size": 89376,
+    "sha256": "d54e664749f463c92ceed782b35e016a63e73f3f52fe72af16fe3460a6c49b15",
+    "note": "Mode 2 without a sub-header (user data at 16)"
+  },
+  "mode1-2448.bin": {
+    "size": 93024,
+    "sha256": "0dc0a8dc94844bb0600900ccb2dd9d18fb8c92de9527584d280b2bbcee32c203",
+    "note": "Mode 1 followed by 96 bytes of sub-channel data per sector"
+  },
+  "mode2-2336.bin": {
+    "size": 88768,
+    "sha256": "0c4c6b53c9e2e52f4906041c2c993b8ac79902dd1243eeab9ad28043303c4c3c",
+    "note": "2336-byte sectors: sub-header + user data + trailer, no sync/header"
+  },
+  "udf-mode1.bin": {
+    "size": 1310064,
+    "sha256": "ab9493e61a664c86ad6fd87c8326a7617628d7c92a61cae6082b9854cd293e62",
+    "note": "pure UDF 1.50 image in Mode 1 sectors"
+  },
+  "mode1-truncated.bin": {
+    "size": 89276,
+    "sha256": "6caa8ff81ca05f1ff82a25daa6eb12d3cad2437c093744de77f805354c7f05b5",
+    "note": "mode1.bin missing the last 100 bytes (incomplete final sector)"
+  }
+}

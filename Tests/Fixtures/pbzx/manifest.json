@@ -1,0 +1,84 @@
+{
+  "writer": "macOS pkgbuild (--compression latest --min-os-version 10.10) + xar",
+  "oracles": [
+    "xz -d per chunk",
+    "bsdtar on the concatenated cpio"
+  ],
+  "files": {
+    "usr/local/share/kaito/text.txt": {
+      "size": 18000,
+      "sha256": "8e8a292e72021881fda5869caf746eadd14ed2254b20fac34fbef5ae043dbbfd"
+    },
+    "usr/local/share/kaito/random.bin": {
+      "size": 3000,
+      "sha256": "6da17f4b942c52ff10ec149711d14f4dd32f18ae451f14e05143cc59b0fae59e"
+    },
+    "usr/local/bin/kaito-hello": {
+      "size": 21,
+      "sha256": "bfdeaeb08cffb6a36438bcd12dda25417e3cdd36f1e7e482a2849d539225288b"
+    },
+    "usr/local/share/kaito/empty": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "fixtures": [
+    {
+      "file": "payload-xz.pbzx.b64",
+      "size": 12124,
+      "sha256": "aa6309acf31cca34ddf9f2d097abd0909961574f8fc15057bce89dff2485d2cf",
+      "chunkSize": 16777216,
+      "chunks": [
+        {
+          "kind": "xz",
+          "unpacked": 22528,
+          "stored": 12096
+        }
+      ],
+      "cpioSize": 22528,
+      "cpioSHA256": "2497de3ceafc83d1a4b6cac28fa6cab1816d6e5fca6f0127e5520f6eed03087e"
+    },
+    {
+      "file": "payload-raw-xz.pbzx.b64",
+      "size": 18412,
+      "sha256": "e352a77ba4035591c97480365944829255e83b98bf514f2a685751c9632406d5",
+      "chunkSize": 16777216,
+      "chunks": [
+        {
+          "kind": "raw",
+          "unpacked": 11264,
+          "stored": 11264
+        },
+        {
+          "kind": "xz",
+          "unpacked": 11264,
+          "stored": 7104
+        }
+      ],
+      "cpioSize": 22528,
+      "cpioSHA256": "2497de3ceafc83d1a4b6cac28fa6cab1816d6e5fca6f0127e5520f6eed03087e",
+      "note": "synthesized by generate.py from the pkgbuild cpio (raw chunk + xz chunk)"
+    },
+    {
+      "file": "text.pbzx.b64",
+      "size": 9204,
+      "sha256": "139fa40ca029942e6c6fbd17e773b8842a6e0dcf5d3f94ac0e40be6b7e6275f8",
+      "chunkSize": 1048576,
+      "chunks": [
+        {
+          "kind": "xz",
+          "unpacked": 9000,
+          "stored": 4572
+        },
+        {
+          "kind": "xz",
+          "unpacked": 9000,
+          "stored": 4588
+        }
+      ],
+      "dataSize": 18000,
+      "dataSHA256": "8e8a292e72021881fda5869caf746eadd14ed2254b20fac34fbef5ae043dbbfd",
+      "note": "synthesized: two xz chunks of text.txt, not a cpio"
+    }
+  ]
+}

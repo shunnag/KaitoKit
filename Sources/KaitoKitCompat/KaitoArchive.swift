@@ -410,11 +410,12 @@ public final class KaitoArchive {
 
     /// Reproduces XADMaster's resource-fork-entry query.
     ///
-    /// KaitoKit does not publish resource forks as separate entries, so this deliberately returns
-    /// `false` for every valid or invalid index.
+    /// `true` for the `name/..namedfork/rsrc` entries that StuffIt, UDF and the AppleDouble merge of
+    /// ZIP / tar publish (`formatSpecific["fork"] == "resource"`); `false` for every other valid index
+    /// and for invalid indexes.
     public func entryIsResourceFork(_ index: Int32) -> Bool {
-        guard checkedEntry(at: index) != nil else { return false }
-        return false
+        guard let entry = checkedEntry(at: index) else { return false }
+        return entry.formatSpecific["fork"] == "resource"
     }
 
     /// Reproduces XADMaster's per-entry encryption query.
@@ -489,6 +490,15 @@ public final class KaitoArchive {
         case "cab": "CAB"
         case "rpm": "RPM"
         case "iso": "ISO 9660"
+        case "udf": "UDF"
+        case "wim": "WIM"
+        case "cfb": "Compound File"
+        case "chm": "CHM"
+        case "arj": "ARJ"
+        case "dmg": "Apple Disk Image"
+        case "macbinary": "MacBinary"
+        case "applesingle": "AppleSingle"
+        case "binhex": "BinHex"
         case "gzip": "Gzip"
         case "bzip2": "Bzip2"
         case "xz": "XZ"
@@ -496,6 +506,9 @@ public final class KaitoArchive {
         case "lz4": "LZ4"
         case "compress": "Compress"
         case "lzma": "LZMA_Alone"
+        case "lzip": "Lzip"
+        case "brotli": "Brotli"
+        case "pbzx": "pbzx"
         default: reader.format.rawValue
         }
     }

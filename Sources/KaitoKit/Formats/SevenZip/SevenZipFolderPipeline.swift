@@ -337,6 +337,26 @@ final class SevenZipFolderDecoderFactory {
                     compressedSize: input.length
                 ))
 
+            case .zstd:
+                try requireArity(coder, inputs: 1)
+                // 7-Zip ZS 系の writer は version 2 byte + level 1 byte (+ 予約 2 byte) を
+                // properties に書く (libarchive 3.8.9 は `01 05 03 00 00`)。復号には使わない。
+                guard coder.properties.count == 3 || coder.properties.count == 5 else {
+                    throw KaitoError.malformed("7z Zstandard properties must be three or five bytes")
+                }
+                let input = try byteInput(coder.firstInput)
+                // folder 全体の出力が 1 stream なので、entry 上限ではなく folder の宣言サイズで
+                // frame の content size と累積出力を検査する。entry ごとの上限は reader が別に見る。
+                var codecLimits = limits
+                codecLimits.maxEntrySize = expectedSize
+                return .stream(try ZstdDecompressor(
+                    source: input.source,
+                    offset: input.offset,
+                    compressedSize: input.length,
+                    expectedSize: expectedSize,
+                    limits: codecLimits
+                ))
+
             case .aes:
                 try requireArity(coder, inputs: 1)
                 let input = try byteInput(coder.firstInput)
@@ -566,6 +586,7 @@ enum SevenZipMethodKind: Equatable {
     case ppmd7
     case deflate
     case bzip2
+    case zstd
     case aes
     case delta
     case swap(Int)
@@ -583,6 +604,9 @@ enum SevenZipMethod {
         case [0x03, 0x04, 0x01]: return .ppmd7
         case [0x04, 0x01, 0x08]: return .deflate
         case [0x04, 0x02, 0x02]: return .bzip2
+        // Methods.txt の external codec 領域 (04 F7 11 xx、Tino Reichardt)。7-Zip ZS /
+        // NanaZip / libarchive 3.8 が書く。packed stream は RFC 8878 の frame 列そのもの。
+        case [0x04, 0xF7, 0x11, 0x01]: return .zstd
         case [0x06, 0xF1, 0x07, 0x01]: return .aes
         case [0x03]: return .delta
         case [0x02, 0x03, 0x02]: return .swap(2)
@@ -611,6 +635,7 @@ enum SevenZipMethod {
         case .ppmd7: return "PPMd7"
         case .deflate: return "Deflate"
         case .bzip2: return "BZip2"
+        case .zstd: return "Zstandard"
         case .aes: return "7zAES-256"
         case let .swap(width): return "Swap\(width)"
         case .delta:

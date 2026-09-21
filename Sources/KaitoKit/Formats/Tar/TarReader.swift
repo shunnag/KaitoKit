@@ -3,12 +3,17 @@ import Foundation
 // POSIX ustar/pax と GNU tar 拡張の公開仕様だけを参照したクリーンルーム実装。
 final class TarReader: FormatReader {
     private static let retainedPAXKeys: Set<String> = [
-        "path", "linkpath", "size", "mtime", "uid", "gid", "hdrcharset"
+        "path", "linkpath", "size", "mtime", "uid", "gid", "hdrcharset",
+        // GNU sparse 0.0 / 0.1 / 1.0（tar(5) "GNU tar pax archives"）。0.0 の offset/numbytes 対は
+        // parsePAX が順序を保って GNU.sparse.map.0.0 にまとめる。
+        "GNU.sparse.numblocks", "GNU.sparse.size", "GNU.sparse.map", "GNU.sparse.map.0.0",
+        "GNU.sparse.major", "GNU.sparse.minor", "GNU.sparse.name", "GNU.sparse.realsize",
     ]
 
     private struct Record: Sendable {
         let dataOffset: UInt64
         let size: UInt64
+        var sparse: TarSparseMap? = nil
     }
 
     private struct PendingText {
@@ -25,6 +30,7 @@ final class TarReader: FormatReader {
         let modificationDate: Date?
         let permissions: UInt16
         let formatSpecific: [String: String]
+        var storedSize: UInt64? = nil
     }
 
     let format: ArchiveFormat = .tar
@@ -64,6 +70,12 @@ final class TarReader: FormatReader {
             throw KaitoError.notFound("tar entry index \(entry.index)")
         }
         let record = records[entry.index]
+        if let sparse = record.sparse {
+            return try EntryStream(
+                decompressor: TarSparseDecompressor(source: source, dataOffset: record.dataOffset, map: sparse),
+                length: sparse.realSize, expectedCRC32: nil, entryIndex: entry.index, limits: limits
+            )
+        }
         return try EntryStream(
             source: source,
             offset: record.dataOffset,
@@ -138,7 +150,7 @@ final class TarReader: FormatReader {
                         payload,
                         recordLimit: limits.maxMetadataRecordCount
                     )
-                    try rejectSparse(values)
+                    try rejectForeignSparse(values)
                     localPAX = retainedPAXValues(values)
                     hasLocalPAX = true
                 case ascii("g"):
@@ -177,7 +189,7 @@ final class TarReader: FormatReader {
             var pax = globalPAX
             try validatePAXMerge(existing: pax, new: localPAX, limits: limits)
             applyPAX(localPAX, to: &pax)
-            try rejectSparse(pax)
+            try rejectForeignSparse(pax)
 
             let effectiveSize: UInt64
             if let paxSize = pax["size"] {
@@ -206,10 +218,30 @@ final class TarReader: FormatReader {
                 throw KaitoError.limitExceeded("archive entry count")
             }
 
+            // GNU sparse（pax 0.0 / 0.1 / 1.0）。1.0 は本文先頭の map block を読み、実データの開始を
+            // その後ろへずらす。実サイズは realsize / size、本文は fragment の連結。
+            var sparse: TarSparseMap?
+            var sparseDataOffset = dataOffset
+            var sparseVersion: String?
+            var sparseName: [UInt8]?
+            if entryKind(for: typeByte) == .file, hasGNUSparse(pax) {
+                let parsed = try parseGNUSparse(
+                    pax, dataOffset: dataOffset, storedSize: storedSize, source: source, limits: limits
+                )
+                sparse = parsed.map
+                sparseDataOffset = parsed.dataOffset
+                sparseVersion = parsed.version
+                sparseName = parsed.name
+            }
+
             let ustarName = headerPath(header)
             let selectedName: [UInt8]
             let nameIsPAX: Bool
-            if let paxPath = pax["path"] {
+            if let sparseName {
+                // 1.0 の header 名は GNUSparseFile.N/… の作業名なので、GNU.sparse.name を採る。
+                selectedName = sparseName
+                nameIsPAX = true
+            } else if let paxPath = pax["path"] {
                 guard longName == nil else {
                     throw KaitoError.malformed("conflicting pax and GNU tar names")
                 }
@@ -277,6 +309,10 @@ final class TarReader: FormatReader {
                 "uid": String(uid),
                 "gid": String(gid)
             ]
+            if let sparseVersion, let sparse {
+                specific["sparse"] = sparseVersion
+                specific["sparseFragmentCount"] = String(sparse.fragments.count)
+            }
             if let charset = pax["hdrcharset"],
                let value = String(bytes: charset, encoding: .utf8) {
                 specific["hdrcharset"] = value
@@ -328,18 +364,20 @@ final class TarReader: FormatReader {
                 ),
                 link: pendingLink,
                 kind: kind,
-                size: storedSize,
+                size: sparse?.realSize ?? storedSize,
                 isIncomplete: recoverDamagedArchives
                     && storedSize > source.length - dataOffset,
                 modificationDate: modificationDate,
                 permissions: UInt16(mode & 0o7777),
-                formatSpecific: specific
+                formatSpecific: specific,
+                storedSize: sparse != nil ? storedSize : nil
             ))
             records.append(Record(
-                dataOffset: dataOffset,
+                dataOffset: sparseDataOffset,
                 size: recoverDamagedArchives
                     ? min(storedSize, source.length - dataOffset)
-                    : storedSize
+                    : storedSize,
+                sparse: sparse
             ))
 
             localPAX.removeAll(keepingCapacity: true)
@@ -476,13 +514,13 @@ final class TarReader: FormatReader {
                 pathComponents: pathComponents,
                 kind: pending.kind,
                 uncompressedSize: pending.size,
-                compressedSize: pending.size,
+                compressedSize: pending.storedSize ?? pending.size,
                 modificationDate: pending.modificationDate,
                 posixPermissions: pending.permissions,
                 isEncrypted: false,
                 solidGroup: -1,
                 crc32: nil,
-                methodDescription: "tar (stored)",
+                methodDescription: pending.storedSize != nil ? "tar (sparse)" : "tar (stored)",
                 formatSpecific: specific,
                 isIncomplete: pending.isIncomplete
             )
@@ -747,7 +785,17 @@ final class TarReader: FormatReader {
                   let key = String(bytes: keyBytes, encoding: .utf8) else {
                 throw KaitoError.malformed("invalid UTF-8 pax key")
             }
-            result[key] = Array(body[body.index(after: equals)...])
+            let value = Array(body[body.index(after: equals)...])
+            if key == "GNU.sparse.offset" || key == "GNU.sparse.numbytes" {
+                // 0.0 形式は同じ key を繰り返す。辞書では順序が失われるため、出現順のまま
+                // comma 区切りで一つの値にまとめる（0.1 の GNU.sparse.map と同じ表現）。
+                var joined = result["GNU.sparse.map.0.0"] ?? []
+                if !joined.isEmpty { joined.append(ascii(",")) }
+                joined += value
+                result["GNU.sparse.map.0.0"] = joined
+            } else {
+                result[key] = value
+            }
             cursor = endOffset
         }
         return result
@@ -1039,17 +1087,140 @@ final class TarReader: FormatReader {
         return string.uppercased() == "BINARY"
     }
 
-    private static func rejectSparse(_ pax: [String: [UInt8]]) throws {
+    /// GNU 以外の sparse 表現（star の SCHILY、Solaris の SUN.holesdata）は従来どおり読まない。
+    private static func rejectForeignSparse(_ pax: [String: [UInt8]]) throws {
         if pax.contains(where: { key, value in
-            !value.isEmpty && (
-                key.hasPrefix("GNU.sparse") ||
-                key == "SCHILY.realsize" ||
-                key == "SUN.holesdata"
-            )
+            !value.isEmpty && (key == "SCHILY.realsize" || key == "SUN.holesdata")
         }) ||
             pax["SCHILY.filetype"] == Array("sparse".utf8) {
             throw KaitoError.unsupportedMethod("tar sparse entries")
         }
+    }
+
+    /// global header の sparse 記録は entry に属さないので拒否する。
+    private static func rejectSparse(_ pax: [String: [UInt8]]) throws {
+        if pax.contains(where: { key, value in !value.isEmpty && key.hasPrefix("GNU.sparse") }) {
+            throw KaitoError.malformed("GNU sparse attributes in a global pax header")
+        }
+        try rejectForeignSparse(pax)
+    }
+
+    private static func hasGNUSparse(_ pax: [String: [UInt8]]) -> Bool {
+        pax.contains { key, value in !value.isEmpty && key.hasPrefix("GNU.sparse") }
+    }
+
+    /// pax の GNU.sparse.* から fragment map を組む。戻り値の dataOffset は fragment 本文の開始。
+    private static func parseGNUSparse(
+        _ pax: [String: [UInt8]],
+        dataOffset: UInt64,
+        storedSize: UInt64,
+        source: any ByteSource,
+        limits: ReadLimits
+    ) throws -> (map: TarSparseMap, dataOffset: UInt64, version: String, name: [UInt8]?) {
+        func decimal(_ bytes: ArraySlice<UInt8>, _ field: String) throws -> UInt64 {
+            guard !bytes.isEmpty, bytes.count <= 20 else { throw KaitoError.malformed("invalid \(field)") }
+            var value: UInt64 = 0
+            for byte in bytes {
+                guard byte >= ascii("0"), byte <= ascii("9") else { throw KaitoError.malformed("invalid \(field)") }
+                value = try Checked.add(Checked.mul(value, 10), UInt64(byte - ascii("0")))
+            }
+            return value
+        }
+        func fragments(fromList list: [UInt8], field: String) throws -> [TarSparseFragment] {
+            let numbers = try list.split(separator: ascii(","), omittingEmptySubsequences: false)
+                .map { try decimal($0, field) }
+            guard numbers.count.isMultiple(of: 2) else { throw KaitoError.malformed("odd \(field) length") }
+            guard numbers.count / 2 <= limits.maxMetadataRecordCount else {
+                throw KaitoError.limitExceeded("tar sparse fragment count")
+            }
+            return stride(from: 0, to: numbers.count, by: 2).map {
+                TarSparseFragment(offset: numbers[$0], size: numbers[$0 + 1])
+            }
+        }
+
+        if let major = pax["GNU.sparse.major"] {
+            // 1.0: map は本文先頭の 512 byte block 列。改行区切りの十進で「fragment 数、offset、size…」。
+            let minor = pax["GNU.sparse.minor"] ?? []
+            guard try decimal(major[...], "GNU.sparse.major") == 1, try decimal(minor[...], "GNU.sparse.minor") == 0 else {
+                throw KaitoError.unsupportedMethod("GNU sparse format \(String(decoding: major, as: UTF8.self)).\(String(decoding: minor, as: UTF8.self))")
+            }
+            guard let realsizeBytes = pax["GNU.sparse.realsize"] else {
+                throw KaitoError.malformed("GNU sparse 1.0 without realsize")
+            }
+            let realSize = try decimal(realsizeBytes[...], "GNU.sparse.realsize")
+            try Checked.size(realSize, limit: limits.maxEntrySize)
+            // map を 512 byte ずつ読む。数値の個数が 1 + 2n になるまで、metadata 上限の範囲で続ける。
+            var numbers: [UInt64] = []
+            var consumedBlocks: UInt64 = 0
+            var pending: [UInt8] = []
+            var expectedCount: Int?
+            while expectedCount.map({ numbers.count < 1 + 2 * $0 }) ?? true {
+                let offset = try Checked.add(dataOffset, Checked.mul(consumedBlocks, 512))
+                guard try Checked.mul(consumedBlocks + 1, 512) <= storedSize,
+                      try Checked.add(offset, 512) <= source.length else {
+                    throw KaitoError.malformed("GNU sparse 1.0 map exceeds the entry body")
+                }
+                try Checked.size(Checked.mul(consumedBlocks + 1, 512), limit: limits.maxMetadataSize)
+                let block = try readByteRange(source: source, offset: offset, count: 512)
+                consumedBlocks += 1
+                for byte in block {
+                    if byte == ascii("\n") {
+                        numbers.append(try decimal(pending[...], "GNU.sparse map"))
+                        pending.removeAll(keepingCapacity: true)
+                        if expectedCount == nil {
+                            guard let first = numbers.first, first <= UInt64(limits.maxMetadataRecordCount) else {
+                                throw KaitoError.limitExceeded("tar sparse fragment count")
+                            }
+                            expectedCount = Int(first)
+                        }
+                        if let expectedCount, numbers.count == 1 + 2 * expectedCount { break }
+                    } else if byte == 0 {
+                        // block の残りは padding。
+                        break
+                    } else {
+                        pending.append(byte)
+                        guard pending.count <= 20 else { throw KaitoError.malformed("GNU sparse map number") }
+                    }
+                }
+            }
+            let count = expectedCount ?? 0
+            let list = stride(from: 0, to: count, by: 1).map {
+                TarSparseFragment(offset: numbers[1 + 2 * $0], size: numbers[2 + 2 * $0])
+            }
+            let map = try TarSparseMap(realSize: realSize, fragments: list, limits: limits)
+            let mapBytes = try Checked.mul(consumedBlocks, 512)
+            guard try Checked.sub(storedSize, mapBytes) == map.storedSize else {
+                throw KaitoError.malformed("GNU sparse 1.0 fragments do not match the stored size")
+            }
+            return (map, try Checked.add(dataOffset, mapBytes), "GNU.sparse 1.0", pax["GNU.sparse.name"])
+        }
+
+        guard let sizeBytes = pax["GNU.sparse.size"] else {
+            throw KaitoError.malformed("GNU sparse entry without size")
+        }
+        let realSize = try decimal(sizeBytes[...], "GNU.sparse.size")
+        try Checked.size(realSize, limit: limits.maxEntrySize)
+        let list: [TarSparseFragment]
+        let version: String
+        if let map = pax["GNU.sparse.map"] {
+            list = try fragments(fromList: map, field: "GNU.sparse.map")
+            version = "GNU.sparse 0.1"
+        } else if let pairs = pax["GNU.sparse.map.0.0"] {
+            list = try fragments(fromList: pairs, field: "GNU.sparse.offset/numbytes")
+            if let declared = pax["GNU.sparse.numblocks"] {
+                guard try decimal(declared[...], "GNU.sparse.numblocks") == UInt64(list.count) else {
+                    throw KaitoError.malformed("GNU sparse 0.0 numblocks mismatch")
+                }
+            }
+            version = "GNU.sparse 0.0"
+        } else {
+            throw KaitoError.malformed("GNU sparse entry without a map")
+        }
+        let map = try TarSparseMap(realSize: realSize, fragments: list, limits: limits)
+        guard storedSize == map.storedSize else {
+            throw KaitoError.malformed("GNU sparse fragments do not match the stored size")
+        }
+        return (map, dataOffset, version, nil)
     }
 
     private static func entryKind(for type: UInt8) -> EntryKind {

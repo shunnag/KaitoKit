@@ -35,6 +35,15 @@ private func formatName(_ format: ArchiveFormat) -> String {
     case .stuffItX: return "sitx"
     case .tar: return "tar"
     case .iso: return "iso"
+    case .udf: return "udf"
+    case .wim: return "wim"
+    case .compoundFile: return "cfb"
+    case .chm: return "chm"
+    case .arj: return "arj"
+    case .dmg: return "dmg"
+    case .macBinary: return "macbinary"
+    case .appleSingle: return "applesingle"
+    case .binHex: return "binhex"
     case .xar: return "xar"
     case .cab: return "cab"
     case .rpm: return "rpm"
@@ -46,6 +55,9 @@ private func formatName(_ format: ArchiveFormat) -> String {
     case .zstd: return "zstd"
     case .lz4: return "lz4"
     case .lzma: return "lzma"
+    case .lzip: return "lzip"
+    case .brotli: return "brotli"
+    case .pbzx: return "pbzx"
     case .compress: return "compress"
     }
 }
@@ -145,7 +157,9 @@ private func runList(_ arguments: [String]) throws {
            let headerLevel = entry.formatSpecific["headerLevel"] {
             fields.append("level=\(headerLevel)")
         }
-        if [.stuffIt, .stuffItX].contains(reader.format), let fork = entry.formatSpecific["fork"] {
+        // StuffIt 系と MacBinary / AppleSingle / BinHex は data / resource の両 fork、UDF と AppleDouble 統合は
+        // resource fork にだけ付く。
+        if let fork = entry.formatSpecific["fork"] {
             fields.append("fork=\(fork)")
         }
         if reader.format == .stuffItX { fields.append("solid=\(entry.solidGroup)") }

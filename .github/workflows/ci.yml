@@ -19,13 +19,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install differential-test oracles
-        run: brew install sevenzip xz
+        run: brew install sevenzip xz brotli
       - name: Build
         run: swift build -v
       - name: Test
         env:
           KAITO_REQUIRE_7ZZ: "1"
           KAITO_REQUIRE_XZ: "1"
+          KAITO_REQUIRE_BROTLI: "1"
         run: swift test
 
   # 利用側の cooViewer は、このスクリプトが作るフレームワークを組み込む。

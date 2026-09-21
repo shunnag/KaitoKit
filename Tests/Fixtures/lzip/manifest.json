@@ -1,0 +1,121 @@
+{
+  "writer": "Python lzma FORMAT_RAW FILTER_LZMA1 + this script (framing); bsdtar for bundle.tar.lz",
+  "reader": "xz -d --format=lzip (XZ Utils 5.8.4)",
+  "fixtures": [
+    {
+      "file": "text.lz.b64",
+      "size": 13158,
+      "sha256": "06171362dde91fb6c6a3613362b22d4cfa910b1a036f4b0b3bad5f703a53a50f",
+      "dataSize": 24000,
+      "dataSHA256": "2328a6109a2eb7c2fdbd3fbb3bd400825b7658776e398b50851ce5e99ace96cd",
+      "members": [
+        {
+          "dataSize": 24000,
+          "dictionary": 1048576
+        }
+      ]
+    },
+    {
+      "file": "binary.lz.b64",
+      "size": 569,
+      "sha256": "989dc4f9f9a41566dfe27ce18e4139fe43b7ecafe6ad4dac2fbe31e097bf9a40",
+      "dataSize": 22048,
+      "dataSHA256": "31a3082fe4cad0d905711a598871e28064a66998fac56a0837c25a5ef64103cc",
+      "members": [
+        {
+          "dataSize": 22048,
+          "dictionary": 65536
+        }
+      ]
+    },
+    {
+      "file": "random.lz.b64",
+      "size": 8335,
+      "sha256": "bcd7b41351ce4ed42867e88b76c2bbd3c07deb5dc2f618310951a64de7ec9064",
+      "dataSize": 8192,
+      "dataSHA256": "0966138dad2e3e2beccc7975baacff2a483f9f3d6e60ab4d176f59dd43dfaba7",
+      "members": [
+        {
+          "dataSize": 8192,
+          "dictionary": 4096
+        }
+      ]
+    },
+    {
+      "file": "fraction.lz.b64",
+      "size": 569,
+      "sha256": "636097f5e43f1dbcd29001606b9ce88fe421721adb73d966d7951e79205a3252",
+      "dataSize": 22048,
+      "dataSHA256": "31a3082fe4cad0d905711a598871e28064a66998fac56a0837c25a5ef64103cc",
+      "members": [
+        {
+          "dataSize": 22048,
+          "dictionary": 327680
+        }
+      ]
+    },
+    {
+      "file": "empty.lz.b64",
+      "size": 36,
+      "sha256": "c39e3c80fdf876a0fc772e5539ef74ade0d349a7aa76b168ccd7f1bbb2e356fc",
+      "dataSize": 0,
+      "dataSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "members": [
+        {
+          "dataSize": 0,
+          "dictionary": 1048576
+        }
+      ]
+    },
+    {
+      "file": "one.lz.b64",
+      "size": 37,
+      "sha256": "daab4147f46bd3c1dd900a72bddfc7ae24dcc023cfe1962b8f05fe73444a95a1",
+      "dataSize": 1,
+      "dataSHA256": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1",
+      "members": [
+        {
+          "dataSize": 1,
+          "dictionary": 1048576
+        }
+      ]
+    },
+    {
+      "file": "multi.lz.b64",
+      "size": 13764,
+      "sha256": "2583aa505fdc835fb78dd10e349c41066bff94e06f3f97010c3a5d3c23bed866",
+      "dataSize": 46049,
+      "dataSHA256": "15bb72982a62e6f246b3351c7ad0b25a0df59e917f99aee286a727859efd2890",
+      "members": [
+        {
+          "dataSize": 24000,
+          "dictionary": 1048576
+        },
+        {
+          "dataSize": 22048,
+          "dictionary": 65536
+        },
+        {
+          "dataSize": 1,
+          "dictionary": 4096
+        }
+      ]
+    },
+    {
+      "file": "bundle.tar.lz.b64",
+      "size": 3226,
+      "sha256": "e6d09a5073b38ed95b09c0f9f7aec4889beda69e94b586616365ef5252cebbd4",
+      "dataSize": 10240,
+      "dataSHA256": "6778d5a2839cf2e9e493431ea239078f286f69d3cdf7f9a2a59dbd6540321080",
+      "members": "bsdtar --lzip",
+      "tarEntries": [
+        "a.txt",
+        "b.bin"
+      ],
+      "entrySHA256": {
+        "a.txt": "04485277f59bc95822b5b056ed79d194907df73273c3337fc621e3531f668ba7",
+        "b.bin": "a1b7287c0bf7937d5719fc2cd6f7bfef4636076074bb3f6af333c999382169fe"
+      }
+    }
+  ]
+}

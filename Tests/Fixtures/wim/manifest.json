@@ -1,0 +1,89 @@
+{
+  "payload": {
+    "readme.txt": {
+      "size": 5700,
+      "sha256": "858fdd8f320b45ca7c43d6d5ef32956fc6bbf341f7ea50cb64c2b190b9cde5f5"
+    },
+    "empty.bin": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "sub/nested/deep.txt": {
+      "size": 5,
+      "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+    },
+    "sub/日本語.txt": {
+      "size": 8,
+      "sha256": "8f25aabe30a0e7bd7cb4b72d9d0873db4d63ba0f279b6d1f4335783ee9d7b710"
+    },
+    "same.txt": {
+      "size": 13,
+      "sha256": "f953bbd204bb867e48a6ff774cffa3dcffd02c6580e8f1d00c37dbbaa743d6c8"
+    },
+    "same-copy.txt": {
+      "size": 13,
+      "sha256": "f953bbd204bb867e48a6ff774cffa3dcffd02c6580e8f1d00c37dbbaa743d6c8"
+    },
+    "text.txt": {
+      "size": 56270,
+      "sha256": "7c6166813b80b8a0c8aafd5e02490ce4629e5d54c145f55999fe75367b755b67"
+    },
+    "e8.bin": {
+      "size": 35000,
+      "sha256": "519157c9cdec4109ce28eb768d80f200991c264fc51c0337aefe36584808e6a6"
+    },
+    "mixed.bin": {
+      "size": 40000,
+      "sha256": "380f4cf12b58c874abdf6e50521b099126d0552fc8254e1e41593580b28ff261"
+    },
+    "random.bin": {
+      "size": 1500,
+      "sha256": "59defde4cc8b6099c6fdad73a3b931447f030a709e09105e95f0f9f5f1560417"
+    },
+    "sub/small.txt": {
+      "size": 6,
+      "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f"
+    }
+  },
+  "stored.wim": {
+    "size": 7852,
+    "sha256": "f09d50be58873a0400ab140e447a19afb8e161dbf954acfc77f6148a885a951a",
+    "note": "own writer, stored resources, ADS on readme.txt, hard-link pair, symlink reparse point"
+  },
+  "xpress.wim": {
+    "size": 27774,
+    "sha256": "aebaf10f5d4ea1b8f4727886f10861d8a4af210aabaeacb2dd07f2aa15c211f8",
+    "note": "own XPRESS encoder"
+  },
+  "lzx.wim": {
+    "size": 28410,
+    "sha256": "3a0a092f6b9229ebd311521368d52701c5b65e0f163dab59a858a2b36920d67d",
+    "note": "own LZX encoder"
+  },
+  "lzx-raw.wim": {
+    "size": 37582,
+    "sha256": "a9415eb0e3885c2dd64abeb5e69dce0dd4760e1a82cb7dfde738ff20aaabe68a",
+    "note": "own LZX encoder with an odd-length uncompressed block at a chunk end"
+  },
+  "two-images-7zz-paths": [
+    "1/empty.bin",
+    "1/readme.txt",
+    "1/same-copy.txt",
+    "1/same.txt",
+    "1/sub/nested/deep.txt",
+    "1/sub/日本語.txt",
+    "2/only-in-2.txt",
+    "2/readme.txt",
+    "[1].xml"
+  ],
+  "two-images.wim": {
+    "size": 1987,
+    "sha256": "b253ce7150fae80656c612b12f4af8b17c4e0c5d45aad417d366a339b4def05d",
+    "note": "two images (XPRESS); 7-Zip lists them below 1/ and 2/"
+  },
+  "sevenzip-copy.wim": {
+    "size": 8026,
+    "sha256": "3bff6667460738b534d4d32c704ca9f457c1b5d61955a7fbf7c90481b7f44822",
+    "note": "7-Zip 26.03 `a -twim` (stored)"
+  }
+}

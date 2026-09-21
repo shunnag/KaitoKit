@@ -1,0 +1,134 @@
+{
+  "payload": {
+    "text.txt": {
+      "size": 31680,
+      "sha256": "5a3bb49b57d40193fbe5ad5869b029c01f2bdfe046f8a4368438178b923f1c10"
+    },
+    "dle.bin": {
+      "size": 1333,
+      "sha256": "fbc688635b784ff60cd55c5a7e430589470f3545d5d57a006d5084602aed7076"
+    },
+    "runs.bin": {
+      "size": 1442,
+      "sha256": "8ad48c5767e4457c2238eacb45efc6e55504a3d666b043257acc92fd54bd92f5"
+    },
+    "mixed.bin": {
+      "size": 20000,
+      "sha256": "2cdb6bbe53f210563ad0daace9c32775dc717d71af973cda9de6852669a2f8a0"
+    },
+    "empty.txt": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "one.txt": {
+      "size": 1,
+      "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+    }
+  },
+  "clearPayload": {
+    "words.txt": {
+      "size": 70000,
+      "sha256": "802a1edac671df5a738b3f11e73c56ef8ee6866e41734ab2f685ec4605ea66a2"
+    }
+  },
+  "shrink.zip": {
+    "size": 13986,
+    "sha256": "48deba9b7fc1787e57bfabf407e5660eaa2b3781ae9f54c48bc44546d179dc90",
+    "note": "method 1 Shrink, own LZW encoder",
+    "verifiedBy": [
+      "unzip",
+      "7zz",
+      "deark"
+    ]
+  },
+  "shrink-clear.zip": {
+    "size": 25974,
+    "sha256": "26cea7613b108e96aef95801418da866db5feac75477e3b4c22fc614c2d48466",
+    "note": "method 1 Shrink with three partial clears (256,2)",
+    "verifiedBy": [
+      "unzip",
+      "7zz",
+      "deark"
+    ]
+  },
+  "reduce1.zip": {
+    "size": 15658,
+    "sha256": "99c03e6d1fbe980d5dc22cac5402f20222f14771c2d53265d44e8fc3b8493325",
+    "note": "method 2 Reduce factor 1, follower sets + DLE RLE",
+    "verifiedBy": [
+      "deark"
+    ]
+  },
+  "reduce2.zip": {
+    "size": 15482,
+    "sha256": "e493581a1d2860755945d9266a7eab70336423bc4af358844c3e021e5497ec76",
+    "note": "method 3 Reduce factor 2, follower sets + DLE RLE",
+    "verifiedBy": [
+      "deark"
+    ]
+  },
+  "reduce3.zip": {
+    "size": 10841,
+    "sha256": "3a7a32b299056b9d7d05968e3bf1cec4dfe2d0c054a0fe00b90c734ab9c834d6",
+    "note": "method 4 Reduce factor 3, follower sets + DLE RLE",
+    "verifiedBy": [
+      "deark"
+    ]
+  },
+  "reduce4.zip": {
+    "size": 9082,
+    "sha256": "80982a2bd5d18961fdfc7fa6283989e4f532e7b2ee5e60442bab7fc5362ceb58",
+    "note": "method 5 Reduce factor 4, follower sets + DLE RLE",
+    "verifiedBy": [
+      "deark"
+    ]
+  },
+  "reduce-empty-sets.zip": {
+    "size": 19211,
+    "sha256": "6909fdfdecadd2b599f456550fca24888b88b79fa51089f9fbb9b325f3da86db",
+    "note": "method 2 with every follower set empty",
+    "verifiedBy": [
+      "deark"
+    ]
+  },
+  "implode-4k-2trees.zip": {
+    "size": 5567,
+    "sha256": "fcd05c9fc3e342779d33b969a6eb179bf1fb200950355b9086055284e2ce4631",
+    "note": "method 6 Implode, 4K window, 2 trees",
+    "verifiedBy": [
+      "unzip",
+      "7zz",
+      "deark"
+    ]
+  },
+  "implode-8k-3trees.zip": {
+    "size": 5783,
+    "sha256": "87b0213cb8f815a727c96dc20a289661cb414aa9227eff3b19ba045e62d3e59c",
+    "note": "method 6 Implode, 8K window, 3 trees",
+    "verifiedBy": [
+      "unzip",
+      "7zz",
+      "deark"
+    ]
+  },
+  "implode-4k-3trees.zip": {
+    "size": 5716,
+    "sha256": "024a726fe0c9ec0fa4d11da529bf8e93d2ee915730c5aa2f4398f441d1bec9c9",
+    "note": "method 6 Implode, 4K window, 3 trees",
+    "verifiedBy": [
+      "unzip",
+      "7zz",
+      "deark"
+    ]
+  },
+  "implode-8k-2trees.zip": {
+    "size": 5633,
+    "sha256": "b23d142818b48f8962103fee6600fb95597bc16c5d688c05a01ad4cc0dba3685",
+    "note": "method 6 Implode, 8K window, 2 trees",
+    "verifiedBy": [
+      "unzip",
+      "7zz",
+      "deark"
+    ]
+  }
+}

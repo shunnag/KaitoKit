@@ -244,6 +244,11 @@ final class BCJFilterDecompressor: Decompressor {
                     // previousMask != 0 なので shift は 8, 16, 24 のいずれか。
                     source = destination ^ ((UInt32(1) << (32 - shift)) &- 1)
                 }
+                // 変位は 25 bit の符号付き値として保存されている。減算後の上位 byte は
+                // bit 24 の符号で 0x00 / 0xFF に正規化する。ip との加算で 2^24 を
+                // またいだ変位は、これを省くと上位 byte が 0xFE / 0x01 のまま残る
+                // (2026-09-20 の 1 MiB 超乱数 payload で再現)。
+                destination = normalizeX86Displacement(destination)
                 writeUInt32LE(destination, into: &bytes, at: position + 1)
                 position += 5
             } else {
@@ -330,7 +335,13 @@ final class BCJFilterDecompressor: Decompressor {
                     index += 4
                     continue
                 }
-                let decoded = encoded &- (pc >> 12)
+                // page delta は 18 bit の符号付き値として扱われ、21 bit の immhi:immlo には
+                // bit 17 を符号拡張した形で書き戻す。pc の減算で ±2^17 をまたいだ値も
+                // 同じ規則で折り返す (2026-09-20 の 1 MiB 超乱数 payload で再現)。
+                var decoded = (encoded &- (pc >> 12)) & 0x3_FFFF
+                if decoded & 0x2_0000 != 0 {
+                    decoded |= 0x1C_0000
+                }
                 instruction &= ~UInt32(0x60FF_FFE0)
                 instruction |= (decoded & 3) << 29
                 instruction |= ((decoded >> 2) & 0x7_FFFF) << 5
@@ -425,6 +436,12 @@ final class BCJFilterDecompressor: Decompressor {
             index += 16
         }
         return count
+    }
+
+    /// x86 の rel32 変位を、bit 24 の符号で上位 byte を 0x00 / 0xFF に揃えた 32 bit 値へ正規化する。
+    private static func normalizeX86Displacement(_ value: UInt32) -> UInt32 {
+        let high: UInt32 = (value & 0x0100_0000) != 0 ? 0xFF00_0000 : 0
+        return (value & 0x00FF_FFFF) | high
     }
 
     private static func isX86SignByte(_ byte: UInt8) -> Bool {

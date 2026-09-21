@@ -94,7 +94,7 @@ for entry in reader.entries {
 | `uncompressedSize(ofEntry:)` | 同名 (`Int64`) | `uncompressedSize: UInt64?` | compat は不明時 `Int64.max`、範囲外は 0 |
 | `entryIsDirectory(_:)` | 同名 | `kind == .directory` | 範囲外は `false` |
 | `entryIsLink(_:)` | 同名 | `.symlink` / `.hardlink` | compat は二種類を一つにまとめる |
-| `entryIsResourceFork(_:)` | 同名 | 直接対応なし | resource fork を別 entry にしないため常に `false` |
+| `entryIsResourceFork(_:)` | 同名 | `formatSpecific["fork"] == "resource"` | StuffIt / UDF / ZIP・tar の AppleDouble 統合が公開する `name/..namedfork/rsrc` entry で `true` |
 | `attributesOfEntry(_:)` | 同名 | `modificationDate`、`posixPermissions`、`kind` | compat は `.modificationDate`、`.posixPermissions`、`.type` を返す |
 | `entryIsEncrypted(_:)` | 同名 | `isEncrypted` | 範囲外は `false` |
 | `isEncrypted()` | 同名 | `entries.contains { $0.isEncrypted }` | 公開 entry を集計 |
@@ -131,7 +131,8 @@ for entry in reader.entries {
 > - `uncompressedSize(ofEntry:)`: compat returns `Int64.max` when unknown and 0 when out of range.
 > - `entryIsDirectory(_:)`: `false` when out of range.
 > - `entryIsLink(_:)`: compat merges the two link kinds into one.
-> - `entryIsResourceFork(_:)`: always `false`, because resource forks are not separate entries.
+> - `entryIsResourceFork(_:)`: `true` for the `name/..namedfork/rsrc` entries published by StuffIt, UDF and the
+>   AppleDouble merge of ZIP / tar (`formatSpecific["fork"] == "resource"`).
 > - `attributesOfEntry(_:)`: compat returns `.modificationDate`, `.posixPermissions` and `.type`.
 > - `entryIsEncrypted(_:)`: `false` when out of range.
 > - `isEncrypted()`: aggregates over the published entries.
@@ -227,7 +228,7 @@ header まで暗号化された 7z/RAR は compat initializer が delegate 設�
 | archive 全体の列挙 | `ArchiveReader.entries` | archive order を維持 |
 | destination 設定 | `ArchiveReader.extract(_:to:)` の directory | `Extractor` が各 entry path を追加 |
 | overwrite policy | `ExtractionOptions.overwriteExisting` | 既定 `true` |
-| resource fork / finder 情報 | 直接対応なし | `entryIsResourceFork` は `false` |
+| resource fork / finder 情報 | fork entry（`..namedfork/rsrc`）を data file の直後に展開 | Finder 情報・xattr は復元しない |
 | permissions / timestamp | `ExtractionOptions.preserveMetadata` | 既定 `true` |
 | symbolic link | `ExtractionOptions.createSymbolicLinks` | 既定 `true`、relative target を検証 |
 | progress | `EntryStream` の caller loop / compat delegate | modern API は produced byte 数を caller が集計 |
@@ -254,7 +255,8 @@ for entry in reader.entries.filter({ $0.kind == .directory }).sorted(by: {
 > archive becomes `ArchiveReader.entries`, which keeps archive order; the destination becomes the
 > directory passed to `ArchiveReader.extract(_:to:)`, with `Extractor` appending each entry path;
 > the overwrite policy becomes `ExtractionOptions.overwriteExisting`, default `true`; resource forks
-> and Finder information have no direct equivalent, so `entryIsResourceFork` is `false`; permissions
+> are fork entries (`..namedfork/rsrc`) extracted right after their data file, while Finder
+> information and xattrs are not restored; permissions
 > and timestamps become `ExtractionOptions.preserveMetadata`, default `true`; symbolic links become
 > `ExtractionOptions.createSymbolicLinks`, default `true`, with relative targets validated; progress
 > is the caller's own loop over `EntryStream` or the compat delegate, since the modern API leaves
@@ -501,7 +503,11 @@ multi-volume RAR、split ZIP（`.z01`…`.zip` / `.zx01`…`.zipx`）と `.001` 
   RAR3 は独立した認証 tag を持たないため、破損暗号文と誤 password を完全には区別できません。
 - **delegate timing**: delegate は compat initialization 後に設定します。name encoding は設定直後の rebuild
   へ反映できますが、header password は modern initializer option が必要です。
-- **resource forks**: separate entry として公開しないため `entryIsResourceFork` は常に `false` です。
+- **resource forks / AppleDouble**: StuffIt と UDF の resource fork、および ZIP / tar の `__MACOSX/._name` /
+  `._name` sidecar が持つ resource fork は `name/..namedfork/rsrc` の fork entry として data file の直後に
+  並びます。XADMaster の `XADMacArchiveParser` が sidecar を fork に畳むのと同じ見え方で、Finder 情報や xattr
+  だけの sidecar は既定（`ReaderOptions.appleDoublePolicy = .merge`）で消えます。`.hide` は fork も出さず、
+  `.expose` は書庫どおりに全 entry を並べます。`entryIsResourceFork` は fork entry で `true` です。
 - **multi-volume**: URL-backed RAR4/RAR5、split ZIP（`.z01`…`.zip` / `.zx01`…`.zipx`）、
   `.7z.001` / `.zip.001` 等のバイト分割に対応します。既定上限は 128 巻です。
   split ZIP は最終巻または任意の `.zNN` / `.zxNN` から開け、ZIP64 と `.z100` 以降も扱います。
@@ -513,9 +519,15 @@ multi-volume RAR、split ZIP（`.z01`…`.zip` / `.zx01`…`.zipx`）と `.001` 
   split ZIP の `rawRecord(of:)` は連結ストリームの絶対範囲を返し、`.001` バイト分割では `nil` です。
   同名メディア交換型 spanned と split PKSFX（先頭 `.exe`）は対象外です。
 
-ISO 9660 は `ISO 9660` として列挙できます。木の優先順位は Rock Ridge（NM あり）>
+ISO 9660 は `ISO 9660` として列挙できます。木の優先順位は UDF > Rock Ridge（NM あり）>
 Joliet > PVD です。XADMaster の Joliet 優先と異なり、両方ある画像の symlink を保持します。
 NM は書庫全体の UTF-8 / CP932 / EUC-JP 判定、Joliet は UCS-2BE、PVD 名は大文字のままです。
+UDF の名前は OSTA Compressed Unicode（8 / 16 bit）をそのまま Unicode に写し、`formatSpecific["nameSource"]`
+は `udf`、`udfRevision` に LVD の domain revision（`1.02`〜`2.60`）が入ります。ISO 9660 構造を持たない
+UDF image は `ArchiveFormat.udf`（`"udf"`、compat の `formatName()` は `UDF`）として検出します。
+XADMaster は UDF を読めません。BIN/CUE などの生 sector image（2352 / 2448 / 2336 byte sector）は user data を
+取り出して同じ `ISO 9660` / `UDF` として開き、`.cue` の path は data track の image を辿ります（EDC / ECC は
+検証しません）。
 
 > **10. Behavioral differences that matter**
 >
@@ -554,8 +566,12 @@ NM は書庫全体の UTF-8 / CP932 / EUC-JP 判定、Joliet は UCS-2BE、PVD �
 >   password cannot be told apart completely.
 > - **Delegate timing**: the delegate is set after compat initialization. A name encoding can feed
 >   the rebuild that follows immediately, but a header password needs the modern initializer option.
-> - **Resource forks**: they are not exposed as separate entries, so `entryIsResourceFork` is always
->   `false`.
+> - **Resource forks / AppleDouble**: the resource forks of StuffIt and UDF, and those carried by the
+>   `__MACOSX/._name` / `._name` sidecars of ZIP and tar, are fork entries (`name/..namedfork/rsrc`)
+>   listed right after their data file, the same shape XADMaster's `XADMacArchiveParser` produces.
+>   Sidecars holding only Finder information or xattrs disappear under the default
+>   `ReaderOptions.appleDoublePolicy = .merge`; `.hide` drops the forks too and `.expose` lists the
+>   archive as stored. `entryIsResourceFork` is `true` for fork entries.
 > - **Multi-volume**: URL-backed RAR4/RAR5, split ZIP (`.z01`…`.zip` / `.zx01`…`.zipx`),
 >   and byte splits such as `.7z.001` / `.zip.001` are supported. The default limit is 128 volumes.
 >   Split ZIP opens from the last or any numbered segment, including ZIP64 and `.z100` onward.
@@ -567,53 +583,75 @@ NM は書庫全体の UTF-8 / CP932 / EUC-JP 判定、Joliet は UCS-2BE、PVD �
 >   all volumes are deleted. Split ZIP raw records use absolute concatenated ranges; `.001` raw
 >   records remain `nil`. Same-name removable-media spanning and split PKSFX are out of scope.
 >
-> ISO 9660 is listed as `ISO 9660`. The tree priority is Rock Ridge (with NM) > Joliet > PVD.
+> ISO 9660 is listed as `ISO 9660`. The tree priority is UDF > Rock Ridge (with NM) > Joliet > PVD.
 > Unlike XADMaster's preference for Joliet, this preserves the symbolic links of an image that has
-> both. NM uses the archive-wide UTF-8, CP932 and EUC-JP detection, Joliet uses UCS-2BE, and PVD
-> names stay uppercase.
+> both. UDF names are OSTA Compressed Unicode mapped straight to Unicode; `formatSpecific["nameSource"]`
+> is `udf` and `udfRevision` carries the LVD domain revision. A UDF image without ISO 9660 structures
+> is detected as `ArchiveFormat.udf` (`"udf"`; the compat `formatName()` is `UDF`). XADMaster cannot
+> read UDF. Raw-sector images such as BIN/CUE (2352-, 2448- and 2336-byte sectors) open as the same
+> `ISO 9660` / `UDF` through their user data, and a `.cue` path follows its data track's image (EDC /
+> ECC are not verified). NM uses the archive-wide
+> UTF-8, CP932 and EUC-JP detection, Joliet uses UCS-2BE, and PVD names stay uppercase.
 
 ## 11. 対応外形式・方式
 
-現時点で container reader を提供しない主な形式は ARJ、ACE、StuffIt/SIT、zstd
-stream です。対応済み container 内でも次は未対応です。
+現時点で container reader を提供しない主な形式は ACE です（ARJ は対応。method 4・garbled・multi-volume の続き file は `unsupportedMethod`）。対応済み container 内でも次は
+未対応です（README の「既知の制限」の要約。未リリースの変更を含む現行 main の状態）。
 
-- ISO の UDF、raw 2352/2336-byte sector、後続 session、interleaved / sparse / zisofs 展開。
-- ZIP の同名メディア交換型 spanned、split PKSFX（先頭 `.exe`）、method 95 (xz) / 96 (JPEG)。
+- ISO の raw 2352/2336-byte sector、後続 session、interleaved / sparse 展開、zisofs2（ZF version 2）。
+  UDF の複数 volume、ext_ad、device / FIFO / socket、resource fork 以外の named stream。
+- ZIP の同名メディア交換型 spanned、split PKSFX（先頭 `.exe`）、method 96 (JPEG) / 97 (WavPack)。
   `.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP と `.zip.001` バイト分割は対応。
-- 7z RISC-V filter (method 0x0B)。
-- RAR4 の unpack version 15/20/26、custom VM、一部の solid 構成、SFX と multi-volume の組合せ。
-- RAR5 compression version 1、file-copy redirection、RAR5 SFX、サイズ不明の暗号化 stored entry。
-- LHA `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-`。
-- CAB の Quantum / LZX 圧縮と、複数 cabinet にまたがる file。
-- RPM の zstd payload、rpm 6 の簡略 cpio (`07070X`)、drpm、cpio でない payload
-  （いずれも圧縮済み payload を 1 entry として公開）。
-- cpio の PWB / newcx、HP-UX device number の解釈、device node の再作成。
+- 7z の RISC-V filter (method 0x0B) と、7-Zip ZS の LZ4 / Brotli / LZ5 / Lizard coder。
+- RAR4 の unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成、SFX と multi-volume の組合せ。
+- RAR5 compression version 1、SFX と multi-volume の組合せ、サイズ不明の暗号化 stored entry（file copy の参照は参照先の本文を返す `.file` として公開）。
+- LHA `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-`（一覧はできるが読み取りは `unsupportedMethod`）。
+- CAB の Quantum（一覧のみ）と、複数 cabinet にまたがる file。
+- RPM の rpm 6 簡略 cpio (`07070X`)、drpm、cpio でない payload（圧縮済み payload を 1 entry として公開）。
+- cpio の PWB / newcx、HP-UX device number の解釈、device node の再作成（`.cpgz` / `.cpio.<codec>` と pbzx の Payload は展開して列挙）。
+- tar の旧 GNU sparse（typeflag `S`）と star / Solaris の sparse 表現（pax GNU.sparse 0.0 / 0.1 / 1.0 は展開）。
+- zstd / LZ4 の外部辞書。
+- StuffIt の method 4/7/9〜12 と classic の暗号 flag `0x10`、StuffIt X の Iron version 1・その他の
+  前処理・Root 暗号・recovery・segment・base-N transport。
 
-gzip、bzip2、xz、UNIX compress (`.Z`) は単一 entry として扱います。`.tar.gz` / `.tgz`、
-`.tar.bz2` / `.tbz2`、`.tar.xz` / `.txz` は展開した stream を `TarReader` へ渡し、tar entry を直接
+gzip、bzip2、xz、zstd、LZ4、LZMA (`.lzma`)、lzip (`.lz`)、brotli (`.br`)、UNIX compress (`.Z`)、pbzx（cpio でないもの）は単一 entry として扱います。
+`.tar.gz` / `.tgz`、`.tar.bz2` / `.tbz2` / `.tbz`、`.tar.xz` / `.txz`、`.tar.zst` / `.tzst`、`.tar.lz4`、
+`.tar.lzma` / `.tlz`、`.tar.lz`、`.tar.br` / `.tbr`、`.tar.Z` / `.taz` / `.tz` は展開した stream を `TarReader` へ渡し、tar entry を直接
 列挙します。method と encryption/multi-volume の全表は README の「対応状況」を参照してください。
+追加候補の整理は [2026-09-20 の候補調査](verification/2026-09-20-format-candidates.md) を参照してください。
 
 > **11. Formats and methods that are not supported**
 >
-> The main formats for which no container reader is provided today are ARJ, ACE, StuffIt/SIT and
-> zstd streams. Within the containers that are supported, the following are not:
+> The main format for which no container reader is provided today is ACE (ARJ is supported; its method 4, garbled files and continued multi-volume members are `unsupportedMethod`). Within the
+> containers that are supported, the following are not (a summary of "既知の制限" in the README for
+> the current main branch, including unreleased changes):
 >
-> - ISO: UDF, raw 2352- and 2336-byte sectors, later sessions, and interleaved, sparse or zisofs
->   expansion.
+> - ISO: raw 2352- and 2336-byte sectors, later sessions, interleaved or sparse expansion, and
+>   zisofs2 (ZF version 2). UDF: multi-volume sets, ext_ad, device / FIFO / socket files, and named
+>   streams other than the resource fork.
 > - ZIP: same-name removable-media spanning, split PKSFX (`.exe` first segment), and methods
->   95 (xz) / 96 (JPEG). Split ZIP (`.z01`…`.zip` / `.zx01`…`.zipx`) and `.zip.001` byte splits are supported.
-> - 7z: the RISC-V filter (method 0x0B).
-> - RAR4: unpack versions 15, 20 and 26, the custom VM, some solid configurations, and SFX combined
->   with multi-volume.
-> - RAR5: compression version 1, file-copy redirection, RAR5 SFX, and encrypted stored entries of
->   unknown size.
-> - LHA: `-pm1-`, `-pm2-`, `-lh2-` and `-lh3-`.
-> - CAB: Quantum and LZX compression, and a file that spans several cabinets.
-> - RPM: a zstd payload, the simplified rpm 6 cpio (`07070X`), drpm, and any payload that is not
->   cpio. Each of these is exposed as a single entry holding the compressed payload.
-> - cpio: PWB and newcx, HP-UX device number interpretation, and recreating device nodes.
+>   96 (JPEG) / 97 (WavPack). Split ZIP (`.z01`…`.zip` / `.zx01`…`.zipx`) and `.zip.001` byte splits are supported.
+> - 7z: the RISC-V filter (method 0x0B) and the LZ4 / Brotli / LZ5 / Lizard coders of 7-Zip ZS.
+> - RAR4: unpack versions 15, 20 and 26, the custom VM, solid configurations whose dictionary size
+>   changes, and SFX combined with multi-volume.
+> - RAR5: compression version 1, SFX combined with multi-volume, and encrypted
+>   stored entries of unknown size (file-copy references are exposed as `.file` entries that return the
+>   target's content).
+> - LHA: `-pm1-`, `-pm2-`, `-lh2-` and `-lh3-` (listed, but reading fails with `unsupportedMethod`).
+> - CAB: Quantum (listed only) and a file that spans several cabinets.
+> - RPM: the simplified rpm 6 cpio (`07070X`), drpm, and any payload that is not cpio. Each of these is
+>   exposed as a single entry holding the compressed payload.
+> - cpio: PWB and newcx, HP-UX device number interpretation, and recreating device nodes
+>   (`.cpgz` / `.cpio.<codec>` and pbzx payloads are expanded and listed).
+> - tar: old GNU sparse entries (typeflag `S`) and the star / Solaris sparse attributes (pax
+>   GNU.sparse 0.0 / 0.1 / 1.0 are expanded).
+> - zstd / LZ4: external dictionaries.
+> - StuffIt: methods 4/7/9–12 and the classic encryption flag `0x10`; StuffIt X: Iron version 1, the
+>   other preprocessors, Root-level encryption, recovery records, segments and base-N transport.
 >
-> gzip, bzip2, xz and UNIX compress (`.Z`) are treated as a single entry. `.tar.gz` / `.tgz`,
-> `.tar.bz2` / `.tbz2` and `.tar.xz` / `.txz` hand their expanded stream to `TarReader` and list the
+> gzip, bzip2, xz, zstd, LZ4, LZMA (`.lzma`), lzip (`.lz`), brotli (`.br`), UNIX compress (`.Z`) and non-cpio pbzx are treated as a single entry.
+> `.tar.gz` / `.tgz`, `.tar.bz2` / `.tbz2` / `.tbz`, `.tar.xz` / `.txz`, `.tar.zst` / `.tzst`, `.tar.lz4`,
+> `.tar.lzma` / `.tlz`, `.tar.lz`, `.tar.br` / `.tbr` and `.tar.Z` / `.taz` / `.tz` hand their expanded stream to `TarReader` and list the
 > tar entries directly. For the full table of methods, encryption and multi-volume support, see
-> "対応状況" (Supported formats) in the README.
+> "対応状況" (Supported formats) in the README. The candidates for further formats are collected in
+> [the 2026-09-20 survey](verification/2026-09-20-format-candidates.md).

@@ -126,7 +126,7 @@ public final class ArchiveReader {
             sourceURL: sourceURL,
             options: options,
             skipStuffIt: true
-        ) : FormatDetector.stuffItFormat(stuffItInput!.data)
+        ) : FormatDetector.envelopeFormat(stuffItInput!)
 
         if zipDiskLayout != nil, detected != .zip {
             throw KaitoError.malformed("ZIP split volume set is not a ZIP archive")
@@ -134,12 +134,13 @@ public final class ArchiveReader {
         var stagedTarSource: (any ByteSource)?
         switch detected {
         case .tar:
-            let tar = try TarReader(source: source, options: options)
+            let tar = try AppleDoubleReader.wrap(TarReader(source: source, options: options), options: options)
             reader = tar
             entries = tar.entries
             format = .tar
         case .zip:
-            let zip = try ZipReader(source: source, options: options, diskLayout: zipDiskLayout)
+            // Finder / ditto の `__MACOSX/._name` sidecar は方針に従って畳む（既定は resource fork へ統合）。
+            let zip = try AppleDoubleReader.wrap(ZipReader(source: source, options: options, diskLayout: zipDiskLayout), options: options)
             reader = zip
             entries = zip.entries
             format = .zip
@@ -250,6 +251,14 @@ public final class ArchiveReader {
             reader = stuffIt
             entries = stuffIt.entries
             format = .stuffIt
+        case .macBinary, .appleSingle, .binHex:
+            // wrapper の payload が StuffIt でない: wrapper 自身を data fork + resource fork の 1 file として公開する。
+            guard let envelope = stuffItInput, envelope.wrapper != nil else { throw KaitoError.unsupportedFormat }
+            let wrapper = try MacWrapperReader(envelope: envelope, format: detected, options: options,
+                                               fallbackFileName: sourceURL?.lastPathComponent)
+            reader = wrapper
+            entries = wrapper.entries
+            format = detected
         case .ar:
             let ar = try ArReader(source: source, options: options)
             reader = ar
@@ -265,8 +274,43 @@ public final class ArchiveReader {
             reader = iso
             entries = iso.entries
             format = .iso
+        case .udf:
+            let udf = try UDFReader(source: source, options: options)
+            reader = udf
+            entries = udf.entries
+            format = .udf
+        case .wim:
+            let wim = try WIMReader(source: source, options: options)
+            reader = wim
+            entries = wim.entries
+            format = .wim
+        case .compoundFile:
+            let cfb = try CFBReader(source: source, options: options)
+            reader = cfb
+            entries = cfb.entries
+            format = .compoundFile
+        case .chm:
+            let chm = try CHMReader(source: source, options: options)
+            reader = chm
+            entries = chm.entries
+            format = .chm
+        case .arj:
+            let arj = try ARJReader(source: source, options: options)
+            reader = arj
+            entries = arj.entries
+            format = .arj
+        case .dmg:
+            let dmg = try DMGReader(source: source, options: options)
+            reader = dmg
+            entries = dmg.entries
+            format = .dmg
         case .cab:
-            let cab = try CabReader(source: source, options: options)
+            // 実行形式 prefix の後ろにある cabinet は 7z と同じ規則で位置を求めて rebase する。
+            let cabSource = try Self.sfxRebasedSource(
+                from: source, sourceURL: sourceURL, options: options,
+                nativeSignature: [0x4D, 0x53, 0x43, 0x46], format: .cab
+            )
+            let cab = try CabReader(source: cabSource, options: options)
             reader = cab
             entries = cab.entries
             format = .cab
@@ -280,30 +324,54 @@ public final class ArchiveReader {
             reader = xar
             entries = xar.entries
             format = .xar
-        case .gzip, .bzip2, .xz, .zstd, .lz4, .compress, .lzma:
+        case .gzip, .bzip2, .xz, .zstd, .lz4, .compress, .lzma, .lzip, .brotli, .pbzx:
             let single = try SingleFileReader(
                 source: source,
                 format: detected,
                 options: options,
                 fallbackFileName: sourceURL?.lastPathComponent
             )
-            if Self.compressedTarFormat(for: sourceURL) == detected {
-                // The expanded tar envelope is staging input, not a published
-                // entry. Its stream uses maxEntrySize; the aggregate budget
-                // constructed below applies to the TarReader's members.
+            let container = Self.compressedContainer(for: sourceURL, detected: detected)
+            if let container {
+                // The expanded tar / cpio envelope is staging input, not a
+                // published entry. Its stream uses maxEntrySize; the aggregate
+                // budget constructed below applies to the inner reader's members.
                 let stream = try single.stream(
                     for: single.entries[0],
                     limits: options.limits
                 )
-                let tarSource = try SingleFileMaterializer.materialize(
+                let staged = try SingleFileMaterializer.materialize(
                     stream,
                     limits: options.limits
                 )
-                let tar = try TarReader(source: tarSource, options: options)
-                stagedTarSource = tarSource
-                reader = tar
-                entries = tar.entries
-                format = .tar
+                stagedTarSource = staged
+                switch container {
+                case .tar:
+                    let tar = try AppleDoubleReader.wrap(TarReader(source: staged, options: options), options: options)
+                    reader = tar
+                    entries = tar.entries
+                    format = .tar
+                case .cpio:
+                    let cpio = try CpioReader(source: staged, options: options)
+                    reader = cpio
+                    entries = cpio.entries
+                    format = .cpio
+                case .pbzxAuto:
+                    // pbzx は Apple の pkg / OTA が cpio payload を包むためだけに使う container なので、
+                    // 展開結果が cpio ならその entry を直接公開し、そうでなければ単一 stream に留める。
+                    if CpioHeader.probe(try readByteRange(source: staged, offset: 0, count: Int(min(6, staged.length))),
+                                        source: staged) != nil {
+                        let cpio = try CpioReader(source: staged, options: options)
+                        reader = cpio
+                        entries = cpio.entries
+                        format = .cpio
+                    } else {
+                        stagedTarSource = nil
+                        reader = single
+                        entries = single.entries
+                        format = detected
+                    }
+                }
             } else {
                 reader = single
                 entries = single.entries
@@ -360,12 +428,20 @@ public final class ArchiveReader {
         let zipSplit = try split == nil ? ZipSplitVolumeSet.assemble(
             url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
         ) : nil
+        // classic StuffIt の分割セット（100 byte header の part）は兄弟を集めて data / resource fork に組む。
+        let stuffItSplit = try split == nil && zipSplit == nil ? StuffItSplitSet.assemble(
+            firstVolumeURL: standardized, source: opened.source, directory: opened.directory, limits: options.limits
+        ) : nil
+        // `.cue` は data track の image file（同じ directory）を開く。
+        let cue = try split == nil && zipSplit == nil && stuffItSplit == nil ? CueSheet.assemble(
+            url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
+        ) : nil
         // 兄弟のない .001 でも .tar.gz などのヒントを保持する。
         let sourceURL = SplitVolumeSet.naming(forFirstVolumeName: standardized.lastPathComponent) != nil
             ? standardized.deletingPathExtension()
             : standardized
         return try ArchiveReader(
-            source: split?.source ?? zipSplit?.source ?? opened.source,
+            source: split?.source ?? zipSplit?.source ?? stuffItSplit.map { $0 as any ByteSource } ?? cue ?? opened.source,
             sourceURL: sourceURL,
             sourceDirectoryAnchor: split == nil ? opened.directory : nil,
             sourceVolumeURL: split == nil ? standardized : nil,
@@ -493,7 +569,9 @@ public final class ArchiveReader {
         var reopenedOptions = options
         reopenedOptions.password = password
         let parsedReader: any FormatReader
-        if let zip = reader as? ZipReader {
+        if let merged = reader as? AppleDoubleReader {
+            parsedReader = try merged.reopened(options: reopenedOptions)
+        } else if let zip = reader as? ZipReader {
             parsedReader = zip.reopened(options: reopenedOptions)
         } else if let tar = reader as? TarReader {
             parsedReader = tar.reopened(options: reopenedOptions)
@@ -505,6 +583,14 @@ public final class ArchiveReader {
             parsedReader = rar5.reopened(options: reopenedOptions)
         } else if let rar4 = reader as? RAR4Reader {
             parsedReader = rar4.reopened(options: reopenedOptions)
+        } else if let stagedTarSource, reader is CpioReader {
+            // 圧縮 cpio / pbzx の展開結果は保持済みなので、再展開せずその source から開き直す。
+            return try ArchiveReader(
+                source: stagedTarSource,
+                sourceURL: nil,
+                zipDiskLayout: nil,
+                options: reopenedOptions
+            )
         } else {
             return try ArchiveReader(
                 source: source,
@@ -570,30 +656,41 @@ public final class ArchiveReader {
         reader.setPassword(password)
     }
 
-    private static func compressedTarFormat(for sourceURL: URL?) -> ArchiveFormat? {
+    /// 単一 stream の展開結果を渡す内側の container。
+    private enum CompressedContainer {
+        case tar
+        case cpio
+        /// pbzx: 展開結果が cpio ならその entry を公開し、そうでなければ単一 stream。
+        case pbzxAuto
+    }
+
+    /// 名前（または pbzx の形式）から、単一 stream の展開結果を渡す container を決める。
+    /// `.tlz` は LZMA_Alone（GNU tar）と lzip（lzip 自身の慣習）の両方が使うため、
+    /// 署名で判別した方を採る。cpio は `.cpgz`（Archive Utility）と `.cpio.<codec>` を扱う。
+    private static func compressedContainer(for sourceURL: URL?, detected: ArchiveFormat) -> CompressedContainer? {
+        if detected == .pbzx { return .pbzxAuto }
         guard let name = sourceURL?.lastPathComponent.lowercased() else {
             return nil
         }
-        if name.hasSuffix(".tar.gz") || name.hasSuffix(".tgz") {
-            return .gzip
+        let codecSuffixes: [(String, ArchiveFormat)] = [
+            (".gz", .gzip), (".bz2", .bzip2), (".xz", .xz), (".zst", .zstd), (".lz4", .lz4),
+            (".lzma", .lzma), (".lz", .lzip), (".br", .brotli), (".z", .compress),
+        ]
+        for (suffix, format) in codecSuffixes where name.hasSuffix(".tar" + suffix) {
+            return format == detected ? .tar : nil
         }
-        if name.hasSuffix(".tar.bz2") || name.hasSuffix(".tbz2") || name.hasSuffix(".tbz") {
-            return .bzip2
+        for (suffix, format) in codecSuffixes where name.hasSuffix(".cpio" + suffix) {
+            return format == detected ? .cpio : nil
         }
-        if name.hasSuffix(".tar.xz") || name.hasSuffix(".txz") {
-            return .xz
+        let tarAliases: [(String, Set<ArchiveFormat>)] = [
+            (".tgz", [.gzip]), (".tbz2", [.bzip2]), (".tbz", [.bzip2]), (".txz", [.xz]),
+            (".tzst", [.zstd]), (".tlz", [.lzma, .lzip]), (".tbr", [.brotli]),
+            (".tz", [.compress]), (".taz", [.compress]),
+        ]
+        for (suffix, formats) in tarAliases where name.hasSuffix(suffix) {
+            return formats.contains(detected) ? .tar : nil
         }
-        if name.hasSuffix(".tar.zst") || name.hasSuffix(".tzst") {
-            return .zstd
-        }
-        if name.hasSuffix(".tar.lz4") { return .lz4 }
-        if name.hasSuffix(".tar.lzma") || name.hasSuffix(".tlz") {
-            return .lzma
-        }
-        // 既存の LZWDecoder と tar staging を .tar.Z / .tZ / .taz にも適用する。
-        if name.hasSuffix(".tar.z") || name.hasSuffix(".tz") || name.hasSuffix(".taz") {
-            return .compress
-        }
+        if name.hasSuffix(".cpgz") { return detected == .gzip ? .cpio : nil }
         return nil
     }
 
@@ -602,7 +699,20 @@ public final class ArchiveReader {
         sourceURL: URL?,
         options: ReaderOptions
     ) throws -> any ByteSource {
-        let nativeSignature: [UInt8] = [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]
+        try sfxRebasedSource(
+            from: source, sourceURL: sourceURL, options: options,
+            nativeSignature: [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c], format: .sevenZip
+        )
+    }
+
+    /// 先頭に native 署名があればそのまま、実行形式 prefix の後ろに署名があれば rebase した source。
+    private static func sfxRebasedSource(
+        from source: any ByteSource,
+        sourceURL: URL?,
+        options: ReaderOptions,
+        nativeSignature: [UInt8],
+        format: ArchiveFormat
+    ) throws -> any ByteSource {
         if source.length >= UInt64(nativeSignature.count),
            try readByteRange(
                source: source,
@@ -619,7 +729,7 @@ public final class ArchiveReader {
                 source: source,
                 maximumScanSize: scanSize
               ),
-              match.format == .sevenZip else {
+              match.format == format else {
             return source
         }
         return try RebasedByteSource(source: source, baseOffset: match.offset)

@@ -536,6 +536,14 @@ final class RAR5Reader: FormatReader {
             throw KaitoError.truncated
         }
 
+        if record.redirectionType == 5,
+           let targetText = entry.formatSpecific["fileCopyTargetIndex"],
+           let targetIndex = Int(targetText),
+           entries.indices.contains(targetIndex) {
+            // file copy（`rar -oi`）は本文を持たず、同一内容の先行 entry を指す。宣言サイズは
+            // 列挙時に参照先と照合済みなので、参照先の stream をそのまま返す（CRC も参照先のもの）。
+            return try stream(for: entries[targetIndex], limits: limits)
+        }
         if Self.isZeroBodyRedirection(record.redirectionType) {
             return try EntryStream(
                 source: source,
@@ -758,7 +766,11 @@ final class RAR5Reader: FormatReader {
         _ entries: [ArchiveEntry]
     ) -> [Int: [Int]] {
         var result: [Int: [Int]] = [:]
-        for index in entries.indices where entries[index].solidGroup >= 0 {
+        // file copy の参照は参照先の solid group を名乗るが本文を持たず、復号の連鎖には
+        // 加わらない（読み取りは参照先の stream に委ねる）。
+        for index in entries.indices
+        where entries[index].solidGroup >= 0
+            && entries[index].formatSpecific["fileCopyTargetIndex"] == nil {
             result[entries[index].solidGroup, default: []].append(index)
         }
         return result
@@ -2357,9 +2369,22 @@ final class RAR5Reader: FormatReader {
             let zeroBodyRedirection = isZeroBodyRedirection(
                 item.extras.redirection?.type
             )
-            let publishedUnpackedSize: UInt64? = zeroBodyRedirection
-                ? 0
-                : item.unpackedSize
+            // file copy（type 5）は参照先が先行する通常 file として解決できたときだけ、
+            // その内容と同じ大きさの `.file` として公開する。解決できなければ従来どおり
+            // 本文 0 の `.other` に留める。
+            var fileCopyTarget: (index: Int, entry: ArchiveEntry)?
+            if let redirection = item.extras.redirection, redirection.type == 5,
+               let normalizedTarget = normalizedExtractionPath(redirection.target),
+               let targetIndex = lastEntryByNormalizedPath[normalizedTarget],
+               entries.indices.contains(targetIndex),
+               entries[targetIndex].kind == .file,
+               entries[targetIndex].formatSpecific["fileCopyTargetIndex"] == nil,
+               entries[targetIndex].uncompressedSize == item.unpackedSize {
+                fileCopyTarget = (targetIndex, entries[targetIndex])
+            }
+            let publishedUnpackedSize: UInt64? = fileCopyTarget != nil
+                ? item.unpackedSize
+                : (zeroBodyRedirection ? 0 : item.unpackedSize)
             let publishedPackedSize = zeroBodyRedirection ? 0 : item.packedSize
             var specific: [String: String] = [
                 "rarVersion": item.compression.version == 0 ? "5" : "7",
@@ -2399,6 +2424,9 @@ final class RAR5Reader: FormatReader {
                         specific["hardLinkTargetIndex"] = String(targetIndex)
                     }
                 }
+                if let fileCopyTarget {
+                    specific["fileCopyTargetIndex"] = String(fileCopyTarget.index)
+                }
             } else if item.kind == .symlink {
                 specific["linkTargetStoredAsData"] = "true"
             }
@@ -2413,9 +2441,14 @@ final class RAR5Reader: FormatReader {
             if let ownerID = item.extras.ownerID { specific["uid"] = String(ownerID) }
             if let groupID = item.extras.groupID { specific["gid"] = String(groupID) }
 
-            let methodDescription = item.compression.method == 0
-                ? "RAR5 stored"
-                : "RAR5 method \(item.compression.method)"
+            let methodDescription: String
+            if fileCopyTarget != nil {
+                methodDescription = "RAR5 file copy"
+            } else if item.compression.method == 0 {
+                methodDescription = "RAR5 stored"
+            } else {
+                methodDescription = "RAR5 method \(item.compression.method)"
+            }
             let entry = ArchiveEntry(
                 index: index,
                 rawName: RawName(
@@ -2425,13 +2458,15 @@ final class RAR5Reader: FormatReader {
                 ),
                 name: item.name,
                 pathComponents: item.pathComponents,
-                kind: item.kind,
+                kind: fileCopyTarget != nil ? .file : item.kind,
                 uncompressedSize: publishedUnpackedSize,
                 compressedSize: publishedPackedSize,
                 modificationDate: item.modificationDate,
                 posixPermissions: item.permissions,
-                isEncrypted: !zeroBodyRedirection && item.extras.encryption != nil,
-                solidGroup: solidGroups[index],
+                // 参照は参照先の本文を読むので、暗号化と solid group も参照先に従う。
+                isEncrypted: fileCopyTarget?.entry.isEncrypted
+                    ?? (!zeroBodyRedirection && item.extras.encryption != nil),
+                solidGroup: fileCopyTarget?.entry.solidGroup ?? solidGroups[index],
                 crc32: zeroBodyRedirection ? nil : item.crc32,
                 methodDescription: methodDescription,
                 formatSpecific: specific,

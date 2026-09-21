@@ -28,7 +28,14 @@ final class LZXDecoder {
         return result
     }()
 
-    init(windowBits: Int, outputSize: UInt64, dictionarySizeLimit: UInt64, folderContinues: Bool = false) throws {
+    /// WIM の chunk（黒箱で確定、2026-09-21 の検証記録）: stream 先頭の E8 header bit が無く、変換サイズは
+    /// 固定。block header は 3 bit の type の後に 1 bit（1 = block size 32768、0 = 16 bit の size が続く）。
+    private let wimVariant: Bool
+
+    /// `intelHeader`: stream 先頭の 1 bit（E8 変換サイズの有無）を読むか。CAB は読む。WIM の chunk は
+    /// この bit を持たず、変換サイズは固定（`fixedTranslationSize`）で与える。
+    init(windowBits: Int, outputSize: UInt64, dictionarySizeLimit: UInt64, folderContinues: Bool = false,
+         intelHeader: Bool = true, fixedTranslationSize: Int64 = 0, wimVariant: Bool = false) throws {
         guard (15...21).contains(windowBits) else { throw KaitoError.malformed("cab LZX window bits") }
         let size = 1 << windowBits
         try Checked.size(UInt64(size), limit: dictionarySizeLimit)
@@ -37,6 +44,11 @@ final class LZXDecoder {
         self.folderContinues = folderContinues
         window = [UInt8](repeating: 0, count: size)
         mainLengths = [Int](repeating: 0, count: 256 + 8 * Self.slotCounts[windowBits - 15])
+        self.wimVariant = wimVariant
+        if !intelHeader {
+            headerRead = true
+            translationSize = fixedTranslationSize
+        }
     }
 
     func decodeFrame(input: [UInt8], outputSize: Int) throws -> [UInt8] {
@@ -115,8 +127,10 @@ final class LZXDecoder {
             }
         }
         let nextSize = try Checked.add(decodedSize, UInt64(outputSize))
+        // 奇数長の生 block の後ろの padding byte: CAB は末尾でも要求する。WIM の chunk は末尾に置かない
+        // （黒箱で確定）ので、入力が残っているときだけ消費する。
         if blockRemaining == 0, rawPadding,
-           bits.remainingRawBytes > 0 || nextSize == expectedSize {
+           bits.remainingRawBytes > 0 || (!wimVariant && nextSize == expectedSize) {
             try consumeRawPadding(&bits)
         }
         try bits.finishFrame()
@@ -140,7 +154,11 @@ final class LZXDecoder {
     private func startBlock(_ bits: inout LZXBitReader) throws {
         blockType = try bits.read(3)
         guard (1...3).contains(blockType) else { throw KaitoError.malformed("cab LZX block type") }
-        blockRemaining = try bits.read(24)
+        if wimVariant {
+            blockRemaining = try bits.read(1) == 1 ? 32768 : try bits.read(16)
+        } else {
+            blockRemaining = try bits.read(24)
+        }
         // 継続フォルダーでは、この cabinet 内の展開量を block 全体の上限にはできない。
         guard blockRemaining > 0, folderContinues || (declaredSize <= expectedSize
               && UInt64(blockRemaining) <= expectedSize - declaredSize) else {
@@ -148,6 +166,8 @@ final class LZXDecoder {
         }
         declaredSize = try Checked.add(declaredSize, UInt64(blockRemaining))
         if blockType == 3 {
+            // 生 block 直前の padding は [MS-PATCH] 2.3.2.1 の規則（整列済みでも 1 word）を WIM にも適用する。
+            // boot.wim の 165 個の生 block はすべて非整列で始まり、整列時の WIM の挙動は未確認（検証記録）。
             try bits.beginRaw()
             for index in 0..<3 {
                 let offset = try bits.readRawOffset()

@@ -71,10 +71,16 @@ final class StuffItWrapperTests: XCTestCase {
     private static var emptyResourceSize: Int { StuffItSlice2CryptoTests.resources().count }
     func testRejectedWrappersAndMemoryLimit() throws {
         let inner = StuffItContainerTests.classic()
-        for bad in [Self.appleSingle(inner, double: true), Self.macBinary(Data([1, 2, 3])),
-                    Self.macBinary(Self.macBinary(inner)), Self.binHex(inner, corruptFork: true)] {
+        for bad in [Self.appleSingle(inner, double: true), Self.binHex(inner, corruptFork: true)] {
             XCTAssertThrowsError(try ArchiveReader.open(data: bad))
         }
+        // StuffIt でない payload の wrapper は wrapper 自身が 1 file の書庫になる（2026-09-21）。一段だけ剥がす。
+        let plain = try ArchiveReader.open(data: Self.macBinary(Data([1, 2, 3])))
+        XCTAssertEqual(plain.format, .macBinary)
+        XCTAssertEqual(try plain.read(plain.entries[0]), Data([1, 2, 3]))
+        let nested = try ArchiveReader.open(data: Self.macBinary(Self.macBinary(inner)))
+        XCTAssertEqual(nested.format, .macBinary)
+        XCTAssertEqual(try nested.read(nested.entries[0]), Self.macBinary(inner))
         var options = ReaderOptions(); options.limits.maxInMemorySize = 20
         XCTAssertThrowsError(try ArchiveReader.open(data: Self.binHex(inner), options: options)) { error in
             guard case KaitoError.limitExceeded = error else { return XCTFail("\(error)") }

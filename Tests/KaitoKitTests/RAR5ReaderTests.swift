@@ -285,10 +285,13 @@ final class RAR5ReaderTests: XCTestCase {
         )
 
         let reader = try ArchiveReader.open(url: archive)
-        XCTAssertEqual(reader.entries.map(\.solidGroup), [0, -1, 0])
-        XCTAssertEqual(reader.entries[1].kind, .other)
+        // file copy は参照先の solid group を名乗る `.file` として公開し、本文は参照先から読む。
+        XCTAssertEqual(reader.entries.map(\.solidGroup), [0, 0, 0])
+        XCTAssertEqual(reader.entries[1].kind, .file)
         XCTAssertEqual(reader.entries[1].formatSpecific["redirectionType"], "5")
-        XCTAssertEqual(try reader.read(reader.entries[1]), Data())
+        XCTAssertEqual(reader.entries[1].formatSpecific["fileCopyTargetIndex"], "0")
+        XCTAssertEqual(reader.entries[1].uncompressedSize, UInt64(repeatedPayload.count))
+        XCTAssertEqual(try reader.read(reader.entries[1]), repeatedPayload)
         XCTAssertEqual(try reader.read(reader.entries[2]), finalPayload)
         XCTAssertEqual(try reader.read(reader.entries[0]), repeatedPayload)
     }
@@ -1329,42 +1332,80 @@ final class RAR5ReaderTests: XCTestCase {
         }
     }
 
-    func testFileCopyRedirectionHasAnEmptyDataStreamButExtractionIsUnsupported() throws {
+    func testFileCopyRedirectionResolvesToTargetContentsOrStaysZeroBody() throws {
         let target = "original.txt"
-        let payload = RAR5TestSupport.vint(5)
-            + RAR5TestSupport.vint(0)
-            + RAR5TestSupport.vint(UInt64(target.utf8.count))
-            + Array(target.utf8)
-        let archive = RAR5TestSupport.archive(blocks: [
-            RAR5TestSupport.storedFile(
-                name: target,
-                contents: Data("original".utf8)
-            ),
-            RAR5TestSupport.storedFile(
-                name: "copy.txt",
+        let original = Data("original".utf8)
+        func copyRecord(name: String, target: String, declaredSize: UInt64) -> Data {
+            let payload = RAR5TestSupport.vint(5)
+                + RAR5TestSupport.vint(0)
+                + RAR5TestSupport.vint(UInt64(target.utf8.count))
+                + Array(target.utf8)
+            return RAR5TestSupport.storedFile(
+                name: name,
                 contents: Data(),
+                unpackedSize: declaredSize,
+                includeCRC32: false,
                 extra: RAR5TestSupport.extraRecord(type: 0x05, payload: payload)
-            ),
+            )
+        }
+        let archive = RAR5TestSupport.archive(blocks: [
+            RAR5TestSupport.storedFile(name: target, contents: original),
+            // 参照先と同じ宣言サイズ: 参照先の本文を返す `.file`。
+            copyRecord(name: "copy.txt", target: target, declaredSize: UInt64(original.count)),
+            // 宣言サイズが参照先と違う: 解決せず本文 0 の `.other` のまま。
+            copyRecord(name: "size-mismatch.txt", target: target, declaredSize: 3),
+            // 参照先が存在しない: 同じく `.other`。
+            copyRecord(name: "dangling.txt", target: "missing.txt", declaredSize: UInt64(original.count)),
+            // 後方参照は解決しない（参照先は先行 entry だけ）。
+            copyRecord(name: "forward.txt", target: "later.txt", declaredSize: 5),
+            RAR5TestSupport.storedFile(name: "later.txt", contents: Data("later".utf8)),
+            // 参照の参照（copy-of-copy）は解決しない。
+            copyRecord(name: "copy-of-copy.txt", target: "copy.txt", declaredSize: UInt64(original.count)),
+            // directory record を target にする参照も解決しない（file flags 0x0001 = directory）。
+            RAR5TestSupport.storedFile(name: "folder", contents: Data(), includeCRC32: false, fileFlags: 0x0001),
+            copyRecord(name: "copy-of-folder", target: "folder", declaredSize: 0),
+            // 同名の先行 entry が複数あれば最後のものに解決する（RAR は更新で同名 entry を重ねる）。
+            RAR5TestSupport.storedFile(name: "dup.txt", contents: Data("first".utf8)),
+            RAR5TestSupport.storedFile(name: "dup.txt", contents: Data("second!".utf8)),
+            copyRecord(name: "copy-of-dup.txt", target: "dup.txt", declaredSize: 7),
         ])
         let reader = try ArchiveReader.open(data: archive)
+        XCTAssertEqual(try XCTUnwrap(reader.entries.first { $0.name == "folder" }).kind, .directory)
+        let duplicate = try XCTUnwrap(reader.entries.first { $0.name == "copy-of-dup.txt" })
+        XCTAssertEqual(duplicate.kind, .file)
+        XCTAssertEqual(duplicate.formatSpecific["fileCopyTargetIndex"],
+                       String(try XCTUnwrap(reader.entries.lastIndex { $0.name == "dup.txt" })))
+        XCTAssertEqual(try reader.read(duplicate), Data("second!".utf8))
         let copy = try XCTUnwrap(reader.entries.first { $0.name == "copy.txt" })
-        XCTAssertEqual(copy.kind, .other)
-        XCTAssertEqual(copy.uncompressedSize, 0)
+        XCTAssertEqual(copy.kind, .file)
+        XCTAssertEqual(copy.uncompressedSize, UInt64(original.count))
         XCTAssertEqual(copy.compressedSize, 0)
+        XCTAssertEqual(copy.methodDescription, "RAR5 file copy")
         XCTAssertEqual(copy.formatSpecific["redirectionType"], "5")
-        XCTAssertEqual(try reader.read(copy), Data())
+        XCTAssertEqual(copy.formatSpecific["fileCopyTargetIndex"], "0")
+        XCTAssertEqual(try reader.read(copy), original)
 
         let output = try ZipTestSupport.temporaryDirectory(label: "rar5-file-copy")
         defer { try? FileManager.default.removeItem(at: output) }
-        XCTAssertThrowsError(try reader.extract(copy, to: output)) { error in
-            XCTAssertEqual(
-                error as? KaitoError,
-                .unsupportedMethod("RAR5 file-copy redirection")
-            )
+        // 合成 record の attributes は 0 なので展開後の permission は書庫どおり 0 になる。
+        // 内容の照合は reader 経由で行い、展開は成功と leaf の存在だけを確認する。
+        let extracted = try reader.extract(copy, to: output)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.path))
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: extracted.path)[.size] as? Int, original.count)
+
+        for name in ["size-mismatch.txt", "dangling.txt", "forward.txt", "copy-of-copy.txt", "copy-of-folder"] {
+            let other = try XCTUnwrap(reader.entries.first { $0.name == name })
+            XCTAssertEqual(other.kind, .other, name)
+            XCTAssertEqual(other.uncompressedSize, 0, name)
+            XCTAssertNil(other.formatSpecific["fileCopyTargetIndex"], name)
+            XCTAssertEqual(try reader.read(other), Data(), name)
+            XCTAssertThrowsError(try reader.extract(other, to: output)) { error in
+                XCTAssertEqual(error as? KaitoError, .unsupportedMethod("RAR5 file-copy redirection"))
+            }
         }
     }
 
-    func testHardLinksAndFileReferencesAreZeroBodyAndDoNotJoinSolidOutputAccounting() throws {
+    func testHardLinksAreZeroBodyAndFileReferencesJoinSolidOutputAccounting() throws {
         func redirection(
             type: UInt64,
             name: String,
@@ -1409,29 +1450,34 @@ final class RAR5ReaderTests: XCTestCase {
                 compressionInfo: 0x40
             ),
         ])
+        // file copy は参照先の本文を返すので合計上限に加算される。hard link は本文 0 のまま。
+        var short = ReadLimits()
+        short.maxTotalUncompressedSize = UInt64(firstPayload.count + finalPayload.count)
+        XCTAssertThrowsError(try ArchiveReader.open(data: archive, options: ReaderOptions(limits: short))) {
+            guard case .limitExceeded = $0 as? KaitoError else { return XCTFail("Unexpected error: \($0)") }
+        }
         var limits = ReadLimits()
-        limits.maxTotalUncompressedSize = UInt64(firstPayload.count + finalPayload.count)
+        limits.maxTotalUncompressedSize = UInt64(firstPayload.count * 2 + finalPayload.count)
         let reader = try ArchiveReader.open(
             data: archive,
             options: ReaderOptions(limits: limits)
         )
 
-        XCTAssertEqual(reader.entries.map(\.solidGroup), [0, -1, -1, 0])
+        XCTAssertEqual(reader.entries.map(\.solidGroup), [0, -1, 0, 0])
         let hard = reader.entries[1]
         let reference = reader.entries[2]
         XCTAssertEqual(hard.kind, .hardlink)
-        XCTAssertEqual(reference.kind, .other)
-        for link in [hard, reference] {
-            XCTAssertEqual(link.uncompressedSize, 0)
-            XCTAssertEqual(link.compressedSize, 0)
-            XCTAssertEqual(try reader.read(link), Data())
-            let stream = try reader.stream(link)
-            var byte: UInt8 = 0xff
-            XCTAssertEqual(
-                try withUnsafeMutableBytes(of: &byte) { try stream.read(into: $0) },
-                0
-            )
-        }
+        XCTAssertEqual(hard.uncompressedSize, 0)
+        XCTAssertEqual(hard.compressedSize, 0)
+        XCTAssertEqual(try reader.read(hard), Data())
+        let hardStream = try reader.stream(hard)
+        var byte: UInt8 = 0xff
+        XCTAssertEqual(try withUnsafeMutableBytes(of: &byte) { try hardStream.read(into: $0) }, 0)
+        XCTAssertEqual(reference.kind, .file)
+        XCTAssertEqual(reference.uncompressedSize, UInt64(firstPayload.count))
+        XCTAssertEqual(reference.compressedSize, 0)
+        XCTAssertEqual(reference.formatSpecific["fileCopyTargetIndex"], "0")
+        XCTAssertEqual(try reader.read(reference), firstPayload)
 
         // A direct request for the later member skips both zero-body records
         // while retaining the preceding data-bearing solid member.

@@ -3,6 +3,37 @@ import XCTest
 @testable import KaitoKit
 
 final class XZResourceLimitTests: XCTestCase {
+    func testRiscVXZAndTarXZReportUnsupportedMethod() throws {
+        let directory = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for name in ["riscv.xz", "riscv.tar.xz"] {
+            let data = try fixture(name)
+            let url = directory.appendingPathComponent(name)
+            try data.write(to: url)
+            XCTAssertThrowsError(try {
+                let reader = try ArchiveReader.open(url: url)
+                _ = try reader.read(reader.entries[0])
+            }()) {
+                XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("XZ RISC-V filter"), name)
+            }
+        }
+        // 連結 stream の後半も native decoder より先に検査する。
+        XCTAssertThrowsError(try read(fixture("x86.xz") + fixture("riscv.xz"), dictionary: 1 << 20)) {
+            XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("XZ RISC-V filter"))
+        }
+    }
+
+    func testX86XZFilterStillDecodes() throws {
+        let expected = Data(String(repeating: "KaitoKit XZ filter fixture\n", count: 64).utf8) + Data(0...255)
+        XCTAssertEqual(try read(fixture("x86.xz"), dictionary: 1 << 20), expected)
+    }
+
+    private func fixture(_ name: String) throws -> Data {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/singlefile/\(name).b64")
+        return try XCTUnwrap(Data(base64Encoded: try String(contentsOf: url, encoding: .utf8), options: .ignoreUnknownCharacters))
+    }
+
     func testDictionaryLimitIsAppliedToSingleStreamsAndConcatenation() throws {
         let small = try xz(dictionary: 4_096)
         let large = try xz(dictionary: 1_048_576)

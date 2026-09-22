@@ -135,7 +135,8 @@ final class HFSVolumeListing {
         let fileID: UInt32
         let fork: HFSForkData?
         let forkType: UInt8          // 0 = data、0xFF = resource
-        let unsupported: String?
+        let error: KaitoError?
+        var decmpfs: (header: DecmpfsHeader, payload: [UInt8])? = nil
     }
 
     let entries: [ArchiveEntry]
@@ -148,6 +149,7 @@ final class HFSVolumeListing {
         var budget: UInt64 = 0
         try volume.loadOverflowExtents(limits: limits, budget: &budget)
         let items = try volume.catalogItems(limits: limits, budget: &budget)
+        let attributes = try volume.decmpfsAttributes(limits: limits, budget: &budget)
 
         // folder ID → (親 ID、名前)。root は ID 2（親 1）。
         var folders: [UInt32: (parent: UInt32, name: String)] = [:]
@@ -198,7 +200,7 @@ final class HFSVolumeListing {
                         name: name, pathComponents: path, kind: .directory, uncompressedSize: 0, compressedSize: 0,
                         modificationDate: item.modificationDate, posixPermissions: item.fileMode & 0o7777 == 0 ? nil : item.fileMode & 0o7777,
                         isEncrypted: false, solidGroup: -1, crc32: nil, methodDescription: "HFS+ (stored)", formatSpecific: specific))
-                    records.append(Record(fileID: item.nodeID, fork: nil, forkType: 0, unsupported: nil))
+                    records.append(Record(fileID: item.nodeID, fork: nil, forkType: 0, error: nil))
                     try walk(folderID: item.nodeID, components: path, depth: depth + 1)
                     continue
                 }
@@ -218,15 +220,37 @@ final class HFSVolumeListing {
                 if isSymlink { specific["linkTargetStoredAsData"] = "true" }
                 let dataSize = target.dataFork?.logicalSize ?? 0
                 try Checked.size(dataSize, limit: limits.maxEntrySize)
-                let method = compressed ? "HFS+ compressed (decmpfs)" : "HFS+ (stored)"
+                var method = "HFS+ (stored)"
+                var size: UInt64? = dataSize, packedSize: UInt64? = dataSize
+                var compression: (header: DecmpfsHeader, payload: [UInt8])?
+                var error: KaitoError?
+                if compressed {
+                    method = "HFS+ decmpfs"
+                    size = nil; packedSize = nil
+                    switch attributes[target.nodeID] {
+                    case .inline(let bytes):
+                        do { compression = (try DecmpfsHeader(attribute: bytes), Array(bytes.dropFirst(16))) }
+                        catch let failure as KaitoError { error = failure }
+                    case .fork: error = .unsupportedMethod("HFS+ decmpfs attribute stored as a fork")
+                    case nil: error = .malformed("hfs+ compressed file without com.apple.decmpfs")
+                    }
+                    if let compression {
+                        try Checked.size(compression.header.uncompressedSize, limit: limits.maxEntrySize)
+                        size = compression.header.uncompressedSize
+                        packedSize = compression.header.usesResourceFork ? target.resourceFork?.logicalSize ?? 0 : UInt64(compression.payload.count)
+                        method = compression.header.methodDescription
+                        specific["decmpfsType"] = String(compression.header.compressionType)
+                    }
+                }
                 entries.append(ArchiveEntry(index: entries.count,
                     rawName: RawName(bytes: Array(name.utf8), declaredEncoding: .utf8, isDirectoryHint: false),
                     name: name, pathComponents: path, kind: isSymlink ? .symlink : .file,
-                    uncompressedSize: compressed ? nil : dataSize, compressedSize: compressed ? nil : dataSize,
+                    uncompressedSize: size, compressedSize: packedSize,
                     modificationDate: target.modificationDate, posixPermissions: target.fileMode & 0o7777,
                     isEncrypted: false, solidGroup: -1, crc32: nil, methodDescription: method, formatSpecific: specific))
-                records.append(Record(fileID: target.nodeID, fork: target.dataFork, forkType: 0,
-                                      unsupported: compressed ? "HFS+ compressed file (decmpfs)" : nil))
+                let resourceCompressed = compression?.header.usesResourceFork == true
+                records.append(Record(fileID: target.nodeID, fork: resourceCompressed ? target.resourceFork : target.dataFork,
+                                      forkType: resourceCompressed ? 0xFF : 0, error: error, decmpfs: compression))
                 // decmpfs（UF_COMPRESSED）の file では resource fork が圧縮 data の置き場なので fork として出さない。
                 if let resource = target.resourceFork, resource.logicalSize > 0, !isSymlink, !compressed {
                     try Checked.size(resource.logicalSize, limit: limits.maxEntrySize)
@@ -239,7 +263,7 @@ final class HFSVolumeListing {
                         uncompressedSize: resource.logicalSize, compressedSize: resource.logicalSize,
                         modificationDate: target.modificationDate, posixPermissions: target.fileMode & 0o7777,
                         isEncrypted: false, solidGroup: -1, crc32: nil, methodDescription: "HFS+ (stored)", formatSpecific: forkSpecific))
-                    records.append(Record(fileID: target.nodeID, fork: resource, forkType: 0xFF, unsupported: nil))
+                    records.append(Record(fileID: target.nodeID, fork: resource, forkType: 0xFF, error: nil))
                 }
             }
         }
@@ -253,7 +277,20 @@ final class HFSVolumeListing {
             throw KaitoError.notFound("hfs+ entry index \(entry.index)")
         }
         let record = records[entry.index]
-        if let reason = record.unsupported { throw KaitoError.unsupportedMethod(reason) }
+        if let error = record.error { throw error }
+        if let compression = record.decmpfs {
+            var resource: DecmpfsDecompressor.ResourceFork?
+            if compression.header.usesResourceFork, let fork = record.fork {
+                let extents = try volume.extents(of: fork, fileID: record.fileID, forkType: 0xFF)
+                resource = DecmpfsDecompressor.ResourceFork(length: fork.logicalSize) { [volume] offset, count in
+                    try volume.readFork(fork: fork, extents: extents, offset: offset, count: count)
+                }
+            }
+            let decoder = try DecmpfsDecompressor(header: compression.header, inlinePayload: compression.payload,
+                                                 resourceFork: resource, limits: limits)
+            return try EntryStream(decompressor: decoder, length: compression.header.uncompressedSize,
+                                   expectedCRC32: nil, entryIndex: entry.index, limits: limits)
+        }
         guard let fork = record.fork, fork.logicalSize > 0 else {
             return try EntryStream(source: DataByteSource(Data()), offset: 0, length: 0, limits: limits)
         }

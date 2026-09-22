@@ -112,18 +112,18 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 |---|---|---|---|
 | ISO 9660 / BIN・CUE | PVD、Joliet、Rock Ridge（NM/CE/PX/SL/TF/ZF、深い階層）、multi-extent、stored、zisofs（ZF version 1 / `pz`、32〜128 KiB block の zlib、0 埋め block）。UDF との hybrid は UDF の木を優先。生 sector image（ECMA-130 の 2352 byte sector、Mode 1 / Mode 2 と 8 byte sub-header、2448 byte の sub-channel 付き、2336 byte 版。`.bin` `.img` `.mdf`）も同じ `iso` / `udf` として開き、`.cue` の URL は data track の image を辿る | なし | 最初の session のみ。EDC / ECC は検証しない |
 | MacBinary / AppleSingle / BinHex 4 | payload が StuffIt でない wrapper を、data fork（entry 0）と resource fork（`name/..namedfork/rsrc`）の 1 file 書庫として公開。名前・type / creator・Finder flags・日時（MacBinary は 1904 起点、AppleSingle は File Dates Info）を header から取る。payload が StuffIt なら従来どおり StuffIt として開く | なし | 一段だけ剥がす（MacBinary の中の ZIP は file として公開） |
-| WIM / `.wim` `.swm` | Windows Imaging 1.13（`MSWIM`）、stored / XPRESS（[MS-XCA] LZ77+Huffman）/ LZX（WIM 変種: 32 KiB chunk、E8 変換 12,000,000）、複数 image（`1/` `2/` の前置）、alternate data stream（`name:stream`）、hard link 群、symbolic link / junction の reparse point（[MS-FSCC]）、resource ごとの SHA-1 検証 | なし | 分割 `.swm` は先頭 part の metadata だけ（他 part の resource は `unsupportedMethod`）。solid / ESD（LZMS、version 0.14）は非対応 |
+| WIM / `.wim` `.swm` | Windows Imaging 1.13（`MSWIM`）、stored / XPRESS（[MS-XCA] LZ77+Huffman、chunk 4〜64 KiB の 2 冪）/ LZX（WIM 変種: chunk 32 KiB、E8 変換 12,000,000）、複数 image（`1/` `2/` の前置）、alternate data stream（`name:stream`）、hard link 群、symbolic link / junction の reparse point（[MS-FSCC]）、resource ごとの SHA-1 検証 | なし | 分割 `.swm` は先頭 part の metadata だけ（他 part の resource は `unsupportedMethod`）。solid / ESD（LZMS、version 0.14）は非対応 |
 | Compound File / `.msi` `.doc` `.xls` `.ppt` `.msg` | [MS-CFB] version 3（512 byte sector）/ 4（4096 byte sector、64 bit サイズ）、FAT / DIFAT（header 外の DIFAT sector を含む）/ mini FAT と mini stream、storage を directory、stream を stored file として公開。storage の CLSID（`formatSpecific["clsid"]`）と更新日時、制御文字で始まる名前は 7-Zip と同じ `[5]SummaryInformation` の綴り。Windows Installer の詰め込み名（`!_Tables`、`setup.cab` など）は 7-Zip と同じ写像で戻し、元の UTF-16 名は `formatSpecific["storedName"]` | なし | MSI 内の cabinet や Office の property set は解釈しない |
 | CHM / `.chm` | HTML Help（ITSF version 3、ITSP directory の PMGL chunk 連鎖）、section 0 の stored file と `MSCompressed` section の LZX（window 32 KiB〜2 MiB、reset interval ごとの全状態 reset、0x8000 byte block の reset table、E8 変換）。`/` 以下の利用者 file と `#SYSTEM` などの format file を公開し、`::DataSpace/…` の内部 file は出さない（7-Zip と同じ） | なし | 直近の reset interval 1 つを cache して file 単位の random access に応える。version 2 header は Russotto の記述どおりに読むが標本が無く未検証 |
 | ARJ / `.arj` `.exe` | main header / local file header（version 1〜11、ARJ32）、stored（0）と method 1〜3（LHA lh6 と同じ LZ77 + 静的 Huffman、窓 26 KB）、directory（file type 3）、DOS の `\` 区切りと PATHSYM 名、書庫全体の名前 encoding 判定（CP932 など）、comment、DOS 日時、CRC-32、DOS SFX（MZ の後ろの main header を technote の手順で探す）、method 8 / 9（no data） | なし（garbled は一覧のみ） | method 4（compressed fastest）、garbled（暗号化）、multi-volume の続き file は `unsupportedMethod`。extended header は読み飛ばす |
-| Apple Disk Image / `.dmg` `.img` | UDIF（koly + blkx: zero-fill / raw / zlib / bzip2 / lzfse / lzma(xz) の chunk、直近 4 chunk の cache）と生の HFS+ image（GPT / Apple Partition Map / bare volume）。HFS Plus / HFSX の catalog（file、directory、symlink、hard link は indirect node の本文、resource fork は `name/..namedfork/rsrc`）、extents overflow、更新日時、permissions、type / creator。UDIF に包まれた ISO 9660 / UDF はその reader へ | なし | ADC（UDCO）chunk と APFS は `unsupportedMethod`。decmpfs で圧縮された file（UF_COMPRESSED。Apple 製 DMG に多い）は一覧できるが読めない。複数 volume は最初の HFS+ だけ。app 配布 DMG の `/Applications` への絶対 symlink は extractor の方針で作らない |
+| Apple Disk Image / `.dmg` `.img` | UDIF（koly + blkx: zero-fill / raw / zlib / bzip2 / lzfse / lzma(xz) の chunk、直近 4 chunk の cache）と生の HFS+ image（GPT / Apple Partition Map / bare volume）。HFS Plus / HFSX の catalog（file、directory、symlink、hard link は indirect node の本文、resource fork は `name/..namedfork/rsrc`）、extents overflow、更新日時、permissions、type / creator。decmpfs（zlib / LZVN / LZFSE / stored、type 1 は raw、type 9 は `0xCC` + raw）。type 3 / 4 / 7 / 8 / 9 は 7-Zip 26.03 でも展開して原本と照合済み。UDIF に包まれた ISO 9660 / UDF はその reader へ | なし | ADC（UDCO）chunk と APFS は `unsupportedMethod`。decmpfs（UF_COMPRESSED）は type 1 / 3 / 4 / 7 / 8 / 9 / 10 / 11 / 12（stored / zlib / LZVN / LZFSE、inline xattr または resource fork の 64 KiB chunk）を読める。type 5 / 13 / 14・未知の type・fork 格納の属性は一覧のみ。複数 volume は最初の HFS+ だけ。app 配布 DMG の `/Applications` への絶対 symlink は extractor の方針で作らない |
 | UDF / `.udf` `.iso` `.img` | ECMA-167 / OSTA UDF 1.02〜2.60、block 512〜4096、type 1 / sparable（sparing table）/ virtual（VAT、1.50 形式と 2.x 形式）/ metadata partition（mirror へ fallback）、FE / EFE、inline data、複数 entry の ICB（strategy 4。strategy 4096 の indirect entry は仕様どおり実装したが macOS の driver が拒むため未検証）、symlink（path component 列と hdiutil の生 path）、`*UDF Macintosh Resource Fork` named stream を `..namedfork/rsrc` として公開 | なし | 単一 volume。tag checksum / CRC / 位置を検証 |
 | ar / .deb | BSD 長名、SysV/GNU 文字列表、stored | なし | symbol table を公開、長名表 `//` のみ非公開、thin archive は明示的に拒否 |
 | cpio | bin（両 byte order）、odc、newc、crc、hpbin、hpodc、stored。`.cpgz` / `.cpio.<codec>`（gz / bz2 / xz / zst / lz4 / lzma / lz / br / Z）と pbzx の Payload は展開後に CpioReader で列挙 | なし | 連結書庫、symlink、宣言サイズどおりの hard link |
 | xar / .pkg | TOC XML（部分集合 pull parser）、zlib / bzip2 / lzma / xz / stored の heap、入れ子ディレクトリ、symlink、hard link、`<name enctype="base64">`、macOS flat package | なし | なし。TOC checksum と `<extracted-checksum>` を検証、`<subdoc>` 内の `<file>` は entry にしない |
 | CAB | CFHEADER / CFFOLDER / CFFILE / CFDATA、None / MSZIP / LZX（15〜21 bit の辞書、CFDATA をまたぐ履歴）、予約領域、UTF-8 名 (attribs 0x80)、上限付き PE / Mach-O SFX prefix | なし | 多分割フラグがあっても手元の cabinet の file は読み、実際にまたぐ file だけ拒否。Quantum は一覧のみ |
-| RPM | lead / signature header / main header、payload の cpio entry を直接公開、gzip / bzip2 / xz / lzma / zstd / stored payload | なし | codec は宣言 tag ではなく payload 先頭の magic で決定 |
-| tar | POSIX/ustar、pax、GNU long name/link、stored member、GNU sparse（pax 0.0 / 0.1 / 1.0。穴は 0 で埋め、実サイズと `GNU.sparse.name` の名前を公開）。macOS tar の `._name` AppleDouble sidecar は既定で resource fork に統合 | なし | volume 分割なし |
+| RPM | lead / signature header / main header、classic cpio と stripped `07070X`（rpm ≥ 4.12 の 4 GB 超 file、rpm 6 の既定）の entry を直接公開、gzip / bzip2 / xz / lzma / zstd / stored payload | なし | stripped の名前・サイズ・mode は header tags から復元。hard link は非 ghost の最大 index に本文、他は 0 byte。ghost は省略。codec は payload の magic で決定 |
+| tar | POSIX/ustar、pax、GNU long name/link、stored member、GNU sparse（旧 GNU `S` 型、pax 0.0 / 0.1 / 1.0。穴は 0 で埋め、実サイズと `GNU.sparse.name` の名前を公開）。macOS tar の `._name` AppleDouble sidecar は既定で resource fork に統合 | なし | volume 分割なし |
 | gzip | RFC 1952、FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT、DEFLATE、CRC32/ISIZE | なし | concatenated member 対応 |
 | bzip2 | BZip2 block size 1〜9 | なし | concatenated stream 対応 |
 | xz | XZ container、Apple Compression の LZMA、footer/padding | なし | concatenated stream 対応 |
@@ -136,7 +136,7 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 | brotli (`.br` / `.tar.br` / `.tbr`) | RFC 7932 の stream（Apple Compression `COMPRESSION_BROTLI` で復号）。RFC 9841 の large window header（WBITS 10〜62）を解釈し、window を `maxDictionarySize` と照合。magic・サイズ・checksum が無いため、`.br` / `.tbr` の名前と有効な header、先頭 64 KiB の試し復号がそろったときだけ受理し、判定は最後に回す | なし | なし。単一 stream で、END 後の余分な byte は `malformed` |
 | 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz` / `.tbz2` / `.tar.bz2`、`.tar.lzma` / `.tlz`、`.txz` / `.tar.xz`、`.tar.zst` / `.tzst`、`.tar.lz4`、`.tar.lz`（`.tlz` は署名で LZMA_Alone / lzip を判別）、`.tar.br` / `.tbr`、`.taz` / `.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
 | ZIP / ZIP64 | stored (0)、Shrink (1、連続する部分クリア後も未使用 code を再利用)、Reduce (2〜5)、Implode (6)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、Zstandard (20/93)、XZ (95)、PPMd (98)、中央 directory、SFX。Finder / ditto の `__MACOSX/._name` AppleDouble sidecar は既定で resource fork に統合（`ReaderOptions.appleDoublePolicy`） | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001` のバイト分割、`.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP（ZIP64・100 巻以上）対応。最終巻・途中巻から URL open |
-| 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、BZip2、Zstandard（7-Zip ZS / NanaZip / libarchive の coder 04F71101）、Delta、Swap2/Swap4、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
+| 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、Deflate64、BZip2、Zstandard（7-Zip ZS / NanaZip / libarchive の coder 04F71101）、Delta、Swap2/Swap4、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
 | RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX、file copy（`rar -oi` の参照。同一内容の先行 entry の本文を返す `.file`） | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
 | LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
@@ -191,7 +191,11 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 >   symbolic links, hard links (resolved to the indirect node's content), resource forks as
 >   `name/..namedfork/rsrc`, extents overflow, modification dates, permissions and type / creator; an ISO
 >   9660 / UDF volume inside UDIF goes to those readers. ADC (UDCO) chunks and APFS are `unsupportedMethod`;
->   decmpfs-compressed files (UF_COMPRESSED, common in Apple-made images) are listed but cannot be read;
+>   decmpfs-compressed files (UF_COMPRESSED) support types 1 / 3 / 4 / 7 / 8 / 9 / 10 / 11 / 12
+>   (stored / zlib / LZVN / LZFSE, inline xattrs or 64 KiB resource-fork chunks). Type 1 stores raw bytes;
+>   inline type 9 requires a `0xCC` prefix. Types 3 / 4 / 7 / 8 / 9 also extract byte-exactly with 7-Zip 26.03.
+>   Types 5 / 13 / 14,
+>   unknown types and fork-stored attributes are listed but read as `unsupportedMethod`;
 >   only the first HFS+ volume of a multi-volume image is listed, and the extractor keeps refusing absolute
 >   symbolic-link targets such as the `/Applications` link of application images.
 > - **UDF**: ECMA-167 / OSTA UDF 1.02–2.60, block sizes 512–4096, type 1 / sparable (sparing table) /
@@ -216,8 +220,11 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 >   spans cabinets is rejected. Quantum can be listed only. A cabinet behind a bounded PE / Mach-O
 >   self-extractor prefix is found by the same signature scan as ZIP / RAR / 7z.
 > - **RPM**: the lead, the signature header and the main header; the cpio entries of the payload are
->   exposed directly; gzip, bzip2, xz, lzma, zstd and stored payloads. The codec is decided by the magic
->   at the start of the payload rather than by the declared tag.
+>   exposed directly, including stripped `07070X` (files over 4 GB since rpm 4.12; the default in rpm 6).
+>   Names, sizes and modes come from header tags. The highest non-ghost file index in each hard-link set
+>   carries the data; other members have zero bytes and ghosts are omitted. SHA-256 file digests are
+>   checked on complete reads of members carrying data. gzip, bzip2, xz, lzma, zstd and stored payloads
+>   share the same reader; the codec is decided by the magic at the start of the payload.
 > - **tar**: POSIX/ustar, pax, GNU long name and link, stored members, and GNU sparse entries
 >   (pax 0.0 / 0.1 / 1.0; holes are zero-filled and the real size is published). The `._name`
 >   AppleDouble sidecars written by macOS tar are merged into resource forks by default. No volume splitting.
@@ -256,7 +263,7 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 >   The `__MACOSX/._name` AppleDouble sidecars of Finder / ditto are merged into resource forks by
 >   default (`ReaderOptions.appleDoublePolicy`).
 > - **7z**: the coder chain covers a folder in which a byte-consuming coder takes the output of
->   another coder as its input; the Zstandard coder 04F71101 written by 7-Zip ZS / NanaZip / libarchive,
+>   another coder as its input; Deflate64 (040109), the Zstandard coder 04F71101 written by 7-Zip ZS / NanaZip / libarchive,
 >   Swap2/Swap4 byte-order filters, solid folders and a bounded Mach-O/PE SFX prefix are supported.
 >   `.001` byte splits made with 7-Zip `-v`, solid and block splits are supported.
 > - **RAR4 / RAR5**: LZ and PPMd of the listed unpack versions, the listed filters, solid mode, and
@@ -568,14 +575,15 @@ AES暗号化されたZIP XZは、認証済み圧縮入力を最大4 MiB（`inMem
   圧縮されたままの本文を返します（未確認の組み合わせ）。
 - WIM は solid / ESD（LZMS）、分割 `.swm` の他 part の resource、EFS 暗号化 file、symlink / junction 以外の
   reparse point（`.other`）、security descriptor と Windows attribute の復元、integrity table の検証に対応しません。
-  chunk size は 32 KiB だけです。7-Zip は compressed WIM を書けないため、圧縮 fixture は自作 encoder の出力を
+  chunk size は XPRESS が 4〜64 KiB の 2 冪、LZX が 32 KiB です。7-Zip は compressed WIM を書けないため、圧縮 fixture は自作 encoder の出力を
   7-Zip が展開して検証したものです。
-- cpio は PWB / newcx、HP-UX device number の解釈、device node の再作成に対応しません。
+- cpio は PWB、HP-UX device number の解釈、device node の再作成に対応しません。stripped `07070X` は RPM header が必要で、単体では検出しません。
   hard link の 0-byte placeholder は内容を補完しません。圧縮 cpio は名前（`.cpgz` / `.cpio.<codec>`）で判断し、名前の無い Data からは連鎖しません。
 - CAB は None / MSZIP / LZX を展開します。Quantum は一覧できますが、読み取り時に
   `unsupportedMethod` になります。複数 cabinet にまたがる file も同様です。
-- RPM は rpm 6 の簡略 cpio (`07070X`)、drpm、cpio でない payload を展開せず、
-  圧縮済み payload を 1 entry として公開します。
+- RPM は drpm、cpio でない payload、file list tags が不足した `07070X` を圧縮済み payload の 1 entry として公開します。
+  stripped の SHA-256 file digest は本文の完全読取時に照合し、他の digest algorithm は値の公開だけです。
+  hard link の 0-byte placeholder は補完しません。[検証記録](Documentation/verification/2026-09-22-rpm-stripped-payload.md)。
 - ACE は未対応です。ARJ は method 4（compressed fastest）、garbled（暗号化）、multi-volume の続き file が `unsupportedMethod` です。StuffIt X (`.sitx`) は上記の codec・前処理の制約があります。StuffIt の method 4/7/9〜12、classic の未記述の暗号 flag `0x10` は読み取り時に `unsupportedMethod` を返します。
 - ZIP は同名のリムーバブルメディアを交換する spanned、split PKSFX（先頭 `.exe`）、method 96 (JPEG)、97 (WavPack) を扱いません。
   split ZIP は全巻が同じディレクトリに必要で、欠番は巻名付きエラーになります。既定上限は 128 巻、分割セットの damaged-directory recovery は対象外です。
@@ -593,10 +601,10 @@ AES暗号化されたZIP XZは、認証済み圧縮入力を最大4 MiB（`inMem
 - LHA は `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` を一覧できますが、読み取り時に
   `unsupportedMethod` になります。resource fork は separate entry として公開しません。
 - XZ は Apple Compression が扱う XZ container が対象で、同 liblzma が知らない RISC-V filter 付き
-  stream は読めません。LZMA_Alone は `.lzma` / `.tlz` 拡張子と妥当なheaderがあるときだけ対象です。gzip/bzip2/xz の
+  stream は `unsupportedMethod("XZ RISC-V filter")` になります。LZMA_Alone は `.lzma` / `.tlz` 拡張子と妥当なheaderがあるときだけ対象です。gzip/bzip2/xz の
   concatenated stream は一つの entry として連結した出力を返します。
 - lzip の version 0（2008 年以前の lzip 0.x）は `unsupportedMethod` です。空 member は単独 file のときだけ受理します。
-- tar の旧 GNU sparse（typeflag `S`、header 内の sparse 表）、star の `SCHILY.filetype=sparse`、Solaris の `SUN.holesdata` は `unsupportedMethod` です。GNU sparse の major.minor が 1.0 以外の 1.x も同様です。
+- tar の旧 GNU sparse（typeflag `S`、header 内の sparse 表と拡張 block）は展開できます。star の `SCHILY.filetype=sparse`、Solaris の `SUN.holesdata` は `unsupportedMethod` です。GNU sparse の major.minor が 1.0 以外の 1.x も同様です。[検証記録](Documentation/verification/2026-09-22-small-method-gaps.md)。
 - pbzx は展開結果の先頭が cpio magic でなければ単一 stream として公開します。chunk の展開後サイズの合計を open 時に確定し、`maxEntrySize` と chunk 数の上限（`maxMetadataRecordCount`）を適用します。
 - brotli は名前のない Data / ByteSource からは識別しません。checksum が無いため、破損した stream が error なく別の出力になることがあります。RFC 9841 の shared brotli framing（署名 `91 0A 42 52`）は brotli として識別せず `unsupportedFormat` になります。framing の無い shared dictionary 依存の stream は RFC 7932 と byte 上区別できないため識別できず、辞書の参照が先頭 64 KiB の試し復号に掛かれば `unsupportedFormat`、それより後ろなら読み取り中に `malformed`（または別の出力）になります。
 - gzip/bzip2/xz/brotli/`.Z` の出力サイズは読み終えるまで不明です。modern API では `nil`、compat API では
@@ -628,7 +636,7 @@ AES暗号化されたZIP XZは、認証済み圧縮入力を最大4 MiB（`inMem
 >   A zero-length extent's LBA is not validated (libarchive writes 0xFFFFFFF0 for empty files and symlinks).
 > - WIM does not support solid / ESD (LZMS), resources stored in other `.swm` parts, EFS-encrypted files,
 >   reparse points other than symbolic links and junctions (`.other`), restoring security descriptors and
->   Windows attributes, or verifying the integrity table. Only the 32 KiB chunk size is supported. 7-Zip
+>   Windows attributes, or verifying the integrity table. XPRESS supports power-of-two chunks from 4 to 64 KiB; LZX requires 32 KiB. 7-Zip
 >   cannot write compressed WIMs, so the compressed fixtures are the output of our own encoders verified by
 >   7-Zip extraction.
 > - UDF does not support multi-volume volume sets, extended allocation descriptors (ext_ad), device /
@@ -637,13 +645,15 @@ AES暗号化されたZIP XZは、認証済み圧縮入力を最大4 MiB（`inMem
 >   symbolic link, so the primary verification oracle is macOS's own UDF driver. On a hybrid whose ISO
 >   9660 side alone carries zisofs (genisoimage `-udf -z`), the UDF tree returns the still-compressed
 >   bodies (an unverified combination).
-> - cpio does not support PWB or newcx, HP-UX device number interpretation, or recreating device
->   nodes. A 0-byte hard-link placeholder is not filled in with its target's content. Compressed cpio
+> - cpio does not support PWB, HP-UX device number interpretation, or recreating device
+>   nodes. Stripped `07070X` requires an RPM header and is not detected as a standalone archive.
+>   A 0-byte hard-link placeholder is not filled in with its target's content. Compressed cpio
 >   is recognised by name (`.cpgz` / `.cpio.<codec>`) and is not chained from an unnamed `Data`.
 > - CAB extracts None, MSZIP and LZX. Quantum can be listed but fails with `unsupportedMethod`
 >   when read, as does a file that spans several cabinets.
-> - RPM does not expand the simplified rpm 6 cpio (`07070X`), drpm, or a payload
->   that is not cpio; it exposes the compressed payload as a single entry instead.
+> - RPM exposes drpm, non-cpio payloads and `07070X` without usable file-list tags as one compressed
+>   payload entry. Stripped file digests other than SHA-256 are exposed without verification.
+>   Hard-link placeholders remain empty. See the [verification record](Documentation/verification/2026-09-22-rpm-stripped-payload.md).
 > - ACE, ARJ method 4 / garbled files / continued multi-volume members, StuffIt X の範囲外 codec・前処理・暗号・recovery、StuffIt method 4/7/9〜12、classic 暗号 flag `0x10` は非対応です。
 > - ZIP does not handle same-name removable-media spanning, split PKSFX (`.exe` first segment),
 >   or methods 96 (JPEG) and 97 (WavPack). Split ZIP requires every volume in one directory; a missing
@@ -666,13 +676,13 @@ AES暗号化されたZIP XZは、認証済み圧縮入力を最大4 MiB（`inMem
 > - LHA can list `-pm1-`, `-pm2-`, `-lh2-` and `-lh3-` but fails with `unsupportedMethod` when
 >   reading them. Resource forks are not exposed as separate entries.
 > - XZ covers the XZ container that Apple Compression handles; a stream carrying a RISC-V filter that
->   its liblzma does not know cannot be read. Raw `.lzma` (LZMA_Alone) is covered only with a
+>   its liblzma does not know returns `unsupportedMethod("XZ RISC-V filter")`. Raw `.lzma` (LZMA_Alone) is covered only with a
 >   `.lzma` extension. A concatenated gzip, bzip2 or xz stream is returned as one entry whose output
 >   is the concatenation.
 > - lzip version 0 (pre-2008 lzip 0.x) is `unsupportedMethod`; an empty member is accepted only in a
 >   single-member file.
-> - Old GNU sparse tar entries (typeflag `S`, sparse table inside the header), star's
->   `SCHILY.filetype=sparse` and Solaris `SUN.holesdata` are `unsupportedMethod`, as is any GNU sparse
+> - Old GNU sparse tar entries (typeflag `S`, sparse table and extension blocks) can be read. Star's
+>   `SCHILY.filetype=sparse` and Solaris `SUN.holesdata` remain `unsupportedMethod`, as is any GNU sparse
 >   major.minor other than 1.0 in the 1.x family.
 > - pbzx exposes a single stream unless the expanded bytes start with a cpio magic. The sum of the
 >   chunks' unpacked sizes is fixed at open and checked against `maxEntrySize`; the chunk count is

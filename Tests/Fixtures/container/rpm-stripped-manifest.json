@@ -1,0 +1,711 @@
+{
+  "generator": "RPM version 6.1.0 / 自作 rpm-stripped.spec",
+  "query": "[%{FILENAMES} %{FILEMODES:octal} %{LONGFILESIZES} %{FILEINODES} %{FILEDEVICES} %{FILELINKTOS} %{FILEFLAGS} %{FILEDIGESTS}\n]",
+  "packages": {
+    "rpm-stripped-v6-zstd": {
+      "size": 7977,
+      "sha256": "808793cd7e6b29f4e460254588ab287a3066824661c3f7bfd452914909b9ac9e",
+      "rpmQuery": "/usr/share/kaito-rpm6 40755 0 1 1  0 \n/usr/share/kaito-rpm6/empty.txt 100644 0 2 1  0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n/usr/share/kaito-rpm6/hard-a.txt 100644 18 3 1  0 ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0\n/usr/share/kaito-rpm6/hard-b.txt 100644 18 3 1  0 ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0\n/usr/share/kaito-rpm6/hard-c.txt 100644 18 3 1  0 ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0\n/usr/share/kaito-rpm6/large.txt 100644 10537 6 1  0 609a4c0abb1a2493eb4895c531c8b1e23e1699ddd6a96002a91f3b2b62a878f1\n/usr/share/kaito-rpm6/link.txt 120755 13 7 1 日本語.txt 0 \n/usr/share/kaito-rpm6/partial-a.txt 100644 26 8 1  0 580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9\n/usr/share/kaito-rpm6/partial-b.txt 100644 26 8 1  0 580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9\n/usr/share/kaito-rpm6/partial-z-ghost.txt 100644 26 8 1  64 \n/usr/share/kaito-rpm6/standalone-ghost.txt 100644 14 11 1  64 \n/usr/share/kaito-rpm6/日本語.txt 100644 25 12 1  0 2730575686faebe98e0224377619037d0d8f6feedee58616794a6e6ef35235d7\n",
+      "bsdtarListing": "drwxr-xr-x  1 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6\n-rw-r--r--  1 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6/empty.txt\n-rw-r--r--  1 0      0       10537 Sep 22 00:00 ./usr/share/kaito-rpm6/large.txt\nlrwxr-xr-x  1 0      0          13 Sep 22 00:00 ./usr/share/kaito-rpm6/link.txt -> 日本語.txt\n-rw-r--r--  1 0      0          25 Sep 22 00:00 ./usr/share/kaito-rpm6/日本語.txt\n-rw-r--r--  3 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6/hard-a.txt\n-rw-r--r--  3 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6/hard-b.txt link to ./usr/share/kaito-rpm6/hard-a.txt\n-rw-r--r--  3 0      0          18 Sep 22 00:00 ./usr/share/kaito-rpm6/hard-c.txt link to ./usr/share/kaito-rpm6/hard-a.txt\n-rw-r--r--  2 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6/partial-a.txt\n-rw-r--r--  2 0      0          26 Sep 22 00:00 ./usr/share/kaito-rpm6/partial-b.txt link to ./usr/share/kaito-rpm6/partial-a.txt\n",
+      "scalarQuery": "6 zstd 19 8\n",
+      "payloadRows": [
+        {
+          "name": "./usr/share/kaito-rpm6",
+          "mode": "0o40755",
+          "nlink": 1,
+          "ino": 1,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/empty.txt",
+          "mode": "0o100644",
+          "nlink": 1,
+          "ino": 2,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/large.txt",
+          "mode": "0o100644",
+          "nlink": 1,
+          "ino": 6,
+          "dev": 0,
+          "size": 10537,
+          "sha256": "609a4c0abb1a2493eb4895c531c8b1e23e1699ddd6a96002a91f3b2b62a878f1"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/link.txt",
+          "mode": "0o120755",
+          "nlink": 1,
+          "ino": 7,
+          "dev": 0,
+          "size": 13,
+          "sha256": "e1422b2811100c295d75af1df0724ed59039fd602ab0b653d8377f97fc239fef"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/日本語.txt",
+          "mode": "0o100644",
+          "nlink": 1,
+          "ino": 12,
+          "dev": 0,
+          "size": 25,
+          "sha256": "2730575686faebe98e0224377619037d0d8f6feedee58616794a6e6ef35235d7"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/hard-a.txt",
+          "mode": "0o100644",
+          "nlink": 3,
+          "ino": 3,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/hard-b.txt",
+          "mode": "0o100644",
+          "nlink": 3,
+          "ino": 3,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/hard-c.txt",
+          "mode": "0o100644",
+          "nlink": 3,
+          "ino": 3,
+          "dev": 0,
+          "size": 18,
+          "sha256": "ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/partial-a.txt",
+          "mode": "0o100644",
+          "nlink": 2,
+          "ino": 8,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/partial-b.txt",
+          "mode": "0o100644",
+          "nlink": 2,
+          "ino": 8,
+          "dev": 0,
+          "size": 26,
+          "sha256": "580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9"
+        }
+      ],
+      "bsdtarExtracted": {
+        "./usr/share/kaito-rpm6/empty.txt": {
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "./usr/share/kaito-rpm6/large.txt": {
+          "size": 10537,
+          "sha256": "609a4c0abb1a2493eb4895c531c8b1e23e1699ddd6a96002a91f3b2b62a878f1"
+        },
+        "./usr/share/kaito-rpm6/日本語.txt": {
+          "size": 25,
+          "sha256": "2730575686faebe98e0224377619037d0d8f6feedee58616794a6e6ef35235d7"
+        },
+        "./usr/share/kaito-rpm6/hard-a.txt": {
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "./usr/share/kaito-rpm6/hard-b.txt": {
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "./usr/share/kaito-rpm6/hard-c.txt": {
+          "size": 18,
+          "sha256": "ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0"
+        },
+        "./usr/share/kaito-rpm6/partial-a.txt": {
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "./usr/share/kaito-rpm6/partial-b.txt": {
+          "size": 26,
+          "sha256": "580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9"
+        }
+      },
+      "stripped": {
+        "rows": [
+          {
+            "index": 0,
+            "name": "/usr/share/kaito-rpm6",
+            "headerOffset": 0,
+            "dataOffset": 16,
+            "size": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "index": 1,
+            "name": "/usr/share/kaito-rpm6/empty.txt",
+            "headerOffset": 16,
+            "dataOffset": 32,
+            "size": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "index": 5,
+            "name": "/usr/share/kaito-rpm6/large.txt",
+            "headerOffset": 32,
+            "dataOffset": 48,
+            "size": 10537,
+            "sha256": "609a4c0abb1a2493eb4895c531c8b1e23e1699ddd6a96002a91f3b2b62a878f1"
+          },
+          {
+            "index": 6,
+            "name": "/usr/share/kaito-rpm6/link.txt",
+            "headerOffset": 10588,
+            "dataOffset": 10604,
+            "size": 13,
+            "sha256": "e1422b2811100c295d75af1df0724ed59039fd602ab0b653d8377f97fc239fef"
+          },
+          {
+            "index": 11,
+            "name": "/usr/share/kaito-rpm6/日本語.txt",
+            "headerOffset": 10620,
+            "dataOffset": 10636,
+            "size": 25,
+            "sha256": "2730575686faebe98e0224377619037d0d8f6feedee58616794a6e6ef35235d7"
+          },
+          {
+            "index": 2,
+            "name": "/usr/share/kaito-rpm6/hard-a.txt",
+            "headerOffset": 10664,
+            "dataOffset": 10680,
+            "size": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "index": 3,
+            "name": "/usr/share/kaito-rpm6/hard-b.txt",
+            "headerOffset": 10680,
+            "dataOffset": 10696,
+            "size": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "index": 4,
+            "name": "/usr/share/kaito-rpm6/hard-c.txt",
+            "headerOffset": 10696,
+            "dataOffset": 10712,
+            "size": 18,
+            "sha256": "ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0"
+          },
+          {
+            "index": 7,
+            "name": "/usr/share/kaito-rpm6/partial-a.txt",
+            "headerOffset": 10732,
+            "dataOffset": 10748,
+            "size": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "index": 8,
+            "name": "/usr/share/kaito-rpm6/partial-b.txt",
+            "headerOffset": 10748,
+            "dataOffset": 10764,
+            "size": 26,
+            "sha256": "580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9"
+          }
+        ],
+        "trailerOffset": 10792,
+        "trailerBytes": 124,
+        "payloadSize": 10916
+      }
+    },
+    "rpm-stripped-v6-gzip": {
+      "size": 8003,
+      "sha256": "4f05521bcf190470919ddb8203693937b74fd3a1522a33885c2b11a9ac64aac8",
+      "rpmQuery": "/usr/share/kaito-rpm6 40755 0 1 1  0 \n/usr/share/kaito-rpm6/empty.txt 100644 0 2 1  0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n/usr/share/kaito-rpm6/hard-a.txt 100644 18 3 1  0 ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0\n/usr/share/kaito-rpm6/hard-b.txt 100644 18 3 1  0 ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0\n/usr/share/kaito-rpm6/hard-c.txt 100644 18 3 1  0 ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0\n/usr/share/kaito-rpm6/large.txt 100644 10537 6 1  0 609a4c0abb1a2493eb4895c531c8b1e23e1699ddd6a96002a91f3b2b62a878f1\n/usr/share/kaito-rpm6/link.txt 120755 13 7 1 日本語.txt 0 \n/usr/share/kaito-rpm6/partial-a.txt 100644 26 8 1  0 580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9\n/usr/share/kaito-rpm6/partial-b.txt 100644 26 8 1  0 580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9\n/usr/share/kaito-rpm6/partial-z-ghost.txt 100644 26 8 1  64 \n/usr/share/kaito-rpm6/standalone-ghost.txt 100644 14 11 1  64 \n/usr/share/kaito-rpm6/日本語.txt 100644 25 12 1  0 2730575686faebe98e0224377619037d0d8f6feedee58616794a6e6ef35235d7\n",
+      "bsdtarListing": "drwxr-xr-x  1 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6\n-rw-r--r--  1 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6/empty.txt\n-rw-r--r--  1 0      0       10537 Sep 22 00:00 ./usr/share/kaito-rpm6/large.txt\nlrwxr-xr-x  1 0      0          13 Sep 22 00:00 ./usr/share/kaito-rpm6/link.txt -> 日本語.txt\n-rw-r--r--  1 0      0          25 Sep 22 00:00 ./usr/share/kaito-rpm6/日本語.txt\n-rw-r--r--  3 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6/hard-a.txt\n-rw-r--r--  3 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6/hard-b.txt link to ./usr/share/kaito-rpm6/hard-a.txt\n-rw-r--r--  3 0      0          18 Sep 22 00:00 ./usr/share/kaito-rpm6/hard-c.txt link to ./usr/share/kaito-rpm6/hard-a.txt\n-rw-r--r--  2 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6/partial-a.txt\n-rw-r--r--  2 0      0          26 Sep 22 00:00 ./usr/share/kaito-rpm6/partial-b.txt link to ./usr/share/kaito-rpm6/partial-a.txt\n",
+      "scalarQuery": "6 gzip 9 8\n",
+      "payloadRows": [
+        {
+          "name": "./usr/share/kaito-rpm6",
+          "mode": "0o40755",
+          "nlink": 1,
+          "ino": 1,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/empty.txt",
+          "mode": "0o100644",
+          "nlink": 1,
+          "ino": 2,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/large.txt",
+          "mode": "0o100644",
+          "nlink": 1,
+          "ino": 6,
+          "dev": 0,
+          "size": 10537,
+          "sha256": "609a4c0abb1a2493eb4895c531c8b1e23e1699ddd6a96002a91f3b2b62a878f1"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/link.txt",
+          "mode": "0o120755",
+          "nlink": 1,
+          "ino": 7,
+          "dev": 0,
+          "size": 13,
+          "sha256": "e1422b2811100c295d75af1df0724ed59039fd602ab0b653d8377f97fc239fef"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/日本語.txt",
+          "mode": "0o100644",
+          "nlink": 1,
+          "ino": 12,
+          "dev": 0,
+          "size": 25,
+          "sha256": "2730575686faebe98e0224377619037d0d8f6feedee58616794a6e6ef35235d7"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/hard-a.txt",
+          "mode": "0o100644",
+          "nlink": 3,
+          "ino": 3,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/hard-b.txt",
+          "mode": "0o100644",
+          "nlink": 3,
+          "ino": 3,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/hard-c.txt",
+          "mode": "0o100644",
+          "nlink": 3,
+          "ino": 3,
+          "dev": 0,
+          "size": 18,
+          "sha256": "ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/partial-a.txt",
+          "mode": "0o100644",
+          "nlink": 2,
+          "ino": 8,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/partial-b.txt",
+          "mode": "0o100644",
+          "nlink": 2,
+          "ino": 8,
+          "dev": 0,
+          "size": 26,
+          "sha256": "580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9"
+        }
+      ],
+      "bsdtarExtracted": {
+        "./usr/share/kaito-rpm6/empty.txt": {
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "./usr/share/kaito-rpm6/large.txt": {
+          "size": 10537,
+          "sha256": "609a4c0abb1a2493eb4895c531c8b1e23e1699ddd6a96002a91f3b2b62a878f1"
+        },
+        "./usr/share/kaito-rpm6/日本語.txt": {
+          "size": 25,
+          "sha256": "2730575686faebe98e0224377619037d0d8f6feedee58616794a6e6ef35235d7"
+        },
+        "./usr/share/kaito-rpm6/hard-a.txt": {
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "./usr/share/kaito-rpm6/hard-b.txt": {
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "./usr/share/kaito-rpm6/hard-c.txt": {
+          "size": 18,
+          "sha256": "ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0"
+        },
+        "./usr/share/kaito-rpm6/partial-a.txt": {
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "./usr/share/kaito-rpm6/partial-b.txt": {
+          "size": 26,
+          "sha256": "580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9"
+        }
+      },
+      "stripped": {
+        "rows": [
+          {
+            "index": 0,
+            "name": "/usr/share/kaito-rpm6",
+            "headerOffset": 0,
+            "dataOffset": 16,
+            "size": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "index": 1,
+            "name": "/usr/share/kaito-rpm6/empty.txt",
+            "headerOffset": 16,
+            "dataOffset": 32,
+            "size": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "index": 5,
+            "name": "/usr/share/kaito-rpm6/large.txt",
+            "headerOffset": 32,
+            "dataOffset": 48,
+            "size": 10537,
+            "sha256": "609a4c0abb1a2493eb4895c531c8b1e23e1699ddd6a96002a91f3b2b62a878f1"
+          },
+          {
+            "index": 6,
+            "name": "/usr/share/kaito-rpm6/link.txt",
+            "headerOffset": 10588,
+            "dataOffset": 10604,
+            "size": 13,
+            "sha256": "e1422b2811100c295d75af1df0724ed59039fd602ab0b653d8377f97fc239fef"
+          },
+          {
+            "index": 11,
+            "name": "/usr/share/kaito-rpm6/日本語.txt",
+            "headerOffset": 10620,
+            "dataOffset": 10636,
+            "size": 25,
+            "sha256": "2730575686faebe98e0224377619037d0d8f6feedee58616794a6e6ef35235d7"
+          },
+          {
+            "index": 2,
+            "name": "/usr/share/kaito-rpm6/hard-a.txt",
+            "headerOffset": 10664,
+            "dataOffset": 10680,
+            "size": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "index": 3,
+            "name": "/usr/share/kaito-rpm6/hard-b.txt",
+            "headerOffset": 10680,
+            "dataOffset": 10696,
+            "size": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "index": 4,
+            "name": "/usr/share/kaito-rpm6/hard-c.txt",
+            "headerOffset": 10696,
+            "dataOffset": 10712,
+            "size": 18,
+            "sha256": "ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0"
+          },
+          {
+            "index": 7,
+            "name": "/usr/share/kaito-rpm6/partial-a.txt",
+            "headerOffset": 10732,
+            "dataOffset": 10748,
+            "size": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "index": 8,
+            "name": "/usr/share/kaito-rpm6/partial-b.txt",
+            "headerOffset": 10748,
+            "dataOffset": 10764,
+            "size": 26,
+            "sha256": "580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9"
+          }
+        ],
+        "trailerOffset": 10792,
+        "trailerBytes": 124,
+        "payloadSize": 10916
+      }
+    },
+    "rpm-stripped-v4-gzip": {
+      "size": 7727,
+      "sha256": "4fdb46c63ea7baa6d413db461a751886ae11ba62e54bc2f5826bbbc61fb9dbd4",
+      "rpmQuery": "/usr/share/kaito-rpm6 40755 0 1 1  0 \n/usr/share/kaito-rpm6/empty.txt 100644 0 2 1  0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n/usr/share/kaito-rpm6/hard-a.txt 100644 18 3 1  0 ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0\n/usr/share/kaito-rpm6/hard-b.txt 100644 18 3 1  0 ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0\n/usr/share/kaito-rpm6/hard-c.txt 100644 18 3 1  0 ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0\n/usr/share/kaito-rpm6/large.txt 100644 10537 6 1  0 609a4c0abb1a2493eb4895c531c8b1e23e1699ddd6a96002a91f3b2b62a878f1\n/usr/share/kaito-rpm6/link.txt 120755 13 7 1 日本語.txt 0 \n/usr/share/kaito-rpm6/partial-a.txt 100644 26 8 1  0 580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9\n/usr/share/kaito-rpm6/partial-b.txt 100644 26 8 1  0 580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9\n/usr/share/kaito-rpm6/partial-z-ghost.txt 100644 26 8 1  64 \n/usr/share/kaito-rpm6/standalone-ghost.txt 100644 14 11 1  64 \n/usr/share/kaito-rpm6/日本語.txt 100644 25 12 1  0 2730575686faebe98e0224377619037d0d8f6feedee58616794a6e6ef35235d7\n",
+      "bsdtarListing": "drwxr-xr-x  1 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6\n-rw-r--r--  1 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6/empty.txt\n-rw-r--r--  1 0      0       10537 Sep 22 00:00 ./usr/share/kaito-rpm6/large.txt\nlrwxr-xr-x  1 0      0          13 Sep 22 00:00 ./usr/share/kaito-rpm6/link.txt -> 日本語.txt\n-rw-r--r--  1 0      0          25 Sep 22 00:00 ./usr/share/kaito-rpm6/日本語.txt\n-rw-r--r--  3 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6/hard-a.txt\n-rw-r--r--  3 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6/hard-b.txt link to ./usr/share/kaito-rpm6/hard-a.txt\n-rw-r--r--  3 0      0          18 Sep 22 00:00 ./usr/share/kaito-rpm6/hard-c.txt link to ./usr/share/kaito-rpm6/hard-a.txt\n-rw-r--r--  2 0      0           0 Sep 22 00:00 ./usr/share/kaito-rpm6/partial-a.txt\n-rw-r--r--  2 0      0          26 Sep 22 00:00 ./usr/share/kaito-rpm6/partial-b.txt link to ./usr/share/kaito-rpm6/partial-a.txt\n",
+      "scalarQuery": "4 gzip 9 8\n",
+      "payloadRows": [
+        {
+          "name": "./usr/share/kaito-rpm6",
+          "mode": "0o40755",
+          "nlink": 1,
+          "ino": 1,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/empty.txt",
+          "mode": "0o100644",
+          "nlink": 1,
+          "ino": 2,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/large.txt",
+          "mode": "0o100644",
+          "nlink": 1,
+          "ino": 6,
+          "dev": 0,
+          "size": 10537,
+          "sha256": "609a4c0abb1a2493eb4895c531c8b1e23e1699ddd6a96002a91f3b2b62a878f1"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/link.txt",
+          "mode": "0o120755",
+          "nlink": 1,
+          "ino": 7,
+          "dev": 0,
+          "size": 13,
+          "sha256": "e1422b2811100c295d75af1df0724ed59039fd602ab0b653d8377f97fc239fef"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/日本語.txt",
+          "mode": "0o100644",
+          "nlink": 1,
+          "ino": 12,
+          "dev": 0,
+          "size": 25,
+          "sha256": "2730575686faebe98e0224377619037d0d8f6feedee58616794a6e6ef35235d7"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/hard-a.txt",
+          "mode": "0o100644",
+          "nlink": 3,
+          "ino": 3,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/hard-b.txt",
+          "mode": "0o100644",
+          "nlink": 3,
+          "ino": 3,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/hard-c.txt",
+          "mode": "0o100644",
+          "nlink": 3,
+          "ino": 3,
+          "dev": 0,
+          "size": 18,
+          "sha256": "ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/partial-a.txt",
+          "mode": "0o100644",
+          "nlink": 2,
+          "ino": 8,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaito-rpm6/partial-b.txt",
+          "mode": "0o100644",
+          "nlink": 2,
+          "ino": 8,
+          "dev": 0,
+          "size": 26,
+          "sha256": "580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9"
+        }
+      ],
+      "bsdtarExtracted": {
+        "./usr/share/kaito-rpm6/empty.txt": {
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "./usr/share/kaito-rpm6/large.txt": {
+          "size": 10537,
+          "sha256": "609a4c0abb1a2493eb4895c531c8b1e23e1699ddd6a96002a91f3b2b62a878f1"
+        },
+        "./usr/share/kaito-rpm6/日本語.txt": {
+          "size": 25,
+          "sha256": "2730575686faebe98e0224377619037d0d8f6feedee58616794a6e6ef35235d7"
+        },
+        "./usr/share/kaito-rpm6/hard-a.txt": {
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "./usr/share/kaito-rpm6/hard-b.txt": {
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "./usr/share/kaito-rpm6/hard-c.txt": {
+          "size": 18,
+          "sha256": "ed2b5c4f53a8c01342068c133a32d3e0d9a98c93f229d6a8e0a4165e439748e0"
+        },
+        "./usr/share/kaito-rpm6/partial-a.txt": {
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "./usr/share/kaito-rpm6/partial-b.txt": {
+          "size": 26,
+          "sha256": "580fdbb498f4474210fee227739cb2275b71b258589759160444cd6b09134ab9"
+        }
+      }
+    },
+    "rpm-v6": {
+      "size": 7417,
+      "sha256": "d2b0f2e50d03b67448082169cdb902c25ad9914e1385c2937e74b30213b8dc54",
+      "rpmQuery": "/usr/share/kaitotest 40755 0 1 1  0 \n/usr/share/kaitotest/a.txt 100644 10 2 1  0 7ccc92b5adfd832a3f56064ad8304349e7b373a3b90c76de110a012251ed3455\n/usr/share/kaitotest/b.bin 100644 4096 3 1  0 0d356260eaf09e3b3dc81a65b2ad2399aa7c4921c0274bd2cbb54c2a21c46e3b\n/usr/share/kaitotest/link.txt 120755 5 4 1 a.txt 0 \n/usr/share/kaitotest/sub 40755 0 5 1  0 \n/usr/share/kaitotest/sub/nested.txt 100644 20 6 1  0 5d0e5bc93dbc8febbb6b3cea0503bfd7460284e544c2f689538fd55da59accb2\n",
+      "bsdtarListing": "drwxr-xr-x  1 0      0           0 Sep  9 09:10 ./usr/share/kaitotest\n-rw-r--r--  1 0      0          10 Sep  9 09:10 ./usr/share/kaitotest/a.txt\n-rw-r--r--  1 0      0        4096 Sep  9 09:10 ./usr/share/kaitotest/b.bin\nlrwxr-xr-x  1 0      0           5 Sep  9 09:10 ./usr/share/kaitotest/link.txt -> a.txt\ndrwxr-xr-x  1 0      0           0 Sep  9 09:10 ./usr/share/kaitotest/sub\n-rw-r--r--  1 0      0          20 Sep  9 09:10 ./usr/share/kaitotest/sub/nested.txt\n",
+      "scalarQuery": "6 gzip 9 8\n",
+      "payloadRows": [
+        {
+          "name": "./usr/share/kaitotest",
+          "mode": "0o40755",
+          "nlink": 1,
+          "ino": 1,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaitotest/a.txt",
+          "mode": "0o100644",
+          "nlink": 1,
+          "ino": 2,
+          "dev": 0,
+          "size": 10,
+          "sha256": "7ccc92b5adfd832a3f56064ad8304349e7b373a3b90c76de110a012251ed3455"
+        },
+        {
+          "name": "./usr/share/kaitotest/b.bin",
+          "mode": "0o100644",
+          "nlink": 1,
+          "ino": 3,
+          "dev": 0,
+          "size": 4096,
+          "sha256": "0d356260eaf09e3b3dc81a65b2ad2399aa7c4921c0274bd2cbb54c2a21c46e3b"
+        },
+        {
+          "name": "./usr/share/kaitotest/link.txt",
+          "mode": "0o120755",
+          "nlink": 1,
+          "ino": 4,
+          "dev": 0,
+          "size": 5,
+          "sha256": "18b7cb099a9ea3f50ba899b5ba81e0d377a5f3b16f8f6eeb8b3e58cd4692b993"
+        },
+        {
+          "name": "./usr/share/kaitotest/sub",
+          "mode": "0o40755",
+          "nlink": 1,
+          "ino": 5,
+          "dev": 0,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "./usr/share/kaitotest/sub/nested.txt",
+          "mode": "0o100644",
+          "nlink": 1,
+          "ino": 6,
+          "dev": 0,
+          "size": 20,
+          "sha256": "5d0e5bc93dbc8febbb6b3cea0503bfd7460284e544c2f689538fd55da59accb2"
+        }
+      ],
+      "bsdtarExtracted": {
+        "./usr/share/kaitotest/a.txt": {
+          "size": 10,
+          "sha256": "7ccc92b5adfd832a3f56064ad8304349e7b373a3b90c76de110a012251ed3455"
+        },
+        "./usr/share/kaitotest/b.bin": {
+          "size": 4096,
+          "sha256": "0d356260eaf09e3b3dc81a65b2ad2399aa7c4921c0274bd2cbb54c2a21c46e3b"
+        },
+        "./usr/share/kaitotest/sub/nested.txt": {
+          "size": 20,
+          "sha256": "5d0e5bc93dbc8febbb6b3cea0503bfd7460284e544c2f689538fd55da59accb2"
+        }
+      },
+      "stripped": {
+        "rows": [
+          {
+            "index": 0,
+            "name": "/usr/share/kaitotest",
+            "headerOffset": 0,
+            "dataOffset": 16,
+            "size": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "index": 1,
+            "name": "/usr/share/kaitotest/a.txt",
+            "headerOffset": 16,
+            "dataOffset": 32,
+            "size": 10,
+            "sha256": "7ccc92b5adfd832a3f56064ad8304349e7b373a3b90c76de110a012251ed3455"
+          },
+          {
+            "index": 2,
+            "name": "/usr/share/kaitotest/b.bin",
+            "headerOffset": 44,
+            "dataOffset": 60,
+            "size": 4096,
+            "sha256": "0d356260eaf09e3b3dc81a65b2ad2399aa7c4921c0274bd2cbb54c2a21c46e3b"
+          },
+          {
+            "index": 3,
+            "name": "/usr/share/kaitotest/link.txt",
+            "headerOffset": 4156,
+            "dataOffset": 4172,
+            "size": 5,
+            "sha256": "18b7cb099a9ea3f50ba899b5ba81e0d377a5f3b16f8f6eeb8b3e58cd4692b993"
+          },
+          {
+            "index": 4,
+            "name": "/usr/share/kaitotest/sub",
+            "headerOffset": 4180,
+            "dataOffset": 4196,
+            "size": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "index": 5,
+            "name": "/usr/share/kaitotest/sub/nested.txt",
+            "headerOffset": 4196,
+            "dataOffset": 4212,
+            "size": 20,
+            "sha256": "5d0e5bc93dbc8febbb6b3cea0503bfd7460284e544c2f689538fd55da59accb2"
+          }
+        ],
+        "trailerOffset": 4232,
+        "trailerBytes": 124,
+        "payloadSize": 4356
+      }
+    }
+  }
+}

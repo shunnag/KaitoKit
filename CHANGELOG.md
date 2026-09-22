@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+- 7-Zip `-m0=Deflate64` の 7z 書庫（method ID `04 01 09`）を既存の Deflate64 decoder で展開できるようにした。従来は `unsupportedMethod` で失敗していた。solid / non-solid、32 KiB を超える距離、上限と破損の検証は[検証記録](Documentation/verification/2026-09-22-sevenzip-deflate64.md)を参照。
+- WIM の XPRESS chunk を 4〜64 KiB の 2 冪へ拡張した。LZX は 32 KiB のまま。辞書上限、chunk 表と圧縮入力長の上限、SHA-1 を検査する。[検証記録](Documentation/verification/2026-09-22-small-method-gaps.md)。
+- XZ の非終端 RISC-V filter（ID `0x0B`）を native decoder の前に `unsupportedMethod("XZ RISC-V filter")` で拒否する。`.tar.xz` にも適用する。
+- tar の旧 GNU sparse（`S` 型）の header 内 map と拡張 block 連鎖を展開する。穴を 0 で埋め、実サイズと格納長を公開する。star / Solaris は引き続き非対応。
+- RPM の stripped cpio `07070X`（rpm ≥ 4.12 の大容量 file、rpm 6 の既定）を header tags から列挙・読取可能にした。hard link・ghost・SHA-256 終端検証、v4 / v6 の黒箱照合は[検証記録](Documentation/verification/2026-09-22-rpm-stripped-payload.md)を参照。
+- HFS+ の decmpfs 圧縮 file（UF_COMPRESSED）の本文を読めるようにした。attributes B-tree の `com.apple.decmpfs` から実サイズと type を公開し、type 1 / 3 / 4 / 7 / 8 / 9 / 10 / 11 / 12（stored / zlib / LZVN / LZFSE、inline / resource fork）を chunk 単位で展開する。type 5 / 13 / 14 と未知の type は一覧のみ。fixture の読める 11 file と Apple の実物を原本の SHA-256 で照合し、type 3 / 4 / 7 / 8 / 9 は 7-Zip 26.03 の展開結果とも一致。[検証記録](Documentation/verification/2026-09-22-hfsplus-decmpfs.md)。
+
 ## [0.8.1] - 2026-09-22
 
 0.8.0 のリリースレビューの修正。再現手順・修正前の失敗文・回帰テストは[検証記録](Documentation/verification/2026-09-22-release-review-0.8.1.md)を参照。

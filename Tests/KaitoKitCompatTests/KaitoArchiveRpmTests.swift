@@ -17,7 +17,7 @@ final class KaitoArchiveRpmTests: XCTestCase {
 
     func testStableFormatNameForEveryFixture() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        for (variant, count) in [("gzip", 6), ("xz", 6), ("bzip2", 6), ("none", 6), ("src", 1), ("zstd", 6), ("v6", 1)] {
+        for (variant, count) in [("gzip", 6), ("xz", 6), ("bzip2", 6), ("none", 6), ("src", 1), ("zstd", 6), ("v6", 6)] {
             let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/rpm-\(variant).rpm.b64"), encoding: .utf8)
             let bytes = try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))
             let archive = try XCTUnwrap(KaitoArchive(data: bytes))

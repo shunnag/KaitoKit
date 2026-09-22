@@ -101,8 +101,9 @@ enum XZResourceValidator {
                 let dictionary = try LZMA2Decoder.dictionarySize(for: reader.readUInt8())
                 try Checked.size(dictionary, limit: dictionaryLimit)
             } else {
-                // Every preceding standardized XZ filter is size-preserving.
-                // Unknown filters are left to the native decoder to reject.
+                // RISC-V は native decoder に渡す前に名前付きで拒否する。
+                if id == 0x0B { throw KaitoError.unsupportedMethod("XZ RISC-V filter") }
+                // 他の未知 filter の判定は従来どおり native decoder に任せる。
                 guard id != 0x21, id < (UInt64(1) << 62) else {
                     throw KaitoError.malformed("invalid XZ filter chain")
                 }

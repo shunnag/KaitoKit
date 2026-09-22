@@ -29,11 +29,13 @@ struct HFSExtent {
 struct HFSForkData {
     let logicalSize: UInt64
     let totalBlocks: UInt32
+    let firstExtentHasBlocks: Bool
     let extents: [HFSExtent]
 
     init(_ b: [UInt8], _ o: Int) {
         logicalSize = HFSBytes.u64(b, o)
         totalBlocks = HFSBytes.u32(b, o + 12)
+        firstExtentHasBlocks = HFSBytes.u32(b, o + 20) != 0
         extents = (0..<8).map { HFSExtent(startBlock: HFSBytes.u32(b, o + 16 + $0 * 8), blockCount: HFSBytes.u32(b, o + 20 + $0 * 8)) }
             .filter { $0.blockCount > 0 }
     }
@@ -76,7 +78,7 @@ struct HFSVolumeHeader {
     }
 }
 
-/// B-tree（catalog / extents overflow）。node を必要に応じて読む。
+/// B-tree（catalog / extents overflow / attributes）。node を必要に応じて読む。
 final class HFSBTree {
     let nodeSize: Int
     let rootNode: UInt32
@@ -165,6 +167,11 @@ struct HFSCatalogItem {
     let resourceFork: HFSForkData?
 }
 
+enum HFSDecmpfsAttribute {
+    case inline([UInt8])
+    case fork
+}
+
 /// 1 つの HFS Plus volume。
 final class HFSPlusVolume {
     let source: any ByteSource
@@ -246,6 +253,68 @@ final class HFSPlusVolume {
         }
         guard total >= fork.logicalSize else { throw KaitoError.truncated }
         return result
+    }
+
+    /// com.apple.decmpfs だけを保持する。fork 格納の属性は一覧用の印に留める。
+    func decmpfsAttributes(limits: ReadLimits, budget: inout UInt64) throws -> [UInt32: HFSDecmpfsAttribute] {
+        guard header.attributesFile.firstExtentHasBlocks else { return [:] }
+        let tree = try HFSBTree(volume: self, fork: header.attributesFile, forkID: 8, label: "attributes")
+        guard tree.nodeSize >= 4096 else { throw KaitoError.malformed("hfs+ attributes node size") }
+        let expectedName = Array("com.apple.decmpfs".utf8)
+        var attributes: [UInt32: HFSDecmpfsAttribute] = [:]
+        var retainedSize: UInt64 = 0
+        try tree.forEachLeafRecord(budget: &budget, limits: limits) { record in
+            let b = Array(record)
+            guard b.count >= 14 else { throw KaitoError.malformed("hfs+ attributes key") }
+            let keyLength = Int(HFSBytes.u16(b, 0))
+            guard keyLength >= 12, 2 + keyLength <= b.count, HFSBytes.u16(b, 2) == 0 else {
+                throw KaitoError.malformed("hfs+ attributes key length or pad")
+            }
+            let nameLength = Int(HFSBytes.u16(b, 12))
+            guard nameLength <= 255, 14 + nameLength * 2 <= 2 + keyLength else {
+                throw KaitoError.malformed("hfs+ attributes name length")
+            }
+            var dataOffset = 2 + keyLength
+            if dataOffset & 1 == 1 { dataOffset += 1 }
+            guard dataOffset <= b.count else { throw KaitoError.malformed("hfs+ attributes key padding") }
+            // 他の名前の data は解釈しない。大文字小文字を含め UTF-16 code unit が一致するものだけ。
+            guard nameLength == expectedName.count,
+                  (0..<nameLength).allSatisfy({ HFSBytes.u16(b, 14 + $0 * 2) == UInt16(expectedName[$0]) }) else { return }
+            guard dataOffset + 4 <= b.count else {
+                throw KaitoError.malformed("hfs+ decmpfs attribute record")
+            }
+            let fileID = HFSBytes.u32(b, 4)
+            let recordType = HFSBytes.u32(b, dataOffset)
+            let startBlock = HFSBytes.u32(b, 8)
+            if attributes[fileID] == nil {
+                guard attributes.count < limits.maxEntryCount else { throw KaitoError.limitExceeded("hfs+ decmpfs attribute count") }
+            }
+            if startBlock != 0 || recordType == 0x20 || recordType == 0x30 {
+                if startBlock == 0, recordType == 0x20, dataOffset + 88 > b.count {
+                    throw KaitoError.malformed("hfs+ decmpfs fork attribute")
+                }
+                // 続きの extent も同じ CNID を使う。順序にかかわらず fork の印を残す。
+                attributes[fileID] = .fork
+                return
+            }
+            if case .fork? = attributes[fileID] { return }
+            guard attributes[fileID] == nil else { throw KaitoError.malformed("hfs+ duplicate decmpfs attribute") }
+            switch recordType {
+            case 0x10:
+                guard dataOffset + 16 <= b.count else { throw KaitoError.malformed("hfs+ decmpfs inline record") }
+                let size = UInt64(HFSBytes.u32(b, dataOffset + 12))
+                guard size <= 65_536, size <= UInt64(b.count - dataOffset - 16) else {
+                    throw KaitoError.malformed("hfs+ decmpfs attribute size")
+                }
+                try Checked.size(size, limit: limits.maxMetadataSize)
+                retainedSize = try Checked.add(retainedSize, size)
+                try Checked.size(retainedSize, limit: limits.maxTotalMetadataSize)
+                let count = try Checked.toInt(size)
+                attributes[fileID] = .inline(Array(b[(dataOffset + 16)..<(dataOffset + 16 + count)]))
+            default: throw KaitoError.malformed("hfs+ decmpfs attribute record type")
+            }
+        }
+        return attributes
     }
 
     /// catalog の葉を全部読む。

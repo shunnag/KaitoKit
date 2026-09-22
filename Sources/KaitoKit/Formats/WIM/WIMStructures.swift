@@ -148,13 +148,19 @@ final class WIMResourceDecompressor: Decompressor {
         self.chunkSize = Int(chunkSize)
         self.compression = compression
         self.limits = limits
-        // LZX の窓（32 KiB）と XPRESS の 1 block = 1 chunk の前提は 32 KiB chunk でしか検証していない。
-        // 他の chunk size の標本が無いので、名前付きで拒む。
-        guard chunkSize == WIMHeader.defaultChunkSize || compression == .none else {
+        // XPRESS は 4〜64 KiB の 2 冪、LZX の窓は 32 KiB のまま。
+        let supported = compression == .none || (compression == .xpress
+            ? (4096...65536).contains(chunkSize) && chunkSize & (chunkSize - 1) == 0
+            : chunkSize == WIMHeader.defaultChunkSize)
+        guard supported else {
             throw KaitoError.unsupportedMethod("WIM chunk size \(chunkSize)")
         }
         guard chunkSize >= 4096, chunkSize <= 1 << 26, chunkSize & (chunkSize - 1) == 0 else {
             throw KaitoError.malformed("wim chunk size \(chunkSize)")
+        }
+        if compression == .xpress {
+            // chunk 全体が match の履歴になる。
+            try Checked.size(UInt64(chunkSize), limit: limits.maxDictionarySize)
         }
         chunkCount = resource.originalSize == 0 ? 0 : Int((resource.originalSize - 1) / UInt64(chunkSize) + 1)
         tableEntrySize = resource.originalSize > 0xFFFF_FFFF ? 8 : 4

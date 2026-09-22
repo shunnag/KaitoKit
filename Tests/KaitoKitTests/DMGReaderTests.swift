@@ -3,7 +3,7 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
-/// Apple disk image（UDIF + HFS+）。fixture は Tests/Fixtures/dmg（hdiutil が書き、mount と 7-Zip で照合、generate.sh）。
+/// Apple disk image（UDIF + HFS+）。fixture は Tests/Fixtures/dmg。mount が真値、7-Zip 26.03 は decmpfs 3/4/7/8/9 も読める。
 final class DMGReaderTests: XCTestCase {
     func testR5SectorByteOverflowIsRejected() throws {
         var table = Data(repeating: 0, count: 244)
@@ -103,6 +103,81 @@ final class DMGReaderTests: XCTestCase {
     }
     private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
+    func testDecmpfsAttributeErrorsAndHardLinkTarget() throws {
+        // 既存の mount 検証済み fixture の属性 / catalog だけをメモリ内で変える。
+        let disk = try DMGReader.diskSource(for: DataByteSource(Self.fixture("hfs-zlib.dmg")), limits: ReadLimits())
+        let base = try XCTUnwrap(try DMGReader.volumeCandidates(disk: disk).first { try DMGReader.hasHFSPlusVolume(disk: disk, at: $0) })
+        let volume = try HFSPlusVolume(source: disk, baseOffset: base)
+        var budget: UInt64 = 0
+        try volume.loadOverflowExtents(limits: ReadLimits(), budget: &budget)
+        let items = try volume.catalogItems(limits: ReadLimits(), budget: &budget)
+        let file = try XCTUnwrap(items.first { $0.name == "compressed.txt" })
+        let attributes = try volume.decmpfsAttributes(limits: ReadLimits(), budget: &budget)
+        guard case .inline(let attribute) = attributes[file.nodeID] else { return XCTFail("inline 属性が必要") }
+        XCTAssertEqual(try DecmpfsHeader(attribute: attribute).compressionType, 7)
+        let raw = Data(try readByteRange(source: disk, offset: 0, count: Checked.toInt(disk.length)))
+        func uniqueOffset(_ bytes: [UInt8]) throws -> Int {
+            let range = try XCTUnwrap(raw.range(of: Data(bytes)))
+            XCTAssertNil(raw.range(of: Data(bytes), in: range.upperBound..<raw.count))
+            return range.lowerBound
+        }
+        let attributeOffset = try uniqueOffset(attribute)
+        let nameBytes = Array("com.apple.decmpfs".utf16).flatMap { [UInt8($0 >> 8), UInt8(truncatingIfNeeded: $0)] }
+        let nameOffset = try uniqueOffset(nameBytes)
+        var missing = raw
+        let attributesFork = Int(base) + 1024 + 352
+        missing.replaceSubrange((attributesFork + 20)..<(attributesFork + 24), with: repeatElement(UInt8(0), count: 4))
+        // TN1150: 後続 slot に値があっても先頭 extent が 0 block なら属性 file は無い。
+        missing[attributesFork + 27] = 1; missing[attributesFork + 31] = 1
+        var magic = raw; magic[attributeOffset] ^= 1
+        var fork = raw; fork[attributeOffset - 16 + 3] = 0x20
+        var nonzeroStart = raw; nonzeroStart[nameOffset - 3] = 1
+        var extents = raw; extents[attributeOffset - 16 + 3] = 0x30
+        var continuation = extents; continuation[nameOffset - 3] = 1
+        var caseChanged = raw; caseChanged[nameOffset + 1] = UInt8(ascii: "C")
+        for (data, expected) in [(missing, KaitoError.malformed("hfs+ compressed file without com.apple.decmpfs")),
+                                 (magic, .malformed("hfs+ decmpfs magic")),
+                                 (fork, .unsupportedMethod("HFS+ decmpfs attribute stored as a fork")),
+                                 (nonzeroStart, .unsupportedMethod("HFS+ decmpfs attribute stored as a fork")),
+                                 (extents, .unsupportedMethod("HFS+ decmpfs attribute stored as a fork")),
+                                 (continuation, .unsupportedMethod("HFS+ decmpfs attribute stored as a fork")),
+                                 (caseChanged, .malformed("hfs+ compressed file without com.apple.decmpfs"))] {
+            let reader = try ArchiveReader.open(data: data)
+            let entry = try XCTUnwrap(reader.entries.first { $0.name == "compressed.txt" })
+            XCTAssertNil(entry.uncompressedSize)
+            XCTAssertThrowsError(try reader.read(entry)) { XCTAssertEqual($0 as? KaitoError, expected) }
+            let ordinary = try XCTUnwrap(reader.entries.first { $0.name == "data.bin" })
+            XCTAssertEqual(sha(try reader.read(ordinary)), try Self.manifest().payload["data.bin"]?.sha256)
+        }
+
+        // 属性を indirect node の CNID に移し、2 本の hard link がその本文を読むことを確かめる。
+        let inode = try XCTUnwrap(items.first { $0.name.hasPrefix("iNode") })
+        var linked = raw
+        func put(_ value: UInt32, at offset: Int) {
+            for i in 0..<4 { linked[offset + i] = UInt8(truncatingIfNeeded: value >> ((3 - i) * 8)) }
+        }
+        put(inode.nodeID, at: nameOffset - 10)
+        let name = Array(inode.name.utf16)
+        var key = [UInt8](repeating: 0, count: 8 + name.count * 2)
+        let keyLength = key.count - 2
+        key[0] = UInt8(keyLength >> 8); key[1] = UInt8(truncatingIfNeeded: keyLength)
+        for i in 0..<4 { key[2 + i] = UInt8(truncatingIfNeeded: inode.parentID >> ((3 - i) * 8)) }
+        key[6] = UInt8(name.count >> 8); key[7] = UInt8(truncatingIfNeeded: name.count)
+        for (i, unit) in name.enumerated() { key[8 + i * 2] = UInt8(unit >> 8); key[9 + i * 2] = UInt8(truncatingIfNeeded: unit) }
+        let inodeData = try uniqueOffset(key) + key.count
+        linked[inodeData + 41] |= 0x20
+        let reader = try ArchiveReader.open(data: linked)
+        let want = try XCTUnwrap(Self.manifest().payload["compressed.txt"])
+        for name in ["hardlink-to-readme", "readme.txt"] {
+            let entry = try XCTUnwrap(reader.entries.first { $0.name == name })
+            XCTAssertEqual(entry.uncompressedSize, want.size)
+            XCTAssertEqual(entry.compressedSize, UInt64(attribute.count - 16))
+            XCTAssertEqual(entry.formatSpecific["decmpfsType"], "7")
+            XCTAssertEqual(sha(try reader.read(entry)), want.sha256)
+            XCTAssertFalse(reader.entries.contains { $0.name == name + "/..namedfork/rsrc" })
+        }
+    }
+
     func testCompressedImagesListTheHFSVolumeLikeTheMountedDisk() throws {
         let manifest = try Self.manifest()
         for name in ["hfs-zlib.dmg", "hfs-bzip2.dmg", "hfs-lzfse.dmg", "hfs-lzma.dmg"] {
@@ -122,11 +197,10 @@ final class DMGReaderTests: XCTestCase {
                     XCTAssertEqual(entry.formatSpecific["linkTargetStoredAsData"], "true", entry.name)
                     XCTAssertEqual(String(decoding: try reader.read(entry), as: UTF8.self), target, entry.name)
                 } else if want.decmpfs == true {
-                    XCTAssertEqual(entry.methodDescription, "HFS+ compressed (decmpfs)", entry.name)
-                    XCTAssertNil(entry.uncompressedSize, entry.name)
-                    XCTAssertThrowsError(try reader.read(entry), entry.name) {
-                        guard case .unsupportedMethod = $0 as? KaitoError else { return XCTFail("\(name): \($0)") }
-                    }
+                    XCTAssertEqual(entry.methodDescription, "HFS+ decmpfs (LZVN)", entry.name)
+                    XCTAssertEqual(entry.formatSpecific["decmpfsType"], "7", entry.name)
+                    XCTAssertEqual(entry.uncompressedSize, want.size, entry.name)
+                    XCTAssertEqual(sha(try reader.read(entry)), want.sha256, "\(name): \(entry.name)")
                 } else {
                     XCTAssertEqual(entry.uncompressedSize, want.size, "\(name): \(entry.name)")
                     XCTAssertEqual(sha(try reader.read(entry)), want.sha256, "\(name): \(entry.name)")

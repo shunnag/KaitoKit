@@ -59,7 +59,7 @@ PY
 ls -lO "$MNT/compressed.txt" | grep -q compressed
 hdiutil detach -quiet "$MNT"
 
-# Truth: the payload plus compressed.txt (which KaitoKit lists but cannot read).
+# 真値: 原本と compressed.txt（KaitoKit も本文を読む）。
 python3 - "$PAYLOAD" "$WORK/compressed.txt" "$WORK/manifest.json" <<'PY'
 import hashlib, json, os, sys
 payload, compressed, out = sys.argv[1:4]
@@ -112,7 +112,7 @@ for rel, want in files.items():
 PY
     hdiutil detach -quiet "$mnt"
 }
-verify_7zz() {   # image: 7-Zip extracts the HFS+ volume (it skips decmpfs data but lists the file)
+verify_7zz() {   # 7-Zip 26.03 は decmpfs 3/4/7/8/9 も展開できる（下の旧照合は mount に任せる）。
     rm -rf "$WORK/7z"; mkdir "$WORK/7z"
     7zz x -bso0 -bsp0 -o"$WORK/7z" "$WORK/$1" >/dev/null 2>&1 || true
     python3 - "$WORK/7z" "$WORK/manifest.json" <<'PY'
@@ -121,8 +121,8 @@ root, manifest = sys.argv[1], sys.argv[2]
 volume = os.path.join(root, os.listdir(root)[0])
 files = json.load(open(manifest))["payload"]
 for rel, want in files.items():
-    # 7-Zip writes resource forks as xattrs, cannot read decmpfs data and extracts HFS+ hard links as empty
-    # files (it exposes the private iNode files instead), so those members are checked by the mount only.
+    # resource fork は xattr、hard link は空 file（本文は private iNode）になるため mount で照合する。
+    # decmpfs 3/4/7/8/9 は読めるが、この旧生成器では mount のみ。generate-decmpfs.sh が 7zz でも照合する。
     if "/..namedfork/" in rel or want.get("decmpfs") or want.get("hardlink") or "symlink" in want: continue
     path = os.path.join(volume, rel)
     assert os.path.exists(path), f"7zz did not extract {rel}"

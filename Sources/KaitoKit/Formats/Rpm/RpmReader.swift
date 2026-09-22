@@ -6,9 +6,10 @@ import Foundation
 final class RpmReader: FormatReader {
     let format: ArchiveFormat = .rpm
     let entries: [ArchiveEntry]
-    var nameEncoding: String.Encoding? { cpio?.nameEncoding }
+    var nameEncoding: String.Encoding? { stripped == nil ? cpio?.nameEncoding : .utf8 }
     private let payload: any ByteSource
     private let cpio: CpioReader?
+    private let stripped: RpmStrippedPayload?
 
     init(source: any ByteSource, options: ReaderOptions) throws {
         let limits = options.limits
@@ -33,6 +34,7 @@ final class RpmReader: FormatReader {
         let codecs: [String: ArchiveFormat] = ["gzip": .gzip, "bzip2": .bzip2, "xz": .xz, "lzma": .lzma, "zstd": .zstd]
         let extensions = ["gzip": ".gz", "bzip2": ".bz2", "xz": ".xz", "lzma": ".lzma", "zstd": ".zst"]
         var inner: CpioReader?
+        var stripped: RpmStrippedPayload?
         if header.values[.payloadFormat] == nil || header.values[.payloadFormat] == "cpio",
            compressor == "none" || codecs[compressor ?? ""] != nil {
             let stream: EntryStream
@@ -48,10 +50,14 @@ final class RpmReader: FormatReader {
             let magic = try readByteRange(source: expanded, offset: 0, count: Checked.toInt(min(6, expanded.length)))
             if CpioHeader.variant(magic) != nil {
                 inner = try CpioReader(source: expanded, options: options)
+            } else if magic == RpmStrippedPayload.magic, let fileList = header.fileList {
+                stripped = try RpmStrippedPayload(source: expanded, fileList: fileList, limits: limits)
             }
         }
         cpio = inner
-        var metadataSize = header.metadataSize
+        self.stripped = stripped
+        var metadataSize = try Checked.add(header.metadataSize, stripped?.metadataSize ?? 0)
+        try Checked.size(metadataSize, limit: limits.maxTotalMetadataSize)
         func account(_ entry: ArchiveEntry, specific: [String: String]) throws {
             var cost = try Checked.add(256, UInt64(entry.rawName.bytes.count))
             cost = try Checked.add(cost, UInt64(entry.name.utf8.count))
@@ -73,6 +79,40 @@ final class RpmReader: FormatReader {
                     modificationDate: entry.modificationDate, posixPermissions: entry.posixPermissions,
                     isEncrypted: entry.isEncrypted, solidGroup: entry.solidGroup, crc32: entry.crc32,
                     methodDescription: entry.methodDescription, formatSpecific: specific, isIncomplete: entry.isIncomplete)
+            }
+        } else if let stripped {
+            entries = try stripped.records.enumerated().map { index, record in
+                let file = stripped.fileList.files[record.fileIndex]
+                // rpm の newc は絶対 path の先頭に「.」を付け、source package の相対名は保つ。
+                let nameSize = try Checked.add(UInt64(file.name.utf8.count), file.name.hasPrefix("/") ? 1 : 0)
+                try Checked.size(Checked.add(nameSize, 1), limit: CpioReader.maximumNameSize)
+                try Checked.size(nameSize, limit: limits.maxMetadataSize)
+                let name = file.name.hasPrefix("/") ? "." + file.name : file.name
+                let parts = name.utf8.split(separator: 47, maxSplits: limits.maxPathComponentCount)
+                guard parts.count <= limits.maxPathComponentCount else { throw KaitoError.limitExceeded("rpm path component count") }
+                let group = stripped.group(for: file)
+                var specific = ["rpmFileIndex": String(record.fileIndex), "nlink": String(group?.count ?? 1),
+                    "ino": String(file.ino), "dev": String(file.dev)]
+                if let group, group.count > 1 {
+                    specific["hardLinkGroup"] = "\(group.archiveIndex):\(file.dev):\(file.ino)"
+                }
+                if file.kind == .symlink {
+                    guard file.linkTarget.utf8.split(separator: 47, maxSplits: limits.maxPathComponentCount).count
+                            <= limits.maxPathComponentCount else { throw KaitoError.limitExceeded("rpm link component count") }
+                    specific["linkPath"] = file.linkTarget
+                }
+                if let digest = file.digest { specific["rpmFileDigest"] = digest }
+                if let algorithm = stripped.fileList.digestAlgorithm { specific["rpmFileDigestAlgorithm"] = String(algorithm) }
+                specific.merge(metadata) { original, _ in original }
+                let entry = ArchiveEntry(index: index,
+                    rawName: RawName(bytes: Array(name.utf8), declaredEncoding: .utf8, isDirectoryHint: file.kind == .directory),
+                    name: name, pathComponents: parts.map { String(decoding: $0, as: UTF8.self) }, kind: file.kind,
+                    uncompressedSize: record.dataLength, compressedSize: record.dataLength,
+                    modificationDate: Date(timeIntervalSince1970: TimeInterval(file.mtime)),
+                    posixPermissions: file.mode & 0o7777, isEncrypted: false, solidGroup: -1, crc32: nil,
+                    methodDescription: "cpio (stored)", formatSpecific: specific)
+                try account(entry, specific: specific)
+                return entry
             }
         } else {
             guard limits.maxEntryCount >= 1 else { throw KaitoError.limitExceeded("rpm entry count") }
@@ -99,6 +139,7 @@ final class RpmReader: FormatReader {
             // cpio 側の同一性検査には RPM metadata を足す前の entry を渡す。
             return try cpio.stream(for: cpio.entries[entry.index], limits: limits)
         }
+        if let stripped { return try stripped.stream(at: entry.index, limits: limits) }
         return try EntryStream(source: payload, offset: 0, length: payload.length, limits: limits)
     }
 }

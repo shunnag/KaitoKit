@@ -7,6 +7,8 @@ file's size and SHA-256, and each archive's size and SHA-256).
 | --- | --- | --- |
 | `stored.wim` | `generate.py` (own writer) | uncompressed resources, an alternate data stream (`readme.txt:Zone.Identifier`), a hard-link pair, an empty file (zero hash, no resource), a relative symbolic-link reparse point, a Japanese name, nested directories |
 | `xpress.wim` | `generate.py` (own [MS-XCA] LZ77+Huffman encoder) | XPRESS chunks, multi-chunk files, an incompressible chunk stored raw, E8-heavy data |
+| `xpress-4k.wim` | `generate-chunk-sizes.py` → 自作 encoder | 4 KiB chunk、複数 chunk、70,001 byte file、SHA-1 / SHA-256 |
+| `xpress-64k.wim` | 同上 | 64 KiB chunk、64 KiB を超える file、SHA-1 / SHA-256 |
 | `lzx.wim` | `generate.py` (own WIM-variant LZX encoder) | verbatim and aligned-offset blocks, E8 translation, multi-chunk files, a stored chunk |
 | `lzx-raw.wim` | `generate.py` | as above plus an odd-length uncompressed block at the end of a chunk (no trailing pad byte) |
 | `two-images.wim` | `generate.py` | two metadata resources sharing file resources; listed below `1/` and `2/` like 7-Zip |
@@ -25,5 +27,6 @@ or XPRESS implementation source was consulted.
 
 ```sh
 python3 Tests/Fixtures/wim/generate.py   # needs 7zz on PATH
+python3 Tests/Fixtures/wim/generate-chunk-sizes.py   # 追加した 2 本だけ再生成
 swift test --filter WIMReaderTests
 ```

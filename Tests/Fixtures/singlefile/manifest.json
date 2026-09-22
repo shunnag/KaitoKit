@@ -1,0 +1,27 @@
+{
+  "payload": {
+    "size": 1984,
+    "sha256": "9406f5a1d2eae369f59bda2104d34080e67c608f7379941a8f722774acf2caa6"
+  },
+  "riscv.xz": {
+    "size": 336,
+    "sha256": "0d476833695a41c85f1deac97d89594a067b327bcab5aac082aaeeb8126d6a19",
+    "uncompressedSize": 1984,
+    "uncompressedSHA256": "9406f5a1d2eae369f59bda2104d34080e67c608f7379941a8f722774acf2caa6",
+    "note": "自作 payload、xz -k --riscv --lzma2=preset=1、xz -dc で byte 一致"
+  },
+  "riscv.tar.xz": {
+    "size": 416,
+    "sha256": "b621bd396804211d28b5918c2c2c0c49831e41bbbb81a33cb25e4b41e3a1a885",
+    "uncompressedSize": 10240,
+    "uncompressedSHA256": "82431d350820b09e137c71b9df7c7e14fe6e9fb72c9bc8c57f5d236d18c35440",
+    "note": "自作 payload、xz -k --riscv --lzma2=preset=1、xz -dc で byte 一致"
+  },
+  "x86.xz": {
+    "size": 336,
+    "sha256": "414bff77ad47b35bd4010351996bc772f4571e6baac31a7dc8b82eda13eb01b6",
+    "uncompressedSize": 1984,
+    "uncompressedSHA256": "9406f5a1d2eae369f59bda2104d34080e67c608f7379941a8f722774acf2caa6",
+    "note": "自作 payload、xz -k --x86 --lzma2=preset=1、xz -dc で byte 一致"
+  }
+}

@@ -43,6 +43,21 @@
     "sub/small.txt": {
       "size": 6,
       "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f"
+    },
+    "chunk-note.txt": {
+      "size": 28,
+      "sha1": "1f76650086ff75033ab219a3f6005470223f46f6",
+      "sha256": "de724a16c8a03567f1bf205ce64c9bd02223639be67692b17ca040b5771d9f47"
+    },
+    "chunk-span.bin": {
+      "size": 12503,
+      "sha1": "509a64897c6da9b543f70d822174582039361d0f",
+      "sha256": "c4db6bcf1c9ab5e83fef54a6f96ecce153174c9d26c7421a7a13e08a62969e67"
+    },
+    "chunk-large.bin": {
+      "size": 70001,
+      "sha1": "8f722a0e7059b522b292973a693ecb5107476364",
+      "sha256": "0a3d3958e38597b18e8d3faad4f3d88c281468a884fb9c3d07d67a14bdc476bc"
     }
   },
   "stored.wim": {
@@ -85,5 +100,15 @@
     "size": 8026,
     "sha256": "3bff6667460738b534d4d32c704ca9f457c1b5d61955a7fbf7c90481b7f44822",
     "note": "7-Zip 26.03 `a -twim` (stored)"
+  },
+  "xpress-4k.wim": {
+    "size": 11969,
+    "sha256": "0e5948e2a8b2c30a20c1a78590380b5b0cc8f134e38c723afce83a0f4bc28dc2",
+    "note": "自作 XPRESS encoder、4096 byte chunk、7zz x で全 file 一致"
+  },
+  "xpress-64k.wim": {
+    "size": 2552,
+    "sha256": "eb94c7cb3cdc8c2b4a9435c47e145cf0400c1f7d96770f3b8db54c44bca6dec9",
+    "note": "自作 XPRESS encoder、65536 byte chunk、7zz x で全 file 一致"
   }
 }

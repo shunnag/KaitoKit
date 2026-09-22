@@ -325,6 +325,19 @@ final class SevenZipFolderDecoderFactory {
                     compressedSize: input.length
                 ))
 
+            case .deflate64:
+                try requireArity(coder, inputs: 1)
+                guard coder.properties.isEmpty else {
+                    throw KaitoError.malformed("7z Deflate64 has unexpected properties")
+                }
+                let input = try byteInput(coder.firstInput)
+                return .stream(try Deflate64Decompressor(
+                    source: input.source,
+                    offset: input.offset,
+                    compressedSize: input.length,
+                    expectedSize: expectedSize
+                ))
+
             case .bzip2:
                 try requireArity(coder, inputs: 1)
                 guard coder.properties.isEmpty else {
@@ -585,6 +598,7 @@ enum SevenZipMethodKind: Equatable {
     case lzma2
     case ppmd7
     case deflate
+    case deflate64
     case bzip2
     case zstd
     case aes
@@ -603,6 +617,8 @@ enum SevenZipMethod {
         case [0x03, 0x01, 0x01]: return .lzma
         case [0x03, 0x04, 0x01]: return .ppmd7
         case [0x04, 0x01, 0x08]: return .deflate
+        // 公式 Methods.txt の Deflate64 ID（04 01 09）。
+        case [0x04, 0x01, 0x09]: return .deflate64
         case [0x04, 0x02, 0x02]: return .bzip2
         // Methods.txt の external codec 領域 (04 F7 11 xx、Tino Reichardt)。7-Zip ZS /
         // NanaZip / libarchive 3.8 が書く。packed stream は RFC 8878 の frame 列そのもの。
@@ -634,6 +650,7 @@ enum SevenZipMethod {
         case .lzma2: return "LZMA2"
         case .ppmd7: return "PPMd7"
         case .deflate: return "Deflate"
+        case .deflate64: return "Deflate64"
         case .bzip2: return "BZip2"
         case .zstd: return "Zstandard"
         case .aes: return "7zAES-256"

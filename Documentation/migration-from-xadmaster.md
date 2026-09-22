@@ -600,6 +600,9 @@ XADMaster は UDF を読めません。BIN/CUE などの生 sector image（2352 
 
 - ISO の raw 2352/2336-byte sector、後続 session、interleaved / sparse 展開、zisofs2（ZF version 2）。
   UDF の複数 volume、ext_ad、device / FIFO / socket、resource fork 以外の named stream。
+- Apple Disk Image の ADC（UDCO）chunk と APFS は `unsupportedMethod`。decmpfs の type 5 / 13 / 14
+  （dataless / LZBITMAP）・未知の type・fork 格納の属性は一覧のみ。暗号化 image（`encrcdsa`）、
+  segmented `.dmgpart` set、sparse image は非対応。
 - ZIP の同名メディア交換型 spanned、split PKSFX（先頭 `.exe`）、method 96 (JPEG) / 97 (WavPack)。
   `.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP と `.zip.001` バイト分割は対応。
 - 7z の RISC-V filter (method 0x0B) と、7-Zip ZS の LZ4 / Brotli / LZ5 / Lizard coder。
@@ -607,9 +610,12 @@ XADMaster は UDF を読めません。BIN/CUE などの生 sector image（2352 
 - RAR5 compression version 1、SFX と multi-volume の組合せ、サイズ不明の暗号化 stored entry（file copy の参照は参照先の本文を返す `.file` として公開）。
 - LHA `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-`（一覧はできるが読み取りは `unsupportedMethod`）。
 - CAB の Quantum（一覧のみ）と、複数 cabinet にまたがる file。
-- RPM の rpm 6 簡略 cpio (`07070X`)、drpm、cpio でない payload（圧縮済み payload を 1 entry として公開）。
-- cpio の PWB / newcx、HP-UX device number の解釈、device node の再作成（`.cpgz` / `.cpio.<codec>` と pbzx の Payload は展開して列挙）。
-- tar の旧 GNU sparse（typeflag `S`）と star / Solaris の sparse 表現（pax GNU.sparse 0.0 / 0.1 / 1.0 は展開）。
+- RPM の drpm、cpio でない payload、file list tags が不足した `07070X`（圧縮済み payload を 1 entry として公開）。
+  stripped `07070X`（rpm ≥ 4.12 の 4 GB 超 file、rpm 6 の既定）は header tags から名前・サイズ・mode を復元して列挙・読み取り可能。
+- cpio の PWB、HP-UX device number の解釈、device node の再作成（`.cpgz` / `.cpio.<codec>` と pbzx の Payload は展開して列挙）。
+  stripped `07070X` は RPM header が必要で、単体では検出しない。
+- tar の star / Solaris sparse（`SCHILY.filetype=sparse` / `SUN.holesdata`）は `unsupportedMethod`。
+  旧 GNU sparse（typeflag `S`、header 内の sparse 表と拡張 block）と pax GNU.sparse 0.0 / 0.1 / 1.0 は展開。
 - zstd / LZ4 の外部辞書。
 - StuffIt の method 4/7/9〜12 と classic の暗号 flag `0x10`、StuffIt X の Iron version 1・その他の
   前処理・Root 暗号・recovery・segment・base-N transport。
@@ -629,6 +635,9 @@ gzip、bzip2、xz、zstd、LZ4、LZMA (`.lzma`)、lzip (`.lz`)、brotli (`.br`)�
 > - ISO: raw 2352- and 2336-byte sectors, later sessions, interleaved or sparse expansion, and
 >   zisofs2 (ZF version 2). UDF: multi-volume sets, ext_ad, device / FIFO / socket files, and named
 >   streams other than the resource fork.
+> - Apple Disk Image: ADC (UDCO) chunks and APFS are `unsupportedMethod`. decmpfs types 5 / 13 / 14
+>   (dataless / LZBITMAP), unknown types and fork-stored attributes are listed only. Encrypted images
+>   (`encrcdsa`), segmented `.dmgpart` sets and sparse images are unsupported.
 > - ZIP: same-name removable-media spanning, split PKSFX (`.exe` first segment), and methods
 >   96 (JPEG) / 97 (WavPack). Split ZIP (`.z01`…`.zip` / `.zx01`…`.zipx`) and `.zip.001` byte splits are supported.
 > - 7z: the RISC-V filter (method 0x0B) and the LZ4 / Brotli / LZ5 / Lizard coders of 7-Zip ZS.
@@ -639,12 +648,15 @@ gzip、bzip2、xz、zstd、LZ4、LZMA (`.lzma`)、lzip (`.lz`)、brotli (`.br`)�
 >   target's content).
 > - LHA: `-pm1-`, `-pm2-`, `-lh2-` and `-lh3-` (listed, but reading fails with `unsupportedMethod`).
 > - CAB: Quantum (listed only) and a file that spans several cabinets.
-> - RPM: the simplified rpm 6 cpio (`07070X`), drpm, and any payload that is not cpio. Each of these is
->   exposed as a single entry holding the compressed payload.
-> - cpio: PWB and newcx, HP-UX device number interpretation, and recreating device nodes
+> - RPM: drpm, non-cpio payloads and `07070X` without usable file-list tags are exposed as one compressed
+>   payload entry. Stripped `07070X` (files over 4 GB since rpm 4.12; the default in rpm 6) can be listed
+>   and read, with names, sizes and modes restored from header tags.
+> - cpio: PWB, HP-UX device number interpretation, and recreating device nodes
 >   (`.cpgz` / `.cpio.<codec>` and pbzx payloads are expanded and listed).
-> - tar: old GNU sparse entries (typeflag `S`) and the star / Solaris sparse attributes (pax
->   GNU.sparse 0.0 / 0.1 / 1.0 are expanded).
+>   Stripped `07070X` requires an RPM header and is not detected as a standalone archive.
+> - tar: star / Solaris sparse attributes (`SCHILY.filetype=sparse` / `SUN.holesdata`) are `unsupportedMethod`.
+>   Old GNU sparse entries (typeflag `S`, in-header sparse table and extension blocks) and pax
+>   GNU.sparse 0.0 / 0.1 / 1.0 are expanded.
 > - zstd / LZ4: external dictionaries.
 > - StuffIt: methods 4/7/9–12 and the classic encryption flag `0x10`; StuffIt X: Iron version 1, the
 >   other preprocessors, Root-level encryption, recovery records, segments and base-N transport.

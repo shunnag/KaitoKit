@@ -13,13 +13,13 @@ final class WIMReaderTests: XCTestCase {
         return try XCTUnwrap(Data(base64Encoded: try String(contentsOf: url, encoding: .utf8), options: .ignoreUnknownCharacters))
     }
 
-    private static let manifest: [String: (size: UInt64, sha: String)] = {
+    private static let manifest: [String: (size: UInt64, sha: String, sha1: String?)] = {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Fixtures/wim/manifest.json")
         let json = try! JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
-        var result: [String: (UInt64, String)] = [:]
+        var result: [String: (UInt64, String, String?)] = [:]
         for (name, value) in json["payload"] as! [String: [String: Any]] {
-            result[name] = (UInt64(value["size"] as! Int), value["sha256"] as! String)
+            result[name] = (UInt64(value["size"] as! Int), value["sha256"] as! String, value["sha1"] as? String)
         }
         return result
     }()
@@ -134,6 +134,60 @@ final class WIMReaderTests: XCTestCase {
         let readme2 = try XCTUnwrap(reader.entries.first { $0.name == "2/readme.txt" })
         XCTAssertEqual(try reader.read(readme1), try reader.read(readme2))
         XCTAssertEqual(sha(try reader.read(readme2)), Self.manifest["readme.txt"]?.sha)
+    }
+
+    func testXpress4KiBAnd64KiBChunksListReadHashAndReopen() throws {
+        let files = ["chunk-note.txt", "chunk-span.bin", "chunk-large.bin"]
+        for (name, chunkSize): (String, UInt64) in [("xpress-4k.wim", 4096), ("xpress-64k.wim", 65536)] {
+            let data = try Self.fixture(name)
+            let options = ReaderOptions(limits: ReadLimits(maxDictionarySize: chunkSize))
+            let reader = try ArchiveReader.open(data: data, options: options)
+            XCTAssertEqual(reader.entries.map(\.name).sorted(), files.sorted(), name)
+            let reopened = try reader.reopen()
+            XCTAssertEqual(reopened.entries, reader.entries, name)
+            for entry in reader.entries {
+                let expected = try XCTUnwrap(Self.manifest[entry.name])
+                XCTAssertEqual(entry.uncompressedSize, expected.size, name)
+                XCTAssertEqual(entry.methodDescription, "WIM XPRESS", name)
+                XCTAssertEqual(entry.formatSpecific["sha1"], try XCTUnwrap(expected.sha1), name)
+                let output = try reader.read(entry)
+                XCTAssertEqual(Insecure.SHA1.hash(data: output).map { String(format: "%02x", $0) }.joined(), expected.sha1, name)
+                XCTAssertEqual(sha(output), expected.sha, name)
+                XCTAssertEqual(sha(try read(reader.stream(entry), chunk: 1003)), expected.sha, name)
+                XCTAssertEqual(sha(try reopened.read(reopened.entries[entry.index])), expected.sha, name)
+            }
+            XCTAssertThrowsError(try ArchiveReader.open(data: data, options: ReaderOptions(limits: ReadLimits(maxDictionarySize: chunkSize - 1)))) {
+                guard case .limitExceeded = $0 as? KaitoError else { return XCTFail("\($0)") }
+            }
+        }
+    }
+
+    func testUnsupportedWIMChunkSizesRemainNamed() throws {
+        for (name, sizes) in [("xpress.wim", [2048, 4097, 65535, 131072]), ("lzx.wim", [65536])] {
+            for size in sizes {
+                var data = try Self.fixture(name)
+                for byte in 0..<4 { data[20 + byte] = UInt8(truncatingIfNeeded: size >> (8 * byte)) }
+                XCTAssertThrowsError(try ArchiveReader.open(data: data)) {
+                    XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("WIM chunk size \(size)"))
+                }
+            }
+        }
+    }
+
+    func test64KiBChunkKeepsCompressedInputSlackLimit() throws {
+        let packedSize = 65536 + 65536 + 1
+        var header = [UInt8](repeating: 0, count: 24)
+        for byte in 0..<7 { header[byte] = UInt8(truncatingIfNeeded: packedSize >> (8 * byte)) }
+        header[7] = WIMResourceHeader.flagCompressed
+        header[18] = 1 // 展開後サイズ 65536。
+        let decoder = try WIMResourceDecompressor(
+            source: DataByteSource(data: Data(repeating: 0, count: packedSize)),
+            resource: WIMResourceHeader(header, 0), chunkSize: 65536, compression: .xpress, limits: ReadLimits()
+        )
+        var buffer = [UInt8](repeating: 0, count: 1)
+        XCTAssertThrowsError(try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("wim compressed chunk too large"))
+        }
     }
 
     func testStructuralDamageAndLimits() throws {

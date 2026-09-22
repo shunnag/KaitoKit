@@ -339,7 +339,7 @@ RPM reader の形式入力は、利用者が rpmbuild 6.1.0 の project-owned pa
 許可資料は Linux Standard Base「Package File Format」、rpm(8)、rpm.org の prose、
 RFC 1950/1951/1952。この作業では外部資料の追加取得も他の実装 source の閲覧も行っていない。
 rpm の C source、libarchive、7-Zip/p7zip、XADMaster、The Unarchiver、dpkg の
-source は開かず、参照・引用していない。fixture の再生成も行っていない。
+source は開かず、参照・引用していない。当時の検証では fixture の再生成も行っていない。
 signature header だけを 8-byte 境界へ進め、main header の直後から EOF までを payload とする。
 既存 SingleFileMaterializer / codec / CpioReader を再利用し、対応 cpio の entry を直接公開する。
 container identity は `.rpm` を保持し、cpio metadata に RPM metadata を非破壊で追加する。
@@ -483,11 +483,44 @@ codec は宣言 tag ではなく **payload 先頭の magic** で決める。`RPM
 `rpmPayloadCompressorDetected` を併記する。payload の復号に失敗した場合は
 blob へ fallback せず開封時に失敗させる。壊れたデータを黙って別の形で見せない。
 
-rpm 6 の簡略 cpio(`07070X`)は圧縮済み payload を 1 entry として出す
-(`cooViewer-c1vj.4`)。zstd payload は 2026-09-12 より cpio へ降りる (`cooViewer-c1vj.3`)。
+rpm 6 の簡略 cpio(`07070X`)は当初 blob で公開したが、2026-09-22 より下記の file list 復元で中へ降りる。
+zstd payload は 2026-09-12 より cpio へ降りる (`cooViewer-c1vj.3`)。
 以前の比較では XADMaster は中へ降りられず、しかも無圧縮 payload を
 `.cpio.gz`、zstd payload を拡張子なしと誤って命名する。
 検証値・再実行手順は [RPM 検証記録](verification/2026-09-09-rpm.md)。
+
+追補(2026-09-22): stripped cpio の形式入力は、ruling 1 で許可された rpm.org manual の prose
+（GPL-2.0-or-later）と、rpm 6.1.0 の `rpmbuild` / `rpm` / `rpm2cpio` の黒箱出力である。
+`inbox/rpm/` のコピーは `SHA256SUMS` と照合済み。参照した資料の SHA-256 は次のとおり。
+
+| 資料 | SHA-256 |
+| --- | --- |
+| `format_v4.md` | `4ed5c3fc49f6174095d3f6a89eebf4de64bea9f800c6d9e78cba2380db514d25` |
+| `format_v6.md` | `1116a9d64b63abe2a48c540be9fdd8e3c57f5095d42f312f1d62cf506e28d430` |
+| `large_files.md` | `7b13b84390cee0b92432911fc66129d85ff167ae72db691efba67e7f486d5d55` |
+| `tags.md` | `52dcecb1d36d5a485dc4617d40d5d80b0a3b19d8ba3fab129ea6191675879b9a` |
+| `format_header.md` | `70f10216b1bc7039e015f2d4a8642db349f6a5515ddfe46b07b24e5a8066a645` |
+| `rpm-payloadflags.7` | `d77fdb59f0b40a40f86a29ad364e521fed9bb45befd72d09ab3c8b162216a711` |
+| `COPYING` | `741781a756ecbe7cadd57ce9df2e4f9f8209cfe5f6f8488a035367d3a47382da` |
+
+prose の範囲は rpm ≥ 4.12 の 4 GB 超 file、v6 の常用、8 桁 index と header tags、unsigned BE 配列、
+UTF-8、LONGFILESIZES、RPMFORMAT(5114)、互換 lead major=4 である。利用者の黒箱計測 1〜6 は、
+自作の同一 spec を v6 zstd / v6 gzip / v4 gzip にして再確認した。(1) `07070X` + 8 桁 hex + NUL 2 byte、
+本文の 4-byte padding、(2) 通常 file の header size / symlink の target 本文 / directory の 0-byte member、
+hard link の非 ghost 最大 file index だけが本文を持つこと、(3) ghost index の欠落、
+(4) 最後の classic newc `TRAILER!!!`、(5) `rpm2cpio` の 0-byte placeholder と `rpm -qp --qf` の値、
+(6) v4 / v6 の名前・種類・本文長・SHA-256 一致を確認した。圧縮 codec は既存 staging を共有する。
+今回直接生成した codec は zstd / gzip、stored はテスト中の再包装で検証した。
+
+設計は `RpmFileList` の整合性・件数・保持量を先に制限し、payload 順とは独立に (dev, ino) の非 ghost
+通常 file をまとめ、最大 file index を carrier にする。ghost は省略し、先行 placeholder の本文は補完しない。
+名前は絶対 path に「.」を付けて rpm の newc と揃える。`hardLinkGroup` の先頭値には carrier の公開 entry index を使う
+（既存 `CpioReader` の同じ文字列形式では連結書庫番号）。SHA-256 は本文の完全読取時に検証する。
+trailer は `CpioHeader` の newc 解析を使い、全非 ghost member の出現と厳密な終端、後続 NUL ≤ 512 byte を要求する。
+既存 `CpioReader` は実際には NUL を 1 MiB まで走査し、trailer 後の連結書庫・未知の末尾も許すため、
+この 512-byte 制約は stripped 専用の判断である。bare `07070X` の detector は変更しない。
+rpm / libarchive / 7-Zip / XADMaster の実装 source は開いていない。Web 取得・追加 install も無い。
+全コマンド出力と既存 v6 fixture の再確認は [stripped payload 検証記録](verification/2026-09-22-rpm-stripped-payload.md)。
 
 
 CAB reader の形式入力は Microsoft の公開仕様 [MS-CAB]、RFC 1951、zlib manual と、
@@ -648,6 +681,11 @@ Swap2/Swap4の実装入力は公式 `Methods.txt` のID、既存 `Decompressor` 
 配置と 5 byte の properties）だけである。7-Zip ZS / NanaZip / p7zip / libarchive の source は
 開いていない。[2026-09-20 の検証記録](verification/2026-09-20-sevenzip-zstd.md)。
 
+7z Deflate64 coder（2026-09-22）の実装入力は公式 `Methods.txt` の ID `04 01 09`、
+既存 `Deflate64Decompressor`（記録済みの RFC 1951 + APPNOTE Deflate64 拡張）、
+および 7zz 26.03 の black-box 出力だけである。7-Zip / p7zip / libarchive / XADMaster の
+source は開いていない。[2026-09-22 の検証記録](verification/2026-09-22-sevenzip-deflate64.md)。
+
 lzip（2026-09-20）の実装入力は draft-diaz-lzip-14 §2 "File Format" の散文だけである。
 `inbox/lzip/draft-diaz-lzip-14-prose.txt`（SHA-256
 `52e63dc6e3e4ded7f1c389d1ba341ea0d47bd28c5602c10eda37e48566f6f6bf`）は §3.1–3.5（lzd 参照実装に
@@ -696,6 +734,22 @@ header を含む（7-Zip が symlink を作る）。7-Zip は compressed WIM を
 7-Zip / wimlib / Windows の WIM・LZX・XPRESS 実装 source は開いていない。
 [2026-09-21 の検証記録](verification/2026-09-21-wim.md)。
 
+WIM の XPRESS chunk 拡張（2026-09-22）は同じ whitepaper の header offset 20 の欄、[MS-XCA]、
+自作 encoder の出力を 7zz 26.03 が復元する黒箱観察を入力とした。whitepaper はこの欄を
+`dwCompressionSize` と呼び圧縮 file のサイズと説明するが、chunk size としての意味と 4〜64 KiB の
+受理範囲は黒箱で確認した。LZX は 32 KiB のまま。第三者実装 source は開いていない。
+
+XZ の RISC-V エラー分類（2026-09-22）の追加入力は public domain の
+[`xz-file-format.txt` v1.2.1](https://tukaani.org/xz/xz-file-format.txt) §5.3.2 の ID 表だけで、
+filter の実装は取り込んでいない。既存 xz 5.8.4 同梱の同版を `inbox/xz/` に複製し、
+`SHA256SUMS` で固定した。xz CLI は fixture の生成・展開にだけ使った。
+
+tar の旧 GNU `S` 型（2026-09-22）は libarchive `tar(5)`（BSD-2-Clause）の header / sparse 拡張の
+散文と、bsdtar / Python tarfile の黒箱観察だけを入力とした。man page の fragment ごとの padding という
+説明に反し、非整列 fragment を連結し本文全体だけ 512 byte に揃えると両 reader が原本と一致した。
+GNU tar / libarchive / Python tarfile の実装 source は開いていない。
+以上の[検証記録](verification/2026-09-22-small-method-gaps.md)。
+
 ZIP / tar の AppleDouble sidecar 方針（2026-09-21）の実装入力は Apple の公開 developer note
 "AppleSingle/AppleDouble Formats for Foreign Files"（1990）の header 記述（既存の StuffIt AppleSingle unwrap と
 同じ出自）と、macOS の `ditto -c -k --sequesterRsrc` / bsdtar が書く sidecar の黒箱観察（Finder 情報 + xattr の
@@ -726,11 +780,53 @@ Format"（`inbox/dmg/tn1150.html`）の構造体と散文（volume header、fork
 である。CC0 の Archive Team wiki（Apple Disk Image）と Jonathan Levin の "Demystifying the DMG File Format"（2013、
 license 表示無し）は照合にだけ用いた。hdiutil の ULMO chunk が xz container であること、blkx の Name が空で CFName も
 空になること、hdiutil が partition 表を GPT にすることは hdiutil 出力の黒箱観察。decmpfs（HFS+ 圧縮）の on-disk 形式は
-TN1150 に無く Apple の header file（APSL）は開いていないので、UF_COMPRESSED の file は一覧だけにした。ADC（UDCO）の
+TN1150 に無く Apple の header file（APSL）は開いていないので、UF_COMPRESSED の file は一覧だけにした（当初の判断。下記 decmpfs 追補で対応を追加）。ADC（UDCO）の
 bitstream にも公開の記述が無い。fixture は macOS の hdiutil（create / convert / makehybrid）、HFS+ driver、ditto が
 書いた image で、真値は `hdiutil attach` した実体、独立 reader は 7-Zip（hard link と decmpfs と resource fork は
-7-Zip の見え方が異なるため mount だけで確認）。libdmg / dmg2img / 7-Zip / XADMaster / hfsplus / libhfs などの実装 source
+当初 mount だけで確認。decmpfs の 7-Zip 展開照合は下記追補）。libdmg / dmg2img / 7-Zip / XADMaster / hfsplus / libhfs などの実装 source
 は開いていない。[2026-09-22 の検証記録](verification/2026-09-22-dmg.md)。
+
+
+HFS+ decmpfs（2026-09-22 追補）の実装入力は Joachim Metz "Hierarchical File System (HFS)"（libyal/libfshfs の
+GFDL 1.3 文書、裁定 1、`inbox/dmg/libfshfs-hfs.asciidoc`、SHA-256
+`26cfeafc3b35f3d78e93bd5e7615ab7cc4e87e2b4b4c45f78f978a52e8b6d470`）の "The HFS+ attributes file" /
+"Compressed data extended attribute" / "File content" の散文と表、TN1150 の Attributes File 章
+（`inbox/dmg/tn1150.txt` 2852–2970 行）、chflags(2)、利用者の orchestrator が提供した次の黒箱観察である。
+Apple Compression は観測した LZFSE block envelope を介して LZVN を、直接 LZFSE を復号するために使う。
+
+1. attributes fork は ID 8。key は BE の CNID / startBlock / UTF-16 名、data は偶数境界。対象名は大小文字を区別する
+   `com.apple.decmpfs`。観測された属性は inline（0x10）。0x20 は fork data、0x30 は追加 extents。
+2. 属性の先頭は `fpmc`、type（u32 LE）、展開長（u64 LE）の計 16 byte。
+3. type 1 / 9 は stored inline（1 は raw、9 は `0xCC` + raw）、3 / 4 は zlib、7 / 8 は LZVN、10 は stored resource、11 / 12 は LZFSE。
+   5（dataless / sparse、driver は EAGAIN）と 13 / 14（LZBITMAP）は一覧のみで、本文は unsupportedMethod。
+4. resource fork は 65,536 byte ごとの chunk。個数は展開長を 65,536 で切り上げた値、空なら 0。
+5. type 8 / 10 / 12 は先頭の u32 LE offset 表から範囲を得る。raw marker はそれぞれ 0x06 / 0xCC / 0xFF。
+6. type 4 は BE resource envelope の dataOffset を使う。count / descriptor は LE、offset は dataOffset + 4 起点。
+   raw marker は 0xFF。zlib は Deflate 最終 block を持つが Adler-32 を欠く実物があり、末尾 0–4 byte を許容する。
+7. LZVN は `bvxn` + raw size + payload size + payload + `bvx$` で包む。復号先は raw size ちょうど。
+   失敗時は末尾の 0 を除去し、なお失敗なら後ろから 0x06 で切った prefix を最大 64 個試す（長い padding の観測）。
+8. inline の zlib / LZVN / LZFSE も同じ復号と raw marker（type 3 は `0xFF` + raw を許す）。
+   type 1 は payload 長 = 展開長。type 9 は `0xCC` が必須で payload 長 = 展開長 + 1（orchestrator の追試で FACT 8 を訂正）。
+9. `setxattr(..., XATTR_SHOWCOMPRESSION)` と `chflags(UF_COMPRESSED)` で合成した属性 / fork を HFS+ driver が
+   読む。type 4 の 50 byte の cmpf resource map も黒箱で確定。空の type 1 を含め原本との cmp を真値とする。
+
+追試では `compression_decode_buffer` が切り詰めた LZVN にも宣言長を返す反例を得たため、実装は
+`compression_stream_process` の END・実出力長・入力消費長を検証する。stream API で切った EOS 候補を
+受理させるには 7 byte の 0 padding が必要で、除去後の候補に補う。観察 7 からの変更と実測出力は検証記録に残す。
+
+Apple の decmpfs / xnu headers（decmpfs.h / hfs_format.h）、libarchive、The Sleuth Kit、afsctool、lzfse、
+libfshfs C code、dmg2img、7-Zip、XADMaster その他の実装 source は開いていない。fixture generator は hdiutil / ditto /
+HFS+ driver と Apple Compression を黒箱で使う。orchestrator の黒箱観察（裁定 4）では 7-Zip 26.03 は
+type 3 / 4 / 7 / 8 / 9 を byte 一致で展開し、1 / 10 / 11 / 12 / 13 は空 file、壊れた type 4 は Data Error にする。
+生成器は一覧に加えて対応 5 type を `7zz x` / `cmp` で照合し、成功した file を manifest の `sevenZipVerified` に記録する。
+同じ追試で ditto は圧縮可能な入力でも 16,384 byte 以下は非圧縮、16,385–65,536 byte は type 7、
+300,000 byte は type 8（5 chunk）と確認された。orchestrator が sandbox 外で新 image と manifest の生成を完了し、
+読める 11 file の mount / KaitoKit 照合、対応 5 type の 7zz 展開照合、新 image を含むテストが通過した。
+実物も 20 MB の raw HFS+ image で Apple の属性 / resource fork をそのまま移し、type 4 の最大 499 chunk、
+type 8 の web2（39 chunk）・長い 0 padding・raw chunk と ditto の type 7 / 8 を原本の SHA-256 と照合した。
+dict からの直接コピーは source の SIP restricted flag で ditto に拒否されたため、属性 / fork の組を移した。
+以前の sandbox エラー、FACTS の訂正、既存 fixture・新 image・実物の実行結果は
+[検証記録](verification/2026-09-22-hfsplus-decmpfs.md)を参照。
 
 ARJ（2026-09-21）の実装入力は ARJ 2.86 配布物（`inbox/arj/arj286.exe`、sac.sk から取得、SHA256SUMS）に含まれる
 TECHNOTE.TXT（2005 年 9 月版）の散文と、CC0 の Archive Team wiki "ARJ"（fileformats.archiveteam.org、

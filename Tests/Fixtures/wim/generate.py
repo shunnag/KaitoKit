@@ -3,7 +3,7 @@
 
 Writes Windows Imaging files from a project-owned payload with three resource codings:
   - stored (RESHDR flags without COMPRESSED),
-  - XPRESS (Microsoft [MS-XCA] LZ77+Huffman, one block per 32 KiB chunk),
+  - XPRESS（Microsoft [MS-XCA] LZ77+Huffman、4〜64 KiB chunk ごとに 1 block）、
   - LZX (the WIM variant of [MS-PATCH] LZX: no E8 header bit, E8 translation size 12,000,000,
     block header "type(3) + 1 bit default-size flag or 16-bit size", 32 KiB window, per-chunk streams;
     these WIM specifics were pinned black-box against a Microsoft-written boot.wim, see
@@ -288,11 +288,11 @@ FILETIME = 133_800_000_000_000_000        # a fixed 2025 timestamp (100 ns since
 def reshdr(size, flags, offset, original):
     return size.to_bytes(7, "little") + bytes([flags]) + struct.pack("<qq", offset, original)
 
-def compress_resource(data, method, variant=0):
+def compress_resource(data, method, variant=0, chunk_size=CHUNK):
     """Returns (bytes, flags) for one resource."""
     if method == "stored" or not data:
         return data, 0
-    chunks = [data[i:i + CHUNK] for i in range(0, len(data), CHUNK)]
+    chunks = [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
     encoded = []
     for index, chunk in enumerate(chunks):
         if method == "xpress":
@@ -356,7 +356,7 @@ def build_metadata(tree, hashes, hardlinks=None, ads=None, reparse=None):
     struct.pack_into("<Q", out, root_offset + 16, children)
     return bytes(out)
 
-def build_wim(images, method, resources_override=None, variant=0):
+def build_wim(images, method, resources_override=None, variant=0, chunk_size=CHUNK):
     """images: list of trees ({path: bytes|dict}); duplicate contents share one resource."""
     flags = 0x80 | (FLAG_COMPRESSION | (FLAG_LZX if method == "lzx" else FLAG_XPRESS) if method != "stored" else 0)
     blobs = {}       # sha1 -> data
@@ -374,7 +374,7 @@ def build_wim(images, method, resources_override=None, variant=0):
     offset = 208
     for digest, data in blobs.items():
         if not data: continue
-        encoded, rflags = compress_resource(data, method, variant)
+        encoded, rflags = compress_resource(data, method, variant, chunk_size)
         lookup.append(reshdr(len(encoded), rflags, offset, len(data)) + struct.pack("<HI", 1, 1) + digest)
         body += encoded; offset += len(encoded)
     metadata_entries = []
@@ -390,7 +390,7 @@ def build_wim(images, method, resources_override=None, variant=0):
             for stream_name, data in streams.items(): hashes[full + ":" + stream_name] = hashlib.sha1(data).digest()
         ads = {full: list(streams) for full, streams in extras.get("ads", {}).items()}
         metadata = build_metadata(tree, hashes, extras.get("hardlinks"), ads, extras.get("reparse"))
-        encoded, rflags = compress_resource(metadata, method, variant)
+        encoded, rflags = compress_resource(metadata, method, variant, chunk_size)
         metadata_entries.append(reshdr(len(encoded), RES_METADATA | rflags, offset, len(metadata))
                                 + struct.pack("<HI", 1, 1) + hashlib.sha1(metadata).digest())
         body += encoded; offset += len(encoded)
@@ -402,7 +402,7 @@ def build_wim(images, method, resources_override=None, variant=0):
     xml_offset = offset
     header = bytearray(208)
     header[0:8] = b"MSWIM\0\0\0"
-    struct.pack_into("<IIII", header, 8, 208, 0x10D00, flags, CHUNK if method != "stored" else 0)
+    struct.pack_into("<IIII", header, 8, 208, 0x10D00, flags, chunk_size if method != "stored" else 0)
     header[24:40] = hashlib.md5(table).digest()
     struct.pack_into("<HHI", header, 40, 1, 1, len(images))
     # 7-Zip and Microsoft's own writer set the METADATA flag on the header's table / XML entries (black-box).
@@ -442,6 +442,27 @@ def store(name, data, manifest, note):
     (HERE / f"{name}.b64").write_text(base64.encodebytes(data).decode())
     manifest[name] = {"size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "note": note}
     print(f"{name}: {len(data)} bytes")
+
+def add_chunk_size_fixtures(manifest, tmp):
+    """既存 fixture に小さな 4 / 64 KiB XPRESS 標本を加える。"""
+    payload = {
+        "chunk-note.txt": b"KaitoKit XPRESS chunk sizes\n",
+        "chunk-span.bin": (bytes(range(251)) * 50)[:12503],
+        "chunk-large.bin": (bytes(range(251)) * 279)[:70001],
+    }
+    for name, data in payload.items():
+        manifest["payload"][name] = {
+            "size": len(data), "sha1": hashlib.sha1(data).hexdigest(),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+    for chunk_size in [4096, 65536]:
+        name = f"xpress-{chunk_size // 1024}k.wim"
+        data = build_wim([(nest(payload), {})], "xpress", chunk_size=chunk_size)
+        path = tmp / name
+        path.write_bytes(data)
+        verify_with_7zz(path, payload)
+        print(f"7zz x: {name}: {len(payload)} files byte-identical")
+        store(name, data, manifest, f"自作 XPRESS encoder、{chunk_size} byte chunk、7zz x で全 file 一致")
 
 def main():
     manifest = {"payload": {}}
@@ -483,6 +504,7 @@ def main():
             (src / rel).parent.mkdir(parents=True, exist_ok=True); (src / rel).write_bytes(data)
         subprocess.run(["7zz", "a", "-twim", "-bso0", "-bsp0", str(tmp / "sevenzip.wim"), str(src) + "/*"], check=True)
         store("sevenzip-copy.wim", (tmp / "sevenzip.wim").read_bytes(), manifest, "7-Zip 26.03 `a -twim` (stored)")
+        add_chunk_size_fixtures(manifest, tmp)
     (HERE / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
 
 if __name__ == "__main__":

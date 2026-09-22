@@ -462,8 +462,13 @@ final class CLISmokeTests: XCTestCase {
         XCTAssertTrue(listing.contains("\t200000\tfile\tHFS+ (stored)\tplain\tfragmented.bin"), listing)
         XCTAssertTrue(listing.contains("\t20\tfile\tHFS+ (stored)\tplain\treadme.txt/..namedfork/rsrc\tfork=resource"), listing)
         XCTAssertTrue(listing.contains("\tsymlink\tHFS+ (stored)\tplain\tlink-to-nested"), listing)
-        XCTAssertTrue(listing.contains("\tfile\tHFS+ compressed (decmpfs)\tplain\tcompressed.txt"), listing)
-        // decmpfs の file は `sha` で失敗として数えられる（終了コード非 0）ので、その file を持たない raw image で確かめる。
+        XCTAssertTrue(listing.contains("\t57000\tfile\tHFS+ decmpfs (LZVN)\tplain\tcompressed.txt"), listing)
+        let compressedHashes = try runKaito(executable, arguments: ["sha", url.path])
+        let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("Fixtures/dmg/manifest.json"))) as? [String: Any]
+        let payload = manifest?["payload"] as? [String: [String: Any]]
+        let compressedSHA = try XCTUnwrap(payload?["compressed.txt"]?["sha256"] as? String)
+        XCTAssertTrue(compressedHashes.contains("\(compressedSHA)\tcompressed.txt"), compressedHashes)
+        XCTAssertFalse(compressedHashes.contains("ERROR"), compressedHashes)
         let rawText = try String(contentsOf: root.appendingPathComponent("Fixtures/dmg/hfs-raw.dmg.gz.b64"), encoding: .utf8)
         let rawGzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: rawText, options: .ignoreUnknownCharacters)))
         let rawURL = temp.appendingPathComponent("hfs-raw.dmg")

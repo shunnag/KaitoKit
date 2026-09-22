@@ -116,10 +116,9 @@ final class RpmReaderTests: XCTestCase {
         }
     }
 
-    func testSourceAndBlobFixturesMatchEveryGoldenRow() throws {
+    func testSourceFixtureMatchesGoldenRow() throws {
         for (variant, expected) in [
-            ("src", Row("t.spec", 644, "88c78ecac96f3da9bffd0099da3d31e9f4bee59f8d1d0f40a9e2029db99342ab")),
-            ("v6", Row("kaitotest.cpio.gz", 418, "5e8621a9c3769319a89f5da60e48490db631133c4a78e21fa240229acbb9e7bb"))
+            ("src", Row("t.spec", 644, "88c78ecac96f3da9bffd0099da3d31e9f4bee59f8d1d0f40a9e2029db99342ab"))
         ] {
             let bytes = try fixture(variant)
             XCTAssertEqual(try FormatDetector.detect(data: bytes), .rpm)
@@ -129,13 +128,17 @@ final class RpmReaderTests: XCTestCase {
             XCTAssertEqual(try rows(reader), [expected], variant)
             let entry = try XCTUnwrap(reader.entries.first)
             XCTAssertEqual(entry.formatSpecific["rpmName"], "kaitotest")
-            XCTAssertEqual(entry.formatSpecific["rpmSourcePackage"], variant == "src" ? "true" : nil)
-            if variant != "src" {
-                XCTAssertEqual(entry.formatSpecific["rpmArch"], "noarch")
-                XCTAssertTrue(entry.methodDescription.hasPrefix("rpm payload"))
-                XCTAssertEqual(try reader.read(entry), Data(bytes.dropFirst(layout(bytes).payload)))
-            }
+            XCTAssertEqual(entry.formatSpecific["rpmSourcePackage"], "true")
         }
+    }
+
+    func testExistingV6FixtureListsAndReadsEveryFile() throws {
+        let reader = try ArchiveReader.open(data: fixture("v6"))
+        XCTAssertEqual(try rows(reader), binaryRows)
+        XCTAssertEqual(reader.entries.map(\.kind), [.directory, .file, .file, .symlink, .directory, .file])
+        XCTAssertEqual(reader.entries[3].formatSpecific["linkPath"], "a.txt")
+        XCTAssertEqual(reader.entries[0].formatSpecific["rpmFormat"], "6")
+        XCTAssertEqual(try reader.reopen().entries, reader.entries)
     }
 
     // parser の計算を共有せず、利用者の配置式から mutation 位置を求める。
@@ -170,6 +173,7 @@ final class RpmReaderTests: XCTestCase {
             case KaitoError.limitExceeded: category = "limit"
             case KaitoError.unsupportedFormat: category = "format"
             case KaitoError.notFound: category = "notFound"
+            case KaitoError.checksumMismatch: category = "checksum"
             default: category = String(describing: error)
             }
             XCTAssertEqual(category, expected, file: file, line: line)
@@ -259,7 +263,7 @@ final class RpmReaderTests: XCTestCase {
     func testNonCpioAndDrpmFallbackPreserveRawBytesAndExtensions() throws {
         for variant in ["gzip", "none"] {
             let original = try fixture(variant)
-            for plain in [Data("not a cpio archive".utf8), Data(), Data("07070X".utf8)] {
+            for plain in [Data("not a cpio archive".utf8), Data()] {
                 let payload = variant == "gzip" ? gzipStored(plain) : plain
                 let bytes = Data(original.prefix(layout(original).payload)) + payload
                 let reader = try ArchiveReader.open(data: bytes)
@@ -270,6 +274,9 @@ final class RpmReaderTests: XCTestCase {
                 XCTAssertEqual(entry.methodDescription, "rpm payload (\(variant == "gzip" ? "gzip" : "stored"))")
                 XCTAssertEqual(try reader.read(entry), payload)
             }
+            let short = Data("07070X".utf8)
+            let bytes = Data(original.prefix(layout(original).payload)) + (variant == "gzip" ? gzipStored(short) : short)
+            assertError("truncated") { _ = try ArchiveReader.open(data: bytes) }
         }
         for variant in variants {
             var bytes = try fixture(variant)
@@ -308,5 +315,298 @@ final class RpmReaderTests: XCTestCase {
         for limits in [ReadLimits(maxEntrySize: 100), ReadLimits(maxEntryCount: 0), ReadLimits(maxPathComponentCount: 0)] {
             assertError("limit") { _ = try ArchiveReader.open(data: fixture("zstd"), options: ReaderOptions(limits: limits)) }
         }
+    }
+
+    private struct Oracle: Decodable {
+        struct PayloadRow: Decodable {
+            let name, mode, sha256: String
+            let size: UInt64
+            let nlink: Int
+        }
+        struct Stripped: Decodable {
+            struct Member: Decodable {
+                let index, headerOffset, dataOffset, size: Int
+            }
+            let rows: [Member]
+            let trailerOffset: Int
+        }
+        let payloadRows: [PayloadRow]
+        let stripped: Stripped?
+    }
+
+    private func oracles() throws -> [String: Oracle] {
+        struct Manifest: Decodable { let packages: [String: Oracle] }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let bytes = try Data(contentsOf: root.appendingPathComponent("Fixtures/container/rpm-stripped-manifest.json"))
+        return try JSONDecoder().decode(Manifest.self, from: bytes).packages
+    }
+
+    func testStrippedAndClassicFixturesMatchIndependentPayloadDigestsAndMetadata() throws {
+        let oracles = try oracles()
+        var baseline: [ArchiveEntry]?
+        var golden: [Row]?
+        for variant in ["stripped-v4-gzip", "stripped-v6-zstd", "stripped-v6-gzip"] {
+            let reader = try ArchiveReader.open(data: fixture(variant))
+            let oracle = try XCTUnwrap(oracles["rpm-" + variant])
+            let expected = oracle.payloadRows.map { Row($0.name, $0.size, $0.sha256) }
+            let actual = try rows(reader)
+            XCTAssertEqual(actual, expected, variant)
+            XCTAssertEqual(reader.entries.count, 10)
+            XCTAssertFalse(reader.entries.contains { $0.name.contains("ghost") })
+            let sorted = reader.entries.sorted { $0.name < $1.name }
+            if let baseline, let golden {
+                XCTAssertEqual(sorted.map(\.name), baseline.map(\.name))
+                XCTAssertEqual(sorted.map(\.kind), baseline.map(\.kind))
+                XCTAssertEqual(sorted.map(\.uncompressedSize), baseline.map(\.uncompressedSize))
+                XCTAssertEqual(sorted.map(\.methodDescription), baseline.map(\.methodDescription))
+                XCTAssertEqual(sorted.map(\.posixPermissions), baseline.map(\.posixPermissions))
+                XCTAssertEqual(sorted.map(\.modificationDate), baseline.map(\.modificationDate))
+                XCTAssertEqual(actual.sorted { $0.name < $1.name }, golden)
+            } else {
+                baseline = sorted
+                golden = actual.sorted { $0.name < $1.name }
+            }
+            for (entry, reference) in zip(reader.entries, oracle.payloadRows) {
+                let mode = try XCTUnwrap(UInt32(reference.mode.dropFirst(2), radix: 8))
+                XCTAssertEqual(entry.posixPermissions, UInt16(mode & 0o7777))
+                XCTAssertEqual(entry.compressedSize, entry.uncompressedSize)
+                XCTAssertEqual(entry.formatSpecific["nlink"], String(reference.nlink))
+                if variant.contains("v6") {
+                    XCTAssertEqual(entry.formatSpecific["rpmFormat"], "6")
+                    XCTAssertEqual(entry.formatSpecific["rpmFileDigestAlgorithm"], "8")
+                    XCTAssertNil(entry.formatSpecific["uid"])
+                    XCTAssertNil(entry.formatSpecific["gid"])
+                    XCTAssertEqual(entry.methodDescription, "cpio (stored)")
+                    if entry.kind == .file, reference.size > 0 {
+                        XCTAssertEqual(entry.formatSpecific["rpmFileDigest"], reference.sha256)
+                    }
+                }
+            }
+            let symlink = try XCTUnwrap(reader.entries.first { $0.kind == .symlink })
+            XCTAssertEqual(symlink.formatSpecific["linkPath"], "日本語.txt")
+            XCTAssertEqual(try reader.read(symlink), Data("日本語.txt".utf8))
+            let reopened = try reader.reopen()
+            XCTAssertEqual(reopened.entries, reader.entries)
+            XCTAssertEqual(try rows(reopened), actual)
+        }
+    }
+
+    func testStrippedHardLinksUseHighestNonGhostFileIndexRegardlessOfOrder() throws {
+        let (rpm, payload, oracle) = try strippedPayload()
+        // carrier を先頭へ移す。後続 placeholder のサイズは走査順に依存しない。
+        var reordered = Data()
+        let members = oracle.rows
+        for i in [7, 9, 8, 6, 5, 4, 3, 2, 1, 0] {
+            let end = i + 1 < members.count ? members[i + 1].headerOffset : oracle.trailerOffset
+            reordered.append(payload[members[i].headerOffset..<end])
+        }
+        reordered.append(payload[oracle.trailerOffset...])
+        let reader = try ArchiveReader.open(data: wrapped(reordered, in: rpm))
+        XCTAssertEqual(reader.entries.map { $0.formatSpecific["rpmFileIndex"] }, ["4", "8", "7", "3", "2", "11", "6", "5", "1", "0"])
+        for (prefix, carrierIndex, count, carrierFile) in [("hard-", 0, 3, "4"), ("partial-", 1, 2, "8")] {
+            let set = reader.entries.filter { $0.name.contains("/" + prefix) }
+            XCTAssertEqual(set.count, count)
+            let carrier = reader.entries[carrierIndex]
+            let dev = try XCTUnwrap(carrier.formatSpecific["dev"])
+            let ino = try XCTUnwrap(carrier.formatSpecific["ino"])
+            for entry in set {
+                XCTAssertEqual(entry.formatSpecific["nlink"], String(count))
+                XCTAssertEqual(entry.formatSpecific["hardLinkGroup"], "\(carrierIndex):\(dev):\(ino)")
+                if entry.formatSpecific["rpmFileIndex"] == carrierFile {
+                    XCTAssertGreaterThan(try reader.read(entry).count, 0)
+                } else {
+                    XCTAssertEqual(entry.uncompressedSize, 0)
+                    XCTAssertEqual(try reader.read(entry), Data())
+                }
+            }
+        }
+    }
+
+    private func strippedPayload() throws -> (Data, Data, Oracle.Stripped) {
+        let rpm = try fixture("stripped-v6-gzip")
+        let compressed = Data(rpm.dropFirst(layout(rpm).payload))
+        let reader = try SingleFileReader(source: DataByteSource(compressed), format: .gzip,
+            options: ReaderOptions(), fallbackFileName: nil)
+        let payload = try reader.stream(for: reader.entries[0], limits: ReadLimits()).readAll()
+        let oracle = try XCTUnwrap(oracles()["rpm-stripped-v6-gzip"]?.stripped)
+        return (rpm, payload, oracle)
+    }
+
+    private func wrapped(_ payload: Data, in rpm: Data, stored: Bool = false) -> Data {
+        Data(rpm.prefix(layout(rpm).payload)) + (stored ? payload : gzipStored(payload))
+    }
+
+    func testStrippedDigestIsVerifiedAtCompletionAndOtherAlgorithmsAreOnlyExposed() throws {
+        let (rpm, payload, oracle) = try strippedPayload()
+        let large = try XCTUnwrap(oracle.rows.first { $0.index == 5 })
+        var corrupted = payload
+        corrupted[large.dataOffset] ^= 1
+        let reader = try ArchiveReader.open(data: wrapped(corrupted, in: rpm))
+        let entry = try XCTUnwrap(reader.entries.first { $0.name.hasSuffix("/large.txt") })
+        let stream = try reader.stream(entry)
+        var prefix = [UInt8](repeating: 0, count: 17)
+        XCTAssertEqual(try prefix.withUnsafeMutableBytes { try stream.read(into: $0) }, 17)
+        assertError("checksum") { _ = try stream.readAll() }
+        assertError("checksum") { _ = try stream.readAll() }
+        assertError("checksum") { _ = try reader.read(entry) }
+
+        var other = rpm
+        let tag = try index(5011, in: other)
+        writeBE(1, into: &other, at: layout(other).store + be32(other, tag + 8))
+        let unverified = try ArchiveReader.open(data: wrapped(corrupted, in: other))
+        let raw = unverified.entries[entry.index]
+        XCTAssertEqual(raw.formatSpecific["rpmFileDigestAlgorithm"], "1")
+        XCTAssertNotNil(raw.formatSpecific["rpmFileDigest"])
+        XCTAssertEqual(try unverified.read(raw), Data(corrupted[large.dataOffset..<(large.dataOffset + large.size)]))
+    }
+
+    func testStrippedIndexAndTrailerMutationsAreRejected() throws {
+        let (rpm, payload, oracle) = try strippedPayload()
+        for value in ["00000009", "ffffffff", "0000000g"] {
+            var damaged = payload
+            damaged.replaceSubrange(6..<14, with: value.utf8)
+            assertError("malformed") { _ = try ArchiveReader.open(data: wrapped(damaged, in: rpm)) }
+        }
+        var repeated = payload
+        repeated.replaceSubrange(22..<30, with: "00000000".utf8)
+        assertError("malformed") { _ = try ArchiveReader.open(data: wrapped(repeated, in: rpm)) }
+        var padding = payload
+        padding[14] = 1
+        assertError("malformed") { _ = try ArchiveReader.open(data: wrapped(padding, in: rpm)) }
+        padding = payload
+        let large = try XCTUnwrap(oracle.rows.first { $0.index == 5 })
+        padding[large.dataOffset + large.size] = 1
+        assertError("malformed") { _ = try ArchiveReader.open(data: wrapped(padding, in: rpm)) }
+        let trailer = Data(payload[oracle.trailerOffset...])
+        for misplaced in [Data(payload.prefix(16)) + trailer, Data(payload.prefix(16)) + trailer + payload.dropFirst(16),
+                          payload + Data([1]), payload + Data(repeating: 0, count: 513)] {
+            assertError("malformed") { _ = try ArchiveReader.open(data: wrapped(misplaced, in: rpm)) }
+        }
+        var wrongName = payload
+        wrongName[oracle.trailerOffset + 110] = 88
+        assertError("malformed") { _ = try ArchiveReader.open(data: wrapped(wrongName, in: rpm)) }
+        var wrongTrailer = payload
+        wrongTrailer[wrongTrailer.count - 1] = 1
+        assertError("malformed") { _ = try ArchiveReader.open(data: wrapped(wrongTrailer, in: rpm)) }
+        wrongTrailer = payload
+        wrongTrailer[oracle.trailerOffset + 61] = 49
+        assertError("malformed") { _ = try ArchiveReader.open(data: wrapped(wrongTrailer, in: rpm)) }
+        for count in [6, 15, large.dataOffset + large.size - 1, oracle.trailerOffset, payload.count - 1] {
+            assertError("truncated") { _ = try ArchiveReader.open(data: wrapped(Data(payload.prefix(count)), in: rpm)) }
+        }
+        let padded = try ArchiveReader.open(data: wrapped(payload + Data(repeating: 0, count: 512), in: rpm))
+        XCTAssertEqual(padded.entries.count, 10)
+    }
+
+    func testFileListCountsTypesDirectoryIndexesAndLongSizesAreValidated() throws {
+        let (rpm, payload, _) = try strippedPayload()
+        let positions = layout(rpm)
+        for tag in [1030, 1034, 1035, 1036, 1037, 1095, 1096, 1116, 1117, 5008] {
+            var damaged = rpm
+            writeBE(11, into: &damaged, at: try index(tag, in: rpm) + 12)
+            assertError("malformed") { _ = try ArchiveReader.open(data: damaged) }
+        }
+        var damaged = rpm
+        let dirs = try index(1116, in: rpm)
+        writeBE(UInt32.max, into: &damaged, at: positions.store + be32(rpm, dirs + 8))
+        assertError("malformed") { _ = try ArchiveReader.open(data: damaged) }
+        damaged = rpm
+        writeBE(4, into: &damaged, at: try index(1030, in: rpm) + 4)
+        assertError("malformed") { _ = try ArchiveReader.open(data: damaged) }
+        damaged = rpm
+        writeBE(1095, into: &damaged, at: try index(1096, in: rpm))
+        assertError("malformed") { _ = try ArchiveReader.open(data: damaged) }
+
+        let long = try index(5008, in: rpm)
+        let data = positions.store + be32(rpm, long + 8)
+        let files = try XCTUnwrap(RpmHeader(source: DataByteSource(rpm), limits: ReadLimits()).fileList).files
+        let hardlink = try XCTUnwrap(files.indices.first { i in
+            files[i].kind == .file && !files[i].isGhost && files.indices.contains { j in
+                i != j && !files[j].isGhost && files[j].kind == .file
+                    && files[i].ino == files[j].ino && files[i].dev == files[j].dev
+            }
+        })
+        let symlink = try XCTUnwrap(files.firstIndex { $0.kind == .symlink })
+        // R7: tag 5008 だけを変更し、link 群と symlink 本文のサイズ整合を崩す。
+        for i in [hardlink, symlink] {
+            var mismatch = rpm
+            writeBE(UInt32(files[i].size + 1), into: &mismatch, at: data + i * 8 + 4)
+            XCTAssertThrowsError(try ArchiveReader.open(data: mismatch), files[i].name) {
+                XCTAssertEqual($0 as? KaitoError, .malformed("rpm file list"))
+            }
+        }
+        var short = rpm
+        writeBE(1028, into: &short, at: long)
+        writeBE(4, into: &short, at: long + 4)
+        for i in 0..<12 { writeBE(UInt32(be32(rpm, data + i * 8 + 4)), into: &short, at: data + i * 4) }
+        XCTAssertEqual(try rows(ArchiveReader.open(data: short)), try rows(ArchiveReader.open(data: rpm)))
+
+        // LONGFILESIZES と短い tag が共存しても 64-bit 側を優先する。
+        var both = rpm
+        let spare = try index(1126, in: rpm)
+        for (value, delta): (UInt32, Int) in [(1028, 0), (4, 4), (UInt32(be32(rpm, long + 8)), 8), (12, 12)] {
+            writeBE(value, into: &both, at: spare + delta)
+        }
+        XCTAssertEqual(try rows(ArchiveReader.open(data: both)), try rows(ArchiveReader.open(data: rpm)))
+        var huge = rpm
+        writeBE(1, into: &huge, at: data + 5 * 8)
+        let header = try RpmHeader(source: DataByteSource(huge), limits: ReadLimits())
+        XCTAssertEqual(header.fileList?.files[5].size, (UInt64(1) << 32) + 10537)
+        assertError("truncated") {
+            _ = try ArchiveReader.open(data: wrapped(payload, in: huge),
+                options: ReaderOptions(limits: ReadLimits(maxEntrySize: UInt64.max)))
+        }
+    }
+
+    func testR3ReviewStrippedFileListUsesAggregateMetadataLimit() throws {
+        let count = 65_537
+        let (_, fixture, oracle) = try strippedPayload()
+        var payload = Data()
+        let files = (0..<count).map { i in
+            payload.append(contentsOf: Array("07070X".utf8) + Array(String(format: "%08X", i).utf8) + [0, 0])
+            return RpmFileList.File(name: "f\(i)", mode: 0o100644, mtime: 0, size: 0,
+                                    linkTarget: "", ino: UInt32(i), dev: 1, flags: 0, digest: nil)
+        }
+        payload.append(fixture[oracle.trailerOffset...])
+        let source = DataByteSource(payload), list = RpmFileList(files: files, digestAlgorithm: nil)
+        let stripped = try RpmStrippedPayload(source: source, fileList: list, limits: ReadLimits(maxEntryCount: count))
+        XCTAssertEqual(stripped.records.count, count)
+        XCTAssertEqual(stripped.records.last?.fileIndex, count - 1)
+        XCTAssertEqual(stripped.metadataSize, UInt64(count * 256))
+        XCTAssertEqual(try stripped.stream(at: count - 1, limits: ReadLimits()).readAll(), Data())
+        XCTAssertThrowsError(try RpmStrippedPayload(source: source, fileList: list, limits: ReadLimits(maxEntryCount: count - 1))) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("rpm entry count"))
+        }
+        XCTAssertThrowsError(try RpmStrippedPayload(source: source, fileList: list,
+            limits: ReadLimits(maxTotalMetadataSize: UInt64(count * 256 - 1)))) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("size 16777472 exceeds limit 16777471"))
+        }
+    }
+
+    func testMissingFileListPreservesBlobFallback() throws {
+        var rpm = try fixture("stripped-v6-gzip")
+        writeBE(9999, into: &rpm, at: try index(1117, in: rpm))
+        let reader = try ArchiveReader.open(data: rpm)
+        XCTAssertEqual(reader.entries.count, 1)
+        XCTAssertEqual(reader.entries[0].name, "kaito-rpm6.cpio.gz")
+        XCTAssertEqual(try reader.read(reader.entries[0]), Data(rpm.dropFirst(layout(rpm).payload)))
+    }
+
+    func testStrippedLimitsStoredPayloadAndDiskStagingReopen() throws {
+        let (rpm, payload, _) = try strippedPayload()
+        for limits in [ReadLimits(maxEntryCount: 0), ReadLimits(maxEntryCount: 9), ReadLimits(maxEntryCount: 10),
+                       ReadLimits(maxEntrySize: 5000), ReadLimits(maxTotalUncompressedSize: 10000),
+                       ReadLimits(maxMetadataSize: 1000), ReadLimits(maxMetadataRecordCount: 1),
+                       ReadLimits(maxTotalMetadataSize: 15000), ReadLimits(maxPathComponentCount: 2)] {
+            assertError("limit") { _ = try ArchiveReader.open(data: rpm, options: ReaderOptions(limits: limits)) }
+        }
+        // file list は ghost 込み 12 件。配列の +1 slack と実体の 10 件を別々に検査する。
+        let options = ReaderOptions(limits: ReadLimits(inMemorySingleFileLimit: 1, maxEntryCount: 11))
+        let reader = try ArchiveReader.open(data: rpm, options: options)
+        XCTAssertEqual(try reader.reopen().entries, reader.entries)
+        XCTAssertEqual(try rows(reader.reopen()), try rows(reader))
+        let stored = try ArchiveReader.open(data: wrapped(payload, in: rpm, stored: true))
+        XCTAssertEqual(try rows(stored), try rows(reader))
+        XCTAssertEqual(stored.entries[0].formatSpecific["rpmPayloadCompressorDetected"], "none")
     }
 }

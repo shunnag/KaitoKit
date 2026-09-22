@@ -1,0 +1,113 @@
+{
+  "writer": "7-Zip (z) 26.03 (arm64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03",
+  "oracles": [
+    "7zz 26.03 (test, extraction, listing)",
+    "Python zlib (raw Deflate rejection)"
+  ],
+  "method": "04 01 09 (Methods.txt: Deflate64)",
+  "entries": {
+    "first.bin": {
+      "size": 262403,
+      "sha256": "a078b4e0753e13ab07561237b0d9507f9446982a7ae013b8285a713d26bb29d9"
+    },
+    "second.bin": {
+      "size": 1027,
+      "sha256": "318e252cf75fc244620e81039294bf77f79a5b5c24edcc51fa8dc9b9bed6a311"
+    },
+    "empty": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "long.bin": {
+      "size": 192000,
+      "sha256": "d948638317fa982a5d5eaac6df36a3487e6bb04b97c517890fdc1891141d9c25"
+    }
+  },
+  "fixtures": [
+    {
+      "file": "deflate64-solid.7z.b64",
+      "sha256": "71baa39e153362f288b77e2752d21a54a47e361af61da7a8eaff04e1870b28cf",
+      "method": "Deflate64",
+      "solid": true,
+      "blocks": 1,
+      "entries": [
+        "empty",
+        "first.bin",
+        "long.bin",
+        "second.bin"
+      ],
+      "packedStreams": [
+        {
+          "offset": 32,
+          "size": 52151,
+          "unpackedSize": 455430,
+          "entries": [
+            "first.bin",
+            "long.bin",
+            "second.bin"
+          ],
+          "rawDeflate": "Error -3 while decompressing data: too many length or distance symbols"
+        }
+      ],
+      "arguments": [
+        "a",
+        "-t7z",
+        "-m0=Deflate64",
+        "-ms=on",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "ARCHIVE",
+        "first.bin",
+        "second.bin",
+        "empty",
+        "long.bin"
+      ]
+    },
+    {
+      "file": "deflate64-non-solid.7z.b64",
+      "sha256": "cdb5c26437c928eac1ee43aa45911f21e7edbcefeaf5dc874e8819612c2d8286",
+      "method": "Deflate64",
+      "solid": false,
+      "blocks": 2,
+      "entries": [
+        "empty",
+        "first.bin",
+        "second.bin"
+      ],
+      "packedStreams": [
+        {
+          "offset": 32,
+          "size": 2067,
+          "unpackedSize": 262403,
+          "entries": [
+            "first.bin"
+          ]
+        },
+        {
+          "offset": 2099,
+          "size": 295,
+          "unpackedSize": 1027,
+          "entries": [
+            "second.bin"
+          ]
+        }
+      ],
+      "arguments": [
+        "a",
+        "-t7z",
+        "-m0=Deflate64",
+        "-ms=off",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "ARCHIVE",
+        "first.bin",
+        "second.bin",
+        "empty"
+      ]
+    }
+  ]
+}

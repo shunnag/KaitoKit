@@ -4,9 +4,26 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
-/// GNU sparse（pax 0.0 / 0.1 / 1.0、libarchive tar(5) の記述）。合成書庫は OS の bsdtar で読めることを
+/// GNU sparse（旧 GNU S 型、pax 0.0 / 0.1 / 1.0、libarchive tar(5) の記述）。合成書庫は OS の bsdtar で読めることを
 /// 独立に確認し、1.0 は F_PUNCHHOLE で穴を開けた実 file を bsdtar --format pax で書いた書庫でも照合する。
 final class TarSparseTests: XCTestCase {
+    func testR4ReviewOldGNUTypeRequiresGNUMagic() throws {
+        let archive = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "old.bin", contents: Data(), type: 0x53)])
+        XCTAssertEqual(Data(archive[257..<265]), Data("ustar\0".utf8) + Data("00".utf8))
+        XCTAssertThrowsError(try ArchiveReader.open(data: archive)) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("invalid old GNU sparse header"))
+        }
+    }
+
+    func testR5ReviewOldGNUAndPaxSparseMapsConflict() throws {
+        let pax = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "PaxHeader/old.bin",
+            contents: paxPayload([("GNU.sparse.size", "5")]), type: 0x78)])
+        let archive = Data(pax.dropLast(1024)) + (try oldGNUArchive(realSize: 5, fragments: [(0, [1, 2, 3])]))
+        XCTAssertThrowsError(try ArchiveReader.open(data: archive)) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("conflicting GNU sparse maps"))
+        }
+    }
+
     func testR11Pax01PreservesSparseNameForListingAndExtraction() throws {
         let map = fragments.map { "\($0.offset),\($0.bytes.count)" }.joined(separator: ",")
         let archive = try TarTestSupport.makeTar(entries: [
@@ -73,7 +90,7 @@ final class TarSparseTests: XCTestCase {
     }
 
     /// bsdtar（OS 同梱 libarchive）が同じ byte を復元することを独立に確認する。
-    private func assertBSDTarReads(_ archive: Data, member: String, label: String) throws {
+    private func assertBSDTarReads(_ archive: Data, member: String, label: String, expectedBytes: Data? = nil) throws {
         let directory = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("sparse.tar")
@@ -84,8 +101,165 @@ final class TarSparseTests: XCTestCase {
         let result = try ZipTestSupport.run(ZipTestSupport.bsdTarPath, arguments: ["-xf", url.path, "-C", output.path, member])
         XCTAssertEqual(result.terminationStatus, 0, "\(label): \(result.diagnostics)")
         let extracted = try Data(contentsOf: output.appendingPathComponent(member))
-        XCTAssertEqual(extracted.count, realSize, label)
-        XCTAssertEqual(sha(extracted), sha(expected), label)
+        let wanted = expectedBytes ?? expected
+        XCTAssertEqual(extracted.count, wanted.count, label)
+        XCTAssertEqual(sha(extracted), sha(wanted), label)
+    }
+
+    /// Python tarfile も reader としてだけ使い、実装 source は参照しない。
+    private func assertPythonTarfileReads(_ archive: Data, expected: [(String, Data)], label: String) throws {
+        let directory = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("sparse.tar")
+        try archive.write(to: url)
+        let script = """
+        import hashlib, json, sys, tarfile
+        with tarfile.open(sys.argv[1]) as archive:
+            result = {entry.name: hashlib.sha256(archive.extractfile(entry).read()).hexdigest()
+                      for entry in archive if entry.isfile()}
+        print(json.dumps(result))
+        """
+        let result = try ZipTestSupport.run("/usr/bin/env", arguments: ["python3", "-c", script, url.path])
+        XCTAssertEqual(result.terminationStatus, 0, "\(label): \(result.diagnostics)")
+        let hashes = try XCTUnwrap(JSONSerialization.jsonObject(with: result.standardOutput) as? [String: String])
+        XCTAssertEqual(hashes, Dictionary(uniqueKeysWithValues: expected.map { ($0.0, sha($0.1)) }), label)
+    }
+
+    private func oldGNUOctal(_ value: Int) -> Data {
+        let digits = String(value, radix: 8)
+        return Data((String(repeating: "0", count: 11 - digits.count) + digits + "\0").utf8)
+    }
+
+    private func repairOldGNUChecksum(_ header: inout Data) {
+        header.replaceSubrange(148..<156, with: Data(repeating: 0x20, count: 8))
+        let checksum = header.prefix(512).reduce(0) { $0 + Int($1) }
+        let digits = String(checksum, radix: 8)
+        header.replaceSubrange(148..<156, with: Data((String(repeating: "0", count: 6 - digits.count) + digits + "\0 ").utf8))
+    }
+
+    /// tar(5) の配置だけから作る。fragment 間に padding は入れない。
+    private func oldGNUArchive(realSize: Int, fragments: [(offset: Int, bytes: [UInt8])], following: Bool = false) throws -> Data {
+        var entries = [HandTarEntry(name: "old.bin", contents: Data(fragments.flatMap(\.bytes)), type: 0x53)]
+        if following { entries.append(HandTarEntry(name: "after.txt", contents: Data("after".utf8))) }
+        let base = try TarTestSupport.makeTar(entries: entries)
+        var header = Data(base.prefix(512))
+        header.replaceSubrange(257..<265, with: Data("ustar  \0".utf8))
+        header.replaceSubrange(345..<512, with: Data(repeating: 0, count: 167))
+        // ustar prefix と誤読すれば名前に混ざる位置。
+        header.replaceSubrange(345..<357, with: oldGNUOctal(1_700_000_000))
+        header.replaceSubrange(357..<369, with: oldGNUOctal(1_700_000_001))
+        func put(_ fragment: (offset: Int, bytes: [UInt8]), into block: inout Data, at offset: Int) {
+            block.replaceSubrange(offset..<(offset + 12), with: oldGNUOctal(fragment.offset))
+            block.replaceSubrange((offset + 12)..<(offset + 24), with: oldGNUOctal(fragment.bytes.count))
+        }
+        for (index, fragment) in fragments.prefix(4).enumerated() { put(fragment, into: &header, at: 386 + index * 24) }
+        header[482] = fragments.count > 4 ? 1 : 0
+        header.replaceSubrange(483..<495, with: oldGNUOctal(realSize))
+        repairOldGNUChecksum(&header)
+        var archive = header
+        var index = 4
+        while index < fragments.count {
+            let end = min(index + 21, fragments.count)
+            var block = Data(repeating: 0, count: 512)
+            for position in index..<end { put(fragments[position], into: &block, at: (position - index) * 24) }
+            block[504] = end < fragments.count ? 1 : 0
+            archive.append(block)
+            index = end
+        }
+        archive.append(base.dropFirst(512))
+        return archive
+    }
+
+    func testOldGNUSparseHeadersAndExtensionsMatchIndependentReaders() throws {
+        let six = (0..<6).map { (offset: 3 + $0 * 31, bytes: [UInt8](repeating: UInt8($0 + 1), count: $0 + 1)) }
+        let many = (0..<26).map { (offset: $0 * 31, bytes: [UInt8](repeating: UInt8($0 + 1), count: $0 % 5 + 1)) }
+        let cases: [(String, Int, [(offset: Int, bytes: [UInt8])], Bool)] = [
+            ("contiguous-2", 13, [(0, [1, 2, 3]), (3, [4, 5, 6, 7, 8])], false),
+            ("extension-1", 200, six, false),
+            ("extension-2", 900, many, false),
+            ("empty", 0, [], false),
+            ("following", 200, six, true),
+            ("holes-only", 8192, [], false),
+        ]
+        for (label, size, pieces, following) in cases {
+            let archive = try oldGNUArchive(realSize: size, fragments: pieces, following: following)
+            var expanded = Data(repeating: 0, count: size)
+            for piece in pieces { expanded.replaceSubrange(piece.offset..<(piece.offset + piece.bytes.count), with: piece.bytes) }
+            let reader = try ArchiveReader.open(data: archive)
+            XCTAssertEqual(reader.entries.map(\.name), following ? ["old.bin", "after.txt"] : ["old.bin"], label)
+            let entry = try XCTUnwrap(reader.entries.first)
+            XCTAssertEqual(entry.kind, .file, label)
+            XCTAssertEqual(entry.uncompressedSize, UInt64(size), label)
+            XCTAssertEqual(entry.compressedSize, UInt64(pieces.reduce(0) { $0 + $1.bytes.count }), label)
+            XCTAssertEqual(entry.methodDescription, "tar (sparse)", label)
+            XCTAssertEqual(entry.formatSpecific["sparse"], "GNU.sparse old", label)
+            XCTAssertEqual(entry.formatSpecific["sparseFragmentCount"], String(pieces.count), label)
+            XCTAssertEqual(sha(try reader.read(entry)), sha(expanded), label)
+            XCTAssertEqual(sha(try read(reader.stream(entry), chunk: 7)), sha(expanded), label)
+            let reopened = try reader.reopen()
+            XCTAssertEqual(reopened.entries, reader.entries, label)
+            XCTAssertEqual(sha(try reopened.read(entry)), sha(expanded), label)
+            try assertBSDTarReads(archive, member: "old.bin", label: label, expectedBytes: expanded)
+            var expectedFiles = [("old.bin", expanded)]
+            if following {
+                let after = try XCTUnwrap(reader.entries.last)
+                let bytes = Data("after".utf8)
+                XCTAssertEqual(try reader.read(after), bytes)
+                try assertBSDTarReads(archive, member: "after.txt", label: label, expectedBytes: bytes)
+                expectedFiles.append(("after.txt", bytes))
+            }
+            try assertPythonTarfileReads(archive, expected: expectedFiles, label: label)
+            print("old GNU \(label): bsdtar -xf / python3 tarfile / KaitoKit SHA-256 \(sha(expanded))")
+        }
+    }
+
+    func testOldGNUSparseMalformedMapsTruncationAndLimits() throws {
+        for pieces: [(offset: Int, bytes: [UInt8])] in [
+            [(4, [1, 2, 3]), (6, [4])], // 重複。
+            [(8, [1]), (1, [2])], // 降順。
+            [(9, [1, 2])], // 実サイズ超過。
+        ] {
+            XCTAssertThrowsError(try ArchiveReader.open(data: oldGNUArchive(realSize: 10, fragments: pieces))) {
+                guard case .malformed = $0 as? KaitoError else { return XCTFail("\($0)") }
+            }
+        }
+        let pieces = (0..<26).map { (offset: $0 * 4, bytes: [UInt8($0)]) }
+        let archive = try oldGNUArchive(realSize: 104, fragments: pieces, following: true)
+        for end in [512, 700, 1024, 1300] {
+            XCTAssertThrowsError(try ArchiveReader.open(data: Data(archive.prefix(end)))) {
+                XCTAssertEqual($0 as? KaitoError, .truncated)
+            }
+        }
+        for limits in [ReadLimits(maxMetadataRecordCount: 25), ReadLimits(maxMetadataSize: 1119),
+                       ReadLimits(maxEntrySize: 103), ReadLimits(maxTotalUncompressedSize: 108)] {
+            XCTAssertThrowsError(try ArchiveReader.open(data: archive, options: ReaderOptions(limits: limits))) {
+                guard case .limitExceeded = $0 as? KaitoError else { return XCTFail("\($0)") }
+            }
+        }
+        _ = try ArchiveReader.open(data: archive, options: ReaderOptions(limits: ReadLimits(maxMetadataSize: 1120, maxMetadataRecordCount: 26)))
+        // 空の拡張 block 連鎖も件数で止める。
+        var empty = try oldGNUArchive(realSize: 0, fragments: [])
+        empty[482] = 1
+        repairOldGNUChecksum(&empty)
+        var extensionBlock = Data(repeating: 0, count: 512)
+        extensionBlock[504] = 1
+        empty.insert(contentsOf: extensionBlock + extensionBlock, at: 512)
+        XCTAssertThrowsError(try ArchiveReader.open(data: empty, options: ReaderOptions(limits: ReadLimits(maxMetadataRecordCount: 1)))) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("tar sparse extension count"))
+        }
+        // numbytes == 0 で map は終わる。後続 descriptor は無視する。
+        var terminated = try oldGNUArchive(realSize: 5, fragments: [(0, [1, 2, 3])])
+        terminated.replaceSubrange(434..<446, with: oldGNUOctal(1))
+        terminated.replaceSubrange(446..<458, with: oldGNUOctal(1))
+        repairOldGNUChecksum(&terminated)
+        let reader = try ArchiveReader.open(data: terminated)
+        XCTAssertEqual(try reader.read(reader.entries[0]), Data([1, 2, 3, 0, 0]))
+        var mismatch = terminated
+        mismatch.replaceSubrange(124..<136, with: oldGNUOctal(4))
+        repairOldGNUChecksum(&mismatch)
+        XCTAssertThrowsError(try ArchiveReader.open(data: mismatch)) {
+            guard case .malformed = $0 as? KaitoError else { return XCTFail("\($0)") }
+        }
     }
 
     private func assertReader(_ archive: Data, version: String, label: String, name: String = "holey.bin") throws {
@@ -194,7 +368,7 @@ final class TarSparseTests: XCTestCase {
         XCTAssertEqual(sha(try reader.read(entry)), sha(expected))
     }
 
-    func testMalformedMapsAndOldGNUSparseAreRejected() throws {
+    func testMalformedPaxMapsAndForeignSparseAreRejected() throws {
         // 非昇順、実サイズ超過、格納長の不一致、奇数個、非十進。
         for (map, label) in [
             ("1048576,1000,0,4096", "descending"),
@@ -245,23 +419,21 @@ final class TarSparseTests: XCTestCase {
             guard case .malformed = $0 as? KaitoError else { return XCTFail("Unexpected error: \($0)") }
         }
 
-        // 旧 GNU の 'S' 型（header 内の sparse 表）と global header の GNU.sparse は従来どおり読まない。
-        let oldGNU = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "s", contents: Data([1, 2, 3]), type: 0x53)])
-        XCTAssertThrowsError(try ArchiveReader.open(data: oldGNU)) {
-            guard case .unsupportedMethod = $0 as? KaitoError else { return XCTFail("Unexpected error: \($0)") }
-        }
+        // global header の GNU.sparse は従来どおり読まない。
         let global = try TarTestSupport.makeTar(entries: [
             HandTarEntry(name: "GlobalHead", contents: paxPayload([("GNU.sparse.size", "5")]), type: 0x67),
             HandTarEntry(name: "x", contents: Data("hello".utf8)),
         ])
         XCTAssertThrowsError(try ArchiveReader.open(data: global))
         // star / Solaris の sparse 表現は unsupportedMethod のまま。
-        let star = try TarTestSupport.makeTar(entries: [
-            HandTarEntry(name: "PaxHeader/x", contents: paxPayload([("SCHILY.filetype", "sparse")]), type: 0x78),
-            HandTarEntry(name: "x", contents: Data("hello".utf8)),
-        ])
-        XCTAssertThrowsError(try ArchiveReader.open(data: star)) {
-            guard case .unsupportedMethod = $0 as? KaitoError else { return XCTFail("Unexpected error: \($0)") }
+        for records in [[("SCHILY.filetype", "sparse")], [("SCHILY.realsize", "5")], [("SUN.holesdata", "0 5")]] {
+            let foreign = try TarTestSupport.makeTar(entries: [
+                HandTarEntry(name: "PaxHeader/x", contents: paxPayload(records), type: 0x78),
+                HandTarEntry(name: "x", contents: Data("hello".utf8)),
+            ])
+            XCTAssertThrowsError(try ArchiveReader.open(data: foreign)) {
+                guard case .unsupportedMethod = $0 as? KaitoError else { return XCTFail("Unexpected error: \($0)") }
+            }
         }
     }
 

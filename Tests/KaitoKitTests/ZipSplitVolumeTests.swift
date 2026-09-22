@@ -6,7 +6,7 @@ import XCTest
 
 // 公開 APPNOTE のフィールドだけを書き換え、任意のバイト位置で巻を区切る。
 // 外部実装のソースは参照せず、既存の単巻 fixture を比較対象にする。
-private struct ZipSplitFixture {
+struct ZipSplitFixture {
     var bytes: Data
     let layout: ZipFixtureLayout
     let starts: [Int]

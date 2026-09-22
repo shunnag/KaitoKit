@@ -81,6 +81,7 @@ public final class ArchiveReader {
     // Data と名前ヒントのない ByteSource はファイル名の由来を持たない。
     private let sourceURL: URL?
     private let zipDiskLayout: ZipDiskLayout?
+    private let assembledVolumeSet: ArchiveVolumeSet?
     private let reader: any FormatReader
     private let options: ReaderOptions
     private let outputBudget: ArchiveOutputBudget
@@ -92,6 +93,12 @@ public final class ArchiveReader {
 
     /// Entries in archive order.
     public let entries: [ArchiveEntry]
+
+    /// URL open で実際に連結した 2 巻以上の numbered / native ZIP セット。
+    /// 単一ファイル、兄弟のない .001、明示した巻が symlink、Data / ByteSource open は nil。
+    /// StuffIt 固有の分割、RAR の多巻、.cue の参照先は現在この API の対象外。
+    /// reopen は保持済み source を共有し、このスナップショットも引き継ぐ。
+    public var volumeSet: ArchiveVolumeSet? { assembledVolumeSet }
 
     /// The archive-wide encoding selected for otherwise undeclared entry names.
     ///
@@ -111,11 +118,13 @@ public final class ArchiveReader {
         sourceDirectoryAnchor: FileByteSource.DirectoryAnchor? = nil,
         sourceVolumeURL: URL? = nil,
         zipDiskLayout: ZipDiskLayout? = nil,
+        volumeSet: ArchiveVolumeSet? = nil,
         options: ReaderOptions
     ) throws {
         self.source = source
         self.sourceURL = sourceURL
         self.zipDiskLayout = zipDiskLayout
+        self.assembledVolumeSet = volumeSet
         self.options = options
         self.password = options.password
 
@@ -397,12 +406,14 @@ public final class ArchiveReader {
         parsedReader: any FormatReader,
         outputBudget: ArchiveOutputBudget,
         zipDiskLayout: ZipDiskLayout? = nil,
+        volumeSet: ArchiveVolumeSet? = nil,
         stagedTarSource: (any ByteSource)? = nil
     ) throws {
         self.source = source
         self.stagedTarSource = stagedTarSource
         self.sourceURL = sourceURL
         self.zipDiskLayout = zipDiskLayout
+        self.assembledVolumeSet = volumeSet
         self.options = options
         self.reader = parsedReader
         self.format = parsedReader.format
@@ -446,6 +457,7 @@ public final class ArchiveReader {
             sourceDirectoryAnchor: split == nil ? opened.directory : nil,
             sourceVolumeURL: split == nil ? standardized : nil,
             zipDiskLayout: zipSplit?.layout,
+            volumeSet: split?.volumeSet ?? zipSplit?.volumeSet,
             options: options
         )
     }
@@ -589,6 +601,7 @@ public final class ArchiveReader {
                 source: stagedTarSource,
                 sourceURL: nil,
                 zipDiskLayout: nil,
+                volumeSet: volumeSet,
                 options: reopenedOptions
             )
         } else {
@@ -596,6 +609,7 @@ public final class ArchiveReader {
                 source: source,
                 sourceURL: sourceURL,
                 zipDiskLayout: zipDiskLayout,
+                volumeSet: volumeSet,
                 options: reopenedOptions
             )
         }
@@ -606,6 +620,7 @@ public final class ArchiveReader {
             parsedReader: parsedReader,
             outputBudget: outputBudget.reopened(),
             zipDiskLayout: zipDiskLayout,
+            volumeSet: volumeSet,
             stagedTarSource: stagedTarSource
         )
     }

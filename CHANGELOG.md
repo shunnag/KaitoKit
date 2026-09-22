@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- `ArchiveReader.volumeSet` と `ArchiveVolumeSet` を公開した。URL から連結した `.001` 系と native ZIP の分割巻について、論理順の URL・保持 fd の `fstat` による同一性・開いた巻と入口の位置を取得できる。名前だけの `parse(fileName:)` と、桁幅・大小文字を保つ巻名生成（ZIP の巻数変更にも対応）を追加。`reopen()` は同じ source の巻情報を引き継ぐ。単一ファイル・Data / ByteSource・StuffIt 固有の分割・`.cue` は対象外。検出・読み取りの挙動と既定の巻数上限 128 は変更しない。
+
 ## [0.9.0] - 2026-09-22
 
 対応済み形式の中で `unsupportedMethod` のまま残っていたメソッドを埋めた release。公開 enum `ArchiveFormat` の

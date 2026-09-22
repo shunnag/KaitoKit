@@ -902,6 +902,16 @@ classic StuffIt 分割セット（2026-09-20）の実装入力は利用者所有
 XADMaster の split parser source は開いていない。
 [2026-09-20 の検証記録](verification/2026-09-20-stuffit-split.md)。
 
+バイト分割（`.001` 系）と native ZIP 分割（`.z01` / `.zx01` … `.zip` / `.zipx`）を URL から
+2 巻以上連結した場合は、`ArchiveReader.volumeSet` に `ArchiveVolumeSet` を公開する。
+巻は論理順で、同一性（dev / ino / size / mode / mtime）は読み取りに使う保持 fd の `fstat` から採り、
+後からパスを走査しない。入口はバイト分割の先頭、ZIP の最終巻。`reopen()` は既存 source とこの
+スナップショットを共有し、新しい `open(url:)` はその時点の巻を組み立てる。単独巻・symlink の入口・
+Data / ByteSource・StuffIt 固有の分割・`.cue` は nil。`fileName(forVolumeAt:count:)` は出力巻数を受け取り、
+ZIP の `count - 1` だけを元の最終巻名にし、それ以外は番号付き巻名（既存巻の綴りを保持）を返す。
+I/O なしの `parse(fileName:)` は正の番号を 0 始まりに変換し、巻数不明の `.zip` / `.zipx` は index -1 を返す。
+numbered の桁幅、ZIP の大小文字と桁あふれの規則は既存 reader と共有し、検出・読取・既定上限 128 は変えない。
+
 pbzx（2026-09-20）の実装入力は macOS 27.2 の `pkgbuild` / `xar` 出力の黒箱計測（xz CLI と bsdtar で
 chunk 構造を確定）と既存 XZ / cpio reader だけで、Apple の文書も第三者の pbzx 実装・記事も参照して
 いない。tar の GNU sparse（2026-09-20）は libarchive `tar(5)`（BSD-2-Clause）の散文と

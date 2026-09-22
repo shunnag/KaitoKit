@@ -2,6 +2,23 @@ import Foundation
 import XCTest
 
 final class ReleaseReviewDocumentationTests: XCTestCase {
+    func testRelease081DocumentsAllFourteenReviewFixes() throws {
+        let changelog = try String(contentsOf: root.appendingPathComponent("CHANGELOG.md"), encoding: .utf8)
+        let sections = changelog.components(separatedBy: "## [0.8.1] - 2026-09-22")
+        XCTAssertEqual(sections.count, 2, "0.8.1 節が必要")
+        guard sections.count == 2 else { return }
+        let release = try XCTUnwrap(sections.last?.components(separatedBy: "\n## [").first)
+        let path = "Documentation/verification/2026-09-22-release-review-0.8.1.md"
+        let record = try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+        for item in 1...14 {
+            XCTAssertTrue(release.contains("- R\(item)."), "0.8.1 に R\(item) の説明が必要")
+            XCTAssertTrue(record.contains("## R\(item)."), "検証記録に R\(item) の見出しが必要")
+        }
+        let readme = try String(contentsOf: root.appendingPathComponent("README.md"), encoding: .utf8)
+        XCTAssertTrue(readme.contains(path), "README から検証記録へリンクする")
+        XCTAssertTrue(changelog.contains(path), "変更履歴から検証記録へリンクする")
+    }
+
     private var root: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()

@@ -123,7 +123,7 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 | xar / .pkg | TOC XML（部分集合 pull parser）、zlib / bzip2 / lzma / xz / stored の heap、入れ子ディレクトリ、symlink、hard link、`<name enctype="base64">`、macOS flat package | なし | なし。TOC checksum と `<extracted-checksum>` を検証、`<subdoc>` 内の `<file>` は entry にしない |
 | CAB | CFHEADER / CFFOLDER / CFFILE / CFDATA、None / MSZIP / LZX（15〜21 bit の辞書、CFDATA をまたぐ履歴）、予約領域、UTF-8 名 (attribs 0x80)、上限付き PE / Mach-O SFX prefix | なし | 多分割フラグがあっても手元の cabinet の file は読み、実際にまたぐ file だけ拒否。Quantum は一覧のみ |
 | RPM | lead / signature header / main header、payload の cpio entry を直接公開、gzip / bzip2 / xz / lzma / zstd / stored payload | なし | codec は宣言 tag ではなく payload 先頭の magic で決定 |
-| tar | POSIX/ustar、pax、GNU long name/link、stored member、GNU sparse（pax 0.0 / 0.1 / 1.0。穴は 0 で埋めて実サイズを公開）。macOS tar の `._name` AppleDouble sidecar は既定で resource fork に統合 | なし | volume 分割なし |
+| tar | POSIX/ustar、pax、GNU long name/link、stored member、GNU sparse（pax 0.0 / 0.1 / 1.0。穴は 0 で埋め、実サイズと `GNU.sparse.name` の名前を公開）。macOS tar の `._name` AppleDouble sidecar は既定で resource fork に統合 | なし | volume 分割なし |
 | gzip | RFC 1952、FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT、DEFLATE、CRC32/ISIZE | なし | concatenated member 対応 |
 | bzip2 | BZip2 block size 1〜9 | なし | concatenated stream 対応 |
 | xz | XZ container、Apple Compression の LZMA、footer/padding | なし | concatenated stream 対応 |
@@ -135,12 +135,12 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 | lzip (`.lz` / `.tar.lz`) | `LZIP` + version 1 + 辞書サイズ 1 byte + LZMA-302eos（lc=3/lp=0/pb=2、end marker）+ CRC-32 / data size / member size の trailer。末尾の member size を辿って索引を作り、展開後サイズを open 時に確定 | なし | multimember 対応。member ごとに CRC-32・data size・LZMA stream の消費長を検証。末尾の余分な byte は `malformed` |
 | brotli (`.br` / `.tar.br` / `.tbr`) | RFC 7932 の stream（Apple Compression `COMPRESSION_BROTLI` で復号）。RFC 9841 の large window header（WBITS 10〜62）を解釈し、window を `maxDictionarySize` と照合。magic・サイズ・checksum が無いため、`.br` / `.tbr` の名前と有効な header、先頭 64 KiB の試し復号がそろったときだけ受理し、判定は最後に回す | なし | なし。単一 stream で、END 後の余分な byte は `malformed` |
 | 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz` / `.tbz2` / `.tar.bz2`、`.tar.lzma` / `.tlz`、`.txz` / `.tar.xz`、`.tar.zst` / `.tzst`、`.tar.lz4`、`.tar.lz`（`.tlz` は署名で LZMA_Alone / lzip を判別）、`.tar.br` / `.tbr`、`.taz` / `.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
-| ZIP / ZIP64 | stored (0)、Shrink (1)、Reduce (2〜5)、Implode (6)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、Zstandard (20/93)、XZ (95)、PPMd (98)、中央 directory、SFX。Finder / ditto の `__MACOSX/._name` AppleDouble sidecar は既定で resource fork に統合（`ReaderOptions.appleDoublePolicy`） | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001` のバイト分割、`.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP（ZIP64・100 巻以上）対応。最終巻・途中巻から URL open |
+| ZIP / ZIP64 | stored (0)、Shrink (1、連続する部分クリア後も未使用 code を再利用)、Reduce (2〜5)、Implode (6)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、Zstandard (20/93)、XZ (95)、PPMd (98)、中央 directory、SFX。Finder / ditto の `__MACOSX/._name` AppleDouble sidecar は既定で resource fork に統合（`ReaderOptions.appleDoublePolicy`） | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001` のバイト分割、`.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP（ZIP64・100 巻以上）対応。最終巻・途中巻から URL open |
 | 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、BZip2、Zstandard（7-Zip ZS / NanaZip / libarchive の coder 04F71101）、Delta、Swap2/Swap4、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
 | RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
 | RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX、file copy（`rar -oi` の参照。同一内容の先行 entry の本文を返す `.file`） | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
 | LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
-| StuffIt / `.sit` | classic・StuffIt 5、method 0/1/2/3/5/6/8/13/14/15、MacBinary / AppleSingle / BinHex 4 の一段 unwrap | StuffIt 5 RC4、classic 改変 DES（wrapper の MKey が必要） | data/resource fork は別 entry。`.sea` は先頭署名、MZ `.exe` は header 検証付き走査。classic の分割セット（100 byte header の part、URL open で同じ directory の兄弟 part を番号順に連結し、resource fork も復元）。AppleDouble sidecar は非対応 |
+| StuffIt / `.sit` | classic・StuffIt 5、method 0/1/2/3/5/6/8/13/14/15、MacBinary / AppleSingle / BinHex 4 の一段 unwrap | StuffIt 5 RC4、classic 改変 DES（wrapper の MKey が必要） | data/resource fork は別 entry。`.sea` は先頭署名、MZ `.exe` は header 検証付き走査。classic の分割セット（100 byte header の part、URL open で同じ directory の兄弟 part を番号順に連結し、resource fork も復元。既定上限 128 巻ちょうどの完結セットを受理）。AppleDouble sidecar は非対応 |
 | StuffIt X / `.sitx` | `StuffIt!`、未圧縮、Brimstone、Cyanide、Darkhorse、Deflate（window 10〜25）、Blend（全 4 submethod）、RC4-stored、Iron（BWT/ST4）、JPEG（mode 0/1/2） | AES / Blowfish / DES の CFB、RC4、複数暗号層、暗号化 catalog | solid・data/resource fork、MZ `.exe`。English（辞書組み込み）と x86 前処理。下記の制約を参照 |
 
 > **Supported formats**
@@ -274,6 +274,8 @@ classic StuffIt の分割セット（各 part が署名 `B0 56` の 100 byte hea
 `name.sit.01` など）を 1 から順に集め、header を外して連結した [0, R) を resource fork、[R, R+D) を
 data fork として通常の StuffIt reader に渡します。どの part から開いても同じ結果で、`reopen()` は
 保持した part の handle を使います。Data からは、単独の part が R+D を覆う場合だけ開けます。
+`ReadLimits.maxVolumeCount` は既定 128 巻で、上限ちょうどの完結セットも受理します。次の part が
+実在するときに上限超過を報告し、上限 1 なら完結した `name.sit.1` を URL から開けます。
 
 StuffIt の `ArchiveFormat` は classic / StuffIt 5 とも `.stuffIt` (`"sit"`) です。
 `formatSpecific["container"]` が `classic` / `stuffit5` を示し、`macType`・`macCreator`・
@@ -893,6 +895,8 @@ XADMaster からの移行状況は
 [Documentation/migration-from-xadmaster.md](Documentation/migration-from-xadmaster.md) を参照してください。
 設計書が引く性能・安定性の実測ログは
 [Documentation/verification/](Documentation/verification/README.md) にあります。
+
+- [0.8.1 リリースレビューの検証（2026-09-22）](Documentation/verification/2026-09-22-release-review-0.8.1.md): R1〜R14 の修正前の失敗・回帰テスト・全件検証。
 
 > **Development**
 >

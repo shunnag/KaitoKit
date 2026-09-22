@@ -7,6 +7,29 @@ import XCTest
 /// split files"）。part は CC0 fixture の MacBinary から fork を取り出してテスト時に合成する。同じ合成
 /// part を unar 1.10.8 が "StuffIt in StuffIt split file" として読むことを開発時に確認した。
 final class StuffItSplitTests: XCTestCase {
+    func testR13CompleteSetsAtTheVolumeLimitOpenButExtraPartsFail() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let forks = try forks(ofMacBinary: "testfile.stuffit45_dlx.mac9.sit.bin")
+        let expected = try digests(ArchiveReader.open(data: StuffItCorpusTests().fixture("testfile.stuffit45_dlx.mac9.sit.bin")))
+        for count in [1, 128] {
+            let directory = temporary.appendingPathComponent(String(count), isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let urls = try writeParts(forks, to: directory, names: { "x.sit.\($0)" }, cuts: Array(1..<count))
+            let options = ReaderOptions(limits: ReadLimits(maxVolumeCount: count))
+            for url in Set([urls[0], urls[count - 1]]) {
+                let reader = try ArchiveReader.open(url: url, options: options)
+                XCTAssertEqual(try digests(reader), expected)
+                XCTAssertEqual(try digests(reader.reopen()), expected)
+            }
+            // 次の part が実在するときだけ巻数上限で拒否する。
+            try Data(contentsOf: urls[0]).write(to: directory.appendingPathComponent("x.sit.\(count + 1)"))
+            XCTAssertThrowsError(try ArchiveReader.open(url: urls[0], options: options)) {
+                XCTAssertEqual($0 as? KaitoError, .limitExceeded("StuffIt split part count"))
+            }
+        }
+    }
+
     private struct Forks { let data: Data; let resource: Data }
 
     /// MacBinary（MacBinary II standard proposal）の fork を切り出す: D は BE32 @83、R は BE32 @87、

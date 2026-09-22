@@ -153,9 +153,6 @@ enum StuffItSplitSet {
             if canWalkSiblings {
                 var number = 1
                 while true {
-                    guard number <= limits.maxVolumeCount else {
-                        throw KaitoError.limitExceeded("StuffIt split part count")
-                    }
                     let part: any ByteSource
                     if number == header.partNumber {
                         part = source
@@ -165,6 +162,9 @@ enum StuffItSplitSet {
                             break
                         }
                         part = opened
+                    }
+                    guard number <= limits.maxVolumeCount else {
+                        throw KaitoError.limitExceeded("StuffIt split part count")
                     }
                     guard part.length >= UInt64(StuffItSplitHeader.size),
                           let partHeader = StuffItSplitHeader(try readByteRange(source: part, offset: 0, count: StuffItSplitHeader.size)),

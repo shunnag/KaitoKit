@@ -5,6 +5,94 @@ import XCTest
 /// `__MACOSX/._name`（Finder / ditto の ZIP）と `._name`（macOS tar）の AppleDouble sidecar の方針。
 /// fixture は Tests/Fixtures/appledouble（ditto と bsdtar が書いたもの）。
 final class AppleDoubleSidecarTests: XCTestCase {
+    func testR6HardLinkIndicesFollowSidecarRemovalAndForkInsertion() throws {
+        var metadata = Data(repeating: 0, count: 26)
+        metadata.replaceSubrange(0..<8, with: [0, 5, 0x16, 7, 0, 2, 0, 0])
+        for policy in [AppleDoublePolicy.merge, .hide] {
+            for withFork in [false, true] {
+                let sidecar = withFork ? resourceSidecar() : metadata
+                let bytes = try TarTestSupport.makeTar(entries: [
+                    HandTarEntry(name: "._foo", contents: sidecar),
+                    HandTarEntry(name: "foo", contents: Data("payload".utf8)),
+                    HandTarEntry(name: "link", type: 0x31, linkName: "foo"),
+                    HandTarEntry(name: "chained", type: 0x31, linkName: "link"),
+                ])
+                let reader = try ArchiveReader.open(data: bytes, options: ReaderOptions(appleDoublePolicy: policy))
+                let target = try XCTUnwrap(reader.entries.first { $0.name == "foo" })
+                let link = try XCTUnwrap(reader.entries.first { $0.name == "link" })
+                let chained = try XCTUnwrap(reader.entries.first { $0.name == "chained" })
+                XCTAssertEqual(link.formatSpecific["hardLinkTargetIndex"], String(target.index))
+                XCTAssertEqual(chained.formatSpecific["hardLinkTargetIndex"], String(link.index))
+                // tar の hardlink 自身の本文は従来どおり空。展開側が公開 index から参照を辿る。
+                XCTAssertEqual(try reader.read(link), Data())
+                XCTAssertEqual(try reader.reopen().entries, reader.entries)
+                let directory = try TarTestSupport.temporaryDirectory()
+                defer { try? FileManager.default.removeItem(at: directory) }
+                _ = try reader.extract(target, to: directory)
+                _ = try reader.extract(link, to: directory)
+                _ = try reader.extract(chained, to: directory)
+                XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("chained")), Data("payload".utf8))
+            }
+        }
+    }
+
+    func testR7UnreadableSidecarCandidatesRemainVisible() throws {
+        for candidate in ["._ordinary", "__MACOSX/._ordinary"] {
+            for hasTarget in [false, true] {
+                var entries = [HandZipEntry(name: candidate, uncompressedData: Data(repeating: 65, count: 1000), method: 7),
+                               HandZipEntry(name: "good", uncompressedData: Data("readable".utf8))]
+                if hasTarget { entries.append(HandZipEntry(name: "ordinary", uncompressedData: Data("target".utf8))) }
+                let bytes = try ZipTestSupport.makeArchive(entries: entries)
+                for policy in [AppleDoublePolicy.merge, .hide, .expose] {
+                    let reader = try ArchiveReader.open(data: bytes, options: ReaderOptions(appleDoublePolicy: policy))
+                    XCTAssertEqual(reader.entries.map(\.name), entries.map { String(decoding: $0.rawName, as: UTF8.self) })
+                    XCTAssertEqual(try reader.read(reader.entries[1]), Data("readable".utf8))
+                    XCTAssertThrowsError(try reader.read(reader.entries[0])) {
+                        guard case .unsupportedMethod = $0 as? KaitoError else { return XCTFail("予期しないエラー: \($0)") }
+                    }
+                }
+            }
+        }
+    }
+
+    private func resourceSidecar() -> Data {
+        var bytes = Data(repeating: 0, count: 1000)
+        bytes.replaceSubrange(0..<8, with: [0, 5, 0x16, 7, 0, 2, 0, 0])
+        bytes[25] = 1
+        bytes.replaceSubrange(26..<38, with: [0, 0, 0, 2, 0, 0, 0, 38, 0, 0, 0, 4])
+        bytes.replaceSubrange(38..<42, with: "RSRC".utf8)
+        return bytes
+    }
+
+    func testR8ResourceForkCompletionChecksTheWholeSidecarCRC() throws {
+        let intact = resourceSidecar()
+        for flip in [38, 999] {
+            var corrupt = intact; corrupt[flip] ^= 1
+            let bytes = try ZipTestSupport.makeArchive(entries: [
+                HandZipEntry(name: "foo", uncompressedData: Data("data".utf8)),
+                HandZipEntry(name: "._foo", uncompressedData: intact, compressedData: corrupt),
+            ])
+            let exposed = try ArchiveReader.open(data: bytes, options: ReaderOptions(appleDoublePolicy: .expose))
+            XCTAssertThrowsError(try exposed.read(exposed.entries[1])) {
+                XCTAssertEqual($0 as? KaitoError, .checksumMismatch(entry: 1))
+            }
+            let merged = try ArchiveReader.open(data: bytes)
+            let fork = try XCTUnwrap(merged.entries.first { $0.formatSpecific["fork"] == "resource" })
+            XCTAssertThrowsError(try merged.read(fork)) {
+                XCTAssertEqual($0 as? KaitoError, .checksumMismatch(entry: 1))
+            }
+            // 最後の 1 byte を返す前に検証し、再読でも同じ終端エラーを維持する。
+            let stream = try merged.stream(fork)
+            var byte: UInt8 = 0
+            for _ in 0..<3 { XCTAssertEqual(try withUnsafeMutableBytes(of: &byte) { try stream.read(into: $0) }, 1) }
+            for _ in 0..<2 {
+                XCTAssertThrowsError(try withUnsafeMutableBytes(of: &byte) { try stream.read(into: $0) }) {
+                    XCTAssertEqual($0 as? KaitoError, .checksumMismatch(entry: 1))
+                }
+            }
+        }
+    }
+
     private static func fixture(_ name: String) throws -> Data {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Fixtures/appledouble/\(name).b64")

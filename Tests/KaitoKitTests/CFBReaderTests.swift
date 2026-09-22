@@ -5,6 +5,84 @@ import XCTest
 
 /// [MS-CFB] compound file。fixture は Tests/Fixtures/cfb（自作 writer、7-Zip が同じ内容に展開）。
 final class CFBReaderTests: XCTestCase {
+    func testR2RootMiniStreamSizeOverflowIsRejected() throws {
+        var bytes = try Self.fixture("v4.cfb")
+        let directory = (Int(CFBBytes.u32([UInt8](bytes), 48)) + 1) * 4096
+        bytes.replaceSubrange((directory + 120)..<(directory + 128), with: repeatElement(UInt8(255), count: 8))
+        XCTAssertThrowsError(try ArchiveReader.open(data: bytes)) {
+            guard case .limitExceeded = $0 as? KaitoError else { return XCTFail("予期しないエラー: \($0)") }
+        }
+        // 上限を外しても切り上げ加算で trap せず、実 chain の不足を拒否する。
+        XCTAssertThrowsError(try ArchiveReader.open(data: bytes, options: ReaderOptions(limits: ReadLimits(maxEntrySize: .max)))) {
+            guard case .malformed = $0 as? KaitoError else { return XCTFail("予期しないエラー: \($0)") }
+        }
+    }
+
+    func testR3DeepSiblingTreeDoesNotUseTheCallStack() throws {
+        let count = 4_000
+        let directorySectors = (count + 1 + 3) / 4
+        let fatSectors = (directorySectors + 126) / 127
+        var bytes = Data(repeating: 0, count: (1 + directorySectors + fatSectors) * 512)
+        func put(_ value: UInt64, at offset: Int, width: Int = 4) {
+            for i in 0..<width { bytes[offset + i] = UInt8(truncatingIfNeeded: value >> (i * 8)) }
+        }
+        bytes.replaceSubrange(0..<8, with: CFBHeader.signature)
+        put(3, at: 26, width: 2); put(0xFFFE, at: 28, width: 2)
+        put(9, at: 30, width: 2); put(6, at: 32, width: 2)
+        put(UInt64(fatSectors), at: 44); put(4096, at: 56)
+        put(0xFFFF_FFFE, at: 60); put(0xFFFF_FFFE, at: 68)
+        for i in 0..<109 { put(i < fatSectors ? UInt64(directorySectors + i) : 0xFFFF_FFFF, at: 76 + i * 4) }
+        for i in 0..<(fatSectors * 128) {
+            let next: UInt64 = i < directorySectors - 1 ? UInt64(i + 1)
+                : i == directorySectors - 1 ? 0xFFFF_FFFE
+                : i < directorySectors + fatSectors ? 0xFFFF_FFFD : 0xFFFF_FFFF
+            put(next, at: (1 + directorySectors) * 512 + i * 4)
+        }
+        for i in 0...count {
+            let base = 512 + i * 128
+            let name = Array((i == 0 ? "Root Entry" : "f\(i)").utf16)
+            for (j, unit) in name.enumerated() { put(UInt64(unit), at: base + j * 2, width: 2) }
+            put(UInt64((name.count + 1) * 2), at: base + 64, width: 2)
+            bytes[base + 66] = i == 0 ? 5 : 2
+            put(i > 0 && i < count ? UInt64(i + 1) : 0xFFFF_FFFF, at: base + 68)
+            put(0xFFFF_FFFF, at: base + 72)
+            put(i == 0 ? 1 : 0xFFFF_FFFF, at: base + 76)
+            put(0xFFFF_FFFE, at: base + 116)
+        }
+        let reader = try ArchiveReader.open(data: bytes)
+        XCTAssertEqual(reader.entries.count, count)
+        XCTAssertEqual(reader.entries.first?.name, "f4000")
+        XCTAssertEqual(reader.entries.last?.name, "f1")
+        XCTAssertEqual(try reader.read(reader.entries[0]), Data())
+        XCTAssertThrowsError(try ArchiveReader.open(data: bytes, options: ReaderOptions(limits: ReadLimits(maxEntryCount: 10)))) {
+            guard case .limitExceeded = $0 as? KaitoError else { return XCTFail("予期しないエラー: \($0)") }
+        }
+        // 最深部から既訪問の entry へ戻る循環も検出する。
+        put(1, at: 512 + count * 128 + 68)
+        XCTAssertThrowsError(try ArchiveReader.open(data: bytes)) {
+            guard case .malformed = $0 as? KaitoError else { return XCTFail("予期しないエラー: \($0)") }
+        }
+    }
+
+    func testR10NativeCFBSignatureWinsOverPayloadBinHexText() throws {
+        var bytes = try Self.fixture("v3.cfb")
+        let original = try ArchiveReader.open(data: bytes)
+        let directory = (Int(CFBBytes.u32([UInt8](bytes), 48)) + 1) * 512
+        let stream = try XCTUnwrap(stride(from: directory, to: directory + 512, by: 128).first {
+            bytes[$0 + 66] == 2 && CFBBytes.u32([UInt8](bytes), $0 + 120) >= 4096
+        })
+        let offset = (Int(CFBBytes.u32([UInt8](bytes), stream + 116)) + 1) * 512
+        let banner = Data("(This file must be converted with BinHex 4.0)".utf8)
+        XCTAssertLessThan(offset + banner.count, 65_536)
+        bytes.replaceSubrange(offset..<(offset + banner.count), with: banner)
+        XCTAssertEqual(try FormatDetector.detect(data: bytes), .compoundFile)
+        let reader = try ArchiveReader.open(data: bytes)
+        XCTAssertEqual(reader.entries, original.entries)
+        let name = try CFBDirectoryEntry([UInt8](bytes), stream, majorVersion: 3).name
+        let entry = try XCTUnwrap(reader.entries.first { $0.name == CFBReader.publishedName(name) })
+        XCTAssertEqual(try reader.read(entry).prefix(banner.count), banner)
+    }
+
     private static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     private struct Payload: Decodable { let size: UInt64; let sha256: String }
     private struct Archive: Decodable { let size: UInt64; let sha256: String; let files: [String] }

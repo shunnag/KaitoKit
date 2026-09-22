@@ -5,6 +5,26 @@ import XCTest
 
 /// HTML Help（CHM / ITSF）。fixture は Tests/Fixtures/chm（自作 writer + CAB LZX encoder、7-Zip が同じ内容に展開）。
 final class CHMReaderTests: XCTestCase {
+    func testR4SectionIDBeyondIntIsRejected() throws {
+        var bytes = try Self.fixture("uncompressed.chm")
+        let header = try CHMHeader([UInt8](bytes.prefix(0x60)), sourceLength: UInt64(bytes.count))
+        let directory = Int(header.directoryOffset)
+        let base = directory + Int(CHMBytes.u32([UInt8](bytes), directory + 8))
+        let chunkSize = Int(CHMBytes.u32([UInt8](bytes), directory + 0x10))
+        // /x、section = 2^63（10 byte ENCINT）、offset = length = 0。
+        let record: [UInt8] = [2, 0x2F, 0x78, 0x81] + Array(repeating: 0x80, count: 8) + [0, 0, 0]
+        bytes.replaceSubrange((base + 20)..<(base + 20 + record.count), with: record)
+        withUnsafeBytes(of: UInt32(chunkSize - 20 - record.count).littleEndian) {
+            bytes.replaceSubrange((base + 4)..<(base + 8), with: $0)
+        }
+        bytes[base + chunkSize - 2] = 1; bytes[base + chunkSize - 1] = 0
+        let entries = try CHMReader.directory(source: DataByteSource(bytes), header: header, limits: ReadLimits())
+        XCTAssertEqual(entries.first?.section, 1 << 63)
+        XCTAssertThrowsError(try ArchiveReader.open(data: bytes)) {
+            guard case .malformed = $0 as? KaitoError else { return XCTFail("予期しないエラー: \($0)") }
+        }
+    }
+
     private static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     private struct Payload: Decodable { let size: UInt64; let sha256: String }
     private struct Archive: Decodable { let size: UInt64; let sha256: String; let files: [String] }

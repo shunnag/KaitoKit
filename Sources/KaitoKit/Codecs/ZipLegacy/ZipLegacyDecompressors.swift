@@ -128,7 +128,8 @@ final class ShrinkDecompressor: Decompressor {
             if prefix[code] >= 0 { childCount[prefix[code]] -= 1 }
             prefix[code] = -1
         }
-        freeCodes = leaves
+        // 前回までの clear で解放され、まだ再利用していない code も低い番号順で残す。
+        freeCodes = (257..<nextCode).filter { !defined[$0] }
         freeIndex = 0
     }
 

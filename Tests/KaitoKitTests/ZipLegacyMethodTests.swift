@@ -6,6 +6,26 @@ import XCTest
 /// PKZIP 1.x の Shrink（1）/ Reduce（2〜5）/ Implode（6）。fixture は Tests/Fixtures/zip-legacy（自作 encoder、
 /// unzip / 7zz / deark で独立に照合）。
 final class ZipLegacyMethodTests: XCTestCase {
+    func testR12SuccessivePartialClearsRetainUnusedCodes() throws {
+        var compressed = Data(), accumulator: UInt64 = 0
+        var bits = 0
+        for code: UInt64 in [65, 66, 67, 256, 2, 256, 2, 68, 257] {
+            accumulator |= code << bits; bits += 9
+            while bits >= 8 { compressed.append(UInt8(accumulator & 255)); accumulator >>= 8; bits -= 8 }
+        }
+        if bits > 0 { compressed.append(UInt8(accumulator & 255)) }
+        let expected = Data("ABCDCD".utf8)
+        let bytes = try ZipTestSupport.makeArchive(entries: [
+            HandZipEntry(name: "clears.txt", uncompressedData: expected, compressedData: compressed, method: 1),
+        ])
+        let reader = try ArchiveReader.open(data: bytes)
+        XCTAssertEqual(try reader.read(reader.entries[0]), expected)
+        let stream = try reader.stream(reader.entries[0])
+        var output = Data(), byte: UInt8 = 0
+        while try withUnsafeMutableBytes(of: &byte, { try stream.read(into: $0) }) > 0 { output.append(byte) }
+        XCTAssertEqual(output, expected)
+    }
+
     private struct Payload: Decodable { let size: UInt64; let sha256: String }
     private struct Manifest: Decodable { let payload: [String: Payload]; let clearPayload: [String: Payload] }
     private static func manifest() throws -> Manifest {

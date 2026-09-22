@@ -6,6 +6,25 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-22
+
+0.8.0 のリリースレビューの修正。再現手順・修正前の失敗文・回帰テストは[検証記録](Documentation/verification/2026-09-22-release-review-0.8.1.md)を参照。
+
+- R1. ARJ の短い基本 header で file type を範囲外参照する crash を、7 byte 以上の長さ検査で防いだ。`60 ea 01 00 00 8d ef 02 d2` の 9 byte を detect / open / CLI list に渡して再現。
+- R2. CFB v4 の root mini-stream サイズを `maxEntrySize` で検査し、sector 数の切り上げを overflow しない式にした。root サイズを `UInt64.max` にした既存 fixture で再現。
+- R3. CFB の sibling tree の再帰を明示的な stack に置き換え、4,000 entry の左鎖で起きる stack overflow を防いだ。テスト内の合成 CFB で一覧順・件数上限・循環拒否も検証。
+- R4. CHM の section ID を `Int` へ変換する前に範囲検査し、不正値を `malformed` で拒否する。空の `/x` の section を `2^63` にして再現。
+- R5. UDIF の sector 数から byte 数への検査付き乗算を chunk 解析前に移し、raw chunk の乗算 overflow を防いだ。trailer / chunk に `2^55` sector を宣言した小さな XML image で再現。
+- R6. AppleDouble の除去・resource fork 挿入後の index へ tar hard link の参照先も写す。`._foo`、`foo`、hard link と連鎖 link を持つ合成 tar の `.merge` / `.hide` で再現。
+- R7. AppleDouble 候補の probe が未対応 method や破損で失敗した場合は候補を通常 entry として残す。method 7 の `._ordinary` を持つ ZIP の既定 open で再現し、上限・I/O のエラー伝播は維持。
+- R8. AppleDouble resource fork の最終 byte を返す前に元の sidecar stream を読み切り、CRC・終端を検証する。1,000 byte の stored sidecar の offset 38 に置いた 4 byte の fork と後続領域の反転で再現。
+- R9. UDIF の圧縮 chunk を cache する前に decoder の終端を確定し、宣言長を超える出力を拒否する。既存 `hfs-lzma.dmg` の chunk 宣言を 1 sector 短くして再現（原文の footer 反転は既存検査で拒否済み）。
+- R10. lzip / pbzx / WIM / CFB / CHM / ARJ の先頭署名を BinHex probe の除外に追加した。CFB の stored stream に BinHex 説明文を入れても native 形式で開けることを検証。
+- R11. GNU sparse tar 0.1 の `GNU.sparse.name` を公開名・展開先へ引き継ぐ。header 名 `GNUSparseFile.123/real.txt`、sparse 名 `real.txt` の合成 tar を bsdtar と照合。
+- R12. ZIP Shrink の連続した部分クリアでも、前回解放した未使用 code を低い番号順に再利用する。9 bit 列 `[65,66,67,256,2,256,2,68,257]` が `ABCDCD` に復元されることを検証。
+- R13. StuffIt 分割の巻数上限検査を次の part の存在確認後へ移し、上限ちょうどの完結セットを受理する。1 巻 / 128 巻の URL open と、その次の part が実在する場合の拒否で再現。
+- R14. MacBinary / AppleSingle / BinHex の公開 entry 数を resource fork 込みで `maxEntryCount` と照合する。`noresource.bin` の上限 0 と `readme.txt.bin` 等の上限 1 で再現。
+
 ## [0.8.0] - 2026-09-22
 
 形式の追加を中心にした release。公開 enum `ArchiveFormat` に 12 の case（`.lzip` `.brotli` `.pbzx` `.udf` `.wim` `.macBinary`

@@ -273,6 +273,7 @@ final class CHMReader: FormatReader {
         var entries: [ArchiveEntry] = []
         var locations: [Location] = []
         for entry in directory where entry.name.hasPrefix("/") && entry.name != "/" {
+            guard entry.section <= UInt64(Int.max) else { throw KaitoError.malformed("chm section id exceeds Int") }
             guard entries.count < limits.maxEntryCount else { throw KaitoError.limitExceeded("chm entry count") }
             let isDirectory = entry.name.hasSuffix("/")
             let path = String(entry.name.dropFirst().dropLast(isDirectory ? 1 : 0))

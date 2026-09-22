@@ -5,6 +5,16 @@ import XCTest
 
 /// ARJ。fixture は Tests/Fixtures/arj（自作 writer + lh6 互換 encoder、7-Zip / deark / unar が同じ内容に展開）。
 final class ARJReaderTests: XCTestCase {
+    func testR1ShortCRCValidMainHeaderDoesNotCrash() throws {
+        let bytes = Data([0x60, 0xEA, 1, 0, 0, 0x8D, 0xEF, 2, 0xD2])
+        XCTAssertThrowsError(try FormatDetector.detect(data: bytes)) {
+            XCTAssertEqual($0 as? KaitoError, .unsupportedFormat)
+        }
+        XCTAssertThrowsError(try ArchiveReader.open(data: bytes)) {
+            XCTAssertEqual($0 as? KaitoError, .unsupportedFormat)
+        }
+    }
+
     private static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     private struct Payload: Decodable { let size: UInt64; let sha256: String }
     private static func manifest() throws -> [String: Payload] {

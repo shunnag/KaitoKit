@@ -7,6 +7,26 @@ import XCTest
 /// GNU sparse（pax 0.0 / 0.1 / 1.0、libarchive tar(5) の記述）。合成書庫は OS の bsdtar で読めることを
 /// 独立に確認し、1.0 は F_PUNCHHOLE で穴を開けた実 file を bsdtar --format pax で書いた書庫でも照合する。
 final class TarSparseTests: XCTestCase {
+    func testR11Pax01PreservesSparseNameForListingAndExtraction() throws {
+        let map = fragments.map { "\($0.offset),\($0.bytes.count)" }.joined(separator: ",")
+        let archive = try TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "PaxHeader/real.txt", contents: paxPayload([
+                ("GNU.sparse.size", String(realSize)), ("GNU.sparse.map", map), ("GNU.sparse.name", "real.txt"),
+            ]), type: 0x78),
+            HandTarEntry(name: "GNUSparseFile.123/real.txt", contents: storedBody),
+            HandTarEntry(name: "after.txt", contents: Data("after".utf8)),
+        ])
+        try assertBSDTarReads(archive, member: "real.txt", label: "0.1 name")
+        let reader = try ArchiveReader.open(data: archive)
+        XCTAssertEqual(reader.entries[0].name, "real.txt")
+        XCTAssertEqual(reader.entries[0].pathComponents, ["real.txt"])
+        let directory = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        _ = try reader.extract(reader.entries[0], to: directory)
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("real.txt")), expected)
+        try assertReader(archive, version: "GNU.sparse 0.1", label: "0.1 name", name: "real.txt")
+    }
+
     // 実サイズ 3 MiB: [0, 4096) データ、[1 MiB, 1 MiB + 1000) データ、末尾は穴。
     private let realSize = 3 * 1_048_576
     private var fragments: [(offset: Int, bytes: [UInt8])] {

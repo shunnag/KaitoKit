@@ -1220,7 +1220,7 @@ final class TarReader: FormatReader {
         guard storedSize == map.storedSize else {
             throw KaitoError.malformed("GNU sparse fragments do not match the stored size")
         }
-        return (map, dataOffset, version, nil)
+        return (map, dataOffset, version, pax["GNU.sparse.name"])
     }
 
     private static func entryKind(for type: UInt8) -> EntryKind {

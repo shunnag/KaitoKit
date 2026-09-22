@@ -195,6 +195,7 @@ final class CFBReader: FormatReader {
             }
         }
         guard let root = directory.first, root.type == .root else { throw KaitoError.malformed("cfb root entry") }
+        try Checked.size(root.size, limit: options.limits.maxEntrySize)
 
         // §2.4: mini FAT と、root entry が指す mini stream。
         var miniFAT: [UInt32] = []
@@ -209,23 +210,31 @@ final class CFBReader: FormatReader {
         self.miniFAT = miniFAT
         miniStreamSize = root.size
         if root.startSector <= CFBHeader.maxRegularSector, root.size > 0 {
-            let needed = (root.size + UInt64(sectorSize) - 1) / UInt64(sectorSize)
+            let needed = (root.size - 1) / UInt64(sectorSize) + 1
             miniStreamSectors = try Self.chain(from: root.startSector, fat: fat, sectorCount: sectorCount, maximumSectors: needed, label: "mini stream")
             guard UInt64(miniStreamSectors.count) == needed else { throw KaitoError.malformed("cfb mini stream chain is shorter than its size") }
         } else {
             miniStreamSectors = []
         }
 
-        // §2.6.4: 各 storage の子は red-black tree。左 → 自分 → 右の順に辿り、storage は再帰する。
+        // §2.6.4: 各 storage の子は red-black tree。明示的な stack で左 → 自分 → 子 → 右の順に辿る。
+        // 不正に偏った sibling tree も metadata 上限内で処理し、call stack を消費しない。
         var entries: [ArchiveEntry] = []
         var records: [Record] = []
         var visited = Set<UInt32>()
-        func walk(_ id: UInt32, components: [String], depth: Int) throws {
-            guard id != CFBHeader.noStream else { return }
+        var pending: [(id: UInt32, components: [String], depth: Int, publish: Bool)] = [(root.child, [], 0, false)]
+        while let item = pending.popLast() {
+            let (id, components, depth, publish) = item
+            guard id != CFBHeader.noStream else { continue }
             guard id <= CFBHeader.maxRegularSector, Int(id) < directory.count else { throw KaitoError.malformed("cfb stream id \(id)") }
-            guard visited.insert(id).inserted else { throw KaitoError.malformed("cfb directory tree cycle") }
             let entry = directory[Int(id)]
-            try walk(entry.leftSibling, components: components, depth: depth)
+            if !publish {
+                guard visited.insert(id).inserted else { throw KaitoError.malformed("cfb directory tree cycle") }
+                pending.append((entry.rightSibling, components, depth, false))
+                pending.append((id, components, depth, true))
+                pending.append((entry.leftSibling, components, depth, false))
+                continue
+            }
             switch entry.type {
             case .storage, .stream:
                 guard depth < options.limits.maxPathComponentCount else { throw KaitoError.limitExceeded("cfb path depth") }
@@ -246,15 +255,13 @@ final class CFBReader: FormatReader {
                     modificationDate: WIMBytes.fileTime(entry.modified), posixPermissions: nil, isEncrypted: false, solidGroup: -1,
                     crc32: nil, methodDescription: "stored", formatSpecific: specific))
                 records.append(Record(entry: entry))
-                if entry.type == .storage { try walk(entry.child, components: path, depth: depth + 1) }
+                if entry.type == .storage { pending.append((entry.child, path, depth + 1, false)) }
             case .root:
                 throw KaitoError.malformed("cfb root entry inside the tree")
             case .unallocated:
                 break
             }
-            try walk(entry.rightSibling, components: components, depth: depth)
         }
-        try walk(root.child, components: [], depth: 0)
         self.entries = entries
         self.records = records
     }

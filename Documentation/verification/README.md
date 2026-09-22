@@ -8,6 +8,7 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-09-22-release-review-0.8.1.md](2026-09-22-release-review-0.8.1.md) | 2026-09-22 | 0.8.0 レビュー R1〜R14 の再現・修正・回帰テスト（parser crash、AppleDouble、UDIF、sparse、Shrink、巻数・件数上限） | v0.8.1 |
 | [2026-09-22-dmg.md](2026-09-22-dmg.md) | 2026-09-22 | Apple Disk Image（UDIF）と HFS+ の読み取り追加、hdiutil fixture の mount / 7-Zip 照合、extents overflow と hard link の確認 | v0.8.0 |
 | [2026-09-21-arj.md](2026-09-21-arj.md) | 2026-09-21 | ARJ の読み取り追加、method 1〜3 = lh6 の黒箱確定（実物 11 書庫）、自作 writer / encoder fixture の 3 reader 照合 | v0.8.0 |
 | [2026-09-21-chm.md](2026-09-21-chm.md) | 2026-09-21 | CHM（ITSF）の読み取り追加、LZX の reset interval / block の黒箱確定、自作 writer fixture の 7-Zip 照合、実物 2 本の一致 | v0.8.0 |

@@ -109,17 +109,30 @@ final class AppleDoubleReader: FormatReader {
                 if options.appleDoublePolicy == .hide, underMacOSX.contains(index) { hidden.insert(index) }
                 continue
             }
-            let stream = try inner.stream(for: sidecar, limits: options.limits)
-            var prefix = [UInt8](repeating: 0, count: AppleDoubleHeader.prefixLength(for: sidecar))
-            var filled = 0
-            while filled < prefix.count {
-                let count = try prefix.withUnsafeMutableBytes { buffer in
-                    try stream.read(into: UnsafeMutableRawBufferPointer(rebasing: buffer[filled...]))
+            let header: AppleDoubleHeader
+            do {
+                let stream = try inner.stream(for: sidecar, limits: options.limits)
+                var prefix = [UInt8](repeating: 0, count: AppleDoubleHeader.prefixLength(for: sidecar))
+                var filled = 0
+                while filled < prefix.count {
+                    let count = try prefix.withUnsafeMutableBytes { buffer in
+                        try stream.read(into: UnsafeMutableRawBufferPointer(rebasing: buffer[filled...]))
+                    }
+                    if count == 0 { break }
+                    filled += count
                 }
-                if count == 0 { break }
-                filled += count
+                guard let parsed = try AppleDoubleHeader(Array(prefix.prefix(filled)), totalLength: sidecar.uncompressedSize) else { continue }
+                header = parsed
+            } catch let error as KaitoError {
+                // 判定できない候補は通常の entry として残す。上限や I/O の失敗は隠さない。
+                switch error {
+                case .unsupportedFormat, .unsupportedMethod, .malformed, .truncated, .checksumMismatch,
+                     .passwordRequired, .wrongPassword:
+                    continue
+                default:
+                    throw error
+                }
             }
-            guard let header = try AppleDoubleHeader(Array(prefix.prefix(filled)), totalLength: sidecar.uncompressedSize) else { continue }
             switch options.appleDoublePolicy {
             case .hide:
                 hidden.insert(index)
@@ -141,10 +154,17 @@ final class AppleDoubleReader: FormatReader {
         }
         guard !hidden.isEmpty else { return inner }
 
+        // sidecar の除去と fork の挿入を含む最終 index へ、hard link の参照も写す。
+        var publishedIndices: [Int: Int] = [:]
+        var nextIndex = 0
+        for entry in source where !hidden.contains(entry.index) {
+            publishedIndices[entry.index] = nextIndex
+            nextIndex += forks[entry.index] == nil ? 1 : 2
+        }
         var entries: [ArchiveEntry] = []
         var mappings: [Mapping] = []
         for entry in source where !hidden.contains(entry.index) {
-            entries.append(entry.reindexed(entries.count))
+            entries.append(entry.reindexed(entries.count, targetIndices: publishedIndices))
             mappings.append(.passthrough(entry.index))
             if let fork = forks[entry.index] {
                 var specific = fork.entry.formatSpecific
@@ -208,11 +228,15 @@ final class AppleDoubleReader: FormatReader {
 }
 
 private extension ArchiveEntry {
-    func reindexed(_ index: Int) -> ArchiveEntry {
-        ArchiveEntry(index: index, rawName: rawName, name: name, pathComponents: pathComponents, kind: kind,
+    func reindexed(_ index: Int, targetIndices: [Int: Int]) -> ArchiveEntry {
+        var specific = formatSpecific
+        if let target = specific["hardLinkTargetIndex"].flatMap(Int.init) {
+            specific["hardLinkTargetIndex"] = targetIndices[target].map(String.init)
+        }
+        return ArchiveEntry(index: index, rawName: rawName, name: name, pathComponents: pathComponents, kind: kind,
                      uncompressedSize: uncompressedSize, compressedSize: compressedSize, modificationDate: modificationDate,
                      posixPermissions: posixPermissions, isEncrypted: isEncrypted, solidGroup: solidGroup, crc32: crc32,
-                     methodDescription: methodDescription, formatSpecific: formatSpecific, isIncomplete: isIncomplete)
+                     methodDescription: methodDescription, formatSpecific: specific, isIncomplete: isIncomplete)
     }
 }
 
@@ -221,6 +245,7 @@ final class SliceDecompressor: Decompressor {
     private let stream: EntryStream
     private var toSkip: UInt64
     private var remaining: UInt64
+    private var finished = false
 
     init(stream: EntryStream, skip: UInt64, length: UInt64) {
         self.stream = stream
@@ -228,10 +253,17 @@ final class SliceDecompressor: Decompressor {
         self.remaining = length
     }
 
-    var isFinished: Bool { remaining == 0 }
+    var isFinished: Bool { finished }
 
     func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
-        guard !buffer.isEmpty, remaining > 0 else { return 0 }
+        guard !buffer.isEmpty, !finished else { return 0 }
+        if remaining == 0 {
+            // resource fork より後ろの領域も読み切り、内側の stream の CRC と終端を確定する。
+            var scratch = [UInt8](repeating: 0, count: 64 * 1024)
+            while try scratch.withUnsafeMutableBytes({ try stream.read(into: $0) }) > 0 {}
+            finished = true
+            return 0
+        }
         while toSkip > 0 {
             let chunk = Int(min(toSkip, UInt64(buffer.count)))
             let count = try stream.read(into: UnsafeMutableRawBufferPointer(rebasing: buffer[..<chunk]))

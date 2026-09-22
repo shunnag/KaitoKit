@@ -128,7 +128,7 @@ final class ARJReader: FormatReader {
         for index in 0...last where bytes[index] == 0x60 && bytes[index + 1] == 0xEA {
             if index > 0, !(bytes[0] == 0x4D && bytes[1] == 0x5A) { break }     // SFX でなければ先頭以外は見ない
             let size = Int(ARJBytes.u16(bytes, index + 2))
-            guard size > 0, size <= ARJHeader.maximumBasicSize, index + 4 + size + 4 <= bytes.count else { continue }
+            guard size >= 7, size <= ARJHeader.maximumBasicSize, index + 4 + size + 4 <= bytes.count else { continue }
             var crc = CRC32()
             crc.update(Array(bytes[(index + 4)..<(index + 4 + size)]))
             if crc.value == ARJBytes.u32(bytes, index + 4 + size), bytes[index + 4 + 6] == 2 {   // main header は file type 2

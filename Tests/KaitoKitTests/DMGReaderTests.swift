@@ -5,6 +5,90 @@ import XCTest
 
 /// Apple disk image（UDIF + HFS+）。fixture は Tests/Fixtures/dmg（hdiutil が書き、mount と 7-Zip で照合、generate.sh）。
 final class DMGReaderTests: XCTestCase {
+    func testR5SectorByteOverflowIsRejected() throws {
+        var table = Data(repeating: 0, count: 244)
+        func put(_ value: UInt64, in data: inout Data, at offset: Int, width: Int = 8) {
+            for i in 0..<width { data[offset + i] = UInt8(truncatingIfNeeded: value >> ((width - i - 1) * 8)) }
+        }
+        table.replaceSubrange(0..<4, with: "mish".utf8)
+        put(1, in: &table, at: 4, width: 4)
+        put(1 << 55, in: &table, at: 16)
+        put(1, in: &table, at: 200, width: 4)
+        put(1, in: &table, at: 204, width: 4)
+        put(1 << 55, in: &table, at: 220)
+        let xml = try PropertyListSerialization.data(fromPropertyList: ["resource-fork": ["blkx": [["Data": table]]]], format: .xml, options: 0)
+        var trailer = Data(repeating: 0, count: 512)
+        trailer.replaceSubrange(0..<4, with: "koly".utf8)
+        put(4, in: &trailer, at: 4, width: 4)
+        put(512, in: &trailer, at: 8, width: 4)
+        put(UInt64(xml.count), in: &trailer, at: 224)
+        put(1 << 55, in: &trailer, at: 492)
+        XCTAssertThrowsError(try ArchiveReader.open(data: xml + trailer)) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("unsigned integer multiplication overflow"))
+        }
+    }
+
+    func testR9CompressedChunkMustReachValidatedEnd() throws {
+        let original = try Self.fixture("hfs-lzma.dmg")
+        let source = DataByteSource(original)
+        let trailer = try XCTUnwrap(try UDIFTrailer.read(source: source))
+        let disk = try UDIFDiskByteSource(file: source, trailer: trailer, limits: ReadLimits())
+        let chunk = try XCTUnwrap(disk.chunks.first {
+            if case .xz = $0.kind { return $0.byteCount >= 1 << 20 }; return false
+        })
+        var corrupt = original
+        // footer 自体は既存の事前検査が拒否する。展開完了時に検証する Index CRC を反転する。
+        corrupt[Int(chunk.dataOffset + chunk.dataLength - 16)] ^= 1
+        let stream = corrupt[Int(chunk.dataOffset)..<Int(chunk.dataOffset + chunk.dataLength)]
+        XCTAssertThrowsError(try {
+            let reader = try ArchiveReader.open(data: Data(stream))
+            return try reader.read(reader.entries[0])
+        }())
+        let damaged = try UDIFDiskByteSource(file: DataByteSource(corrupt), trailer: trailer, limits: ReadLimits())
+        // 二度読んでも拒否し、不正な chunk を cache しない。
+        for _ in 0..<2 {
+            XCTAssertThrowsError(try readByteRange(source: damaged, offset: chunk.byteOffset, count: 1)) {
+                guard case .malformed = $0 as? KaitoError else { return XCTFail("予期しないエラー: \($0)") }
+            }
+        }
+        // 有効な XZ stream の出力より 1 sector 短い宣言にする。
+        // 宣言長だけ読んで cache すると、残った 512 byte と終端を検証せず成功してしまう。
+        let xml = original[Int(trailer.xmlOffset)..<Int(trailer.xmlOffset + trailer.xmlLength)]
+        var plist = try XCTUnwrap(try PropertyListSerialization.propertyList(from: Data(xml), format: nil) as? [String: Any])
+        var resources = try XCTUnwrap(plist["resource-fork"] as? [String: Any])
+        var blocks = try XCTUnwrap(resources["blkx"] as? [[String: Any]])
+        var changed = false
+        for i in blocks.indices {
+            var table = try XCTUnwrap(blocks[i]["Data"] as? Data)
+            let bytes = [UInt8](table)
+            for j in 0..<Int(UDIFBytes.u32(bytes, 200)) {
+                let offset = 204 + j * 40
+                if UDIFBytes.u32(bytes, offset) == 0x8000_0008,
+                   UDIFBytes.u64(bytes, offset + 24) + trailer.dataForkOffset == chunk.dataOffset {
+                    withUnsafeBytes(of: (chunk.sectorCount - 1).bigEndian) {
+                        table.replaceSubrange((offset + 16)..<(offset + 24), with: $0)
+                    }
+                    changed = true
+                }
+            }
+            blocks[i]["Data"] = table
+        }
+        XCTAssertTrue(changed)
+        resources["blkx"] = blocks; plist["resource-fork"] = resources
+        let shorterXML = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        var shorterTrailer = Data(original.suffix(512))
+        withUnsafeBytes(of: UInt64(shorterXML.count).bigEndian) {
+            shorterTrailer.replaceSubrange(224..<232, with: $0)
+        }
+        let shorter = DataByteSource(original.prefix(Int(trailer.xmlOffset)) + shorterXML + shorterTrailer)
+        let shorterDisk = try UDIFDiskByteSource(file: shorter, trailer: XCTUnwrap(UDIFTrailer.read(source: shorter)), limits: ReadLimits())
+        for _ in 0..<2 {
+            XCTAssertThrowsError(try readByteRange(source: shorterDisk, offset: chunk.byteOffset, count: 1)) {
+                XCTAssertEqual($0 as? KaitoError, .malformed("udif chunk output exceeds its declared size"))
+            }
+        }
+    }
+
     private static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     private struct Payload: Decodable { let size: UInt64?; let sha256: String?; let symlink: String?; let decmpfs: Bool? }
     private struct Image: Decodable { let size: UInt64; let sha256: String; let note: String }

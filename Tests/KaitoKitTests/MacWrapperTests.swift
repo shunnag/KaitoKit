@@ -6,6 +6,16 @@ import XCTest
 /// MacBinary / AppleSingle / BinHex 4 の wrapper を、payload が StuffIt でないとき 1 file の書庫として公開する。
 /// fixture は Tests/Fixtures/macwrappers（自作 writer、The Unarchiver の lsar / unar で fork まで照合）。
 final class MacWrapperTests: XCTestCase {
+    func testR14PublishedForksRespectEntryCountLimit() throws {
+        for (name, count) in [("noresource.bin", 1), ("readme.txt.bin", 2), ("readme.txt.as", 2), ("readme.txt.hqx", 2)] {
+            let bytes = try Self.fixture(name)
+            XCTAssertThrowsError(try ArchiveReader.open(data: bytes, options: ReaderOptions(limits: ReadLimits(maxEntryCount: count - 1))), name) {
+                guard case .limitExceeded = $0 as? KaitoError else { return XCTFail("予期しないエラー: \($0)") }
+            }
+            XCTAssertEqual(try ArchiveReader.open(data: bytes, options: ReaderOptions(limits: ReadLimits(maxEntryCount: count))).entries.count, count)
+        }
+    }
+
     private static func fixture(_ name: String) throws -> Data {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Fixtures/macwrappers/\(name).b64")

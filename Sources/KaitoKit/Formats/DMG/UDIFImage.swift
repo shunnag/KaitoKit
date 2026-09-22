@@ -95,6 +95,8 @@ final class UDIFDiskByteSource: ByteSource, @unchecked Sendable {
         self.trailer = trailer
         self.limits = limits
         guard trailer.version == 4 else { throw KaitoError.unsupportedMethod("UDIF version \(trailer.version)") }
+        // 各 chunk の sector 範囲を調べる前に、disk 全体が byte 数へ変換できることを保証する。
+        length = try Checked.mul(trailer.sectorCount, 512)
         guard trailer.xmlLength > 0 else { throw KaitoError.unsupportedMethod("UDIF image without a block map") }
         try Checked.size(trailer.xmlLength, limit: limits.maxMetadataSize)
         guard try Checked.add(trailer.xmlOffset, trailer.xmlLength) <= file.length else { throw KaitoError.truncated }
@@ -159,7 +161,6 @@ final class UDIFDiskByteSource: ByteSource, @unchecked Sendable {
         }
         self.tables = tables
         chunks = all
-        length = try Checked.mul(trailer.sectorCount, 512)
     }
 
     /// `offset` を含む chunk の index（隙間なら nil）。
@@ -274,6 +275,13 @@ final class UDIFDiskByteSource: ByteSource, @unchecked Sendable {
             }
         }
         guard filled == expected else { throw KaitoError.malformed("udif chunk expanded to \(filled) bytes") }
+        // 宣言長に達しても終端・checksum が未検証の場合がある。余剰出力は cache せず拒否する。
+        if !decompressor.isFinished {
+            var byte: UInt8 = 0
+            let additional = try withUnsafeMutableBytes(of: &byte) { try decompressor.read(into: $0) }
+            guard additional == 0 else { throw KaitoError.malformed("udif chunk output exceeds its declared size") }
+            guard decompressor.isFinished else { throw KaitoError.truncated }
+        }
         return result
     }
 }

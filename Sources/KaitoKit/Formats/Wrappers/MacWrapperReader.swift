@@ -70,6 +70,7 @@ final class MacWrapperReader: FormatReader {
                                        modificationDate: info.modified, posixPermissions: nil, isEncrypted: false, solidGroup: -1,
                                        crc32: nil, methodDescription: method, formatSpecific: forkSpecific))
         }
+        guard result.count <= options.limits.maxEntryCount else { throw KaitoError.limitExceeded("mac wrapper entry count") }
         entries = result
     }
 

@@ -226,7 +226,7 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 >   checked on complete reads of members carrying data. gzip, bzip2, xz, lzma, zstd and stored payloads
 >   share the same reader; the codec is decided by the magic at the start of the payload.
 > - **tar**: POSIX/ustar, pax, GNU long name and link, stored members, and GNU sparse entries
->   (pax 0.0 / 0.1 / 1.0; holes are zero-filled and the real size is published). The `._name`
+>   (old GNU typeflag `S`, pax 0.0 / 0.1 / 1.0; holes are zero-filled and the real size is published). The `._name`
 >   AppleDouble sidecars written by macOS tar are merged into resource forks by default. No volume splitting.
 > - **gzip**: RFC 1952 with FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT, DEFLATE, CRC32 and ISIZE.
 >   Concatenated members are supported.
@@ -906,6 +906,7 @@ XADMaster からの移行状況は
 設計書が引く性能・安定性の実測ログは
 [Documentation/verification/](Documentation/verification/README.md) にあります。
 
+- [0.9.0 リリースレビューの検証（2026-09-22）](Documentation/verification/2026-09-22-release-review-0.9.0.md): R1〜R11 の再現・修正・回帰テスト・全件検証。
 - [0.8.1 リリースレビューの検証（2026-09-22）](Documentation/verification/2026-09-22-release-review-0.8.1.md): R1〜R14 の修正前の失敗・回帰テスト・全件検証。
 
 > **Development**

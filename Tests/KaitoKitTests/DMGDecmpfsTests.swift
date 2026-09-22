@@ -21,6 +21,116 @@ final class DMGDecmpfsTests: XCTestCase {
 
     private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
+    func testR1ReviewSkipsUnneededLargeAttributeTree() throws {
+        let image = attributeVolume(leafCount: 4_100, compressed: false)
+        let reader = try ArchiveReader.open(data: image)
+        XCTAssertEqual(reader.entries.map(\.name), ["file"])
+        // header 自体が壊れていても、UF_COMPRESSED が無ければ開かない。
+        var damaged = image
+        damaged[3 * 4096 + 8] = 0
+        XCTAssertEqual(try ArchiveReader.open(data: damaged).entries, reader.entries)
+    }
+
+    func testR1ReviewLargeDecmpfsTreeUsesItsOwnTotalBudget() throws {
+        let image = attributeVolume(leafCount: 4_100, compressed: true)
+        let reader = try ArchiveReader.open(data: image)
+        XCTAssertEqual(reader.entries.map(\.name), ["file"])
+        XCTAssertEqual(try reader.read(reader.entries[0]), Data([42]))
+        // catalog 1 葉 + attributes 4 葉。walk の上限ちょうどを許す。
+        let small = attributeVolume(leafCount: 4, compressed: true)
+        let limits = ReadLimits(maxMetadataSize: 4096, maxTotalMetadataSize: 4 * 4096)
+        let bounded = try ArchiveReader.open(data: small, options: ReaderOptions(limits: limits))
+        XCTAssertEqual(try bounded.read(bounded.entries[0]), Data([42]))
+        XCTAssertThrowsError(try ArchiveReader.open(data: small,
+            options: ReaderOptions(limits: ReadLimits(maxMetadataSize: 4096, maxTotalMetadataSize: 4 * 4096 - 1)))) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("size 16384 exceeds limit 16383"))
+        }
+        let volume = try HFSPlusVolume(source: DataByteSource(small), baseOffset: 0)
+        var budget: UInt64 = 0
+        XCTAssertThrowsError(try volume.decmpfsAttributes(limits: ReadLimits(maxMetadataSize: 16), budget: &budget)) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("size 17 exceeds limit 16"))
+        }
+    }
+
+    func testR2ReviewInlineDeclaredSizeIsBoundedBeforeRead() throws {
+        let raw = [UInt8](repeating: 42, count: 65_536)
+        let packed = try zlibBytes(raw)
+        XCTAssertEqual(try drain(makeDecoder(3, rawSize: raw.count, packed: packed)), raw)
+        for size: UInt64 in [65_537, 1 << 30] {
+            // read せず init の拒否を検査し、宣言サイズの buffer を確保させない。
+            XCTAssertThrowsError(try DecmpfsDecompressor(header: header(3, size), inlinePayload: packed, limits: ReadLimits())) {
+                XCTAssertEqual($0 as? KaitoError, .malformed("hfs+ decmpfs inline declared size"))
+            }
+        }
+        XCTAssertThrowsError(try DecmpfsDecompressor(header: header(1, 2), inlinePayload: [42], limits: ReadLimits())) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("hfs+ decmpfs inline size"))
+        }
+    }
+
+    /// TN1150 の配置で bare volume を合成。catalog 1 葉、属性は各葉に 1 件。
+    private func attributeVolume(leafCount: Int, compressed: Bool) -> Data {
+        let nodeSize = 4096, blockCount = 4 + leafCount
+        var bytes = [UInt8](repeating: 0, count: blockCount * nodeSize)
+        putBE(0x482B, &bytes, 1024, width: 2); putBE(4, &bytes, 1026, width: 2)
+        putBE(1, &bytes, 1024 + 32)
+        putBE(UInt64(nodeSize), &bytes, 1024 + 40); putBE(UInt64(blockCount), &bytes, 1024 + 44)
+        func fork(_ offset: Int, start: Int, blocks: Int) {
+            putBE(UInt64(blocks * nodeSize), &bytes, offset, width: 8)
+            putBE(UInt64(blocks), &bytes, offset + 12)
+            putBE(UInt64(start), &bytes, offset + 16); putBE(UInt64(blocks), &bytes, offset + 20)
+            let header = start * nodeSize
+            bytes[header + 8] = 1
+            putBE(1, &bytes, header + 16); putBE(1, &bytes, header + 24)
+            putBE(UInt64(nodeSize), &bytes, header + 32, width: 2)
+            putBE(UInt64(blocks), &bytes, header + 36)
+        }
+        fork(1024 + 272, start: 1, blocks: 2)
+        fork(1024 + 352, start: 3, blocks: leafCount + 1)
+        func catalog(_ name: String, parent: UInt64, id: UInt64, folder: Bool) -> [UInt8] {
+            let units = Array(name.utf16), keySize = 8 + name.utf16.count * 2
+            var record = [UInt8](repeating: 0, count: keySize + (folder ? 88 : 248))
+            putBE(UInt64(keySize - 2), &record, 0, width: 2); putBE(parent, &record, 2)
+            putBE(UInt64(units.count), &record, 6, width: 2)
+            for (i, unit) in units.enumerated() { putBE(UInt64(unit), &record, 8 + i * 2, width: 2) }
+            putBE(folder ? 1 : 2, &record, keySize, width: 2); putBE(id, &record, keySize + 8)
+            putBE(folder ? 0o040755 : 0o100644, &record, keySize + 42, width: 2)
+            if !folder, compressed { record[keySize + 41] = 0x20 }
+            return record
+        }
+        func leaf(_ block: Int, next: Int, records: [[UInt8]]) {
+            let start = block * nodeSize
+            putBE(UInt64(next), &bytes, start); bytes[start + 8] = 0xFF
+            putBE(UInt64(records.count), &bytes, start + 10, width: 2)
+            var offset = 14
+            for (i, record) in records.enumerated() {
+                putBE(UInt64(offset), &bytes, start + nodeSize - 2 * (i + 1), width: 2)
+                bytes.replaceSubrange((start + offset)..<(start + offset + record.count), with: record)
+                offset += record.count
+            }
+            putBE(UInt64(offset), &bytes, start + nodeSize - 2 * (records.count + 1), width: 2)
+        }
+        leaf(2, next: 0, records: [catalog("Review", parent: 1, id: 2, folder: true),
+                                    catalog("file", parent: 2, id: 16, folder: false)])
+        for i in 1...leafCount {
+            let decmpfs = compressed && i == 1
+            let name = Array((decmpfs ? "com.apple.decmpfs" : "user.review").utf16)
+            let keySize = 14 + name.count * 2, size = decmpfs ? 17 : 3400
+            var record = [UInt8](repeating: 0, count: keySize + 16 + size)
+            putBE(UInt64(keySize - 2), &record, 0, width: 2); putBE(UInt64(15 + i), &record, 4)
+            putBE(UInt64(name.count), &record, 12, width: 2)
+            for (j, unit) in name.enumerated() { putBE(UInt64(unit), &record, 14 + j * 2, width: 2) }
+            putBE(0x10, &record, keySize); putBE(UInt64(size), &record, keySize + 12)
+            if decmpfs {
+                let offset = keySize + 16
+                record.replaceSubrange(offset..<(offset + 4), with: Array("fpmc".utf8))
+                putLE(1, &record, offset + 4); putLE(1, &record, offset + 8, width: 8)
+                record[offset + 16] = 42
+            }
+            leaf(3 + i, next: i == leafCount ? 0 : i + 1, records: [record])
+        }
+        return Data(bytes)
+    }
+
     func testFixtureContentsAndStreams() throws {
         let (image, manifest) = try fixture()
         XCTAssertEqual(UInt64(image.count), manifest.images["hfs-decmpfs.dmg"]?.size)

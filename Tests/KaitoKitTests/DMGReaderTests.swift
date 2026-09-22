@@ -112,10 +112,21 @@ final class DMGReaderTests: XCTestCase {
         try volume.loadOverflowExtents(limits: ReadLimits(), budget: &budget)
         let items = try volume.catalogItems(limits: ReadLimits(), budget: &budget)
         let file = try XCTUnwrap(items.first { $0.name == "compressed.txt" })
-        let attributes = try volume.decmpfsAttributes(limits: ReadLimits(), budget: &budget)
+        var attributeBudget: UInt64 = 0
+        let attributes = try volume.decmpfsAttributes(limits: ReadLimits(), budget: &attributeBudget)
         guard case .inline(let attribute) = attributes[file.nodeID] else { return XCTFail("inline 属性が必要") }
         XCTAssertEqual(try DecmpfsHeader(attribute: attribute).compressionType, 7)
         let raw = Data(try readByteRange(source: disk, offset: 0, count: Checked.toInt(disk.length)))
+        // R6: fixture の属性を変えず、件数と保持属性サイズ未満の総量上限を検査する。
+        for limits in [ReadLimits(maxEntryCount: 0), ReadLimits(maxTotalMetadataSize: UInt64(attribute.count - 1))] {
+            XCTAssertThrowsError(try ArchiveReader.open(data: raw, options: ReaderOptions(limits: limits))) {
+                guard case .limitExceeded = $0 as? KaitoError else { return XCTFail("予期しないエラー: \($0)") }
+            }
+        }
+        attributeBudget = 0
+        XCTAssertThrowsError(try volume.decmpfsAttributes(limits: ReadLimits(maxEntryCount: 0), budget: &attributeBudget)) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("hfs+ decmpfs attribute count"))
+        }
         func uniqueOffset(_ bytes: [UInt8]) throws -> Int {
             let range = try XCTUnwrap(raw.range(of: Data(bytes)))
             XCTAssertNil(raw.range(of: Data(bytes), in: range.upperBound..<raw.count))

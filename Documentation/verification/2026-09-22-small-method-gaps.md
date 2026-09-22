@@ -1,6 +1,6 @@
 # WIM / XZ / 旧 GNU sparse tar の補完（2026-09-22）
 
-作業範囲は `KaitoKit-wt/small`（`wt/small`）。main repository は変更せず、git コマンド・install・commit・push は実行していない。
+実装・個別検証は一時 worktree で行い、その変更は `release/0.9.0` に統合済み（`cd2e747`）。当時の作業では main repository は変更せず、git コマンド・install・commit・push は実行していない。
 
 ## 環境と入力
 
@@ -153,12 +153,12 @@ star の `SCHILY.filetype=sparse` / `SCHILY.realsize`、Solaris の `SUN.holesda
 
 ## build / test
 
-通常の `swift build` は書込み不可の `/Users/nagash/.cache/clang/ModuleCache` で失敗した。
+通常の `swift build` は書込み不可の `<home>/.cache/clang/ModuleCache` で失敗した。
 cache を一時領域に移した後も SwiftPM の二重 sandbox が失敗したため、以下の設定で検証した。
 初回の WIM filter は CLI 探索だけ失敗（新規 WIM テストは通過）し、既存の `KAITO_EXECUTABLE` 設定で再実行した。
 
 ```text
-<unknown>:0: error: error opening '/Users/nagash/.cache/clang/ModuleCache/Swift-7JL1KBZ3A6V3.swiftmodule' for output: /Users/nagash/.cache/clang/ModuleCache: Operation not permitted
+<unknown>:0: error: error opening '<home>/.cache/clang/ModuleCache/Swift-7JL1KBZ3A6V3.swiftmodule' for output: <home>/.cache/clang/ModuleCache: Operation not permitted
 sandbox-exec: sandbox_apply: Operation not permitted
 failed: caught error: "commandFailed(\"built kaito executable was not found\")"
 ```

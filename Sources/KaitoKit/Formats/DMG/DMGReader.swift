@@ -149,7 +149,9 @@ final class HFSVolumeListing {
         var budget: UInt64 = 0
         try volume.loadOverflowExtents(limits: limits, budget: &budget)
         let items = try volume.catalogItems(limits: limits, budget: &budget)
-        let attributes = try volume.decmpfsAttributes(limits: limits, budget: &budget)
+        var attributeBudget: UInt64 = 0
+        let attributes = try items.contains { $0.ownerFlags & 0x20 != 0 }
+            ? volume.decmpfsAttributes(limits: limits, budget: &attributeBudget) : [:]
 
         // folder ID → (親 ID、名前)。root は ID 2（親 1）。
         var folders: [UInt32: (parent: UInt32, name: String)] = [:]

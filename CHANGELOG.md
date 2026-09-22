@@ -9,9 +9,25 @@
 - 7-Zip `-m0=Deflate64` の 7z 書庫（method ID `04 01 09`）を既存の Deflate64 decoder で展開できるようにした。従来は `unsupportedMethod` で失敗していた。solid / non-solid、32 KiB を超える距離、上限と破損の検証は[検証記録](Documentation/verification/2026-09-22-sevenzip-deflate64.md)を参照。
 - WIM の XPRESS chunk を 4〜64 KiB の 2 冪へ拡張した。LZX は 32 KiB のまま。辞書上限、chunk 表と圧縮入力長の上限、SHA-1 を検査する。[検証記録](Documentation/verification/2026-09-22-small-method-gaps.md)。
 - XZ の非終端 RISC-V filter（ID `0x0B`）を native decoder の前に `unsupportedMethod("XZ RISC-V filter")` で拒否する。`.tar.xz` にも適用する。
-- tar の旧 GNU sparse（`S` 型）の header 内 map と拡張 block 連鎖を展開する。穴を 0 で埋め、実サイズと格納長を公開する。star / Solaris は引き続き非対応。
+- tar の旧 GNU sparse（`S` 型）の header 内 map と拡張 block 連鎖を展開する。穴を 0 で埋め、実サイズと格納長を公開する。非 GNU magic の `S` header は従来の `unsupportedMethod("GNU tar sparse entries")` から `malformed("invalid old GNU sparse header")` に変わる。star / Solaris は引き続き非対応。
 - RPM の stripped cpio `07070X`（rpm ≥ 4.12 の大容量 file、rpm 6 の既定）を header tags から列挙・読取可能にした。hard link・ghost・SHA-256 終端検証、v4 / v6 の黒箱照合は[検証記録](Documentation/verification/2026-09-22-rpm-stripped-payload.md)を参照。
-- HFS+ の decmpfs 圧縮 file（UF_COMPRESSED）の本文を読めるようにした。attributes B-tree の `com.apple.decmpfs` から実サイズと type を公開し、type 1 / 3 / 4 / 7 / 8 / 9 / 10 / 11 / 12（stored / zlib / LZVN / LZFSE、inline / resource fork）を chunk 単位で展開する。type 5 / 13 / 14 と未知の type は一覧のみ。fixture の読める 11 file と Apple の実物を原本の SHA-256 で照合し、type 3 / 4 / 7 / 8 / 9 は 7-Zip 26.03 の展開結果とも一致。[検証記録](Documentation/verification/2026-09-22-hfsplus-decmpfs.md)。
+- HFS+ の decmpfs 圧縮 file（UF_COMPRESSED）の本文を読めるようにした。attributes B-tree の `com.apple.decmpfs` から実サイズと type を公開し、type 1 / 3 / 4 / 7 / 8 / 9 / 10 / 11 / 12（stored / zlib / LZVN / LZFSE、inline / resource fork）を chunk 単位で展開する。`methodDescription` は `HFS+ compressed (decmpfs)` から `HFS+ decmpfs (…)` に変わり、対応 type の `uncompressedSize` / `compressedSize` は `nil` でなく実サイズ / 格納長を返す。type 5 / 13 / 14 と未知の type は一覧のみ。fixture の読める 11 file と Apple の実物を原本の SHA-256 で照合し、type 3 / 4 / 7 / 8 / 9 は 7-Zip 26.03 の展開結果とも一致。[検証記録](Documentation/verification/2026-09-22-hfsplus-decmpfs.md)。
+
+### 0.9.0 リリースレビューの修正
+
+敵対的 multi-agent pre-release review（6 観点、各指摘を 3 検証 lens）で確認した R1〜R11。再現・修正前の失敗・回帰テストは[検証記録](Documentation/verification/2026-09-22-release-review-0.9.0.md)を参照。
+
+- R1. UF_COMPRESSED が無い HFS+ volume の属性走査を省き、必要な走査には独立した `maxTotalMetadataSize` 上限を適用する。保持属性の件数・単体・総量上限は維持。
+- R2. inline decmpfs の宣言サイズが 64 KiB を超えたら decoder 初期化時に `malformed` で拒否し、宣言値に比例する buffer 確保を防ぐ。
+- R3. RPM stripped payload の全件分の保持量を単体 allocation 上限から外し、総量・件数上限で管理する。65,537 件の合成 file list で検証。
+- R4. 非 GNU magic の tar `S` header を拒む回帰テストを復元し、エラー分類の変更を上記 feature bullet に追記。
+- R5. pax `GNU.sparse.size` と旧 GNU `S` map の競合を拒む回帰テストを追加。
+- R6. decmpfs 属性の件数 0 と保持サイズ未満の総量上限を、未変更 fixture で検査。
+- R7. RPM tag 5008 の hard link member / symlink サイズ不整合を拒む回帰テストを追加。
+- R8. v0.8.0 の DMG 検証記録に decmpfs 対応追補への注記を加え、当時の本文は保存。
+- R9. README の英語 tar 対応状況に旧 GNU sparse（typeflag `S`）を追記。
+- R10. decmpfs の method 名と公開サイズの変更を上記 feature bullet に明記。
+- R11. 新規検証記録の machine 固有パスを置換し、一時 worktree の記述を release branch へ統合済みの状態に更新。
 
 ## [0.8.1] - 2026-09-22
 

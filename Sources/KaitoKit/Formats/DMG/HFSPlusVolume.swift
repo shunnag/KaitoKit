@@ -133,13 +133,13 @@ final class HFSBTree {
     }
 
     /// 葉 node を firstLeafNode から fLink で順に辿る。
-    func forEachLeafRecord(budget: inout UInt64, limits: ReadLimits, _ body: (ArraySlice<UInt8>) throws -> Void) throws {
+    func forEachLeafRecord(budget: inout UInt64, limit: UInt64, _ body: (ArraySlice<UInt8>) throws -> Void) throws {
         var number = firstLeafNode
         var visited = Set<UInt32>()
         while number != 0 {
             guard visited.insert(number).inserted else { throw KaitoError.malformed("hfs+ leaf chain cycle") }
             budget = try Checked.add(budget, UInt64(nodeSize))
-            try Checked.size(budget, limit: limits.maxMetadataSize)
+            try Checked.size(budget, limit: limit)
             let data = try node(number)
             let (kind, next, records) = try self.records(in: data)
             guard kind == -1 else { throw KaitoError.malformed("hfs+ leaf chain reaches a non-leaf node") }
@@ -228,7 +228,7 @@ final class HFSPlusVolume {
     func loadOverflowExtents(limits: ReadLimits, budget: inout UInt64) throws {
         guard header.extentsFile.logicalSize > 0, !header.extentsFile.extents.isEmpty else { return }
         let tree = try HFSBTree(volume: self, fork: header.extentsFile, forkID: 3, label: "extents")
-        try tree.forEachLeafRecord(budget: &budget, limits: limits) { record in
+        try tree.forEachLeafRecord(budget: &budget, limit: limits.maxMetadataSize) { record in
             // key: keyLength(2) forkType(1) pad(1) fileID(4) startBlock(4) → data: 8 extent。
             let b = Array(record)
             guard b.count >= 12, HFSBytes.u16(b, 0) == 10 else { throw KaitoError.malformed("hfs+ extents key") }
@@ -263,7 +263,8 @@ final class HFSPlusVolume {
         let expectedName = Array("com.apple.decmpfs".utf8)
         var attributes: [UInt32: HFSDecmpfsAttribute] = [:]
         var retainedSize: UInt64 = 0
-        try tree.forEachLeafRecord(budget: &budget, limits: limits) { record in
+        // 属性の全葉は entry 数に比例する。catalog / extents と別の総量上限で走査する。
+        try tree.forEachLeafRecord(budget: &budget, limit: limits.maxTotalMetadataSize) { record in
             let b = Array(record)
             guard b.count >= 14 else { throw KaitoError.malformed("hfs+ attributes key") }
             let keyLength = Int(HFSBytes.u16(b, 0))
@@ -321,7 +322,7 @@ final class HFSPlusVolume {
     func catalogItems(limits: ReadLimits, budget: inout UInt64) throws -> [HFSCatalogItem] {
         let tree = try HFSBTree(volume: self, fork: header.catalogFile, forkID: 4, label: "catalog")
         var items: [HFSCatalogItem] = []
-        try tree.forEachLeafRecord(budget: &budget, limits: limits) { record in
+        try tree.forEachLeafRecord(budget: &budget, limit: limits.maxMetadataSize) { record in
             let b = Array(record)
             guard b.count >= 8 else { throw KaitoError.malformed("hfs+ catalog record") }
             let keyLength = Int(HFSBytes.u16(b, 0))

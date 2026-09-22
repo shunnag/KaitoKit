@@ -519,6 +519,22 @@ final class RpmReaderTests: XCTestCase {
 
         let long = try index(5008, in: rpm)
         let data = positions.store + be32(rpm, long + 8)
+        let files = try XCTUnwrap(RpmHeader(source: DataByteSource(rpm), limits: ReadLimits()).fileList).files
+        let hardlink = try XCTUnwrap(files.indices.first { i in
+            files[i].kind == .file && !files[i].isGhost && files.indices.contains { j in
+                i != j && !files[j].isGhost && files[j].kind == .file
+                    && files[i].ino == files[j].ino && files[i].dev == files[j].dev
+            }
+        })
+        let symlink = try XCTUnwrap(files.firstIndex { $0.kind == .symlink })
+        // R7: tag 5008 だけを変更し、link 群と symlink 本文のサイズ整合を崩す。
+        for i in [hardlink, symlink] {
+            var mismatch = rpm
+            writeBE(UInt32(files[i].size + 1), into: &mismatch, at: data + i * 8 + 4)
+            XCTAssertThrowsError(try ArchiveReader.open(data: mismatch), files[i].name) {
+                XCTAssertEqual($0 as? KaitoError, .malformed("rpm file list"))
+            }
+        }
         var short = rpm
         writeBE(1028, into: &short, at: long)
         writeBE(4, into: &short, at: long + 4)
@@ -539,6 +555,31 @@ final class RpmReaderTests: XCTestCase {
         assertError("truncated") {
             _ = try ArchiveReader.open(data: wrapped(payload, in: huge),
                 options: ReaderOptions(limits: ReadLimits(maxEntrySize: UInt64.max)))
+        }
+    }
+
+    func testR3ReviewStrippedFileListUsesAggregateMetadataLimit() throws {
+        let count = 65_537
+        let (_, fixture, oracle) = try strippedPayload()
+        var payload = Data()
+        let files = (0..<count).map { i in
+            payload.append(contentsOf: Array("07070X".utf8) + Array(String(format: "%08X", i).utf8) + [0, 0])
+            return RpmFileList.File(name: "f\(i)", mode: 0o100644, mtime: 0, size: 0,
+                                    linkTarget: "", ino: UInt32(i), dev: 1, flags: 0, digest: nil)
+        }
+        payload.append(fixture[oracle.trailerOffset...])
+        let source = DataByteSource(payload), list = RpmFileList(files: files, digestAlgorithm: nil)
+        let stripped = try RpmStrippedPayload(source: source, fileList: list, limits: ReadLimits(maxEntryCount: count))
+        XCTAssertEqual(stripped.records.count, count)
+        XCTAssertEqual(stripped.records.last?.fileIndex, count - 1)
+        XCTAssertEqual(stripped.metadataSize, UInt64(count * 256))
+        XCTAssertEqual(try stripped.stream(at: count - 1, limits: ReadLimits()).readAll(), Data())
+        XCTAssertThrowsError(try RpmStrippedPayload(source: source, fileList: list, limits: ReadLimits(maxEntryCount: count - 1))) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("rpm entry count"))
+        }
+        XCTAssertThrowsError(try RpmStrippedPayload(source: source, fileList: list,
+            limits: ReadLimits(maxTotalMetadataSize: UInt64(count * 256 - 1)))) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("size 16777472 exceeds limit 16777471"))
         }
     }
 

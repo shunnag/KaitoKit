@@ -28,9 +28,8 @@ struct RpmStrippedPayload {
         self.source = source
         self.fileList = fileList
         let files = fileList.files
-        // group / seen / record の保持領域を、header 由来の件数から確保する前に検査する。
+        // group / seen / record の全件分の保持量。単体 allocation でなく総量上限で検査する。
         let allocation = try Checked.mul(UInt64(files.count), 256)
-        try Checked.size(allocation, limit: limits.maxMetadataSize)
         try Checked.size(allocation, limit: limits.maxTotalMetadataSize)
         metadataSize = allocation
         var groups: [LinkKey: LinkGroup] = [:]

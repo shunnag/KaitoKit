@@ -3,11 +3,12 @@
 設計書（[`../design.md`](../design.md)）の各追補が主張する数値の裏付けとなる、実行コマンドと
 その出力をそのまま残した記録。ファイル名は `YYYY-MM-DD-<主題>.md` で、日付順に並ぶ。
 
-本文中の絶対パスは `<repo>` / `<corpus>` / `<home>` に置換してある。コーパスや大きな実書庫は
+本文中の絶対パスは `<repo>` / `<corpus>` / `<home>` / `<tmp>` に置換してある。コーパスや大きな実書庫は
 リポジトリに含めないため、記録の再現には同じ書庫を用意する必要がある。
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-09-22-release-review-0.9.0.md](2026-09-22-release-review-0.9.0.md) | 2026-09-22 | 0.9.0 リリースレビュー R1〜R11、HFS+ / RPM の上限、tar・属性・file list の回帰テスト、文書整合 | 未リリース |
 | [2026-09-22-sevenzip-deflate64.md](2026-09-22-sevenzip-deflate64.md) | 2026-09-22 | 7z Deflate64 coder 040109 の追加、7zz fixture、32 KiB を超える距離、上限・破損の検証 | 未リリース |
 | [2026-09-22-small-method-gaps.md](2026-09-22-small-method-gaps.md) | 2026-09-22 | WIM XPRESS 4〜64 KiB chunk、XZ RISC-V のエラー分類、旧 GNU sparse tar の展開 | 未リリース |
 | [2026-09-22-rpm-stripped-payload.md](2026-09-22-rpm-stripped-payload.md) | 2026-09-22 | RPM stripped cpio `07070X`、header file list、hard link / ghost / SHA-256、rpmbuild 6.1.0 の v4 / v6 照合 | 未リリース |

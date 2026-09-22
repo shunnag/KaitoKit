@@ -74,6 +74,9 @@ final class DecmpfsDecompressor: Decompressor {
         self.resourceFork = resourceFork
         self.inlinePayload = header.usesResourceFork ? [] : inlinePayload
         if !header.usesResourceFork {
+            guard header.uncompressedSize <= Self.chunkSize else {
+                throw KaitoError.malformed("hfs+ decmpfs inline declared size")
+            }
             layout = .inline
             chunkCount = header.uncompressedSize == 0 ? 0 : 1
             if header.compressionType == 9 {

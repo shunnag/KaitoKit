@@ -7,6 +7,23 @@ import XCTest
 /// GNU sparse（旧 GNU S 型、pax 0.0 / 0.1 / 1.0、libarchive tar(5) の記述）。合成書庫は OS の bsdtar で読めることを
 /// 独立に確認し、1.0 は F_PUNCHHOLE で穴を開けた実 file を bsdtar --format pax で書いた書庫でも照合する。
 final class TarSparseTests: XCTestCase {
+    func testR4ReviewOldGNUTypeRequiresGNUMagic() throws {
+        let archive = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "old.bin", contents: Data(), type: 0x53)])
+        XCTAssertEqual(Data(archive[257..<265]), Data("ustar\0".utf8) + Data("00".utf8))
+        XCTAssertThrowsError(try ArchiveReader.open(data: archive)) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("invalid old GNU sparse header"))
+        }
+    }
+
+    func testR5ReviewOldGNUAndPaxSparseMapsConflict() throws {
+        let pax = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "PaxHeader/old.bin",
+            contents: paxPayload([("GNU.sparse.size", "5")]), type: 0x78)])
+        let archive = Data(pax.dropLast(1024)) + (try oldGNUArchive(realSize: 5, fragments: [(0, [1, 2, 3])]))
+        XCTAssertThrowsError(try ArchiveReader.open(data: archive)) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("conflicting GNU sparse maps"))
+        }
+    }
+
     func testR11Pax01PreservesSparseNameForListingAndExtraction() throws {
         let map = fragments.map { "\($0.offset),\($0.bytes.count)" }.joined(separator: ",")
         let archive = try TarTestSupport.makeTar(entries: [

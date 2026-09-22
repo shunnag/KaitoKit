@@ -6,13 +6,13 @@ final class ReleaseReviewDocumentationTests: XCTestCase {
         try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
     }
 
-    private func unreleased() throws -> String {
-        try XCTUnwrap(document("CHANGELOG.md").components(separatedBy: "## [Unreleased]").last?
+    private func release090() throws -> String {
+        try XCTUnwrap(document("CHANGELOG.md").components(separatedBy: "## [0.9.0] - 2026-09-22").last?
             .components(separatedBy: "\n## [").first)
     }
 
     func testRelease090DocumentsAllElevenReviewFixes() throws {
-        let release = try unreleased()
+        let release = try release090()
         let path = "Documentation/verification/2026-09-22-release-review-0.9.0.md"
         for item in 1...11 { XCTAssertTrue(release.contains("- R\(item)."), "0.9.0 に R\(item) の説明が必要") }
         for name in ["README.md", "CHANGELOG.md"] {
@@ -20,7 +20,7 @@ final class ReleaseReviewDocumentationTests: XCTestCase {
         }
         let index = try document("Documentation/verification/README.md")
         let row = try XCTUnwrap(index.components(separatedBy: "\n").first { $0.contains("2026-09-22-release-review-0.9.0.md") })
-        XCTAssertTrue(row.contains("未リリース"))
+        XCTAssertTrue(row.contains("v0.9.0"))
         let record = try document(path)
         for item in 1...11 {
             let section = try XCTUnwrap(record.components(separatedBy: "## R\(item).").dropFirst().first?
@@ -30,7 +30,7 @@ final class ReleaseReviewDocumentationTests: XCTestCase {
     }
 
     func testR4ReviewChangelogExplainsNonGNUMagicErrorClass() throws {
-        let bullet = try XCTUnwrap(unreleased().components(separatedBy: "\n").first { $0.hasPrefix("- tar ") })
+        let bullet = try XCTUnwrap(release090().components(separatedBy: "\n").first { $0.hasPrefix("- tar ") })
         for text in ["非 GNU", "`S`", "unsupportedMethod(\"GNU tar sparse entries\")", "malformed"] {
             XCTAssertTrue(bullet.contains(text), "tar の変更履歴に \(text) が必要")
         }
@@ -51,7 +51,7 @@ final class ReleaseReviewDocumentationTests: XCTestCase {
     }
 
     func testR10ReviewChangelogExplainsDecmpfsEntryMetadata() throws {
-        let bullet = try XCTUnwrap(unreleased().components(separatedBy: "\n").first { $0.hasPrefix("- HFS+ ") })
+        let bullet = try XCTUnwrap(release090().components(separatedBy: "\n").first { $0.hasPrefix("- HFS+ ") })
         for text in ["methodDescription", "HFS+ compressed (decmpfs)", "HFS+ decmpfs (", "uncompressedSize", "compressedSize", "nil"] {
             XCTAssertTrue(bullet.contains(text), "decmpfs の変更履歴に \(text) が必要")
         }

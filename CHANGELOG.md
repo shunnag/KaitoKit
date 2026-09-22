@@ -6,6 +6,16 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-22
+
+対応済み形式の中で `unsupportedMethod` のまま残っていたメソッドを埋めた release。公開 enum `ArchiveFormat` の
+case 追加は無く、利用側の網羅的 switch は変更不要。**既定の挙動が変わる点が 3 つ**ある: rpm 6 の package は
+圧縮 payload 1 件ではなく中の file を列挙する、DMG / HFS+ の decmpfs file は `uncompressedSize` が実サイズになり
+読み取りが成功する、typeflag `S` を含む tar は書庫全体が失敗せず開ける。各項目の出自は
+[design.md §10](Documentation/design.md)、手順と実出力は
+[Documentation/verification/](Documentation/verification/README.md) の 2026-09-22 の記録を参照。
+リリース前レビューで確認した 11 件の修正は同節の後半にまとめた。
+
 - 7-Zip `-m0=Deflate64` の 7z 書庫（method ID `04 01 09`）を既存の Deflate64 decoder で展開できるようにした。従来は `unsupportedMethod` で失敗していた。solid / non-solid、32 KiB を超える距離、上限と破損の検証は[検証記録](Documentation/verification/2026-09-22-sevenzip-deflate64.md)を参照。
 - WIM の XPRESS chunk を 4〜64 KiB の 2 冪へ拡張した。LZX は 32 KiB のまま。辞書上限、chunk 表と圧縮入力長の上限、SHA-1 を検査する。[検証記録](Documentation/verification/2026-09-22-small-method-gaps.md)。
 - XZ の非終端 RISC-V filter（ID `0x0B`）を native decoder の前に `unsupportedMethod("XZ RISC-V filter")` で拒否する。`.tar.xz` にも適用する。

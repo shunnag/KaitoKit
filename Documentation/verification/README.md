@@ -8,11 +8,11 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
-| [2026-09-22-release-review-0.9.0.md](2026-09-22-release-review-0.9.0.md) | 2026-09-22 | 0.9.0 リリースレビュー R1〜R11、HFS+ / RPM の上限、tar・属性・file list の回帰テスト、文書整合 | 未リリース |
-| [2026-09-22-sevenzip-deflate64.md](2026-09-22-sevenzip-deflate64.md) | 2026-09-22 | 7z Deflate64 coder 040109 の追加、7zz fixture、32 KiB を超える距離、上限・破損の検証 | 未リリース |
-| [2026-09-22-small-method-gaps.md](2026-09-22-small-method-gaps.md) | 2026-09-22 | WIM XPRESS 4〜64 KiB chunk、XZ RISC-V のエラー分類、旧 GNU sparse tar の展開 | 未リリース |
-| [2026-09-22-rpm-stripped-payload.md](2026-09-22-rpm-stripped-payload.md) | 2026-09-22 | RPM stripped cpio `07070X`、header file list、hard link / ghost / SHA-256、rpmbuild 6.1.0 の v4 / v6 照合 | 未リリース |
-| [2026-09-22-hfsplus-decmpfs.md](2026-09-22-hfsplus-decmpfs.md) | 2026-09-22 | HFS+ decmpfs の属性・実サイズ・chunk 復号、新旧 fixture と単体検証、7-Zip の 5 type 展開照合、Apple 実物の type 4 / 8 照合 | 未リリース |
+| [2026-09-22-release-review-0.9.0.md](2026-09-22-release-review-0.9.0.md) | 2026-09-22 | 0.9.0 リリースレビュー R1〜R11、HFS+ / RPM の上限、tar・属性・file list の回帰テスト、文書整合 | v0.9.0 |
+| [2026-09-22-sevenzip-deflate64.md](2026-09-22-sevenzip-deflate64.md) | 2026-09-22 | 7z Deflate64 coder 040109 の追加、7zz fixture、32 KiB を超える距離、上限・破損の検証 | v0.9.0 |
+| [2026-09-22-small-method-gaps.md](2026-09-22-small-method-gaps.md) | 2026-09-22 | WIM XPRESS 4〜64 KiB chunk、XZ RISC-V のエラー分類、旧 GNU sparse tar の展開 | v0.9.0 |
+| [2026-09-22-rpm-stripped-payload.md](2026-09-22-rpm-stripped-payload.md) | 2026-09-22 | RPM stripped cpio `07070X`、header file list、hard link / ghost / SHA-256、rpmbuild 6.1.0 の v4 / v6 照合 | v0.9.0 |
+| [2026-09-22-hfsplus-decmpfs.md](2026-09-22-hfsplus-decmpfs.md) | 2026-09-22 | HFS+ decmpfs の属性・実サイズ・chunk 復号、新旧 fixture と単体検証、7-Zip の 5 type 展開照合、Apple 実物の type 4 / 8 照合 | v0.9.0 |
 | [2026-09-22-release-review-0.8.1.md](2026-09-22-release-review-0.8.1.md) | 2026-09-22 | 0.8.0 レビュー R1〜R14 の再現・修正・回帰テスト（parser crash、AppleDouble、UDIF、sparse、Shrink、巻数・件数上限） | v0.8.1 |
 | [2026-09-22-dmg.md](2026-09-22-dmg.md) | 2026-09-22 | Apple Disk Image（UDIF）と HFS+ の読み取り追加、hdiutil fixture の mount / 7-Zip 照合、extents overflow と hard link の確認 | v0.8.0 |
 | [2026-09-21-arj.md](2026-09-21-arj.md) | 2026-09-21 | ARJ の読み取り追加、method 1〜3 = lh6 の黒箱確定（実物 11 書庫）、自作 writer / encoder fixture の 3 reader 照合 | v0.8.0 |

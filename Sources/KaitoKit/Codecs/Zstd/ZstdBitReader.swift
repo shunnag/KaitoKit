@@ -2,13 +2,14 @@ import Foundation
 
 // RFC 8878 §4 の逆向きストリーム。終端の 1 と上位のゼロを除き、値のビット順は保つ。
 struct ZstdBitReader {
-    private let bytes: [UInt8]
+    // 所有側の withUnsafeBytes 内でだけ生成・使用する。
+    private let bytes: UnsafeRawBufferPointer
     private let lower: Int
     private var nextByte: Int
     private var reservoir: UInt64
     private var available: Int
 
-    init(_ bytes: [UInt8], range: Range<Int>) throws {
+    init(_ bytes: UnsafeRawBufferPointer, range: Range<Int>) throws {
         guard range.lowerBound >= 0, range.upperBound <= bytes.count, !range.isEmpty,
               bytes[range.upperBound - 1] != 0 else {
             throw KaitoError.malformed("zstd bitstream end marker")
@@ -25,14 +26,27 @@ struct ZstdBitReader {
 
     @inline(__always)
     mutating func peekPadded(_ count: Int) -> Int {
-        // 呼出箇所の幅は 0...31。補充後もレジスタの使用量は最大 38 ビット。
-        while available < count, nextByte >= lower {
-            reservoir = (reservoir << 8) | UInt64(bytes[nextByte])
-            available += 8
-            nextByte -= 1
+        // 呼出幅は 0...31。レジスタを 63 ビット以下に保つ。
+        if available < count {
+            if nextByte - lower >= 7 {
+                // [nextByte - 7, nextByte] は指定領域内。上位側の必要なバイトだけ消費する。
+                let word = UInt64(littleEndian: bytes.loadUnaligned(fromByteOffset: nextByte - 7, as: UInt64.self))
+                let take = (63 - available) >> 3
+                let width = take * 8
+                reservoir = (reservoir &<< width) | (word &>> (64 - width))
+                available += width
+                nextByte -= take
+            } else {
+                while available < count, nextByte >= lower {
+                    reservoir = (reservoir << 8) | UInt64(bytes[nextByte])
+                    available += 8
+                    nextByte -= 1
+                }
+            }
         }
-        if available < count { return Int(reservoir << (count - available)) }
-        return Int((reservoir >> (available - count)) & ((1 << count) - 1))
+        // 上記の幅制約により、各シフト量は 0...63。
+        if available < count { return Int((reservoir & ((1 &<< available) - 1)) &<< (count - available)) }
+        return Int((reservoir &>> (available - count)) & ((1 &<< count) - 1))
     }
 
     @inline(__always)
@@ -40,10 +54,22 @@ struct ZstdBitReader {
         guard (0...31).contains(count), count <= remaining else {
             throw KaitoError.malformed("zstd bitstream underflow")
         }
+        return readUnchecked(count)
+    }
+
+    @inline(__always)
+    mutating func readUnchecked(_ count: Int) -> Int {
+        // 呼出側が 0...31 と残量を検査済み。
         let value = peekPadded(count)
-        available -= count
-        reservoir &= (1 << available) - 1
+        dropUnchecked(count)
         return value
+    }
+
+    @inline(__always)
+    mutating func dropUnchecked(_ count: Int) {
+        // peekPadded 後、count <= available が保証される場合だけ使う。
+        available -= count
+        // 消費済みの上位ビットは peek のマスクで除く。
     }
 }
 

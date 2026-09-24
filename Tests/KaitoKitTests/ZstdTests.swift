@@ -225,6 +225,8 @@ final class ZstdTests: XCTestCase {
             XCTAssertEqual(decoder.allocatedWindowBytes, allocation)
             XCTAssertLessThanOrEqual(decoder.allocatedWindowBytes, max(1, produced))
             XCTAssertLessThanOrEqual(decoder.allocatedWindowBytes, retained)
+            XCTAssertLessThanOrEqual(decoder.allocatedBufferBytes, 2 * retained + header.maximumBlockSize + 16)
+            XCTAssertLessThanOrEqual(decoder.allocatedBufferBytes, 2 * (produced + header.maximumBlockSize + 16))
         }
         XCTAssertTrue(decoder.finished)
         XCTAssertEqual(input.remaining, 0)
@@ -247,6 +249,7 @@ final class ZstdTests: XCTestCase {
             XCTAssertTrue(output.isEmpty)
             XCTAssertTrue(decoder.finished)
             XCTAssertEqual(decoder.allocatedWindowBytes, 0)
+            XCTAssertEqual(decoder.allocatedBufferBytes, 0)
             XCTAssertLessThanOrEqual(decoder.allocatedWindowBytes, max(1, output.count))
         }
         XCTAssertEqual(input.remaining, 0)
@@ -266,6 +269,7 @@ final class ZstdTests: XCTestCase {
         }
         XCTAssertEqual(decoder.allocatedWindowBytes, 0)
         XCTAssertLessThanOrEqual(decoder.allocatedWindowBytes, max(1, 0))
+        XCTAssertEqual(decoder.allocatedBufferBytes, 0)
         XCTAssertThrowsError(try decode(declared)) { error in
             XCTAssertEqual(error as? KaitoError, .malformed("zstd frame content size mismatch"))
         }
@@ -304,6 +308,21 @@ final class ZstdTests: XCTestCase {
             XCTAssertEqual(error as? KaitoError, .malformed("zstd frame output exceeds content size"))
         }
         XCTAssertEqual(decoder.allocatedWindowBytes, 0)
+        XCTAssertEqual(decoder.allocatedBufferBytes, 0)
+    }
+
+    func testMaximumIntegerWindowStillAllocatesLazily() throws {
+        let data = frame(block([97], type: 0, last: false) + block([], type: 0), contentSize: UInt64(Int.max))
+        let input = try ZstdInput(source: DataByteSource(data), offset: 4, size: UInt64(data.count - 4))
+        let limits = ReadLimits(maxEntrySize: UInt64(Int.max), maxDictionarySize: UInt64(Int.max))
+        let decoder = try ZstdFrameDecoder(header: ZstdFrameHeader(input: input, limits: limits))
+        XCTAssertEqual(decoder.allocatedBufferBytes, 0)
+        XCTAssertEqual(try decoder.nextBlock(input), [97])
+        XCTAssertEqual(decoder.allocatedWindowBytes, 1)
+        XCTAssertEqual(decoder.allocatedBufferBytes, 17)
+        XCTAssertThrowsError(try decoder.nextBlock(input)) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("zstd frame content size mismatch"))
+        }
     }
 
     func testGrowingWindowMatchesAndRingTransitions() throws {
@@ -353,6 +372,42 @@ final class ZstdTests: XCTestCase {
                                               extra: [(1_409 + 3 - 1_024, 10)]))
         XCTAssertThrowsError(try decode(frame(full + outsideWindow, window: 3))) { error in
             XCTAssertEqual(error as? KaitoError, .malformed("zstd match exceeds history"))
+        }
+    }
+
+    func testBulkMatchesOverlapAndCrossHistoryRingBoundaries() throws {
+        let prefix = (0..<1_700).map { UInt8(truncatingIfNeeded: $0 * 13 + $0 / 17) }
+        for offset in [1, 2, 3, 4, 7, 8, 9, 15, 16, 17, 31, 32, 33, 1_407, 1_408] {
+            for literalCount in [0, 1, 8] {
+                for length in [3, 7, 8, 9, 15, 16, 17, 31, 1_027] {
+                    let literals = Array(prefix.prefix(literalCount))
+                    let code = Int.bitWidth - 1 - (offset + 3).leadingZeroBitCount
+                    let sequence = rleSequence(literals: literals, ll: UInt8(literalCount), of: UInt8(code),
+                                               ml: UInt8(length == 1_027 ? 46 : length - 3),
+                                               extra: [(offset + 3 - (1 << code), code)]
+                                                + (length == 1_027 ? [(0, 10)] : []))
+                    let encoded = frame(block(Array(prefix.prefix(1_000)), type: 0, last: false)
+                                        + block(Array(prefix.dropFirst(1_000)), type: 0, last: false)
+                                        + block(sequence), window: 3)
+                    var expected = prefix + literals
+                    for _ in 0..<length { expected.append(expected[expected.count - offset]) }
+                    XCTAssertEqual(try decode(encoded), Data(expected), "\(offset), \(literalCount), \(length)")
+                }
+            }
+        }
+        for offset in 1...16 {
+            for length in [3, 7, 8, 9, 15, 16, 17, 31, 1_027] {
+                let literals = Array(prefix.prefix(offset))
+                let code = Int.bitWidth - 1 - (offset + 3).leadingZeroBitCount
+                let sequence = rleSequence(literals: literals, ll: UInt8(offset), of: UInt8(code),
+                                           ml: UInt8(length == 1_027 ? 46 : length - 3),
+                                           extra: [(offset + 3 - (1 << code), code)]
+                                            + (length == 1_027 ? [(0, 10)] : [])
+                                            + (offset == 16 ? [(0, 1)] : []))
+                var expected = literals
+                for _ in 0..<length { expected.append(expected[expected.count - offset]) }
+                XCTAssertEqual(try decode(frame(block(sequence), window: 8)), Data(expected), "\(offset)")
+            }
         }
     }
 

@@ -23,17 +23,13 @@ struct ZstdXXH64 {
         rotate(accumulator &+ (lane &* p2), 31) &* p1
     }
 
-    private static func word(_ bytes: ArraySlice<UInt8>, at offset: Int, count: Int = 8) -> UInt64 {
-        var value: UInt64 = 0
-        for i in 0..<count { value |= UInt64(bytes[offset + i]) << (8 * i) }
-        return value
-    }
-
-    private mutating func stripe(_ bytes: ArraySlice<UInt8>, at offset: Int) {
-        a = Self.round(a, Self.word(bytes, at: offset))
-        b = Self.round(b, Self.word(bytes, at: offset + 8))
-        c = Self.round(c, Self.word(bytes, at: offset + 16))
-        d = Self.round(d, Self.word(bytes, at: offset + 24))
+    @inline(__always)
+    private mutating func stripe(_ bytes: UnsafeRawBufferPointer, at offset: Int) {
+        // 呼出側で offset から 32 バイトあることを検査済み。アラインメントは不要。
+        a = Self.round(a, UInt64(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt64.self)))
+        b = Self.round(b, UInt64(littleEndian: bytes.loadUnaligned(fromByteOffset: offset + 8, as: UInt64.self)))
+        c = Self.round(c, UInt64(littleEndian: bytes.loadUnaligned(fromByteOffset: offset + 16, as: UInt64.self)))
+        d = Self.round(d, UInt64(littleEndian: bytes.loadUnaligned(fromByteOffset: offset + 24, as: UInt64.self)))
     }
 
     mutating func update(_ bytes: ArraySlice<UInt8>) {
@@ -44,13 +40,15 @@ struct ZstdXXH64 {
             tail.append(contentsOf: bytes[offset..<(offset + count)])
             offset += count
             if tail.count == 32 {
-                stripe(tail[...], at: 0)
+                tail.withUnsafeBytes { stripe($0, at: 0) }
                 tail.removeAll(keepingCapacity: true)
             }
         }
-        while bytes.endIndex - offset >= 32 {
-            stripe(bytes, at: offset)
-            offset += 32
+        bytes.withUnsafeBytes { buffer in
+            while bytes.endIndex - offset >= 32 {
+                stripe(buffer, at: offset - bytes.startIndex)
+                offset += 32
+            }
         }
         tail.append(contentsOf: bytes[offset...])
     }
@@ -65,15 +63,18 @@ struct ZstdXXH64 {
         } else { hash = Self.p5 }
         hash &+= length
         var offset = 0
-        while tail.count - offset >= 8 {
-            hash ^= Self.round(0, Self.word(tail[...], at: offset))
-            hash = (Self.rotate(hash, 27) &* Self.p1) &+ Self.p4
-            offset += 8
-        }
-        if tail.count - offset >= 4 {
-            hash ^= Self.word(tail[...], at: offset, count: 4) &* Self.p1
-            hash = (Self.rotate(hash, 23) &* Self.p2) &+ Self.p3
-            offset += 4
+        tail.withUnsafeBytes { bytes in
+            // 各 load の幅は残量検査以下。
+            while tail.count - offset >= 8 {
+                hash ^= Self.round(0, UInt64(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt64.self)))
+                hash = (Self.rotate(hash, 27) &* Self.p1) &+ Self.p4
+                offset += 8
+            }
+            if tail.count - offset >= 4 {
+                hash ^= UInt64(UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt32.self))) &* Self.p1
+                hash = (Self.rotate(hash, 23) &* Self.p2) &+ Self.p3
+                offset += 4
+            }
         }
         while offset < tail.count {
             hash ^= UInt64(tail[offset]) &* Self.p5

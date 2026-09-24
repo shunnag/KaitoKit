@@ -46,7 +46,12 @@ struct ZstdFSE: Sendable {
             let state = next[symbol]
             next[symbol] += 1
             let bits = accuracyLog - (Int.bitWidth - 1 - state.leadingZeroBitCount)
-            table.append(Cell(symbol: symbol, bits: bits, baseline: (state << bits) - size))
+            let baseline = (state << bits) - size
+            // 復号ループは、この検査により状態の添字検査を省ける。
+            guard bits >= 0, bits <= accuracyLog, baseline >= 0, baseline + (1 << bits) <= size else {
+                throw KaitoError.malformed("zstd FSE state")
+            }
+            table.append(Cell(symbol: symbol, bits: bits, baseline: baseline))
         }
         cells = table
     }

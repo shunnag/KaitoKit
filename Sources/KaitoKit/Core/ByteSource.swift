@@ -136,6 +136,22 @@ public final class FileByteSource: ByteSource {
         Darwin.close(descriptor)
     }
 
+    /// 組み立てに保持する fd の属性を採る。URL の再 open やディレクトリ走査はしない。
+    func volume(at url: URL) throws -> ArchiveVolumeSet.Volume {
+        var information = stat()
+        guard Darwin.fstat(descriptor, &information) == 0 else { throw KaitoError.io(errno) }
+        guard information.st_size >= 0 else { throw KaitoError.malformed("file has a negative size") }
+        return ArchiveVolumeSet.Volume(
+            url: url,
+            length: UInt64(information.st_size),
+            device: UInt64(UInt32(bitPattern: information.st_dev)),
+            inode: UInt64(information.st_ino),
+            mode: UInt16(information.st_mode),
+            modificationSeconds: Int64(information.st_mtimespec.tv_sec),
+            modificationNanoseconds: Int64(information.st_mtimespec.tv_nsec)
+        )
+    }
+
     /// Compares the stable kernel identity of this open file with another
     /// descriptor. Used to anchor a parsed first volume to a retained dirfd.
     func hasSameFileIdentity(as otherDescriptor: Int32) -> Bool {

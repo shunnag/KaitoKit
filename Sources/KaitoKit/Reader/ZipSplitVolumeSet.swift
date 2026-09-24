@@ -59,6 +59,7 @@ enum ZipSplitVolumeSet {
     struct Assembled: Sendable {
         let source: any ByteSource
         let layout: ZipDiskLayout
+        let volumeSet: ArchiveVolumeSet
     }
 
     static func naming(for name: String) -> Naming? {
@@ -128,21 +129,34 @@ enum ZipSplitVolumeSet {
         }
         try directory.verifyFirstVolumeIdentity(of: lastSource, named: lastName, label: "ZIP split")
         var segments: [SourceSegment] = []
+        var volumes: [ArchiveVolumeSet.Volume] = []
+        let parent = url.deletingLastPathComponent()
+        var volumePrefix = naming.prefix
         for number in 1...lastDisk {
             let name = volumeName(naming, number: number)
             let otherPrefix = naming.prefix == naming.prefix.lowercased()
                 ? naming.prefix.uppercased() : naming.prefix.lowercased()
             let alternate = volumeName(Naming(stem: naming.stem, prefix: otherPrefix, openedNumber: nil), number: number)
-            guard let segment = try directory.openRegularFile(named: name, label: "ZIP split")
-                ?? directory.openRegularFile(named: alternate, label: "ZIP split") else {
+            let segment: FileByteSource
+            let openedName: String
+            if let opened = try directory.openRegularFile(named: name, label: "ZIP split") {
+                segment = opened
+                openedName = name
+            } else if let opened = try directory.openRegularFile(named: alternate, label: "ZIP split") {
+                segment = opened
+                openedName = alternate
+            } else {
                 throw KaitoError.malformed("ZIP split archive is missing volume \(name)")
             }
+            if number == 1 { volumePrefix = openedName == name ? naming.prefix : otherPrefix }
             // 別名・差し替えによって、明示した巻と異なる内容を返さない。
             if number == naming.openedNumber, !segment.hasSameFileIdentity(as: source) {
                 throw KaitoError.malformed("ZIP split volume changed during open: \(url.lastPathComponent)")
             }
+            volumes.append(try segment.volume(at: parent.appendingPathComponent(openedName)))
             segments.append(SourceSegment(source: segment, offset: 0, length: segment.length))
         }
+        volumes.append(try lastSource.volume(at: parent.appendingPathComponent(lastName)))
         segments.append(SourceSegment(source: lastSource, offset: 0, length: lastSource.length))
         let layout = try ZipDiskLayout(lengths: segments.map(\.length))
         let concatenated = try ConcatenatedByteSource(segments: segments, maximumLength: .max,
@@ -153,6 +167,11 @@ enum ZipSplitVolumeSet {
                [0x50, 0x4b, 5, 6]].contains(prefix) else {
             throw KaitoError.malformed("ZIP split volume set is not a ZIP archive (split SFX is unsupported)")
         }
-        return Assembled(source: concatenated, layout: layout)
+        return Assembled(source: concatenated, layout: layout, volumeSet: ArchiveVolumeSet(
+            scheme: .zipSpanned(stem: naming.stem, volumePrefix: volumePrefix,
+                                lastExtension: (lastName as NSString).pathExtension),
+            volumes: volumes,
+            openedVolumeIndex: try Checked.toInt(naming.openedNumber.map { $0 - 1 } ?? lastDisk)
+        ))
     }
 }

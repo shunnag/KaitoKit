@@ -17,7 +17,8 @@ enum SplitVolumeSet {
 
     struct Assembled: Sendable {
         let source: any ByteSource
-        let volumeCount: Int
+        let volumeSet: ArchiveVolumeSet
+        var volumeCount: Int { volumeSet.volumes.count }
     }
 
     /// 空でない stem と、3 桁以上の ASCII 数字で値 1 の拡張子だけを受理する。
@@ -74,6 +75,8 @@ enum SplitVolumeSet {
             offset: 0,
             length: firstVolumeSource.length
         )]
+        let parent = firstVolumeURL.deletingLastPathComponent()
+        var volumes = [try firstVolumeSource.volume(at: firstVolumeURL)]
         while let source = try directory.openRegularFile(
             named: volumeName(naming, number: UInt64(segments.count)),
             label: "split"
@@ -82,6 +85,8 @@ enum SplitVolumeSet {
             guard segments.count < limits.maxVolumeCount else {
                 throw KaitoError.limitExceeded("split volume count")
             }
+            let name = volumeName(naming, number: UInt64(segments.count))
+            volumes.append(try source.volume(at: parent.appendingPathComponent(name)))
             segments.append(SourceSegment(source: source, offset: 0, length: source.length))
         }
         guard segments.count > 1 else { return nil }
@@ -92,7 +97,11 @@ enum SplitVolumeSet {
                 maximumSegmentCount: limits.maxVolumeCount,
                 label: "split volume set"
             ),
-            volumeCount: segments.count
+            volumeSet: ArchiveVolumeSet(
+                scheme: .numbered(stem: naming.stem, width: naming.width),
+                volumes: volumes,
+                openedVolumeIndex: 0
+            )
         )
     }
 }

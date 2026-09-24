@@ -8,6 +8,7 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-09-23-archive-volume-set.md](2026-09-23-archive-volume-set.md) | 2026-09-23 | 分割巻の公開 API、巻名生成、保持 fd の同一性、reopen の引き継ぎ、回帰テスト・全件検証 | v0.10.0 |
 | [2026-09-22-release-review-0.9.0.md](2026-09-22-release-review-0.9.0.md) | 2026-09-22 | 0.9.0 リリースレビュー R1〜R11、HFS+ / RPM の上限、tar・属性・file list の回帰テスト、文書整合 | v0.9.0 |
 | [2026-09-22-sevenzip-deflate64.md](2026-09-22-sevenzip-deflate64.md) | 2026-09-22 | 7z Deflate64 coder 040109 の追加、7zz fixture、32 KiB を超える距離、上限・破損の検証 | v0.9.0 |
 | [2026-09-22-small-method-gaps.md](2026-09-22-small-method-gaps.md) | 2026-09-22 | WIM XPRESS 4〜64 KiB chunk、XZ RISC-V のエラー分類、旧 GNU sparse tar の展開 | v0.9.0 |

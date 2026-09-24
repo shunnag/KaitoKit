@@ -906,6 +906,7 @@ XADMaster からの移行状況は
 設計書が引く性能・安定性の実測ログは
 [Documentation/verification/](Documentation/verification/README.md) にあります。
 
+- [0.10.0 分割巻の公開 API の検証（2026-09-23）](Documentation/verification/2026-09-23-archive-volume-set.md): 巻名生成・保持 fd の同一性・reopen の引き継ぎ・回帰テスト・全件検証。
 - [0.9.0 リリースレビューの検証（2026-09-22）](Documentation/verification/2026-09-22-release-review-0.9.0.md): R1〜R11 の再現・修正・回帰テスト・全件検証。
 - [0.8.1 リリースレビューの検証（2026-09-22）](Documentation/verification/2026-09-22-release-review-0.8.1.md): R1〜R14 の修正前の失敗・回帰テスト・全件検証。
 

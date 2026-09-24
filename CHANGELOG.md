@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-24
+
+分割巻の情報を取得する公開 API `ArchiveReader.volumeSet` と `ArchiveVolumeSet` を追加した release。公開 enum の
+case 追加は無く、利用側の網羅的 switch は変更不要。既定の検出・読み取りの挙動と巻数上限 128 は変更しない。
+対象範囲と検証結果は[検証記録](Documentation/verification/2026-09-23-archive-volume-set.md)を参照。
+
 - `ArchiveReader.volumeSet` と `ArchiveVolumeSet` を公開した。URL から連結した `.001` 系と native ZIP の分割巻について、論理順の URL・保持 fd の `fstat` による同一性・開いた巻と入口の位置を取得できる。名前だけの `parse(fileName:)` と、桁幅・大小文字を保つ巻名生成（ZIP の巻数変更にも対応）を追加。`reopen()` は同じ source の巻情報を引き継ぐ。単一ファイル・Data / ByteSource・StuffIt 固有の分割・`.cue` は対象外。検出・読み取りの挙動と既定の巻数上限 128 は変更しない。
 
 ## [0.9.0] - 2026-09-22

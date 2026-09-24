@@ -36,7 +36,10 @@ final class CpioReader: FormatReader {
         var afterTrailer = false
         var metadata: UInt64 = 0
         var pending: [Pending] = []
+        var headerCount = 0
         while offset < source.length {
+            if headerCount & 0x3ff == 0 { try Task.checkCancellation() }
+            headerCount &+= 1
             do {
                 guard let start = try Self.skipNULRun(source: source, from: offset), start < source.length else { break }
                 offset = start
@@ -129,7 +132,8 @@ final class CpioReader: FormatReader {
         var entries: [ArchiveEntry] = []
         metadata = 0
         let concatenated = pending.contains { $0.archiveIndex > 0 }
-        for item in pending {
+        for (index, item) in pending.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             let record = item.record, header = record.header
             let name = resolve(item.name)
             let parts = try components(name)

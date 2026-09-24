@@ -124,6 +124,7 @@ final class XarTOC {
     }
 
     private func readFile(parent: Int?, attributes: [String: String]) throws {
+        if files.count & 0x3ff == 0 { try Task.checkCancellation() }
         guard files.count < limits.maxEntryCount else { throw KaitoError.limitExceeded("xar entry count") }
         try charge(256)
         let index = files.count

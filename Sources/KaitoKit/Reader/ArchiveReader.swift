@@ -10,7 +10,8 @@ private final class ArchiveOutputBudget {
     init(entries: [ArchiveEntry], limit: UInt64) throws {
         self.limit = limit
         var declaredTotal: UInt64 = 0
-        for entry in entries {
+        for (index, entry) in entries.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             guard let size = entry.uncompressedSize else { continue }
             let next = declaredTotal.addingReportingOverflow(size)
             guard !next.overflow, next.partialValue <= limit else {

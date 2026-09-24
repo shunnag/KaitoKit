@@ -195,7 +195,10 @@ final class ZipReader: FormatReader {
         self.entries = parsedDirectory.entries
         self.nameEncoding = parsedDirectory.nameEncoding
         self.records = parsedDirectory.records
-        let localHeaderOrder = parsedDirectory.records.indices.sorted { lhs, rhs in
+        var comparisonCount = 0
+        let localHeaderOrder = try parsedDirectory.records.indices.sorted { lhs, rhs in
+            if comparisonCount & 0x3ff == 0 { try Task.checkCancellation() }
+            comparisonCount &+= 1
             let lhsOffset = parsedDirectory.records[lhs].localHeaderOffset
             let rhsOffset = parsedDirectory.records[rhs].localHeaderOffset
             return lhsOffset == rhsOffset ? lhs < rhs : lhsOffset < rhsOffset
@@ -205,12 +208,14 @@ final class ZipReader: FormatReader {
             count: parsedDirectory.records.count
         )
         for (position, index) in localHeaderOrder.enumerated() {
+            if position & 0x3ff == 0 { try Task.checkCancellation() }
             localHeaderOrderPositions[index] = position
         }
         self.localHeaderOrder = localHeaderOrder
         self.localHeaderOrderPositions = localHeaderOrderPositions
         if !options.lazyLocalHeaders || options.recoverDamagedArchives {
             for index in records.indices {
+                if index & 0x3ff == 0 { try Task.checkCancellation() }
                 _ = try localRecord(at: index, limits: options.limits)
             }
         }
@@ -748,6 +753,7 @@ final class ZipReader: FormatReader {
         var metadata: [UInt8] = []
         var recovery: [RecoveryExtent] = []
         while offset < source.length {
+            if recovery.count & 0x3ff == 0 { try Task.checkCancellation() }
             offset = try nextRecoveryMarker(
                 source: source, from: offset, scanned: &scanned, limits: limits
             )
@@ -905,6 +911,7 @@ final class ZipReader: FormatReader {
             guard count >= 4 else { throw KaitoError.limitExceeded("ZIP recovery scan bytes") }
             let bytes = try readExactly(source: source, offset: offset, count: Int(count))
             for index in 0...(bytes.count - 4) {
+                if index & 0x3ff == 0 { try Task.checkCancellation() }
                 let signature = littleUInt32(bytes, at: index)
                 if signature == localHeaderSignature || signature == centralHeaderSignature
                     || signature == endSignature || signature == zip64EndSignature {
@@ -1369,7 +1376,8 @@ final class ZipReader: FormatReader {
         // Only fixed headers are read; variable fields are bounded and skipped
         // from their declared lengths. Every read is charged to the shared work
         // budget before it occurs, including claims after the first attempt.
-        for _ in 0..<entryCount {
+        for index in 0..<entryCount {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             guard cursor <= directoryEnd,
                   directoryEnd - cursor >= 46 else { return false }
             try budget.chargeMetadataBytes(46)
@@ -1512,6 +1520,8 @@ final class ZipReader: FormatReader {
                     limits: limits,
                     budget: &budget
                 )
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 let zip64Error = error
                 // A four-byte locator signature can legally occur at the start
@@ -1764,6 +1774,7 @@ final class ZipReader: FormatReader {
         guard bytes.count >= 56 else { throw KaitoError.truncated }
 
         for index in stride(from: bytes.count - 56, through: 0, by: -1) {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             guard littleUInt32(bytes, at: index) == zip64EndSignature else { continue }
             let payloadSize = littleUInt64(bytes, at: index + 4)
             guard payloadSize >= 44 else { continue }
@@ -1826,8 +1837,10 @@ final class ZipReader: FormatReader {
         records.reserveCapacity(location.entryCount)
         var retainedMetadataSize: UInt64 = 0
         var archiveNameIndex = 0
+        var dosTimestampDecoder = DOSTimestampDecoder()
 
         for index in 0..<location.entryCount {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             guard cursor.remaining >= 46 else {
                 throw KaitoError.malformed("ZIP central-directory entry count exceeds its data")
             }
@@ -1979,7 +1992,8 @@ final class ZipReader: FormatReader {
             let modificationDate = try? modificationDate(
                 fields: extraFields,
                 dosDate: dosDate,
-                dosTime: dosTime
+                dosTime: dosTime,
+                dosTimestampDecoder: &dosTimestampDecoder
             )
             let encryptionDescription: String
             switch encryption {
@@ -1992,7 +2006,7 @@ final class ZipReader: FormatReader {
             var specific: [String: String] = [
                 "method": String(method),
                 "versionMadeBy": String(versionMadeBy),
-                "flags": String(format: "0x%04x", flags),
+                "flags": flagsDescription(flags),
                 "hostOS": String(hostOS),
                 "encryption": encryptionDescription,
             ]
@@ -2067,7 +2081,8 @@ final class ZipReader: FormatReader {
         undecoratedNames.reserveCapacity(entryCount)
         var windowsNameCount = 0
 
-        for _ in 0..<entryCount {
+        for index in 0..<entryCount {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             guard cursor.remaining >= 46,
                   try cursor.readUInt32LE() == centralHeaderSignature else {
                 throw KaitoError.malformed("invalid ZIP central-header signature")
@@ -2198,17 +2213,19 @@ final class ZipReader: FormatReader {
         fields: [ZipExtraField],
         headerMethod: UInt16
     ) throws -> AESExtra? {
-        let matching = fields.filter { $0.identifier == 0x9901 }
-        guard !matching.isEmpty else {
+        var data: [UInt8]?
+        for field in fields where field.identifier == 0x9901 {
+            guard data == nil, headerMethod == 99 else {
+                throw KaitoError.malformed("ambiguous WinZip AES metadata")
+            }
+            data = field.data
+        }
+        guard let data else {
             if headerMethod == 99 {
                 throw KaitoError.malformed("WinZip AES extra field is missing")
             }
             return nil
         }
-        guard matching.count == 1, headerMethod == 99 else {
-            throw KaitoError.malformed("ambiguous WinZip AES metadata")
-        }
-        let data = matching[0].data
         guard data.count == 7 else {
             throw KaitoError.malformed("invalid WinZip AES extra-field length")
         }
@@ -2251,7 +2268,8 @@ final class ZipReader: FormatReader {
     private static func modificationDate(
         fields: [ZipExtraField],
         dosDate: UInt16,
-        dosTime: UInt16
+        dosTime: UInt16,
+        dosTimestampDecoder: inout DOSTimestampDecoder
     ) throws -> Date? {
         var unixDate: Date?
         if let timestamp = fields.first(where: { $0.identifier == 0x5455 })?.data,
@@ -2264,7 +2282,8 @@ final class ZipReader: FormatReader {
         var ntfsDate: Date?
         if let ntfs = fields.first(where: { $0.identifier == 0x000a })?.data,
            ntfs.count >= 4 {
-            var cursor = ZipByteCursor(Array(ntfs.dropFirst(4)))
+            var cursor = ZipByteCursor(ntfs)
+            try cursor.skip(4)
             while cursor.remaining > 0 {
                 guard cursor.remaining >= 4 else {
                     throw KaitoError.malformed("truncated ZIP NTFS extra field")
@@ -2274,9 +2293,8 @@ final class ZipReader: FormatReader {
                 guard length <= cursor.remaining else {
                     throw KaitoError.malformed("ZIP NTFS attribute overruns its extra field")
                 }
-                let value = try cursor.readBytes(length)
-                if tag == 1, value.count >= 8 {
-                    let ticks = littleUInt64(value, at: 0)
+                if tag == 1, length >= 8 {
+                    let ticks = try cursor.readUInt64LE()
                     let interval = Double(ticks) / 10_000_000.0 - 11_644_473_600.0
                     guard interval.isFinite else {
                         throw KaitoError.malformed("ZIP NTFS timestamp is out of range")
@@ -2284,11 +2302,24 @@ final class ZipReader: FormatReader {
                     ntfsDate = Date(timeIntervalSince1970: interval)
                     break
                 }
+                try cursor.skip(length)
             }
         }
         if let ntfsDate { return ntfsDate }
         if let unixDate { return unixDate }
-        return try dosModificationDate(date: dosDate, time: dosTime)
+        return try dosTimestampDecoder.modificationDate(date: dosDate, time: dosTime)
+    }
+
+    static func flagsDescription(_ flags: UInt16) -> String {
+        String(unsafeUninitializedCapacity: 6) { buffer in
+            buffer[0] = 0x30
+            buffer[1] = 0x78
+            for index in 0..<4 {
+                let digit = UInt8((flags >> (12 - index * 4)) & 0x0f)
+                buffer[index + 2] = digit < 10 ? digit + 0x30 : digit + 0x57
+            }
+            return 6
+        }
     }
 
     private static func methodDescription(_ method: UInt16) -> String {
@@ -2393,9 +2424,12 @@ final class ZipReader: FormatReader {
         _ identifier: UInt16,
         in fields: [ZipExtraField]
     ) -> [UInt8]? {
-        let matches = fields.filter { $0.identifier == identifier }
-        guard matches.count == 1 else { return nil }
-        return matches[0].data
+        var result: [UInt8]?
+        for field in fields where field.identifier == identifier {
+            guard result == nil else { return nil }
+            result = field.data
+        }
+        return result
     }
 
     private static func readExactly(

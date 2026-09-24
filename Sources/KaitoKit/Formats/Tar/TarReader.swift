@@ -107,8 +107,12 @@ final class TarReader: FormatReader {
         // Headers are separated by member bodies, which listing must not
         // prefetch. Extension payloads use their own bounded ranged reads.
         var byteReader = try ByteReader(source: source, bufferCapacity: 4 * 1_024)
+        var headerCount = 0
 
         while offset < source.length {
+            // PAX/GNU 拡張も数え、公開 entry が増えない走査でも中断する。
+            if headerCount & 0x3ff == 0 { try Task.checkCancellation() }
+            headerCount &+= 1
             let remaining = try Checked.sub(source.length, offset)
             guard remaining >= 512 else {
                 if recoverDamagedArchives { break }
@@ -399,7 +403,8 @@ final class TarReader: FormatReader {
         }
         var undecoratedNames: [[UInt8]] = []
         undecoratedNames.reserveCapacity(pendingEntries.count)
-        for pending in pendingEntries {
+        for (index, pending) in pendingEntries.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             if pending.name.declaredEncoding == nil {
                 switch policy {
                 case .fixed:
@@ -424,7 +429,8 @@ final class TarReader: FormatReader {
                 maximumBatchByteCount: Int(clamping: limits.maxMetadataSize)
             )
             archiveDecodedNames.reserveCapacity(undecoratedNames.count)
-            for (bytes, string) in zip(undecoratedNames, decodedNames) {
+            for (index, (bytes, string)) in zip(undecoratedNames, decodedNames).enumerated() {
+                if index & 0x3ff == 0 { try Task.checkCancellation() }
                 if let string { archiveDecodedNames[bytes] = string }
             }
         }
@@ -450,7 +456,8 @@ final class TarReader: FormatReader {
         var retainedMetadataSize: UInt64 = 0
         var lastEntryByNormalizedPath: [String: Int] = [:]
 
-        for pending in pendingEntries {
+        for (index, pending) in pendingEntries.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             let resolvedName = try resolve(
                 pending.name,
                 policy: policy,

@@ -46,7 +46,10 @@ extension StuffItParser {
         var remaining = UInt64(StuffItHeader.be16(fixed, 92))
         var directories: [UInt64: (index: Int, children: Int)] = [:]
         var rootChildren = Int(remaining)
+        var headerCount = 0
         while remaining > 0 {
+            if headerCount & 0x3ff == 0 { try Task.checkCancellation() }
+            headerCount &+= 1
             let h = try bytes(position, 48, end: end)
             guard h[0..<4].allSatisfy({ $0 == 0xa5 }) else { throw KaitoError.malformed("StuffIt 5 entry signature") }
             let directory = h[9] & 0x40 != 0

@@ -218,6 +218,7 @@ final class UDFFileSystem {
         var result: [UDFFileIdentifier] = []
         var offset = 0
         while offset < bytes.count {
+            if result.count & 0x3ff == 0 { try Task.checkCancellation() }
             let blockIndex = offset / volume.blockSize
             guard blockIndex < blocks.count else { throw KaitoError.malformed("udf directory block index") }
             guard let identifier = try UDFFileIdentifier.parse(bytes, offset: offset, location: blocks[blockIndex]) else { break }
@@ -237,12 +238,15 @@ final class UDFFileSystem {
         var stack = [root]
         var directoryCount = 0
         while let node = stack.popLast() {
+            if directoryCount & 0x3ff == 0 { try Task.checkCancellation() }
             directoryCount += 1
             guard directoryCount <= 65536 else { throw KaitoError.limitExceeded("udf directory count") }
             var ancestors = node.ancestors
             ancestors.insert(UInt64(node.partition) << 32 | UInt64(node.icbBlock))
             var children: [Node] = []
-            for identifier in try directoryEntries(node, volume: volume) where !identifier.isParent && !identifier.isDeleted {
+            for (index, identifier) in try directoryEntries(node, volume: volume).enumerated() {
+                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                guard !identifier.isParent && !identifier.isDeleted else { continue }
                 guard result.count < volume.budget.limits.maxEntryCount else { throw KaitoError.limitExceeded("udf entry count") }
                 guard identifier.icb.length > 0 else { throw KaitoError.malformed("udf file identifier without an ICB") }
                 let (entry, icbBlock) = try directEntry(icb: identifier.icb, volume: volume)
@@ -324,7 +328,9 @@ final class UDFFileSystem {
         let node = Node(entry: directory, partition: Int(icb.partition ?? UInt16(ownerPartition)), icbBlock: icbBlock,
                         parent: owner, depth: 0, ancestors: [])
         var others = 0
-        for identifier in try directoryEntries(node, volume: volume) where !identifier.isParent && !identifier.isDeleted {
+        for (index, identifier) in try directoryEntries(node, volume: volume).enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            guard !identifier.isParent && !identifier.isDeleted else { continue }
             if identifier.isMetadataStream || identifier.name != resourceForkStreamName {
                 others += 1
                 continue
@@ -403,6 +409,7 @@ final class UDFFileSystem {
         var kept: [Int] = []
         let revisionText = String(format: "%X.%02X", revision >> 8, revision & 0xFF)
         for (index, item) in pending.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             if let parent = item.parent, paths[parent] == nil { continue }
             var components = item.parent.flatMap { paths[$0] } ?? []
             if item.name == "..namedfork/rsrc" {
@@ -427,7 +434,8 @@ final class UDFFileSystem {
         }
         var entries: [ArchiveEntry] = []
         var records: [Record] = []
-        for index in kept {
+        for (position, index) in kept.enumerated() {
+            if position & 0x3ff == 0 { try Task.checkCancellation() }
             let item = pending[index]
             let components = paths[index]!
             var specific = item.specific

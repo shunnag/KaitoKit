@@ -106,6 +106,7 @@ enum SevenZipHeaderParser {
     ) throws {
         var count = 0
         while true {
+            if count & 0x3ff == 0 { try Task.checkCancellation() }
             let type = try cursor.readUInt8()
             if type == SevenZipNID.end.rawValue { return }
             guard count < limits.maxMetadataRecordCount else {
@@ -153,6 +154,7 @@ enum SevenZipHeaderParser {
         var propertyCount = 0
 
         while true {
+            if propertyCount & 0x3ff == 0 { try Task.checkCancellation() }
             let rawID = try cursor.readUInt8()
             if rawID == SevenZipNID.end.rawValue { break }
             guard propertyCount < limits.maxMetadataRecordCount else {
@@ -264,6 +266,7 @@ enum SevenZipHeaderParser {
         result.reserveCapacity(count)
         var emptyIndex = 0
         for index in 0..<count {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             let isEmpty = emptyStreams[index]
             let isEmptyFile = isEmpty ? emptyFiles[emptyIndex] : false
             let isAnti = isEmpty ? antiFiles[emptyIndex] : false
@@ -311,7 +314,8 @@ enum SevenZipHeaderParser {
         rawNames.reserveCapacity(count)
         names.reserveCapacity(count)
 
-        for _ in 0..<count {
+        for index in 0..<count {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             var raw: [UInt8] = []
             var terminated = false
             while values.remaining >= 2 {
@@ -352,7 +356,9 @@ enum SevenZipHeaderParser {
         let defined = try property.readDefinedVector(count: count)
         var values = try valueCursor(property: &property, externalStreams: externalStreams)
         var result = [Date?](repeating: nil, count: count)
-        for index in 0..<count where defined[index] {
+        for index in 0..<count {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            guard defined[index] else { continue }
             result[index] = fileTimeDate(try values.readUInt64LE())
         }
         guard values.isAtEnd else {
@@ -369,7 +375,9 @@ enum SevenZipHeaderParser {
         let defined = try property.readDefinedVector(count: count)
         var values = try valueCursor(property: &property, externalStreams: externalStreams)
         var result = [UInt32?](repeating: nil, count: count)
-        for index in 0..<count where defined[index] {
+        for index in 0..<count {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            guard defined[index] else { continue }
             result[index] = try values.readUInt32LE()
         }
         guard values.isAtEnd else {
@@ -386,7 +394,9 @@ enum SevenZipHeaderParser {
         let defined = try property.readDefinedVector(count: count)
         var values = try valueCursor(property: &property, externalStreams: externalStreams)
         var result = [UInt64?](repeating: nil, count: count)
-        for index in 0..<count where defined[index] {
+        for index in 0..<count {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            guard defined[index] else { continue }
             result[index] = try values.readUInt64LE()
         }
         guard values.isAtEnd else {

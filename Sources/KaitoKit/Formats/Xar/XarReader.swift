@@ -42,7 +42,8 @@ final class XarReader: FormatReader {
             guard parts.count <= limits.maxPathComponentCount else { throw KaitoError.limitExceeded("xar path component count") }
             return parts.map { String(decoding: $0, as: UTF8.self) }
         }
-        for node in toc.files {
+        for (index, node) in toc.files.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             let kind: EntryKind
             switch node.type {
             case "file": kind = .file
@@ -104,7 +105,9 @@ final class XarReader: FormatReader {
         }
         // ID は TOC 全体で解決し、chain は既に解決した実体だけを継承するため cycle を作らない。
         var dependents: [Int: [Int]] = [:]
-        for index in entries.indices where entries[index].kind == .hardlink {
+        for index in entries.indices {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            guard entries[index].kind == .hardlink else { continue }
             guard let link = toc.files[index].hardlink else { continue }
             let target = ids[link] ?? paths[link]
             if let idTarget = ids[link] {
@@ -121,6 +124,7 @@ final class XarReader: FormatReader {
         var queue = entries.indices.filter { entries[$0].kind == .file }
         var cursor = 0
         while cursor < queue.count {
+            if cursor & 0x3ff == 0 { try Task.checkCancellation() }
             let target = queue[cursor]
             cursor += 1
             for index in dependents[target] ?? [] {

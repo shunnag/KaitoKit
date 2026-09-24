@@ -71,6 +71,8 @@ final class ISOReader: FormatReader {
                 records = []
                 nameEncoding = .utf8
                 return
+            } catch is CancellationError {
+                throw CancellationError()
             } catch KaitoError.limitExceeded(let reason) {
                 throw KaitoError.limitExceeded(reason)
             } catch {
@@ -158,7 +160,10 @@ final class ISOReader: FormatReader {
         let bytes = try readByteRange(source: source, offset: range.offset, count: Checked.toInt(range.length))
         var pos = 0
         var result: [ISODirectoryRecord] = []
+        var recordCount = 0
         while pos < bytes.count {
+            if recordCount & 0x3ff == 0 { try Task.checkCancellation() }
+            recordCount &+= 1
             let length = Int(bytes[pos])
             let remaining = 2048 - Int((range.offset + UInt64(pos)) % 2048)
             if length == 0 { pos += remaining; continue }
@@ -181,7 +186,9 @@ final class ISOReader: FormatReader {
         var stack = [Node(record: volume.root, parent: nil, depth: 0, ancestors: [])]
         var hasNM = false
         var directoryCount = 0
+        var recordCount = 0
         while let node = stack.popLast() {
+            if directoryCount & 0x3ff == 0 { try Task.checkCancellation() }
             let directoryRecords: [ISODirectoryRecord]
             if let retained = node.directoryRecords {
                 directoryRecords = retained
@@ -195,6 +202,8 @@ final class ISOReader: FormatReader {
             ancestors.insert(node.record.lba)
             var i = node.nextRecord
             while i < directoryRecords.count {
+                if recordCount & 0x3ff == 0 { try Task.checkCancellation() }
+                recordCount &+= 1
                 let first = directoryRecords[i]
                 i += 1
                 // root '.' の CE も検証する。特殊名・associated fork は公開しない。
@@ -328,6 +337,7 @@ final class ISOReader: FormatReader {
         var seen: [String: Int] = [:]
         var specificByIndex: [Int: [String: String]] = [:]
         for (index, item) in pending.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             if let parent = item.parent, paths[parent] == nil { continue }
             var name = joliet ? ISOBytes.joliet(item.bytes) : resolve(item.bytes)
             if !item.rrName {
@@ -368,7 +378,8 @@ final class ISOReader: FormatReader {
         }
         var entries: [ArchiveEntry] = []
         var records: [Record] = []
-        for index in kept {
+        for (position, index) in kept.enumerated() {
+            if position & 0x3ff == 0 { try Task.checkCancellation() }
             let item = pending[index]
             let components = paths[index]!
             var specific = specificByIndex[index]!

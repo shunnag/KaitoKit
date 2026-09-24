@@ -48,6 +48,7 @@ struct StuffItXElementParser {
             }
         }
         while true {
+            if elements.count & 0x3ff == 0 { try Task.checkCancellation() }
             guard elements.count < limits.maxMetadataRecordCount else { throw KaitoError.limitExceeded("StuffIt X element count") }
             let start = input.offset, flag = try input.bits(1) != 0, type = try input.p2()
             var attributes: [UInt64: UInt64] = [:], algorithms: [StuffItXAlgorithm] = []

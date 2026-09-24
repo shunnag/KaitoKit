@@ -162,6 +162,7 @@ final class ARJReader: FormatReader {
         var headers: [Record] = []
         var rawNames: [[UInt8]] = []
         while true {
+            if headers.count & 0x3ff == 0 { try Task.checkCancellation() }
             guard offset < source.length else { throw KaitoError.truncated }
             let header = try readHeader(at: offset)
             offset += UInt64(header.totalSize)
@@ -182,7 +183,8 @@ final class ARJReader: FormatReader {
 
         var entries: [ArchiveEntry] = []
         var records: [Record] = []
-        for record in headers {
+        for (index, record) in headers.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             let header = record.header
             // file type 4（volume label）と 5（chapter label）は file ではない。
             guard header.fileType == 0 || header.fileType == 1 || header.fileType == 3 else { continue }

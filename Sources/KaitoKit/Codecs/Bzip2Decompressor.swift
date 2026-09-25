@@ -17,6 +17,13 @@ public final class Bzip2Decompressor: Decompressor {
     private var stream = bz_stream()
     private var streamWasInitialized = false
     private var finished = false
+    private var recorder: CompressedTarMapRecorder?
+
+    convenience init(source: any ByteSource, offset: UInt64, compressedSize: UInt64,
+                     concatenatedStreams: Bool, recorder: CompressedTarMapRecorder?) throws {
+        try self.init(source: source, offset: offset, compressedSize: compressedSize, concatenatedStreams: concatenatedStreams)
+        self.recorder = recorder
+    }
 
     /// Creates a bzip2 stream over a validated byte-source range.
     public init(
@@ -106,6 +113,13 @@ public final class Bzip2Decompressor: Decompressor {
 
             let consumed = availableInput - remainingInput
             let produced = availableOutput - remainingOutput
+            if let recorder, recorder.isRecording {
+                let start = try currentCompressedOffset()
+                input.withUnsafeBytes {
+                    recorder.consumeBzip2(UnsafeRawBufferPointer(rebasing: $0[inputOffset..<(inputOffset + consumed)]),
+                                          start: start, produced: produced, streamEnd: status == BZ_STREAM_END)
+                }
+            }
             inputOffset += consumed
             totalProduced += produced
 

@@ -8,6 +8,7 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-09-25-tar-edit-layout.md](2026-09-25-tar-edit-layout.md) | 2026-09-25 | S12 / P3-K 段階 A: tar 配置・圧縮区切り・snapshot・並列 bzip2、golden・fuzz・Release 計測 | Unreleased |
 | [2026-09-25-zip-raw-layout.md](2026-09-25-zip-raw-layout.md) | 2026-09-25 | ZIP raw layout SPI、local header 先読み、公開値 golden、差分 fuzz、500k Release 計測 | Unreleased |
 | [2026-09-23-archive-volume-set.md](2026-09-23-archive-volume-set.md) | 2026-09-23 | 分割巻の公開 API、巻名生成、保持 fd の同一性、reopen の引き継ぎ、回帰テスト・全件検証 | v0.10.0 |
 | [2026-09-22-release-review-0.9.0.md](2026-09-22-release-review-0.9.0.md) | 2026-09-22 | 0.9.0 リリースレビュー R1〜R11、HFS+ / RPM の上限、tar・属性・file list の回帰テスト、文書整合 | v0.9.0 |

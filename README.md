@@ -831,6 +831,10 @@ file data は独立した stream で CRC を最後まで検証してから公開
 RAR5 は先頭127 Unicode scalars の UTF-8 を優先し、有効な password 検査値が一致しなければ
 入力全体の UTF-8 を試します。127 scalars 以下の password は変更しません。
 
+圧縮 tar の編集用 `TarEditLayout` SPI は opt-in で配置・区切り・snapshot を記録します。
+`KAITOKIT_BENCH_TAR_EDIT_LAYOUT=1` で CLI の記録を有効にでき、
+[段階 A の検証記録](Documentation/verification/2026-09-25-tar-edit-layout.md)に golden・fuzz・計測結果をまとめています。
+
 > **Command line**
 >
 > `sha` prints the SHA-256 of each entry in order plus an overall digest, which can be used for

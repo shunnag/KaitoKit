@@ -78,6 +78,7 @@ private final class ArchiveOutputBudget {
 public final class ArchiveReader {
     private let source: any ByteSource
     private let stagedTarSource: (any ByteSource)?
+    private let tarEditingState: TarEditingSnapshot?
     // 拡張子・単一ストリームの名前・SFX 検出のヒント。分割セットでは .001 を除く。
     // Data と名前ヒントのない ByteSource はファイル名の由来を持たない。
     private let sourceURL: URL?
@@ -142,12 +143,21 @@ public final class ArchiveReader {
             throw KaitoError.malformed("ZIP split volume set is not a ZIP archive")
         }
         var stagedTarSource: (any ByteSource)?
+        var tarEditingState: TarEditingSnapshot?
+        let recordsTarLayout = options.recordsTarEditLayout && volumeSet == nil && !(source is ConcatenatedByteSource)
+        var tarOptions = options
+        tarOptions.recordsTarEditLayout = recordsTarLayout
         switch detected {
         case .tar:
-            let tar = try AppleDoubleReader.wrap(TarReader(source: source, options: options), options: options)
+            let identityBefore = recordsTarLayout ? currentTarArchiveIdentity(source) : nil
+            let tar = try AppleDoubleReader.wrap(TarReader(source: source, options: tarOptions), options: options)
             reader = tar
             entries = tar.entries
             format = .tar
+            if recordsTarLayout {
+                tarEditingState = Self.makeTarEditingState(container: .plain, archive: source, image: source,
+                                                           reader: tar, options: options, identityBefore: identityBefore)
+            }
         case .zip:
             // Finder / ditto の `__MACOSX/._name` sidecar は方針に従って畳む（既定は resource fork へ統合）。
             let zip = try AppleDoubleReader.wrap(ZipReader(source: source, options: options, diskLayout: zipDiskLayout), options: options)
@@ -335,21 +345,21 @@ public final class ArchiveReader {
             entries = xar.entries
             format = .xar
         case .gzip, .bzip2, .xz, .zstd, .lz4, .compress, .lzma, .lzip, .brotli, .pbzx:
+            let container = Self.compressedContainer(for: sourceURL, detected: detected)
+            let identityBefore = recordsTarLayout && container == .tar ? currentTarArchiveIdentity(source) : nil
             let single = try SingleFileReader(
                 source: source,
                 format: detected,
                 options: options,
                 fallbackFileName: sourceURL?.lastPathComponent
             )
-            let container = Self.compressedContainer(for: sourceURL, detected: detected)
+            let mapRecorder = recordsTarLayout && !options.recoverDamagedArchives && container == .tar
+                && [.gzip, .bzip2, .xz].contains(detected) ? CompressedTarMapRecorder(format: detected) : nil
             if let container {
                 // The expanded tar / cpio envelope is staging input, not a
                 // published entry. Its stream uses maxEntrySize; the aggregate
                 // budget constructed below applies to the inner reader's members.
-                let stream = try single.stream(
-                    for: single.entries[0],
-                    limits: options.limits
-                )
+                let stream = try single.stagingStream(limits: options.limits, recorder: mapRecorder)
                 let staged = try SingleFileMaterializer.materialize(
                     stream,
                     limits: options.limits
@@ -357,10 +367,16 @@ public final class ArchiveReader {
                 stagedTarSource = staged
                 switch container {
                 case .tar:
-                    let tar = try AppleDoubleReader.wrap(TarReader(source: staged, options: options), options: options)
+                    let tar = try AppleDoubleReader.wrap(TarReader(source: staged, options: tarOptions), options: options)
                     reader = tar
                     entries = tar.entries
                     format = .tar
+                    if recordsTarLayout {
+                        let kind: TarContainer = detected == .gzip ? .gzip : detected == .bzip2 ? .bzip2 : detected == .xz ? .xz : .other(detected)
+                        tarEditingState = Self.makeTarEditingState(container: kind, archive: source, image: staged,
+                                                                   reader: tar, options: options, recorder: mapRecorder,
+                                                                   identityBefore: identityBefore)
+                    }
                 case .cpio:
                     let cpio = try CpioReader(source: staged, options: options)
                     reader = cpio
@@ -390,6 +406,7 @@ public final class ArchiveReader {
         }
 
         self.stagedTarSource = stagedTarSource
+        self.tarEditingState = tarEditingState
         self.outputBudget = try ArchiveOutputBudget(
             entries: entries,
             limit: options.limits.maxTotalUncompressedSize
@@ -408,10 +425,12 @@ public final class ArchiveReader {
         outputBudget: ArchiveOutputBudget,
         zipDiskLayout: ZipDiskLayout? = nil,
         volumeSet: ArchiveVolumeSet? = nil,
-        stagedTarSource: (any ByteSource)? = nil
+        stagedTarSource: (any ByteSource)? = nil,
+        tarEditingState: TarEditingSnapshot? = nil
     ) throws {
         self.source = source
         self.stagedTarSource = stagedTarSource
+        self.tarEditingState = tarEditingState
         self.sourceURL = sourceURL
         self.zipDiskLayout = zipDiskLayout
         self.assembledVolumeSet = volumeSet
@@ -674,8 +693,34 @@ public final class ArchiveReader {
             outputBudget: outputBudget.reopened(),
             zipDiskLayout: zipDiskLayout,
             volumeSet: volumeSet,
-            stagedTarSource: stagedTarSource
+            stagedTarSource: stagedTarSource,
+            tarEditingState: tarEditingState
         )
+    }
+
+    @_spi(TarEditLayout)
+    public func tarEditingSnapshot() -> TarEditingSnapshot? { tarEditingState }
+
+    private static func makeTarEditingState(container: TarContainer, archive: any ByteSource,
+                                           image: any ByteSource, reader: any FormatReader,
+                                           options: ReaderOptions, recorder: CompressedTarMapRecorder? = nil,
+                                           identityBefore: ByteSourceFileIdentity?) -> TarEditingSnapshot {
+        let tar = reader as? TarReader
+        let mapReason: ChunkMapUnavailableReason
+        switch container {
+        case .plain: mapReason = .notCompressed
+        case .other(let format): mapReason = .unsupportedCodec(format)
+        default: mapReason = options.recoverDamagedArchives ? .recoveryMode : .inconsistent
+        }
+        let recorded = recorder?.finish(imageLength: image.length, archiveLength: archive.length)
+        let identityAfter = currentTarArchiveIdentity(archive)
+        let changed = identityBefore != identityAfter
+        return TarEditingSnapshot(container: container, image: image, archive: archive,
+                                  layout: tar?.layoutStorage?.layout,
+                                  layoutUnavailableReason: tar == nil ? .wrappedEntries : tar?.layoutStorage?.unavailableReason,
+                                  chunkMap: changed ? nil : recorded?.map,
+                                  chunkMapUnavailableReason: changed ? .archiveChangedDuringOpen : recorded?.map == nil ? recorded?.reason ?? mapReason : nil,
+                                  archiveIdentity: changed ? nil : identityBefore, limits: options.limits)
     }
 
     private func validate(_ entry: ArchiveEntry) throws {

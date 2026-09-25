@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+- `TarEditLayout` SPI に、opt-in の tar member 配置、gzip / bzip2 / xz の区切りと圧縮 byte の CRC-32、
+  復号済み image と元の記述子を共有する編集用 snapshot を追加。`reopen()` は再読せず共有する。
+  圧縮 tar / cpio の bzip2 staging は上限付きで並列復号し、境界を検証できない区間から直列へ戻す。
+  `ReaderOptions.recordsTarEditLayout` の既定は false。有効時の圧縮 tar の reopen は元の圧縮 source の
+  記述子も保持する。既存の公開値と公開 API は維持し、0.x の SPI は追加を基本とする。
+  継ぎの検証付き open は後続の段階 B。[計測と検証記録](Documentation/verification/2026-09-25-tar-edit-layout.md)。
 - `ZipRawLayout` SPI に暗号方式・保存 CRC・実圧縮方式と、保存 payload の復号 stream を追加。
   `ZipAESKeyMaterial` で導出を並行実行でき、材料を渡す読取は password provider と鍵 cache を使わない。
   AES の verifier / HMAC と展開 stream の CRC 照合は維持する。ZipCrypto の保存 stream は 1 byte の

@@ -1,0 +1,774 @@
+[
+  {
+    "id" : "existing-appledouble-mac.tar",
+    "origin" : "existing",
+    "path" : "inputs\/existing-appledouble-mac.tar.tar.b64",
+    "sha256" : "4b44049f32e7ca3f649b1a60bc43b2683f0c04063e4bb4581aefb9beefc7084d",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "existing-singlefile-riscv.tar.xz",
+    "origin" : "existing",
+    "path" : "inputs\/existing-singlefile-riscv.tar.xz.tar.xz.b64",
+    "sha256" : "b621bd396804211d28b5918c2c2c0c49831e41bbbb81a33cb25e4b41e3a1a885",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "existing-singlefile-tar-compress.tar.Z",
+    "origin" : "existing",
+    "path" : "inputs\/existing-singlefile-tar-compress.tar.Z.tar.Z.b64",
+    "sha256" : "b105a28a4fe3300fad48c373b98b8f2f9646aaf35f7e5a24c616432ec93ae7a1",
+    "suffix" : "tar.Z"
+  },
+  {
+    "id" : "existing-zstd-bundle.tar.zst",
+    "origin" : "existing",
+    "path" : "inputs\/existing-zstd-bundle.tar.zst.tar.zst.b64",
+    "sha256" : "3048ecf9deef24fda415c7e5ddb6d0cbf3e077bd8d88686b9483de590367f28b",
+    "suffix" : "tar.zst"
+  },
+  {
+    "id" : "existing-lzip-bundle.tar.lz",
+    "origin" : "existing",
+    "path" : "inputs\/existing-lzip-bundle.tar.lz.tar.lz.b64",
+    "sha256" : "e6d09a5073b38ed95b09c0f9f7aec4889beda69e94b586616365ef5252cebbd4",
+    "suffix" : "tar.lz"
+  },
+  {
+    "id" : "existing-brotli-bundle.tar.br",
+    "origin" : "existing",
+    "path" : "inputs\/existing-brotli-bundle.tar.br.tar.br.b64",
+    "sha256" : "c3027aa88c55edc0ac42443d2fa23b1f650edb74cee5a4358adca714a2b1daed",
+    "suffix" : "tar.br"
+  },
+  {
+    "id" : "existing-lz4-frame-legacy-tar.lz4",
+    "origin" : "existing",
+    "path" : "inputs\/existing-lz4-frame-legacy-tar.lz4.tar.lz4.b64",
+    "sha256" : "ef3eec567ae7b75a87af4336d134c1505ebe99029cf49504c57b918fa84179fd",
+    "suffix" : "tar.lz4"
+  },
+  {
+    "id" : "existing-lz4-frame-tar-linked.lz4",
+    "origin" : "existing",
+    "path" : "inputs\/existing-lz4-frame-tar-linked.lz4.tar.lz4.b64",
+    "sha256" : "81196c48f097a8a6ad9afec6aab6af16333d59e9e04eb4d46069d42e54998045",
+    "suffix" : "tar.lz4"
+  },
+  {
+    "id" : "supplied-bz.tbz",
+    "origin" : "supplied",
+    "path" : "inputs\/supplied-bz.tbz.tar.bz2.b64",
+    "sha256" : "1a6a4345bf6993ccbefd04481e690cd9d55c00c653bd27b01884f98dea516ae3",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "supplied-gz.tgz",
+    "origin" : "supplied",
+    "path" : "inputs\/supplied-gz.tgz.tar.gz.b64",
+    "sha256" : "9cdf4ca78ffd4ebb86b2ed8058b97ef7a4f0f431347cb3a8dfa9b16ed3cfeb36",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "supplied-strbz.tbz",
+    "origin" : "supplied",
+    "path" : "inputs\/supplied-strbz.tbz.tar.bz2.b64",
+    "sha256" : "09c96a315443c5a897b1799ab07797cafd248e87033e10fdb55c04503439a4be",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "supplied-strgz.tgz",
+    "origin" : "supplied",
+    "path" : "inputs\/supplied-strgz.tgz.tar.gz.b64",
+    "sha256" : "4835bb3059e39e5317a213b70898619f127158f862b3f78db6b885a262558ecf",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "supplied-strxz.txz",
+    "origin" : "supplied",
+    "path" : "inputs\/supplied-strxz.txz.tar.xz.b64",
+    "sha256" : "a0c9db418e699796e65a7cb90517512d2efc2f4ec81a0857dff16f3d9fbdd85c",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "supplied-third-bsdtar.tar.xz",
+    "origin" : "supplied",
+    "path" : "inputs\/supplied-third-bsdtar.tar.xz.tar.xz.b64",
+    "sha256" : "590d740664ea779656b440280751a1f7a88ade35c1369e6e686bfcd26517338f",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "supplied-third-bzip2.tar.bz2",
+    "origin" : "supplied",
+    "path" : "inputs\/supplied-third-bzip2.tar.bz2.tar.bz2.b64",
+    "sha256" : "75578a21e124bf030166bc05d1dc67be684d3bbc8c080d2d268b0aef70c8becf",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "supplied-third-gzip.tar.gz",
+    "origin" : "supplied",
+    "path" : "inputs\/supplied-third-gzip.tar.gz.tar.gz.b64",
+    "sha256" : "09c8842998157656463daf8ac846ac264a7472423cd94a81cf868e43a3dbf176",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "supplied-third-xz-crc32.tar.xz",
+    "origin" : "supplied",
+    "path" : "inputs\/supplied-third-xz-crc32.tar.xz.tar.xz.b64",
+    "sha256" : "11aae687ce44f112112f27b5383eb273cace432196c2b0733e2aa4ba22586958",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "supplied-third-xz-crc64.tar.xz",
+    "origin" : "supplied",
+    "path" : "inputs\/supplied-third-xz-crc64.tar.xz.tar.xz.b64",
+    "sha256" : "816ecfa246da6f7646fa56107cb5c3670a42d8e82e8ac2af18ddb113b9672734",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "supplied-xz.txz",
+    "origin" : "supplied",
+    "path" : "inputs\/supplied-xz.txz.tar.xz.b64",
+    "sha256" : "eecc1a70837db8c36f6f1795ff6656577689f3f7359aba1e0cf3050fc50ca0ca",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "ustar",
+    "origin" : "synthetic",
+    "path" : "inputs\/ustar.tar.b64",
+    "sha256" : "c0712924222384ce48e7813923685dbbdd615a12c794f856a82bdb4462d5601e",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "ustar-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/ustar-gz.tar.gz.b64",
+    "sha256" : "4050e8ffab4022f5ebf5b52324df73beaf835e0afd14c08c2feb0426620fcfa4",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "ustar-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/ustar-bz2.tar.bz2.b64",
+    "sha256" : "33e1631804c1372b743bfdc03b6dad11209ca53f00f6d5ba1c6c40b948d7a0d0",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "ustar-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/ustar-xz.tar.xz.b64",
+    "sha256" : "660ad93db59ca97ec9451789c30dd1ea7d352cee90467df952e4eaeaac1cc1e6",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "pax-long",
+    "origin" : "synthetic",
+    "path" : "inputs\/pax-long.tar.b64",
+    "sha256" : "c0176ca4fdca9bee493cd1844635bc581d18213a35d6e960a652bfa146c6ea2d",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "pax-long-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/pax-long-gz.tar.gz.b64",
+    "sha256" : "6de1cef7e2bc6ee25200c7da949cc2a1c626b5781fb7734ed3a615df76cec71f",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "pax-long-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/pax-long-bz2.tar.bz2.b64",
+    "sha256" : "0c4d00d0a09ad2e90be447c2cf50863b768e1f17e67aee37e53fe2dd916666a0",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "pax-long-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/pax-long-xz.tar.xz.b64",
+    "sha256" : "8023491e6da7c93236c61e09ef02ec49608dde9288ba9a2e2a233e8b69778e40",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "gnu-long",
+    "origin" : "synthetic",
+    "path" : "inputs\/gnu-long.tar.b64",
+    "sha256" : "39aac96b036b507c41b2dbc481c2ccc8689675b0486122dc573241adb6437b37",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "gnu-long-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/gnu-long-gz.tar.gz.b64",
+    "sha256" : "ee4f6d7289a4a9d78fc51271afce50f606d2644ccede3ef3097be8d444240c78",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "gnu-long-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/gnu-long-bz2.tar.bz2.b64",
+    "sha256" : "a4d38b000426ab50f5d75ee4fd3a9431fe3b76390e4070be9b05c42d5fb5fef0",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "gnu-long-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/gnu-long-xz.tar.xz.b64",
+    "sha256" : "335a5022ffe5fe09ced5c908688d9bb61bb595f96a82aca0a335f3bd99946b79",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "global",
+    "origin" : "synthetic",
+    "path" : "inputs\/global.tar.b64",
+    "sha256" : "2f93095d4e639457d286f0e284fd5c8667e8fb0ff468b6246aa75ba937ceff1e",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "global-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/global-gz.tar.gz.b64",
+    "sha256" : "7ddfeb533b1a9eb02344b91b51048567a318dc1461543bdf3fafcee155ce1290",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "global-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/global-bz2.tar.bz2.b64",
+    "sha256" : "b6cbb247d59cccd2a97b033a05b649edf7a41b638864ce31e455ce6becb31f64",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "global-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/global-xz.tar.xz.b64",
+    "sha256" : "ceb850025444ec130339d5997fece1e85f8a0ac7928cf4d36707362634682c8c",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "interleaved",
+    "origin" : "synthetic",
+    "path" : "inputs\/interleaved.tar.b64",
+    "sha256" : "b16791d05f34affb65543f9092b9243e8a25a1024791fcc4cf5bedd45552a885",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "interleaved-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/interleaved-gz.tar.gz.b64",
+    "sha256" : "21a20dcd9dc01fda8854b8bf1ca58ac137675ab29c7e0f56123ade8e55e1eeff",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "interleaved-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/interleaved-bz2.tar.bz2.b64",
+    "sha256" : "f3d3c3e03cea50c551adbb3f7e1f10162801aed99edb9950bf92a70ac2cdd927",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "interleaved-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/interleaved-xz.tar.xz.b64",
+    "sha256" : "c756212ef33379c00a09ea40bf87171a9502c2e314043330c9c273375a8b85a1",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "hardlink-ambiguous",
+    "origin" : "synthetic",
+    "path" : "inputs\/hardlink-ambiguous.tar.b64",
+    "sha256" : "954e2f3ed1bc4a6f098be5153d6627986f574edf1079d35b3d10960eb86c1022",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "hardlink-ambiguous-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/hardlink-ambiguous-gz.tar.gz.b64",
+    "sha256" : "a69d8ebc930ba1ec1af4e171af1002da44960f3788bd16a2582ae94f51b4d4f0",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "hardlink-ambiguous-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/hardlink-ambiguous-bz2.tar.bz2.b64",
+    "sha256" : "884b0850b691072f4df4ba2c4b6bf3bfc6ea2d792ba5eddc31a78630f0f569b1",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "hardlink-ambiguous-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/hardlink-ambiguous-xz.tar.xz.b64",
+    "sha256" : "71b31b471e5014dd58b708e2f70c1c6293f206e40a9e0740ebda097532c66382",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "hardlink-empty",
+    "origin" : "synthetic",
+    "path" : "inputs\/hardlink-empty.tar.b64",
+    "sha256" : "0e5e1a97ebb947ae3e13073f939e202a775e62871f7368116d9b05d1ff586c57",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "hardlink-empty-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/hardlink-empty-gz.tar.gz.b64",
+    "sha256" : "9d501c08327793617549cbf5a394713151ede8f0e17dd68414f322b0b88ff233",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "hardlink-empty-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/hardlink-empty-bz2.tar.bz2.b64",
+    "sha256" : "e859ef4fd04ec2ab882624dbdd066f1b339d521af8d8f3b7628c084d9810524f",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "hardlink-empty-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/hardlink-empty-xz.tar.xz.b64",
+    "sha256" : "3eb4c599e31c7d55e138ca74bef9ae2396b00ecbf3b58d6f08b90db6328f3309",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "hardlink-pax",
+    "origin" : "synthetic",
+    "path" : "inputs\/hardlink-pax.tar.b64",
+    "sha256" : "bb4beb18e262881138a214cb2046a434e311232eb7fca2df6bfd6112b3107933",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "hardlink-pax-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/hardlink-pax-gz.tar.gz.b64",
+    "sha256" : "a0c6b157ac869ebccaef94be229b679955eda168658beaf4e19babcf6e80845c",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "hardlink-pax-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/hardlink-pax-bz2.tar.bz2.b64",
+    "sha256" : "754247950af4ed9372e5154cbc491a6dc53777d9b6a1537d5f6756f63653201b",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "hardlink-pax-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/hardlink-pax-xz.tar.xz.b64",
+    "sha256" : "8a68b8580b234dd6e23825d6cd45f03e6752998cbcb6b73966e61e92e11c3fec",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "sparse-old",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse-old.tar.b64",
+    "sha256" : "c39e92a15b1c3bdb220f2e12ba61d06e900e26b0075f8ccf482cccd8aad8c247",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "sparse-old-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse-old-gz.tar.gz.b64",
+    "sha256" : "a6c812aecc7191b2a61dc244661a2a67dda93415c7119792ec1f49a4c0ac58d2",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "sparse-old-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse-old-bz2.tar.bz2.b64",
+    "sha256" : "ebec53ac73061b44402b406a773b1ec1b5569eab5b87af3db2585deaa74814e7",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "sparse-old-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse-old-xz.tar.xz.b64",
+    "sha256" : "05c85825f11ad8f669c7d8bbdfab45698adcf83c32a663856b54a32237f7d9a3",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "sparse00",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse00.tar.b64",
+    "sha256" : "a8fa02024cf96ffb878b938af6b28f6069042bc6c9a9eea4131d8b6c3854ac0d",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "sparse00-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse00-gz.tar.gz.b64",
+    "sha256" : "9b8274a3a522ccb7314ce6e8d00bb6c89e9141e22985b324b6c70e1bc6dd46b6",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "sparse00-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse00-bz2.tar.bz2.b64",
+    "sha256" : "78f6cfb6c747feeded0a9ba59d2f9db35b12bb6d082a93afb5d5c414157eb12c",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "sparse00-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse00-xz.tar.xz.b64",
+    "sha256" : "39488cfe5a9c00c4735095953462f5405a58be2fbf35ac118a197a7286c596af",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "sparse01",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse01.tar.b64",
+    "sha256" : "b2de1de15370765db7d5270b425cec66e39581f353f9a9f362d0baae8f8bb6d8",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "sparse01-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse01-gz.tar.gz.b64",
+    "sha256" : "d261f7679c7221bc2729199a44cca457d5fe47c1680471d8b140e5effaa74c7f",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "sparse01-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse01-bz2.tar.bz2.b64",
+    "sha256" : "40420b117a308a4c76808d259c348ad5f770963c33d80bfc33d65f98c34ce98f",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "sparse01-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse01-xz.tar.xz.b64",
+    "sha256" : "721cc5214bc78d13ef41ce2488da60009c1636a762ffaae094022a084123f649",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "sparse10",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse10.tar.b64",
+    "sha256" : "d80fe93fbcd97784464a860304bb59c34b9a7da1fe284f845b6c62c7bd86495f",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "sparse10-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse10-gz.tar.gz.b64",
+    "sha256" : "d348014b77da19d613d4a70a6ed8dd11b4e8e261e9cfa3ef1bea449d78ceeb3a",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "sparse10-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse10-bz2.tar.bz2.b64",
+    "sha256" : "1865fc3f85eabec5dbf9b9b706e2cb5cbe145683baf17a46bef4eff3196883e4",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "sparse10-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/sparse10-xz.tar.xz.b64",
+    "sha256" : "dffee7f760b3919dea835b7632123ba559191f821750c83a5ebbf0fec75be1b8",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "other-types",
+    "origin" : "synthetic",
+    "path" : "inputs\/other-types.tar.b64",
+    "sha256" : "77745c570cd83bdcc0c8c6d47b2731264979bce48d47d4dd50d9df13f59c440f",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "other-types-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/other-types-gz.tar.gz.b64",
+    "sha256" : "bba86b80014b80f17817ffa9b55c5a64ebc948011e27af83e5e056d2c8391925",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "other-types-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/other-types-bz2.tar.bz2.b64",
+    "sha256" : "2aad8e6bca767d15622e054a9b671b7d0b6f70a10a309ecb238da7d24396464a",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "other-types-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/other-types-xz.tar.xz.b64",
+    "sha256" : "901ef9eaa0ab8fb514b8d834f9ebcd0be4c34ad8d70c36a2f71e7640674de831",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "one-zero",
+    "origin" : "synthetic",
+    "path" : "inputs\/one-zero.tar.b64",
+    "sha256" : "babc19d2bdf4eb7e8b11f1e71c6dc6ba8d67714b4899dc00e2ef216c55816ee3",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "one-zero-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/one-zero-gz.tar.gz.b64",
+    "sha256" : "37768846f1abd0dcae92d3f08531228c2a5b7c0f3c1018d978894485e4f65ef7",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "one-zero-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/one-zero-bz2.tar.bz2.b64",
+    "sha256" : "a506195a2cc8cb69154c057a739e9ddf9a21e639435c7aaaf21f12b5f6c3bb49",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "one-zero-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/one-zero-xz.tar.xz.b64",
+    "sha256" : "2f6818a11ce1adb76a7a15257265e668db06c52bb7f9a31814c00a4ca3f0082c",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "no-zero",
+    "origin" : "synthetic",
+    "path" : "inputs\/no-zero.tar.b64",
+    "sha256" : "839d5b9f3f9f8df4bdf4f986fe25e19ffdaf3e60278714ccc710421f56cff475",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "no-zero-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/no-zero-gz.tar.gz.b64",
+    "sha256" : "101369846d06651269fc25367dd89a5681bff275434e2fe60c065c07cf0334c5",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "no-zero-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/no-zero-bz2.tar.bz2.b64",
+    "sha256" : "c31200598b937c5ddb98347ecea386bd7337897751e092133fdbdc00615975e0",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "no-zero-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/no-zero-xz.tar.xz.b64",
+    "sha256" : "485ffdc54c8a3d846f519c80cba739fcf7b4eb71a0d55e9a97e73a2771ebc145",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "trailing-nonzero",
+    "origin" : "synthetic",
+    "path" : "inputs\/trailing-nonzero.tar.b64",
+    "sha256" : "37790afd3d686d7921e2f7915340b9f6ac99dad4d62adb6badd6ee9a4595b8cb",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "trailing-nonzero-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/trailing-nonzero-gz.tar.gz.b64",
+    "sha256" : "3297de0475255804370e070b44ec313ebd5ce0245cd724e234dac850a366b863",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "trailing-nonzero-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/trailing-nonzero-bz2.tar.bz2.b64",
+    "sha256" : "e08883928104fe49c7c060801b995f0790f082ca50a4119c22ed791f38facf43",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "trailing-nonzero-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/trailing-nonzero-xz.tar.xz.b64",
+    "sha256" : "665c465b26d9e857a74fe165f3603eff28945e0ecd523b7e8c35d86eea9acea7",
+    "suffix" : "tar.xz"
+  },
+  {
+    "generator" : {
+      "kind" : "many-entries-v1",
+      "seed" : 0
+    },
+    "id" : "many-entries",
+    "origin" : "synthetic",
+    "path" : "generated\/many-entries.tar",
+    "sha256" : "119a0633a25d888de51ac59de13ae6a7e87bbb270de3b987f90d6523e458905c",
+    "suffix" : "tar"
+  },
+  {
+    "id" : "many-entries-gz",
+    "origin" : "synthetic",
+    "path" : "inputs\/many-entries-gz.tar.gz.b64",
+    "sha256" : "d27e34900db5666116a1560f204357e6b39aa902519eca35c79449c93e311bb6",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "many-entries-bz2",
+    "origin" : "synthetic",
+    "path" : "inputs\/many-entries-bz2.tar.bz2.b64",
+    "sha256" : "47d491b93d33123a0211197a951093c4adc70f0ceb5299ebeb59225194d02452",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "many-entries-xz",
+    "origin" : "synthetic",
+    "path" : "inputs\/many-entries-xz.tar.xz.b64",
+    "sha256" : "030b96c3e9cc07a570845c25401e87b7778e50adcc8c19e9aa281aa1312c0580",
+    "suffix" : "tar.xz"
+  },
+  {
+    "generator" : {
+      "deflateAndTrailer" : "7M6xDYMwFARQj8IIBn5wzSiWKCMlSqDI9rEQDQMQpXivOemau2f93B91SVfKzRSxZ3POGPoxcurjNkQpOfa+jFNJXb701WF7r\/XVJn+x9YdmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAwxcAAP\/\/7MEBCQAAAICg\/6+jHyoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAsAAAA\/\/\/twSEBAAAAAiD\/r\/aAAwwAAAAAAAAAAADAqwAwFaIfMOQAKgIA",
+      "kind" : "gzip-rich-header-v1",
+      "seed" : 65
+    },
+    "id" : "gzip-rich-header",
+    "origin" : "synthetic",
+    "path" : "generated\/gzip-rich-header.tar.gz",
+    "sha256" : "ec0a0f961ca86b286539cb763716f64548fa321eb869c37676c1fdb29c1677a1",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "gzip-dense-blocks",
+    "origin" : "synthetic",
+    "path" : "inputs\/gzip-dense-blocks.tar.gz.b64",
+    "sha256" : "0d18ba88dec7a42646793a6bf2081c7c270858b79637ea83cac9c9f6109e4b7b",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "gzip-1m",
+    "origin" : "synthetic",
+    "path" : "inputs\/gzip-1m.tar.gz.b64",
+    "sha256" : "94a74da5d36f21a37cce1605a9f6d79cc1c646b3320a8606d06f9c3cb8052326",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "gzip-multiple",
+    "origin" : "synthetic",
+    "path" : "inputs\/gzip-multiple.tar.gz.b64",
+    "sha256" : "20fce87433b984bb9f2f51c3bfbe322fb0124fc6bda41cae9a12649ca32c39f1",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "gzip-zero-tail",
+    "origin" : "synthetic",
+    "path" : "inputs\/gzip-zero-tail.tar.gz.b64",
+    "sha256" : "96edc37fb4e7f0589c7204b374095eef6f2ef432e74a0e46f893e2058ea7d3d7",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "gzip-garbage",
+    "origin" : "synthetic",
+    "path" : "inputs\/gzip-garbage.tar.gz.b64",
+    "sha256" : "3a22ae0829888a9ee4f07082cf8d45a3735579c95f01b546c85ce865b287abab",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "gzip-crc",
+    "origin" : "synthetic",
+    "path" : "inputs\/gzip-crc.tar.gz.b64",
+    "sha256" : "f15472002b37af15c91a32743741b0a5f9b95640aa6bdd9e9f30838d82d6ecb0",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "gzip-isize",
+    "origin" : "synthetic",
+    "path" : "inputs\/gzip-isize.tar.gz.b64",
+    "sha256" : "5a75f8bc0f06f7a7800cb7f8482ae40c527ca747e970343668b77e879411cd86",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "gzip-truncated",
+    "origin" : "synthetic",
+    "path" : "inputs\/gzip-truncated.tar.gz.b64",
+    "sha256" : "425a4934415b2e1736f5ba756317b6d4bd8e01ed45ce4c65133b028303a07df4",
+    "suffix" : "tar.gz"
+  },
+  {
+    "id" : "bzip2-level9",
+    "origin" : "synthetic",
+    "path" : "inputs\/bzip2-level9.tar.bz2.b64",
+    "sha256" : "f725aac9b42e61cb414327b72182542e55fe8209204b668769686ec8da3ce592",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "bzip2-empty-stream",
+    "origin" : "synthetic",
+    "path" : "inputs\/bzip2-empty-stream.tar.bz2.b64",
+    "sha256" : "1df9d3907e6bc93bca126fce01d218cd0ecf707e7e00a6fa21541f7af740bb8c",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "bzip2-garbage",
+    "origin" : "synthetic",
+    "path" : "inputs\/bzip2-garbage.tar.bz2.b64",
+    "sha256" : "e39f49658da414c2cadd20a41e8193ab0436697346dce99550538df52ce86503",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "bzip2-corrupt",
+    "origin" : "synthetic",
+    "path" : "inputs\/bzip2-corrupt.tar.bz2.b64",
+    "sha256" : "fd97f91e4b17cfb08d96d8422e4a20cecaad0c8ac7c3bb3531dce6ccda28f603",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "bzip2-truncated",
+    "origin" : "synthetic",
+    "path" : "inputs\/bzip2-truncated.tar.bz2.b64",
+    "sha256" : "df26f8ea6b22f11e7ffb005143b95190cc08329ee0d9b4350f95646ed64c2dfc",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "bzip2-false-candidate",
+    "origin" : "synthetic",
+    "path" : "inputs\/bzip2-false-candidate.tar.bz2.b64",
+    "sha256" : "906f97cb54a196ce4e2822b72080d9757f0e6f3dc31029ac4f37b7a1466d6372",
+    "suffix" : "tar.bz2"
+  },
+  {
+    "id" : "xz-none",
+    "origin" : "synthetic",
+    "path" : "inputs\/xz-none.tar.xz.b64",
+    "sha256" : "5b5bdd20c9f8657a2db851c6a067ef95e161fb94892f604a425f62fef07552fd",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "xz-multiple",
+    "origin" : "synthetic",
+    "path" : "inputs\/xz-multiple.tar.xz.b64",
+    "sha256" : "3591605d34920251f87a8afed2c6c6203d411e0f0c9526eb62c486e80ea1bfbe",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "xz-padding",
+    "origin" : "synthetic",
+    "path" : "inputs\/xz-padding.tar.xz.b64",
+    "sha256" : "7095dc9f72e2a6f428ec5206e07232aefd242a6af24e061e72a16fce85b34251",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "xz-index-record",
+    "origin" : "synthetic",
+    "path" : "inputs\/xz-index-record.tar.xz.b64",
+    "sha256" : "9764e9a5ef7a6e04585ae61c9c58517de61de635a5edc6510fb88bcd51db6c17",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "xz-index-crc",
+    "origin" : "synthetic",
+    "path" : "inputs\/xz-index-crc.tar.xz.b64",
+    "sha256" : "89dcdb97c828db2f03d96b8c7c14ea15e8d11a0b21aaeb36351b672ae863c8ad",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "xz-block-check",
+    "origin" : "synthetic",
+    "path" : "inputs\/xz-block-check.tar.xz.b64",
+    "sha256" : "8993cd2f3119f70a7f18c399eceed017d61c197f8467ec2abcd1528e2b9d441c",
+    "suffix" : "tar.xz"
+  },
+  {
+    "id" : "xz-truncated",
+    "origin" : "synthetic",
+    "path" : "inputs\/xz-truncated.tar.xz.b64",
+    "sha256" : "16a1daa2b9a8ceba920a550d396a3d51ef5adbfef23bb011bd60a04a92565a35",
+    "suffix" : "tar.xz"
+  }
+]

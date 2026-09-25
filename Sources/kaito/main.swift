@@ -2,7 +2,7 @@ import CryptoKit
 import Darwin
 import Dispatch
 import Foundation
-import KaitoKit
+@_spi(TarEditLayout) import KaitoKit
 
 private enum CLIError: Error, CustomStringConvertible {
     case usage(String)
@@ -100,9 +100,11 @@ private func oneLine(_ value: String) -> String {
 }
 
 private func openArchive(_ path: String, password: String? = nil) throws -> ArchiveReader {
-    try ArchiveReader.open(
+    var options = ReaderOptions(password: password)
+    options.recordsTarEditLayout = getenv("KAITOKIT_BENCH_TAR_EDIT_LAYOUT").map { $0[0] == 49 && $0[1] == 0 } ?? false
+    return try ArchiveReader.open(
         url: URL(fileURLWithPath: path),
-        options: ReaderOptions(password: password)
+        options: options
     )
 }
 

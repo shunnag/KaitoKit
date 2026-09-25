@@ -137,6 +137,16 @@ public final class FileByteSource: ByteSource {
     }
 
     /// 組み立てに保持する fd の属性を採る。URL の再 open やディレクトリ走査はしない。
+    func fileIdentity() throws -> ByteSourceFileIdentity {
+        var information = stat()
+        guard Darwin.fstat(descriptor, &information) == 0 else { throw KaitoError.io(errno) }
+        guard information.st_size >= 0 else { throw KaitoError.malformed("file has a negative size") }
+        return ByteSourceFileIdentity(device: UInt64(UInt32(bitPattern: information.st_dev)),
+                                      inode: UInt64(information.st_ino), size: UInt64(information.st_size),
+                                      modificationSeconds: Int64(information.st_mtimespec.tv_sec),
+                                      modificationNanoseconds: Int64(information.st_mtimespec.tv_nsec))
+    }
+
     func volume(at url: URL) throws -> ArchiveVolumeSet.Volume {
         var information = stat()
         guard Darwin.fstat(descriptor, &information) == 0 else { throw KaitoError.io(errno) }

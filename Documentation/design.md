@@ -1963,3 +1963,55 @@ PBKDF2-HMAC-SHA1（1,000 回）を共有する。状態を持たないので導�
 
 公開値の凍結、差分 fuzz、I/O と Release の測定は
 [検証記録](verification/2026-09-25-zip-raw-layout.md)を参照。
+
+### tar の member 配置・圧縮 tar の区切りの地図・継ぎの検証（2026-09-25）
+
+S12 / P3-K 段階 A は `@_spi(TarEditLayout)` の材料を追加する。継ぎの出力を検証する
+`openSplicedCompressedTar`（K5）は段階 B で実装する。書き手や公開の判断はこの段階には含めない。
+`ReaderOptions.recordsTarEditLayout` の既定は false。public initializer、entry の全公開値、
+検査とエラーは変えず、有効にした tar open だけが配置と地図を記録する。
+
+`TarLayoutStorage` は member ごとに群の先頭・本体 header・格納本文の先頭・詰め物の終わりの
+UInt64 四つ（32 B）を持ち、本文長は既存の Record 配列を COW 共有する。局所拡張 x / X / L / K は
+次の member の群に含め、g は独立した範囲にする。g の値は以後の member に継続して効き、末尾に追加する
+member にも適用されるので、書き手は追加時にもその状態を引き継ぐ。旧 GNU S の拡張 block は header 群、GNU sparse 1.0
+の map は本文に含める。群と g が最初の zero block までを隙間なく覆うことを構築時に検査する。
+recovery、局所拡張と member の間の g、AppleDouble wrapper、内部の不整合では理由付きで配置を返さない。
+open の成否は変えない。`headerGroup(ofMember:)` は必要な群だけを既存の checksum・数値・PAX・sparse・
+hard-link 判定と limits で読み直し、保存した境界との食い違いを拒否する。
+`trailingBytesAreZero()` は EOF 以後を 1 MiB ずつ読む。名前の NFC / NFD 衝突や `._` の編集方針は GK / KF の責務。
+
+地図は既存の staging の一度の復号から採る。gzip は Z_BLOCK の非最終・byte 境界・空 block の停止を
+同期点にし、走る image CRC と圧縮範囲の CRC-32 を保持する。同じ image offset は後の点へ正規化するが、
+先頭 (headerLength, 0, 0) は動かさない。停止の上限を越えたら Z_NO_FLUSH に戻す。bzip2 は検証済みの
+独立 stream、xz は既存 validator の block / Index / footer を使う。圧縮 CRC は復号器が消費した byte
+（並列 bzip2 では worker が全 byte の消費を検証した区間）から計算し、原本を再読しない。
+地図の上限は 1,048,576 区間、gzip の停止は 1,048,576 + 出力 byte / 4,096。
+staging 成功後、圧縮と image の隙間のない被覆、image 長、gzip trailer、xz Index との整合を検査する。
+複数 gzip member、複数 xz stream / padding、上限、不整合は理由付きで地図を返さず、復号は続ける。
+第三者の CRC64 xz にも地図を返し、継げるかどうかは GK が判断する。
+
+snapshot は Sendable の値で、元の archive と復号済み image の双方を保持する。reopen は解析・配置・地図・
+記述子を共有し、読み直さず、記述子を増やさない。option on の圧縮 tar の reopen は元の圧縮 source の寿命も
+延ばす。メモリ staging と unlink 済み一時ファイルのどちらも同じ契約。分割巻、cpio、pbzx、tar 以外は snapshot を作らない。
+ByteSource の要件は変えず、FileByteSource の内部 fstat または SPI の ByteSourceFileIdentityProviding から
+dev / inode / size / mtime を採る。解析・復号の前後で異なれば同一性と地図を破棄する。
+ctime は rename・chmod・xattr でも変わるので採らない。パスを別 inode に替えても保持 fd の同一性は変わらず、
+パスとの照合は呼出側が行う。HFS+ / FAT / exFAT の時刻粒度やネットワークの属性 cache ではこの補助検査が弱い。
+継ぎの証明は圧縮 CRC に依る。残る危険は区間あたり 2^-32 の偶然の一致であり、故意の改竄を防ぐ認証ではない。
+
+圧縮 tar / cpio の bzip2 staging は option に依らず並列化する。単独 bz2 の stream は従来の直列のまま。
+消費側は 1 MiB の読み取り窓と 9 byte の重なりで BZh[1-9] + block / EOS magic を探し、区間を worker に渡す。
+worker は END と区間全体の消費が一致したときだけ成功し、順番に出力する。最初の異常な区間の始点は
+直前に成功した END（または 0）なので、そこから従来の decoder を再開すれば同じ決定的な状態機械になる。
+偽の magic、途中の END、切断、CRC エラー、8 MiB の圧縮 / 16 MiB の出力上限はすべてこの直列経路へ戻る。
+エラー前に返せる byte 数は入力の分け方で変わりうるが、両方とも同じ復号列の prefix となり、staging は失敗時に全体を捨てる。
+
+W = min(8, activeProcessorCount)、投入は W 区間までとし、走査と完了通知の受け渡しに二つの余裕を持つ。
+保持する圧縮・出力領域は (W + 2) × 24 MiB 以下。内部の Diagnostics で worker 数と領域予約を計数する。
+待機は 50 ms ごとに既存と同じ CancellationError を検査する。deinit / 取消しは放棄を通知し、worker は
+1 MiB の出力ごとに観測する。deinit は worker を待たない。共有状態は reader ごとの lock で守り、global の可変状態は置かない。
+
+TarEditLayout は 0.x の間は追加だけとし、削除・改名・型変更が必要なら GK と同時に release して依存下限を上げる。
+公開 swiftinterface には出さない。全公開値の frozen golden、各段の回帰・差分 fuzz、TSan / ASan、Release と
+負荷付きの計測は [検証記録](verification/2026-09-25-tar-edit-layout.md)に残す。

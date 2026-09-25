@@ -770,3 +770,13 @@ HFS+ decmpfs（2026-09-22）
   記録は Documentation/verification/2026-09-22-hfsplus-decmpfs.md。
   形式入力は Metz の HFS 文書（GFDL 1.3、裁定 1）、TN1150、chflags(2) と提供された黒箱観察。
   文書自体や第三者の実装 source は fixture に含めない。
+
+ZIP 公開値 golden（2026-09-25）
+  zip-golden の corpus は b518014 の ZIP fixture 全 30 件のコピーと、プロジェクト所有の
+  短い本文から作った合成 236 件。既存入力の出典・ライセンスは上記の各形式の項目に従う。
+  合成は公開 ZIP フィールドと既存のテスト builder を使用。ditto / Info-ZIP / 7-Zip は
+  書き手として黒箱利用し、実装 source は参照していない。暗号乱数を含めた byte を凍結する。
+  manifest.json は復号後の SHA-256 と、決定的な大きな入力 3 件の生成 recipe / seed。
+  public-values.json.lzfse は Sources 無変更の b518014 の公開値を Foundation LZFSE で圧縮したもの。
+  public-values.json.sha256 は展開後の元の JSON の hash。入力・公開値の byte は変更していない。
+  詳細と再現手順は zip-golden/README.md。

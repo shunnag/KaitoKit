@@ -544,6 +544,18 @@ public final class ArchiveReader {
         return try reader.rawRecord(for: entry, limits: options.limits)
     }
 
+    /// entries[index] の生レコード範囲。同一性比較だけを省き、公開 API と同じ検証を行う。
+    /// .expose の ZIP は CD 順。password を要求せず、取消しも検査しない。
+    @_spi(ZipRawLayout)
+    public func zipRawRecordLayout(at index: Int) throws -> ZipRawRecordLayout? {
+        guard entries.indices.contains(index) else {
+            throw KaitoError.notFound("archive entry index \(index)")
+        }
+        guard !entries[index].isIncomplete,
+              zipDiskLayout != nil || !(source is ConcatenatedByteSource) else { return nil }
+        return try reader.zipRawRecordLayout(at: index, limits: options.limits)
+    }
+
     /// Safely extracts one entry below `directory` and returns its destination.
     ///
     /// The caller must prevent other threads or processes from mutating the

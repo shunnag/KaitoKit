@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 // 参照仕様: PKWARE APPNOTE.TXT 6.3.x。通常は中央ディレクトリを索引として扱う。
@@ -166,10 +167,13 @@ final class ZipReader: FormatReader {
     private var validatedRawRangePosition = -1
     private var password: String?
     private var aesDerivedKeyCache: [WinZipAESKeyCacheKey: WinZipAESDerivedKeys] = [:]
+    private var localReadAhead: ZipLocalReadAhead
 
-    init(source: any ByteSource, options: ReaderOptions, diskLayout: ZipDiskLayout? = nil) throws {
+    init(source: any ByteSource, options: ReaderOptions, diskLayout: ZipDiskLayout? = nil,
+         readAhead: ZipLocalReadAheadPolicy = .standard) throws {
         self.source = source
         self.password = options.password
+        self.localReadAhead = ZipLocalReadAhead(policy: readAhead)
 
         let parsedDirectory: ParsedDirectory
         // 巻の欠落を部分成功で隠さず、先頭の spanning 署名を descriptor と誤認しない。
@@ -224,7 +228,8 @@ final class ZipReader: FormatReader {
     private init(source: any ByteSource, options: ReaderOptions,
                  centralDirectoryOffset: UInt64, records: [Record],
                  localHeaderOrder: [Int], localHeaderOrderPositions: [Int],
-                 entries: [ArchiveEntry], nameEncoding: String.Encoding?) {
+                 entries: [ArchiveEntry], nameEncoding: String.Encoding?,
+                 readAhead: ZipLocalReadAheadPolicy = .standard) {
         self.source = source
         self.centralDirectoryOffset = centralDirectoryOffset
         self.records = records
@@ -233,6 +238,7 @@ final class ZipReader: FormatReader {
         self.entries = entries
         self.nameEncoding = nameEncoding
         self.password = options.password
+        self.localReadAhead = ZipLocalReadAhead(policy: readAhead)
     }
 
     func reopened(options: ReaderOptions) -> sending ZipReader {
@@ -241,7 +247,7 @@ final class ZipReader: FormatReader {
         ZipReader(source: source, options: options, centralDirectoryOffset: centralDirectoryOffset,
                   records: records, localHeaderOrder: localHeaderOrder,
                   localHeaderOrderPositions: localHeaderOrderPositions,
-                  entries: entries, nameEncoding: nameEncoding)
+                  entries: entries, nameEncoding: nameEncoding, readAhead: localReadAhead.policy)
     }
 
     func setPassword(_ password: String?) {
@@ -310,18 +316,9 @@ final class ZipReader: FormatReader {
             throw KaitoError.notFound("zip entry index \(entry.index)")
         }
         guard !entry.isIncomplete else { return nil }
-        try validateEntryRanges(
-            through: localHeaderOrderPositions[entry.index],
-            limits: limits,
-            includingDataDescriptors: true
-        )
-        let record = records[entry.index]
-        let local = try resolveLocalRecord(at: entry.index, limits: limits)
-        guard let end = local.rawRecordEnd else {
-            throw KaitoError.malformed("ZIP raw record range was not validated")
-        }
+        let (record, local, end) = try validatedRawRecord(at: entry.index, limits: limits)
         var specific = entry.formatSpecific
-        specific["crc32"] = String(format: "0x%08x", record.storedCRC32)
+        specific["crc32"] = Self.crc32Description(record.storedCRC32)
         specific["headerMethod"] = String(record.headerMethod)
         specific["hasDataDescriptor"] = String(local.usesDataDescriptor)
         specific["isZIP64"] = String(record.usesZIP64 || local.usesZIP64)
@@ -332,8 +329,38 @@ final class ZipReader: FormatReader {
         )
     }
 
-    private func localRecord(at index: Int, limits: ReadLimits) throws -> LocalRecord {
+    func zipRawRecordLayout(at index: Int, limits: ReadLimits) throws -> ZipRawRecordLayout? {
+        guard records.indices.contains(index) else {
+            throw KaitoError.notFound("zip entry index \(index)")
+        }
+        guard !entries[index].isIncomplete else { return nil }
+        let (record, local, end) = try validatedRawRecord(at: index, limits: limits)
+        return ZipRawRecordLayout(
+            recordRange: record.localHeaderOffset..<end,
+            payloadRange: local.dataOffset..<(try Checked.add(local.dataOffset, record.compressedSize)),
+            hasDataDescriptor: local.usesDataDescriptor,
+            centralHasZIP64Extra: record.usesZIP64,
+            localHasZIP64Extra: local.usesZIP64
+        )
+    }
+
+    private func validatedRawRecord(at index: Int, limits: ReadLimits) throws -> (Record, LocalRecord, end: UInt64) {
+        try validateEntryRanges(
+            through: localHeaderOrderPositions[index],
+            limits: limits,
+            includingDataDescriptors: true
+        )
+        let record = records[index]
         let local = try resolveLocalRecord(at: index, limits: limits)
+        guard let end = local.rawRecordEnd else {
+            throw KaitoError.malformed("ZIP raw record range was not validated")
+        }
+        return (record, local, end)
+    }
+
+    private func localRecord(at index: Int, limits: ReadLimits) throws -> LocalRecord {
+        let local = try resolveLocalRecord(at: index, limits: limits,
+            sequential: localHeaderOrderPositions[index] == validatedLocalRangePosition + 1)
         try validateEntryRanges(
             through: localHeaderOrderPositions[index],
             limits: limits
@@ -341,7 +368,7 @@ final class ZipReader: FormatReader {
         return local
     }
 
-    private func resolveLocalRecord(at index: Int, limits: ReadLimits) throws -> LocalRecord {
+    private func resolveLocalRecord(at index: Int, limits: ReadLimits, sequential: Bool = false) throws -> LocalRecord {
         // Keep reopen independent of entry count; allocate this mutable cache
         // only when the new reader first needs a local header.
         if localRecords.isEmpty { localRecords = Array(repeating: nil, count: records.count) }
@@ -352,10 +379,9 @@ final class ZipReader: FormatReader {
         guard fixedEnd <= centralDirectoryOffset else {
             throw KaitoError.malformed("ZIP local header overlaps the central directory")
         }
-        let fixed = try Self.readExactly(
-            source: source,
+        let fixed = try readLocal(
             offset: central.localHeaderOffset,
-            count: 30
+            count: 30, position: localHeaderOrderPositions[index], sequential: sequential, limits: limits
         )
         var cursor = ZipByteCursor(fixed)
         guard try cursor.readUInt32LE() == Self.localHeaderSignature else {
@@ -392,10 +418,10 @@ final class ZipReader: FormatReader {
         var usesZIP64 = false
         if extraLength > 0 {
             try Checked.size(extraLength, limit: limits.maxMetadataSize)
-            let extra = try Self.readExactly(
-                source: source,
+            let extra = try readLocal(
                 offset: extraOffset,
-                count: try Checked.toInt(extraLength)
+                count: try Checked.toInt(extraLength), position: localHeaderOrderPositions[index],
+                sequential: false, limits: limits
             )
             let fields = try Self.parseExtraFields(
                 extra,
@@ -451,7 +477,7 @@ final class ZipReader: FormatReader {
                 }
             }
 
-            var local = try resolveLocalRecord(at: index, limits: limits)
+            var local = try resolveLocalRecord(at: index, limits: limits, sequential: true)
             let end = try Checked.add(
                 local.dataOffset,
                 records[index].availableCompressedSize ?? records[index].compressedSize
@@ -473,7 +499,8 @@ final class ZipReader: FormatReader {
                 }
                 // 前の entry の descriptor も調べ、呼出順にかかわらず重なりを拒否する。
                 local.rawRecordEnd = try rawRecordEnd(
-                    record: records[index], local: local, payloadEnd: end, upperBound: upperBound
+                    record: records[index], local: local, payloadEnd: end, upperBound: upperBound,
+                    position: position, limits: limits
                 )
                 localRecords[index] = local
                 validatedRawRangePosition = position
@@ -481,6 +508,7 @@ final class ZipReader: FormatReader {
                 validatedLocalRangePosition = position
             }
             validatedPosition = position
+            localReadAhead.finish(position: position, recordCount: records.count)
         }
     }
 
@@ -488,7 +516,9 @@ final class ZipReader: FormatReader {
         record: Record,
         local: LocalRecord,
         payloadEnd: UInt64,
-        upperBound: UInt64
+        upperBound: UInt64,
+        position: Int,
+        limits: ReadLimits
     ) throws -> UInt64 {
         guard payloadEnd <= upperBound else {
             throw KaitoError.malformed("ZIP raw record lies outside its entry bounds")
@@ -503,10 +533,10 @@ final class ZipReader: FormatReader {
         guard available >= UInt64(unsignedSize) else {
             throw KaitoError.malformed("ZIP data descriptor overlaps the next record or central directory")
         }
-        let bytes = try Self.readExactly(
-            source: source,
+        let bytes = try readLocal(
             offset: payloadEnd,
-            count: Int(min(available, UInt64(unsignedSize + 4)))
+            count: Int(min(available, UInt64(unsignedSize + 4))),
+            position: position, sequential: false, limits: limits
         )
         var matchedEnd: UInt64?
         // CRC 自体が署名と同値の場合があるため、署名の有無は全フィールドで照合する。
@@ -532,6 +562,21 @@ final class ZipReader: FormatReader {
             throw KaitoError.malformed("ZIP data descriptor disagrees with the central directory")
         }
         return matchedEnd
+    }
+
+    private func readLocal(offset: UInt64, count: Int, position: Int,
+                           sequential: Bool, limits: ReadLimits) throws -> [UInt8] {
+        guard count >= 0 else { throw KaitoError.malformed("negative ZIP read size") }
+        let end = try Checked.add(offset, UInt64(count))
+        guard end <= source.length else { throw KaitoError.truncated }
+        guard count > 0 else { return [] }
+        if let bytes = localReadAhead.read(
+            source: source, offset: offset, count: count,
+            position: position, recordCount: records.count, sequential: sequential,
+            limits: limits, bound: min(centralDirectoryOffset, source.length),
+            headerOffset: { records[localHeaderOrder[$0]].localHeaderOffset }
+        ) { return bytes }
+        return try Self.readExactly(source: source, offset: offset, count: count)
     }
 
     private func payloadSource(
@@ -1838,6 +1883,10 @@ final class ZipReader: FormatReader {
         var retainedMetadataSize: UInt64 = 0
         var archiveNameIndex = 0
         var dosTimestampDecoder = DOSTimestampDecoder()
+        var pathSplitter = ZipPathComponentSplitter()
+        var specificCache: [(key: UInt64, value: [String: String])] = []
+        specificCache.reserveCapacity(8)
+        var specificReplacement = 0
 
         for index in 0..<location.entryCount {
             if index & 0x3ff == 0 { try Task.checkCancellation() }
@@ -1970,9 +2019,7 @@ final class ZipReader: FormatReader {
             guard !name.isEmpty, !name.utf8.contains(0) else {
                 throw KaitoError.malformed("ZIP entry name cannot be decoded safely")
             }
-            let pathComponents = name
-                .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
-                .map { String(decoding: $0, as: UTF8.self) }
+            let pathComponents = pathSplitter.split(name)
             guard pathComponents.count <= limits.maxPathComponentCount else {
                 throw KaitoError.limitExceeded("ZIP path component count")
             }
@@ -1995,23 +2042,44 @@ final class ZipReader: FormatReader {
                 dosTime: dosTime,
                 dosTimestampDecoder: &dosTimestampDecoder
             )
-            let encryptionDescription: String
+            let encryptionKey: UInt64
             switch encryption {
-            case .none: encryptionDescription = "none"
-            case .traditional: encryptionDescription = "ZipCrypto"
+            case .none: encryptionKey = 0
+            case .traditional: encryptionKey = 1 << 48
             case let .aes(_, _, strength):
-                encryptionDescription = "AES-\(aesBitCount(strength))"
+                encryptionKey = (2 << 48) | (UInt64(strength) << 50)
             }
             let methodName = methodDescription(method)
-            var specific: [String: String] = [
-                "method": String(method),
-                "versionMadeBy": String(versionMadeBy),
-                "flags": flagsDescription(flags),
-                "hostOS": String(hostOS),
-                "encryption": encryptionDescription,
-            ]
-            if isSymbolicLink {
-                specific["linkTargetStoredAsData"] = "true"
+            let specificKey = UInt64(method) | UInt64(versionMadeBy) << 16 | UInt64(flags) << 32
+                | encryptionKey | (isSymbolicLink ? UInt64(1) << 58 : 0)
+            let specific: [String: String]
+            if let cached = specificCache.first(where: { $0.key == specificKey }) {
+                specific = cached.value
+            } else {
+                let encryptionDescription: String
+                switch encryption {
+                case .none: encryptionDescription = "none"
+                case .traditional: encryptionDescription = "ZipCrypto"
+                case let .aes(_, _, strength):
+                    encryptionDescription = "AES-\(aesBitCount(strength))"
+                }
+                var value: [String: String] = [
+                    "method": String(method),
+                    "versionMadeBy": String(versionMadeBy),
+                    "flags": flagsDescription(flags),
+                    "hostOS": String(hostOS),
+                    "encryption": encryptionDescription,
+                ]
+                if isSymbolicLink {
+                    value["linkTargetStoredAsData"] = "true"
+                }
+                if specificCache.count < 8 {
+                    specificCache.append((specificKey, value))
+                } else {
+                    specificCache[specificReplacement] = (specificKey, value)
+                    specificReplacement = (specificReplacement + 1) % 8
+                }
+                specific = value
             }
 
             let metadataCost = try retainedMetadataCost(
@@ -2322,6 +2390,18 @@ final class ZipReader: FormatReader {
         }
     }
 
+    static func crc32Description(_ crc: UInt32) -> String {
+        String(unsafeUninitializedCapacity: 10) { buffer in
+            buffer[0] = 0x30
+            buffer[1] = 0x78
+            for index in 0..<8 {
+                let digit = UInt8((crc >> (28 - index * 4)) & 0x0f)
+                buffer[index + 2] = digit < 10 ? digit + 0x30 : digit + 0x57
+            }
+            return 10
+        }
+    }
+
     private static func methodDescription(_ method: UInt16) -> String {
         switch method {
         case 0: "stored"
@@ -2517,5 +2597,46 @@ private struct ZipByteCursor {
     mutating func skip(_ count: Int) throws {
         guard count >= 0, count <= remaining else { throw KaitoError.truncated }
         offset += count
+    }
+}
+
+struct ZipPathComponentSplitter {
+    private var ranges: [Range<Int>] = []
+    private var directoryBytes: [UInt8] = []
+    private var directoryComponents: [String] = []
+
+    mutating func split(_ name: String) -> [String] {
+        if let components = name.utf8.withContiguousStorageIfAvailable({ bytes -> [String] in
+            ranges.removeAll(keepingCapacity: true)
+            var lower = 0
+            var lastSeparator: Int?
+            for index in bytes.indices where bytes[index] == 0x2f {
+                if lower < index { ranges.append(lower..<index) }
+                lower = index + 1
+                lastSeparator = index
+            }
+            guard let separator = lastSeparator else {
+                directoryBytes = []
+                directoryComponents = []
+                return name.isEmpty ? [] : [name]
+            }
+            // String の等価比較は NFC / NFD を同一視するため、byte で比較する。
+            let matches = directoryBytes.count == separator && (separator == 0 || directoryBytes.withUnsafeBytes {
+                memcmp($0.baseAddress!, bytes.baseAddress!, separator) == 0
+            })
+            if !matches {
+                directoryBytes = Array(bytes.prefix(separator))
+                directoryComponents = ranges.map { String(decoding: UnsafeBufferPointer(rebasing: bytes[$0]), as: UTF8.self) }
+            }
+            var result = directoryComponents
+            if lower < bytes.count {
+                result.append(String(decoding: UnsafeBufferPointer(rebasing: bytes[lower...]), as: UTF8.self))
+            }
+            return result
+        }) { return components }
+        directoryBytes = []
+        directoryComponents = []
+        return name.utf8.split(separator: 0x2f, omittingEmptySubsequences: true)
+            .map { String(decoding: $0, as: UTF8.self) }
     }
 }

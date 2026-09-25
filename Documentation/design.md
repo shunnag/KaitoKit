@@ -1908,3 +1908,42 @@ dispatch の固定費は残り、16 bytes は 2.179 → 1.983 GB/s（約 0.73 ns
 16 MiB の 3 倍 / 8 GB/s、stored の 30% / 120 ms、TIFF lh7 の 15% / 300 ms、
 指定 SHA 比較、両 toolchain のテスト、x86_64 build、300 mutants の受入条件を達成した。
 上記の既存エラー書庫とハードウェア実機の検証範囲は区別する。
+
+### ZIP の生レコード範囲 SPI と local header の先読み（2026-09-25）
+
+GyoshukuKit の ZIP 編集は `@_spi(ZipRawLayout)` で import したときだけ使える
+`ArchiveReader.zipRawRecordLayout(at:)` と `ZipRawRecordLayout` を使う。公開 initializer は持たず、
+`recordRange` / `payloadRange` / `hasDataDescriptor` / `centralHasZIP64Extra` / `localHasZIP64Extra`、
+および両 ZIP64 marker の論理和である `isZIP64` を返す。範囲は SFX を含む source 先頭からの絶対位置。
+`.expose` では index が CD 順に一致する。`.merge` / `.hide` は公開 entry の index を内側へ写し、
+resource fork は nil。未完の entry、ZIP 以外、native layout のない `.001` 連結も公開 rawRecord と同じ nil。
+
+公開 `rawRecord(of:)` の二つの同一性比較は維持する。SPI は index を直接受けるため比較だけを省き、
+同じ local cache と local 順の prefix 検証を使う。署名・暗号 flag・strong encryption・ZIP64 サイズ・
+CD / entry の重なり・descriptor の幅と内容・署名ありなしの曖昧さを従来と同じ順で検証し、同じエラーを返す。
+password を要求せず、取消し検査を追加しない。既存の open の取消し検査と reopen の契約は維持する。
+公開 rawRecord の CRC 文字列は `0x` と小文字 8 桁を直接構築する。
+
+local header の先読みは reader ごとの前方専用窓。初期 32 KiB、成功ごとに倍増し最大 256 KiB、
+さらに `maxMetadataSize` 以下に抑える。local 順で次の offset（最後は CD / source length の小さい方）までの
+span が `min(4 KiB, 実効容量)` 以下の record だけをまとめる。SFX prefix、CD、長い payload は読まず、
+成功した埋めで同じ byte を二度読まない。固定部から始まる単調な検証だけが窓を進め、extra と descriptor は
+要求された byte 数だけを返す。最後の record の検証完了後に buffer を解放する。
+`ByteSource.read(into:at:)` のみを使い、短い read は繰り返す。throw / 0 以下 / 残りを超える返り値では
+この reader の先読みを止め、従来の exact read が返す値・エラーを採る。reopen は方針だけを引き継ぎ、窓と可変 cache は空から始める。
+
+CD 解析ごとの 8 枠 FIFO cache が `formatSpecific` を COW で共有する。key は実方式、versionMadeBy、flags、
+暗号種別、AES strength、symlink の有無。論理 metadata の費用は共有時も全 entry に従来どおり課金する。
+rawRecord と AppleDouble が辞書を追加編集しても、共有元の公開値は変わらない。
+
+pathComponents は連続した UTF-8 storage を一回走査し、直前と同じ directory prefix の配列を再利用する。
+prefix は長さと byte 列で比べ、NFC / NFD を同一視する String の等価比較は使わない。
+連続 storage がない bridged String は従来の split 式を使う。空の要素を省く規則と path component の上限は維持する。
+
+SPI は SemVer の公開契約外。ただし GyoshukuKit の 0.x の `from:` 依存を考慮し、0.x の間の
+`ZipRawLayout` は追加だけ（削除・改名・型の変更をしない）とする。破壊的変更は GyoshukuKit と同時に release し、
+依存の下限も上げる。framework の公開 `.swiftinterface` には出ないが、同梱 binary `.swiftmodule` からは
+SPI import により到達できる。P1b は同じ group に暗号・CRC・方式・復号 stream を追加する予定で、本 SPI の意味は変えない。
+
+公開値の凍結、差分 fuzz、I/O と Release の測定は
+[検証記録](verification/2026-09-25-zip-raw-layout.md)を参照。

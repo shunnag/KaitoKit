@@ -6,6 +6,17 @@
 
 ## [Unreleased]
 
+- ZIP の公開値・検証・エラー・取消しの挙動を維持し、GyoshukuKit 用の `ZipRawLayout` SPI を追加。
+  index から検証済みの生レコード範囲と local / CD の ZIP64 marker を取得できる。公開 `rawRecord(of:)` の
+  同一性検査は維持する。SPI は SemVer の対象外だが、0.x の間は追加だけとし、破壊的変更は GyoshukuKit と
+  同時に release して依存の下限を上げる。
+- ZIP の local header を最大 256 KiB の前方窓で読み、CD 解析時の `formatSpecific` を 8 枠の cache で共有。
+  pathComponents は一回の走査と directory prefix の再利用で分割し、CRC の 16 進表記も直接構築する。
+  splitter 単独で 500k の解析を 18.5–23.5% 短縮。2,000 件の小さな UT / descriptor 書庫では local 読み取りが各 3 回、
+  一様な 1,000 件の辞書 storage は 1 個。
+  500k の 3 corpus で SPI 全件走査は 136.6–201.2 ms（基準公開 raw の 14.0–15.3%）、CLI open は 246.3–324.8 ms。
+  [検証記録](Documentation/verification/2026-09-25-zip-raw-layout.md)に基準との公開値比較と計測を記載。
+
 ## [0.10.0] - 2026-09-24
 
 分割巻の情報を取得する公開 API `ArchiveReader.volumeSet` と `ArchiveVolumeSet` を追加した release。公開 enum の

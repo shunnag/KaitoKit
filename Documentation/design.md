@@ -1966,8 +1966,8 @@ PBKDF2-HMAC-SHA1（1,000 回）を共有する。状態を持たないので導�
 
 ### tar の member 配置・圧縮 tar の区切りの地図・継ぎの検証（2026-09-25）
 
-S12 / P3-K 段階 A は `@_spi(TarEditLayout)` の材料を追加する。継ぎの出力を検証する
-`openSplicedCompressedTar`（K5）は段階 B で実装する。書き手や公開の判断はこの段階には含めない。
+S12 / P3-K 段階 A は `@_spi(TarEditLayout)` の材料を、S14 / 段階 B は継ぎの出力を検証する
+`openSplicedCompressedTar`（K5）を追加する。書き手や公開の判断は含めない。
 `ReaderOptions.recordsTarEditLayout` の既定は false。public initializer、entry の全公開値、
 検査とエラーは変えず、有効にした tar open だけが配置と地図を記録する。
 
@@ -2000,6 +2000,34 @@ ctime は rename・chmod・xattr でも変わるので採らない。パスを�
 パスとの照合は呼出側が行う。HFS+ / FAT / exFAT の時刻粒度やネットワークの属性 cache ではこの補助検査が弱い。
 継ぎの証明は圧縮 CRC に依る。残る危険は区間あたり 2^-32 の偶然の一致であり、故意の改竄を防ぐ認証ではない。
 
+K5 が証明するのは「output の圧縮 byte が合成 image I′ に復号されること」であり、意図した編集かどうかは
+KF が member を計画と照合する。base の archive は読まず、`archiveIsUnchanged()` も条件にしない。
+reused の各区間を 1 MiB ずつ読んで、base の open で消費した圧縮 byte の CRC-32 と照合する。
+同じ inode・長さ・復元した mtime の原本から別の byte を運んでも digest が違えば拒否する。
+output の同一性が取得できるときは検証の前後でも比較する。取得できない source は byte の証明だけを使う。
+全体の open と同じ detector・圧縮 tar hint・単一 stream の metadata 検査・TarReader・AppleDoubleReader を使い、
+新しい出力予算を作る。recovery は拒否し、合計 image が maxEntrySize を超えれば従来と同じ entry size エラーにする。
+
+gzip は base image を一度読み、区間ごとの CRC を地図の累積 CRC の差分と照合して、内部の点のずれも拒否する。
+再利用の直前の最大 32 KiB を比較する。
+p = 0 の再利用は窓が空なので、先頭への追加にも使える。encoded は raw inflate の Z_BLOCK で検証し、
+途中の橋は非最終・byte 境界・空 block、最後は入力をちょうど消費して STREAM_END となることを要求する。
+最後が reused なら base の最終 block を含むことも要求する。
+全体の CRC と ISIZE の下位 32 bit を trailer と比較し、地図は K2 と同じ正規化を使う。
+bzip2 は独立 stream の digest を照合し、encoded だけを既存の直列 decoder に通す。
+xz は全体の header・block・LZMA2 枠・Index・footer を既存 validator で歩き、Index CRC を追加で検証する。
+reused の block のサイズ列を比較し、CRC32 check なら base image も自己検査する。encoded は対象 block だけの
+Index/footer を付けて Apple の既存 decoder で検証する。stream flags の base との一致は reused がある場合だけ要求し、
+全体の再符号化では有効な none / CRC32 / CRC64 / SHA-256 を受理する。
+
+encoded の全出力は SingleFileMaterializer の一つの staging にまとめる。過去の合成は葉まで平らにし、
+Data の葉は slice の長さではなく保持する Data 全体の長さを一度ずつメモリ予算へ数える。
+断片が 1,024 超、葉が 8 超、または今回のメモリ上限を超えれば、一つの新しい staging へ順に写す。
+連鎖した合成は写すまで最大 8 葉を意図して保持する。ファイルの葉は unlink 済み fd で、古い葉は以前の image 全体を
+保持するが、この有界な保持は漏れではない。取消しは圧縮 digest と image の自己検査の 64 MiB ごと、
+encoded と写しは既存 materializer の read ごとに検査する。取消し・I/O・資源・tar 解析のエラーはそのまま、
+その他の検証失敗は reason・segmentIndex・underlying を持つ TarSpliceVerificationError として返す。
+
 圧縮 tar / cpio の bzip2 staging は option に依らず並列化する。単独 bz2 の stream は従来の直列のまま。
 消費側は 1 MiB の読み取り窓と 9 byte の重なりで BZh[1-9] + block / EOS magic を探し、区間を worker に渡す。
 worker は END と区間全体の消費が一致したときだけ成功し、順番に出力する。最初の異常な区間の始点は
@@ -2014,4 +2042,5 @@ W = min(8, activeProcessorCount)、投入は W 区間までとし、走査と完
 
 TarEditLayout は 0.x の間は追加だけとし、削除・改名・型変更が必要なら GK と同時に release して依存下限を上げる。
 公開 swiftinterface には出さない。全公開値の frozen golden、各段の回帰・差分 fuzz、TSan / ASan、Release と
-負荷付きの計測は [検証記録](verification/2026-09-25-tar-edit-layout.md)に残す。
+負荷付きの計測は [段階 A](verification/2026-09-25-tar-edit-layout.md)・
+[段階 B](verification/2026-09-25-tar-splice-verification.md)の検証記録に残す。

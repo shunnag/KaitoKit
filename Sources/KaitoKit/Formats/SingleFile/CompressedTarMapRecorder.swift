@@ -143,6 +143,12 @@ final class CompressedTarMapRecorder {
     func endXZ(index: Range<UInt64>, footer: Range<UInt64>) {
         xzIndex = index; xzFooter = footer
     }
+    // K5 は枠の walk 後に payload の digest を別途検める。
+    var xzFraming: XZBlockMap? {
+        guard isRecording, let index = xzIndex, let footer = xzFooter else { return nil }
+        return .init(streamFlags: xzFlags, checkSize: xzCheckSize, blocks: xzBlocks,
+                     indexRange: index, footerRange: footer)
+    }
     func consumeXZ(_ bytes: UnsafeRawBufferPointer, at offset: UInt64) {
         guard isRecording else { return }
         let end = offset + UInt64(bytes.count)

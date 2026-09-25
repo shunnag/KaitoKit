@@ -701,6 +701,60 @@ public final class ArchiveReader {
     @_spi(TarEditLayout)
     public func tarEditingSnapshot() -> TarEditingSnapshot? { tarEditingState }
 
+    /// 保持した復号済み image と圧縮 byte の digest で継ぎを検証する。
+    @_spi(TarEditLayout)
+    public static func openSplicedCompressedTar(
+        output: any ByteSource, sourceURL: URL?, base: TarEditingSnapshot,
+        splice: CompressedTarSplice, options: ReaderOptions
+    ) throws -> sending ArchiveReader {
+        try openSplicedCompressedTar(output: output, sourceURL: sourceURL, base: base,
+                                    splice: splice, options: options, storagePolicy: TarSpliceStoragePolicy())
+    }
+
+    static func openSplicedCompressedTar(
+        output: any ByteSource, sourceURL: URL?, base: TarEditingSnapshot,
+        splice: CompressedTarSplice, options: ReaderOptions, storagePolicy: TarSpliceStoragePolicy
+    ) throws -> sending ArchiveReader {
+        let identity = currentTarArchiveIdentity(output)
+        let codec: ArchiveFormat
+        switch (base.container, base.chunkMap) {
+        case (.gzip, .gzip): codec = .gzip
+        case (.bzip2, .bzip2): codec = .bzip2
+        case (.xz, .xz): codec = .xz
+        default: throw TarSpliceVerificationError(.baseNotSpliceable)
+        }
+        guard !options.recoverDamagedArchives else { throw TarSpliceVerificationError(.baseNotSpliceable) }
+        let detected = try tarSpliceVerification(.baseNotSpliceable) {
+            let stuffItInput = try FormatDetector.stuffItInput(source: output, limits: options.limits,
+                maximumSFXScanSize: sourceURL != nil || options.scanForSFXInData ? options.maximumSFXScanSize : 0)
+            return try stuffItInput == nil ? FormatDetector.detect(source: output, sourceURL: sourceURL,
+                options: options, skipStuffIt: true) : FormatDetector.envelopeFormat(stuffItInput!)
+        }
+        guard detected == codec, compressedContainer(for: sourceURL, detected: detected) == .tar else {
+            throw TarSpliceVerificationError(.baseNotSpliceable)
+        }
+        // 外側の名前・metadata の上限も、全体の open と同じ順で検める。
+        let single = try tarSpliceVerification(.framingMismatch) {
+            try SingleFileReader(source: output, format: detected, options: options, fallbackFileName: sourceURL?.lastPathComponent)
+        }
+        let verifier = try CompressedTarSpliceVerifier(output: output, base: base, splice: splice, limits: options.limits,
+                                                     gzipHeaderLength: single.tarSpliceGzipHeaderLength)
+        let image = try verifier.materialize(policy: storagePolicy)
+        var tarOptions = options
+        tarOptions.recordsTarEditLayout = true
+        let parsed = try AppleDoubleReader.wrap(TarReader(source: image, options: tarOptions), options: options)
+        let budget = try ArchiveOutputBudget(entries: parsed.entries, limit: options.limits.maxTotalUncompressedSize)
+        if let identity, currentTarArchiveIdentity(output) != identity { throw TarSpliceVerificationError(.outputChanged) }
+        let tar = parsed as? TarReader
+        let snapshot = TarEditingSnapshot(container: base.container, image: image, archive: output,
+            layout: tar?.layoutStorage?.layout,
+            layoutUnavailableReason: tar == nil ? .wrappedEntries : tar?.layoutStorage?.unavailableReason,
+            chunkMap: verifier.map, chunkMapUnavailableReason: verifier.mapUnavailableReason,
+            archiveIdentity: identity, limits: options.limits)
+        return try ArchiveReader(sharing: output, sourceURL: sourceURL, options: tarOptions,
+            parsedReader: parsed, outputBudget: budget, stagedTarSource: image, tarEditingState: snapshot)
+    }
+
     private static func makeTarEditingState(container: TarContainer, archive: any ByteSource,
                                            image: any ByteSource, reader: any FormatReader,
                                            options: ReaderOptions, recorder: CompressedTarMapRecorder? = nil,

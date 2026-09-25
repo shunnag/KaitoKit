@@ -11,7 +11,12 @@
   圧縮 tar / cpio の bzip2 staging は上限付きで並列復号し、境界を検証できない区間から直列へ戻す。
   `ReaderOptions.recordsTarEditLayout` の既定は false。有効時の圧縮 tar の reopen は元の圧縮 source の
   記述子も保持する。既存の公開値と公開 API は維持し、0.x の SPI は追加を基本とする。
-  継ぎの検証付き open は後続の段階 B。[計測と検証記録](Documentation/verification/2026-09-25-tar-edit-layout.md)。
+  `openSplicedCompressedTar` は区切りの digest・辞書・枠を検証し、再利用する image の葉を共有する。
+  `CompressedTarSplice` と理由付きの `TarSpliceVerificationError` を追加。K5 の snapshot は option に依らず作る。
+  mixed の追加の K5 / 全体 open 比は 0.298 / 0.213 / 0.085（tgz / tbz / txz、負荷付き計測）。
+  静穏条件の性能判定は保留し、tbz の大削除で測った 0.432 は閾値 0.25 を上回る。
+  [段階 A の計測と検証記録](Documentation/verification/2026-09-25-tar-edit-layout.md)・
+  [段階 B の計測と検証記録](Documentation/verification/2026-09-25-tar-splice-verification.md)。
 - `ZipRawLayout` SPI に暗号方式・保存 CRC・実圧縮方式と、保存 payload の復号 stream を追加。
   `ZipAESKeyMaterial` で導出を並行実行でき、材料を渡す読取は password provider と鍵 cache を使わない。
   AES の verifier / HMAC と展開 stream の CRC 照合は維持する。ZipCrypto の保存 stream は 1 byte の

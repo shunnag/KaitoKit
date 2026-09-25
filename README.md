@@ -834,6 +834,7 @@ RAR5 は先頭127 Unicode scalars の UTF-8 を優先し、有効な password �
 圧縮 tar の編集用 `TarEditLayout` SPI は opt-in で配置・区切り・snapshot を記録します。
 `KAITOKIT_BENCH_TAR_EDIT_LAYOUT=1` で CLI の記録を有効にでき、
 [段階 A の検証記録](Documentation/verification/2026-09-25-tar-edit-layout.md)に golden・fuzz・計測結果をまとめています。
+`openSplicedCompressedTar` は保存した digest と image を使って継ぎの出力を検証します（[段階 B の検証記録](Documentation/verification/2026-09-25-tar-splice-verification.md)）。
 
 > **Command line**
 >

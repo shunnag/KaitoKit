@@ -20,11 +20,13 @@ enum SingleFileMaterializer {
 
     static func materialize(
         _ stream: EntryStream,
-        limits: ReadLimits
+        limits: ReadLimits,
+        inMemoryLimit: UInt64? = nil
     ) throws -> any ByteSource {
+        let memoryLimit = min(inMemoryLimit ?? limits.inMemorySingleFileLimit, limits.inMemorySingleFileLimit)
         var memory = Data()
         let reserve = min(
-            limits.inMemorySingleFileLimit,
+            memoryLimit,
             UInt64(Self.bufferSize)
         )
         memory.reserveCapacity(try Checked.toInt(reserve))
@@ -51,7 +53,7 @@ enum SingleFileMaterializer {
 
             decodedSize = try Checked.add(decodedSize, UInt64(count))
             if descriptor < 0,
-               decodedSize <= limits.inMemorySingleFileLimit {
+               decodedSize <= memoryLimit {
                 memory.append(contentsOf: buffer[..<count])
                 continue
             }

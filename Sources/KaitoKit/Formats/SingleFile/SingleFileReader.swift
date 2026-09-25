@@ -9,6 +9,8 @@ final class SingleFileReader: FormatReader {
     private let source: any ByteSource
     private var gzipHeaderLength: UInt64?
 
+    var tarSpliceGzipHeaderLength: UInt64? { gzipHeaderLength }
+
     // fallbackFileName は通常 URL の末尾要素。gzip の FNAME を優先する。
     init(
         source: any ByteSource,

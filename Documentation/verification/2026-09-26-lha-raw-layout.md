@@ -143,3 +143,16 @@ available existing oracle tests ran as part of the full and focused suites.
 
 AC-K5（release の `kaito bench` の open と `kaito list` の常駐メモリを d35f2da と比べる）は、負荷の平均が 4 未満のときに採り、この節の後に追記する
 （検証の時点では別の作業が機械を占有し、負荷の平均が 33 だった）。書庫は `SP/p4bench/archives/{k100,payload,headers}.lzh`（gyoshuku-bench で作成）。
+
+### AC-K5 の計測（オーケストレータ、2026-09-26 08:13–08:14）
+
+release の `kaito bench <archive> 5` の `open-median-ms` を、基準 d35f2da と P4-K d171f27 で交互に 2 回ずつ（`SP/p4bench/run_k5.sh`）。
+負荷の平均（1 分）は 5.3〜7.2 で、条件の 4 未満は満たせなかった（機械を他の作業と共有）。交互の比で判定した。
+
+| 書庫 | 基準 ms（2 回） | P4-K ms（2 回） | 比 | 条件 |
+|---|---|---|---:|---|
+| k100.lzh（1 byte × 100,000） | 430.1、424.9 | 427.5、428.0 | 1.00 | ≦ 1.02 |
+| payload.lzh（256 MiB + 1,000 件） | 4.76、4.63 | 4.61、4.59 | 0.98 | ≦ 1.02 |
+| headers.lzh | 59.0、56.8 | 57.5、55.6 | 0.97 | ≦ 1.02 |
+
+`/usr/bin/time -l kaito list k100.lzh` の最大常駐メモリは両方とも 188,727,296 B（条件: 基準 + 2 MB 以下）。AC-K5 は合格。

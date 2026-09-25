@@ -1943,7 +1943,23 @@ prefix は長さと byte 列で比べ、NFC / NFD を同一視する String の�
 SPI は SemVer の公開契約外。ただし GyoshukuKit の 0.x の `from:` 依存を考慮し、0.x の間の
 `ZipRawLayout` は追加だけ（削除・改名・型の変更をしない）とする。破壊的変更は GyoshukuKit と同時に release し、
 依存の下限も上げる。framework の公開 `.swiftinterface` には出ないが、同梱 binary `.swiftmodule` からは
-SPI import により到達できる。P1b は同じ group に暗号・CRC・方式・復号 stream を追加する予定で、本 SPI の意味は変えない。
+SPI import により到達できる。P1b の追加も同じ group に置き、本 SPI の範囲・検証の意味は変えない。
+
+P1b は layout に `encryption: ZipRawEncryption`、`storedCRC32`、`compressionMethod` を追加する。
+暗号は CD の flag と 0x9901、CRC は CD の保存値（AE-2 は 0）、方式は AES extra を解いた実方式。
+`zipStoredPayloadStream(at:aesKey:)` は暗号 header / salt / verifier / HMAC を除いた保存 byte を返し、
+展開と CRC 照合を行わない。ZipCrypto の照合値は従来どおり local の bit 3 に応じて DOS 時刻か CRC から取る。
+誤 password が 1 byte の照合値を偶然通る場合は保存 stream が成功するので、呼出側で展開後の CRC を検証する。
+AES の verifier は stream 作成時、HMAC は最終 chunk を返す前に照合する。保存 stream は XZ でも staging しない。
+
+`ZipAESKeyMaterial` は salt（8 / 12 / 16 byte）、強度（1 / 2 / 3）、鍵 2 本と verifier 2 byte の導出結果を持つ。
+initializer は強度と長さを検査し、`derive(passwordBytes:salt:strength:)` は既存と同じ
+PBKDF2-HMAC-SHA1（1,000 回）を共有する。状態を持たないので導出だけを並行実行できる。
+材料を渡した読取は password / provider を使わず、entry の salt・強度を照合し、鍵 cache を参照・更新しない。
+`zipStream(at:aesKey:)` は通常の stream と同じ復号・展開・CRC / HMAC・出力予算の検査を行う。
+材料の salt・強度が entry と異なる場合、または AES 以外に材料を渡す場合は `malformed`。
+両 stream SPI は範囲外に `notFound`、未完の entry・native layout のない `.001`・ZIP 以外・
+`.merge` の resource fork に `unsupportedMethod("ZIP stored payload")` を返す。
 
 公開値の凍結、差分 fuzz、I/O と Release の測定は
 [検証記録](verification/2026-09-25-zip-raw-layout.md)を参照。

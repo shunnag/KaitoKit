@@ -133,6 +133,10 @@ struct WinZipAESDerivedKeys: Sendable, Equatable {
     let passwordVerifier: Data
 
     static func derive(for cacheKey: WinZipAESKeyCacheKey) throws -> Self {
+        try Self(salt: cacheKey.salt, strength: cacheKey.strength, material: deriveMaterial(for: cacheKey))
+    }
+
+    static func deriveMaterial(for cacheKey: WinZipAESKeyCacheKey) throws -> Data {
         guard cacheKey.salt.count == cacheKey.strength.saltLength else {
             throw KaitoError.malformed(
                 "WinZip AES salt length \(cacheKey.salt.count) does not match strength"
@@ -141,22 +145,24 @@ struct WinZipAESDerivedKeys: Sendable, Equatable {
 
         let keyLength = cacheKey.strength.keyLength
         let derivedLength = keyLength * 2 + WinZipAESPayload.passwordVerifierSize
-        let material = try ZipCommonCrypto.pbkdf2SHA1(
+        return Data(try ZipCommonCrypto.pbkdf2SHA1(
             password: cacheKey.passwordBytes,
             salt: cacheKey.salt,
             iterations: 1_000,
             outputLength: derivedLength
-        )
+        ))
+    }
 
-        let authenticationStart = keyLength
-        let verifierStart = keyLength * 2
-        return Self(
-            salt: cacheKey.salt,
-            strength: cacheKey.strength,
-            encryptionKey: Data(material[..<authenticationStart]),
-            authenticationKey: Data(material[authenticationStart..<verifierStart]),
-            passwordVerifier: Data(material[verifierStart..<derivedLength])
-        )
+    init(salt: Data, strength: WinZipAESStrength, material: Data) throws {
+        let keyLength = strength.keyLength
+        guard material.count == keyLength * 2 + WinZipAESPayload.passwordVerifierSize else {
+            throw KaitoError.malformed("invalid WinZip AES key material length")
+        }
+        self.salt = salt
+        self.strength = strength
+        encryptionKey = Data(material.prefix(keyLength))
+        authenticationKey = Data(material.dropFirst(keyLength).prefix(keyLength))
+        passwordVerifier = Data(material.suffix(WinZipAESPayload.passwordVerifierSize))
     }
 }
 
@@ -197,7 +203,7 @@ enum WinZipAES {
         compressedSize: UInt64,
         password: String,
         metadata: WinZipAESMetadata,
-        cachedKeysFor: (WinZipAESKeyCacheKey) -> WinZipAESDerivedKeys?,
+        cachedKeysFor: (WinZipAESKeyCacheKey) throws -> WinZipAESDerivedKeys?,
         availableCompressedSize: UInt64? = nil,
         hasKnownCompressedSize: Bool = true
     ) throws -> WinZipAESStreamDecryptionResult {
@@ -231,7 +237,7 @@ enum WinZipAES {
             salt: salt,
             strength: metadata.strength
         )
-        let cachedKeys = cachedKeysFor(cacheKey)
+        let cachedKeys = try cachedKeysFor(cacheKey)
         let keys = try cachedKeys ?? WinZipAESDerivedKeys.derive(for: cacheKey)
         try validate(
             keys: keys,

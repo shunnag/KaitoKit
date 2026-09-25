@@ -502,6 +502,11 @@ public final class ArchiveReader {
         }
         try preparePassword(for: entry)
         let stream = try reader.stream(for: entry, limits: options.limits)
+        observeOutputBudget(stream, for: entry)
+        return stream
+    }
+
+    private func observeOutputBudget(_ stream: EntryStream, for entry: ArchiveEntry) {
         if entry.uncompressedSize == nil {
             stream.observeProducedSize(
                 availableAdditionalSize: { [outputBudget] producedSize in
@@ -521,7 +526,6 @@ public final class ArchiveReader {
                 }
             )
         }
-        return stream
     }
 
     /// Reads one entry into an exactly sized in-memory buffer.
@@ -554,6 +558,42 @@ public final class ArchiveReader {
         guard !entries[index].isIncomplete,
               zipDiskLayout != nil || !(source is ConcatenatedByteSource) else { return nil }
         return try reader.zipRawRecordLayout(at: index, limits: options.limits)
+    }
+
+    /// 暗号だけを外した保存 payload。展開と CRC 照合は行わない。
+    /// ZipCrypto の 1 byte 照合値を通る誤 password は、呼出側で CRC を検査する。
+    /// AES は verifier と、最終 chunk を返す前の HMAC を照合する。
+    /// aesKey があれば password/provider と鍵 cache を使わず、salt・強度の相違は malformed。
+    @_spi(ZipRawLayout)
+    public func zipStoredPayloadStream(at index: Int, aesKey: ZipAESKeyMaterial? = nil) throws -> EntryStream {
+        try makeZipStream(at: index, aesKey: aesKey, storedOnly: true)
+    }
+
+    /// 渡した AES 材料で stream(_:) と同じ復号・展開・CRC / HMAC 照合を行う。
+    /// AES 以外への材料は malformed。password/provider と鍵 cache は使わない。
+    @_spi(ZipRawLayout)
+    public func zipStream(at index: Int, aesKey: ZipAESKeyMaterial) throws -> EntryStream {
+        try makeZipStream(at: index, aesKey: aesKey, storedOnly: false)
+    }
+
+    private func makeZipStream(at index: Int, aesKey: ZipAESKeyMaterial?, storedOnly: Bool) throws -> EntryStream {
+        guard entries.indices.contains(index) else {
+            throw KaitoError.notFound("archive entry index \(index)")
+        }
+        let entry = entries[index]
+        guard !entry.isIncomplete, zipDiskLayout != nil || !(source is ConcatenatedByteSource) else {
+            throw KaitoError.unsupportedMethod("ZIP stored payload")
+        }
+        if !storedOnly, entry.uncompressedSize == nil {
+            try outputBudget.ensureUsable()
+        }
+        if aesKey == nil { try preparePassword(for: entry) }
+        guard let stream = try reader.zipStream(at: index, limits: options.limits,
+                                               aesKey: aesKey, storedOnly: storedOnly) else {
+            throw KaitoError.unsupportedMethod("ZIP stored payload")
+        }
+        if !storedOnly { observeOutputBudget(stream, for: entry) }
+        return stream
     }
 
     /// Safely extracts one entry below `directory` and returns its destination.

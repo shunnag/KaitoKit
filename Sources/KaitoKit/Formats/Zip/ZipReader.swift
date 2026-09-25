@@ -262,17 +262,48 @@ final class ZipReader: FormatReader {
         }
 
         let record = records[entry.index]
+        let local = try localRecord(at: entry.index, limits: limits)
+        return try makeStream(record: record, entry: entry, local: local, limits: limits,
+                              aesKey: nil, storedOnly: false)
+    }
+
+    func zipStream(at index: Int, limits: ReadLimits, aesKey: ZipAESKeyMaterial?, storedOnly: Bool) throws -> EntryStream? {
+        guard records.indices.contains(index) else {
+            throw KaitoError.notFound("zip entry index \(index)")
+        }
+        guard !entries[index].isIncomplete else { return nil }
+        let local = try localRecord(at: index, limits: limits)
+        return try makeStream(record: records[index], entry: entries[index], local: local, limits: limits,
+                              aesKey: aesKey, storedOnly: storedOnly)
+    }
+
+    private func makeStream(record: Record, entry: ArchiveEntry, local: LocalRecord, limits: ReadLimits,
+                            aesKey: ZipAESKeyMaterial?, storedOnly: Bool) throws -> EntryStream {
+        if aesKey != nil {
+            guard case .aes = record.encryption else {
+                throw KaitoError.malformed("AES key material requires an AES entry")
+            }
+        }
         var zipCryptoErrorsAreWrongPassword = false
         if case .traditional = record.encryption {
             zipCryptoErrorsAreWrongPassword = !entry.isIncomplete
         }
-        let local = try localRecord(at: entry.index, limits: limits)
         let payload = try payloadSource(
             record: record,
             local: local,
             limits: limits,
-            isIncomplete: entry.isIncomplete
+            isIncomplete: entry.isIncomplete,
+            aesKey: aesKey,
+            stagesXZ: !storedOnly
         )
+        if storedOnly {
+            return try EntryStream(
+                decompressor: CopyDecompressor(source: payload.source, offset: payload.offset,
+                                               compressedSize: payload.size),
+                length: payload.size, expectedCRC32: nil, entryIndex: entry.index, limits: limits,
+                completionCheck: payload.completionCheck
+            )
+        }
         var decompressor: any Decompressor
         do {
             decompressor = try makeDecompressor(
@@ -335,12 +366,22 @@ final class ZipReader: FormatReader {
         }
         guard !entries[index].isIncomplete else { return nil }
         let (record, local, end) = try validatedRawRecord(at: index, limits: limits)
+        let encryption: ZipRawEncryption
+        switch record.encryption {
+        case .none: encryption = .none
+        case .traditional: encryption = .zipCrypto
+        case let .aes(_, vendorVersion, strength):
+            encryption = .winZipAES(strength: strength, vendorVersion: vendorVersion)
+        }
         return ZipRawRecordLayout(
             recordRange: record.localHeaderOffset..<end,
             payloadRange: local.dataOffset..<(try Checked.add(local.dataOffset, record.compressedSize)),
             hasDataDescriptor: local.usesDataDescriptor,
             centralHasZIP64Extra: record.usesZIP64,
-            localHasZIP64Extra: local.usesZIP64
+            localHasZIP64Extra: local.usesZIP64,
+            encryption: encryption,
+            storedCRC32: record.storedCRC32,
+            compressionMethod: record.method
         )
     }
 
@@ -583,7 +624,9 @@ final class ZipReader: FormatReader {
         record: Record,
         local: LocalRecord,
         limits: ReadLimits,
-        isIncomplete: Bool
+        isIncomplete: Bool,
+        aesKey: ZipAESKeyMaterial?,
+        stagesXZ: Bool
     ) throws -> (
         source: any ByteSource,
         offset: UInt64,
@@ -617,7 +660,7 @@ final class ZipReader: FormatReader {
             }
 
         case let .aes(extra, _, _):
-            guard let password else {
+            guard let decryptionPassword = aesKey == nil ? password : "" else {
                 throw KaitoError.passwordRequired
             }
             let metadata = try WinZipAESMetadata(extraFieldPayload: Data(extra))
@@ -628,10 +671,16 @@ final class ZipReader: FormatReader {
                 source: source,
                 offset: local.dataOffset,
                 compressedSize: record.compressedSize,
-                password: password,
+                password: decryptionPassword,
                 metadata: metadata,
                 cachedKeysFor: { [weak self] key in
-                    self?.aesDerivedKeyCache[key]
+                    if let aesKey {
+                        guard aesKey.salt == key.salt, aesKey.strength == metadata.strength.rawValue else {
+                            throw KaitoError.malformed("AES key material does not match the stored salt")
+                        }
+                        return try WinZipAESDerivedKeys(salt: key.salt, strength: key.strength, material: aesKey.bytes)
+                    }
+                    return self?.aesDerivedKeyCache[key]
                 },
                 availableCompressedSize: isIncomplete ? availableSize : nil,
                 hasKnownCompressedSize: record.hasKnownCompressedSize
@@ -647,7 +696,7 @@ final class ZipReader: FormatReader {
                     self?.aesDerivedKeyCache[cacheKey] = derivedKeys
                 }
             }
-            if record.method == 95 {
+            if stagesXZ, record.method == 95 {
                 // XZ checks every block's dictionary before native decoding, then
                 // rereads the stream. AES random access authenticates the entire
                 // ciphertext each time. Snapshot one sequential authenticated pass

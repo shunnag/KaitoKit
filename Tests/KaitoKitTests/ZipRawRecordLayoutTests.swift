@@ -3,6 +3,46 @@ import Foundation
 import XCTest
 
 final class ZipRawRecordLayoutTests: XCTestCase {
+    func testEncryptionCRCAndMethodAgreeWithEveryGoldenInput() throws {
+        var checked = 0
+        for input in try ZipGoldenCorpus.inputs() {
+            for mode in ZipGoldenCorpus.modes {
+                guard (try? ZipGoldenCorpus.withReader(input, options: mode.options, body: { $0.entries.count })) != nil else { continue }
+                try ZipGoldenCorpus.withReader(input, options: mode.options) { reader in
+                    for entry in reader.entries {
+                        guard let layout = try? reader.zipRawRecordLayout(at: entry.index) else { continue }
+                        let context = "\(input.id) \(mode.name) \(entry.index)"
+                        let raw = try XCTUnwrap(reader.rawRecord(of: entry))
+                        XCTAssertEqual(layout.compressionMethod, entry.formatSpecific["method"].flatMap(UInt16.init), context)
+                        XCTAssertEqual(ZipReader.crc32Description(layout.storedCRC32), raw.formatSpecific["crc32"], context)
+                        switch layout.encryption {
+                        case .none:
+                            XCTAssertFalse(entry.isEncrypted, context)
+                            XCTAssertEqual(entry.formatSpecific["encryption"], "none", context)
+                            XCTAssertEqual(entry.crc32, layout.storedCRC32, context)
+                        case .zipCrypto:
+                            XCTAssertTrue(entry.isEncrypted, context)
+                            XCTAssertEqual(entry.formatSpecific["encryption"], "ZipCrypto", context)
+                            XCTAssertEqual(entry.crc32, layout.storedCRC32, context)
+                        case .winZipAES(let strength, let version):
+                            XCTAssertTrue(entry.isEncrypted, context)
+                            XCTAssertEqual(entry.formatSpecific["encryption"], "AES-\(64 + Int(strength) * 64)", context)
+                            XCTAssertTrue([1, 2].contains(version), context)
+                            if version == 2 {
+                                XCTAssertNil(entry.crc32, context)
+                                XCTAssertEqual(layout.storedCRC32, 0, context)
+                            } else {
+                                XCTAssertEqual(entry.crc32, layout.storedCRC32, context)
+                            }
+                        }
+                        checked += 1
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(checked, 0)
+    }
+
     func testEveryGoldenInputModeAndCallOrder() throws {
         for input in try ZipGoldenCorpus.inputs() {
             let bytes = try input.files.reduce(Data()) { try $0 + ZipGoldenCorpus.decoded($1) }

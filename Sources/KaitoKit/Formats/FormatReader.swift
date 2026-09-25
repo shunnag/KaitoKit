@@ -9,6 +9,7 @@ protocol FormatReader: AnyObject {
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream
     func rawRecord(for entry: ArchiveEntry, limits: ReadLimits) throws -> RawEntryRecord?
     func zipRawRecordLayout(at index: Int, limits: ReadLimits) throws -> ZipRawRecordLayout?
+    func zipStream(at index: Int, limits: ReadLimits, aesKey: ZipAESKeyMaterial?, storedOnly: Bool) throws -> EntryStream?
     func setPassword(_ password: String?)
 }
 
@@ -16,6 +17,7 @@ extension FormatReader {
     // 独立した生レコードの移動を検証していない形式は範囲を公開しない。
     func rawRecord(for entry: ArchiveEntry, limits: ReadLimits) throws -> RawEntryRecord? { nil }
     func zipRawRecordLayout(at index: Int, limits: ReadLimits) throws -> ZipRawRecordLayout? { nil }
+    func zipStream(at index: Int, limits: ReadLimits, aesKey: ZipAESKeyMaterial?, storedOnly: Bool) throws -> EntryStream? { nil }
 
     // 名前 encoding を持たない形式向けの既定値。
     var nameEncoding: String.Encoding? { nil }

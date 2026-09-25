@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+- `ZipRawLayout` SPI に暗号方式・保存 CRC・実圧縮方式と、保存 payload の復号 stream を追加。
+  `ZipAESKeyMaterial` で導出を並行実行でき、材料を渡す読取は password provider と鍵 cache を使わない。
+  AES の verifier / HMAC と展開 stream の CRC 照合は維持する。ZipCrypto の保存 stream は 1 byte の
+  照合値だけを検査するため、呼出側で展開後の CRC を検証する。既存の公開値・API は変更しない。
 - ZIP の公開値・検証・エラー・取消しの挙動を維持し、GyoshukuKit 用の `ZipRawLayout` SPI を追加。
   index から検証済みの生レコード範囲と local / CD の ZIP64 marker を取得できる。公開 `rawRecord(of:)` の
   同一性検査は維持する。SPI は SemVer の対象外だが、0.x の間は追加だけとし、破壊的変更は GyoshukuKit と

@@ -238,6 +238,12 @@ final class AppleDoubleReader: FormatReader {
         return try inner.zipRawRecordLayout(at: innerIndex, limits: limits)
     }
 
+    func zipStream(at index: Int, limits: ReadLimits, aesKey: ZipAESKeyMaterial?, storedOnly: Bool) throws -> EntryStream? {
+        guard entries.indices.contains(index),
+              case .passthrough(let innerIndex) = mappings[index] else { return nil }
+        return try inner.zipStream(at: innerIndex, limits: limits, aesKey: aesKey, storedOnly: storedOnly)
+    }
+
     func setPassword(_ password: String?) { inner.setPassword(password) }
 }
 

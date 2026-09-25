@@ -1,0 +1,97 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 17,
+      "content" : {
+        "sha256" : "70a618c1790012c781f4041da49c9e4b102d6dc518f811bbcb1e023e69f4ea3e"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "634c",
+        "dataOffset" : "44",
+        "headerLevel" : "2",
+        "headerOffset" : "0",
+        "method" : "-lh0-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1672628645,
+      "name" : "資料.txt",
+      "pathComponents" : [
+        "資料.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          232,
+          179,
+          135,
+          230,
+          150,
+          153,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 17
+    },
+    {
+      "compressedSize" : 6,
+      "content" : {
+        "sha256" : "93595c7b51e3a3f60370b882224f5699522cc7d321c357aa2cf6227e2fbda41f"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "d8f8",
+        "dataOffset" : "95",
+        "headerLevel" : "0",
+        "headerOffset" : "61",
+        "method" : "-lh0-",
+        "os" : "unspecified"
+      },
+      "index" : 1,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1741653238,
+      "name" : "readme.txt",
+      "pathComponents" : [
+        "readme.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          114,
+          101,
+          97,
+          100,
+          109,
+          101,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 6
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

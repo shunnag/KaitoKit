@@ -1,0 +1,162 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 9,
+      "content" : {
+        "sha256" : "42dbe84acb9a1a4f8d3ae0d0988201868b50d53268570583490f8c215658f8d1"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "2aa2",
+        "dataOffset" : "49",
+        "headerLevel" : "2",
+        "headerOffset" : "0",
+        "method" : "-lh0-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1672628645,
+      "name" : "日本語/資料.txt",
+      "pathComponents" : [
+        "日本語",
+        "資料.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          198,
+          252,
+          203,
+          220,
+          184,
+          236,
+          47,
+          187,
+          241,
+          206,
+          193,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 9
+    },
+    {
+      "compressedSize" : 9,
+      "content" : {
+        "sha256" : "088f0f66ef3926e11c46c1f1597f3617e9d71cdce3b9960fd11d4ee4eb286e0b"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "baa3",
+        "dataOffset" : "107",
+        "headerLevel" : "2",
+        "headerOffset" : "58",
+        "method" : "-lh0-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 1,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1672628645,
+      "name" : "日本語/画像.txt",
+      "pathComponents" : [
+        "日本語",
+        "画像.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          198,
+          252,
+          203,
+          220,
+          184,
+          236,
+          47,
+          178,
+          232,
+          193,
+          252,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 9
+    },
+    {
+      "compressedSize" : 9,
+      "content" : {
+        "sha256" : "51542beb128724a04aed05733ba789858e89c4270df66ceab91e5f5937a6c2a7"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "4aa3",
+        "dataOffset" : "165",
+        "headerLevel" : "2",
+        "headerOffset" : "116",
+        "method" : "-lh0-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 2,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1672628645,
+      "name" : "日本語/東京.txt",
+      "pathComponents" : [
+        "日本語",
+        "東京.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          198,
+          252,
+          203,
+          220,
+          184,
+          236,
+          47,
+          197,
+          236,
+          181,
+          254,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 9
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : 3
+}

@@ -1909,6 +1909,39 @@ dispatch の固定費は残り、16 bytes は 2.179 → 1.983 GB/s（約 0.73 ns
 指定 SHA 比較、両 toolchain のテスト、x86_64 build、300 mutants の受入条件を達成した。
 上記の既存エラー書庫とハードウェア実機の検証範囲は区別する。
 
+### LHA の raw 配置 SPI（2026-09-26）
+
+GyoshukuKit の LHA 編集は `@_spi(LHARawLayout)` で import したときだけ使える
+`ArchiveReader.lhaRawLayout()` と `LHAArchiveLayout` を使う。公開 initializer は持たず、
+`archiveLength`・`firstHeaderOffset`・`endOfMembersOffset`・`terminator`・`trailingBytes` と
+`memberCount`・`unpublishedMemberCount` を返す。`member(at:)` は書庫の順の位置を取り、
+`LHAMemberLayout` の `headerRange`・`dataRange`・`headerLevel`・`method`・`osID`・`crc16`・
+`entryIndex` を必要な分だけ作る。範囲外は `KaitoError.notFound("LHA member position \(position)")`。
+範囲は SFX を含む source 先頭からの絶対位置。level 1 の header は拡張 header の列を含み、
+data は skip size から拡張を除いた長さ、または 0x42 の 64 bit サイズ。OS-9 `K` は実効 header 長を使う。
+
+解析済みの公開 record 配列は reader と返却値で共有する。headerOffset は直前の member の data 終端から
+求め、公開 record には OS ID だけを追加する。公開しない member の record と書庫内の位置だけを別配列に
+残し、二分探索で公開 entry の index に対応付ける。通常の書庫には entry ごとの対応表を持たせない。
+返却値は reader の寿命から独立した Sendable の値で、`reopen()` も同じ配列・終端を読み直さず共有する。
+ByteSource・FormatReader の要件、ReaderOptions の項目、reopen 時の記述子数は変えない。
+
+`LHAArchiveTerminator` は `.zeroByte(offset:)`・`.emptyNameDirectoryMember(range)`・`.endOfFile`。
+空名の `-lhd-` 終端は member 数に含めず、その後ろは読まない。LArc または匿名 member を含む書庫の EOF
+受理条件は従来どおり。level 2 の header 長の下位 byte が 0 の tl-S11 も、従来どおり zeroByte で止まる。
+`LHATrailingBytes` は zeroByte の後ろだけを分類し、長さ 0 は `.none`、65,536 以下はまとめて読んで
+`.zeros(count:)` / `.nonZero(count:)`、それより長ければ読まず `.unchecked(count:)`。
+zeroByte 以外では `.notApplicable`。短い read は残りを読み、読み取りの失敗は KaitoError を返す。
+
+LHA 以外、`recoverDamagedArchives`、`volumeSet != nil`、または ConcatenatedByteSource では nil。
+recovery では終端・非公開 member の記録を作らない。SPI は password を要求せず、取消しを検査しない。
+既存の open の検査・受理条件、全 entry の公開値・formatSpecific・nameEncoding、
+LHA の公開 `rawRecord(of:) == nil` は変えない。凍結した Step 0 の全 31 fixture と既存の LHA fixture 3 件を、
+`TZ=Asia/Tokyo` の全項目 JSON・内容 SHA-256・エラーで比較する。
+
+SPI は SemVer の公開契約外。ただし GyoshukuKit の 0.x の依存を考慮し、0.x の間は追加だけ
+（削除・改名・型の変更をしない）とする。破壊的変更は GyoshukuKit と同時に release する。
+
 ### ZIP の生レコード範囲 SPI と local header の先読み（2026-09-25）
 
 GyoshukuKit の ZIP 編集は `@_spi(ZipRawLayout)` で import したときだけ使える

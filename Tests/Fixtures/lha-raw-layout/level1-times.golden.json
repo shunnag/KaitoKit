@@ -1,0 +1,53 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 15,
+      "content" : {
+        "sha256" : "4402300ea06c78e4ca79caf4fb4e6a3ee2c99ff3cf91b957a27cb5f4cdc8a595"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "accessTime" : "1700000200.0000000",
+        "attribute" : "0x20",
+        "creationTime" : "1672628000.0000000",
+        "dataCRC16" : "9e34",
+        "dataOffset" : "70",
+        "headerLevel" : "1",
+        "headerOffset" : "0",
+        "method" : "-lh0-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1672628645,
+      "name" : "times.txt",
+      "pathComponents" : [
+        "times.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          116,
+          105,
+          109,
+          101,
+          115,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 15
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

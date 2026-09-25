@@ -579,6 +579,16 @@ public final class ArchiveReader {
         return try reader.zipRawRecordLayout(at: index, limits: options.limits)
     }
 
+    /// LHA の member の配置。LHA 以外、recovery、分割巻では nil。
+    /// 終端の後ろを最大 65,536 byte だけ読む。password を要求せず、取消しを検査しない。
+    @_spi(LHARawLayout)
+    public func lhaRawLayout() throws -> LHAArchiveLayout? {
+        guard let lha = reader as? LHAReader,
+              !options.recoverDamagedArchives,
+              volumeSet == nil, !(source is ConcatenatedByteSource) else { return nil }
+        return try lha.rawLayout()
+    }
+
     /// 暗号だけを外した保存 payload。展開と CRC 照合は行わない。
     /// ZipCrypto の 1 byte 照合値を通る誤 password は、呼出側で CRC を検査する。
     /// AES は verifier と、最終 chunk を返す前の HMAC を照合する。

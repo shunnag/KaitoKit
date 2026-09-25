@@ -1,0 +1,52 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 14,
+      "content" : {
+        "sha256" : "da24dc62d31afaa3c65c3a9d06602e8f5a80e5d1525f57100abd38c497e47996"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "6652",
+        "dataOffset" : "44",
+        "gid" : "20",
+        "headerLevel" : "0",
+        "headerOffset" : "0",
+        "method" : "-lh0-",
+        "os" : "Unix",
+        "osID" : "U",
+        "uid" : "501"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1700000000,
+      "name" : "unix.txt",
+      "pathComponents" : [
+        "unix.txt"
+      ],
+      "posixPermissions" : 416,
+      "rawName" : {
+        "bytes" : [
+          117,
+          110,
+          105,
+          120,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 14
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

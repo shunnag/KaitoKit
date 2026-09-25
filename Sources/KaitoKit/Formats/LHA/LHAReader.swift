@@ -8,6 +8,9 @@ final class LHAReader: FormatReader {
 
     private let source: any ByteSource
     private let records: [LHAEntryRecord]
+    private let firstHeaderOffset: UInt64
+    private let terminator: LHAArchiveTerminator?
+    private let unpublishedMembers: [LHAUnpublishedMember]
 
     init(
         source: any ByteSource,
@@ -25,18 +28,59 @@ final class LHAReader: FormatReader {
         self.entries = parsed.entries
         self.nameEncoding = parsed.nameEncoding
         self.records = parsed.records
+        self.firstHeaderOffset = parsed.firstHeaderOffset
+        self.terminator = parsed.terminator
+        self.unpublishedMembers = parsed.unpublishedMembers
     }
 
     private init(source: any ByteSource, entries: [ArchiveEntry],
-                 nameEncoding: String.Encoding?, records: [LHAEntryRecord]) {
+                 nameEncoding: String.Encoding?, records: [LHAEntryRecord],
+                 firstHeaderOffset: UInt64, terminator: LHAArchiveTerminator?,
+                 unpublishedMembers: [LHAUnpublishedMember]) {
         self.source = source
         self.entries = entries
         self.nameEncoding = nameEncoding
         self.records = records
+        self.firstHeaderOffset = firstHeaderOffset
+        self.terminator = terminator
+        self.unpublishedMembers = unpublishedMembers
     }
 
     func reopened(options: ReaderOptions) -> sending LHAReader {
-        LHAReader(source: source, entries: entries, nameEncoding: nameEncoding, records: records)
+        LHAReader(source: source, entries: entries, nameEncoding: nameEncoding, records: records,
+                  firstHeaderOffset: firstHeaderOffset, terminator: terminator,
+                  unpublishedMembers: unpublishedMembers)
+    }
+
+    func rawLayout() throws -> LHAArchiveLayout? {
+        guard let terminator else { return nil }
+        let trailingBytes: LHATrailingBytes
+        if case let .zeroByte(offset) = terminator {
+            let tailOffset = try Checked.add(offset, 1)
+            let count = try Checked.sub(source.length, tailOffset)
+            if count == 0 {
+                trailingBytes = .none
+            } else if count > 65_536 {
+                trailingBytes = .unchecked(count: count)
+            } else {
+                let bytes: [UInt8]
+                do {
+                    bytes = try readByteRange(source: source, offset: tailOffset, count: Int(count))
+                } catch let error as KaitoError {
+                    throw error
+                } catch {
+                    throw KaitoError.io(EIO)
+                }
+                trailingBytes = bytes.allSatisfy { $0 == 0 } ? .zeros(count: count) : .nonZero(count: count)
+            }
+        } else {
+            trailingBytes = .notApplicable
+        }
+        return LHAArchiveLayout(
+            archiveLength: source.length, firstHeaderOffset: firstHeaderOffset,
+            terminator: terminator, trailingBytes: trailingBytes,
+            records: records, unpublishedMembers: unpublishedMembers
+        )
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {

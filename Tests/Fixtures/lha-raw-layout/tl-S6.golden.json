@@ -1,0 +1,136 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 0,
+      "content" : {
+        "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "0000",
+        "dataOffset" : "51",
+        "headerLevel" : "2",
+        "headerOffset" : "0",
+        "method" : "-lhd-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "directory",
+      "methodDescription" : "-lhd-",
+      "modificationDate" : 1672596245,
+      "name" : "a/",
+      "pathComponents" : [
+        "a"
+      ],
+      "posixPermissions" : 493,
+      "rawName" : {
+        "bytes" : [
+          97,
+          47
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : true
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 0
+    },
+    {
+      "compressedSize" : 15830,
+      "content" : {
+        "sha256" : "9d1fff5b8a343066f5773985e3255e51a496e0eb1a304bb4b827fe260b7aa5cf"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "b740",
+        "dataOffset" : "109",
+        "headerLevel" : "2",
+        "headerOffset" : "51",
+        "method" : "-lh5-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 1,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh5-",
+      "modificationDate" : 1672596245,
+      "name" : "a/one.txt",
+      "pathComponents" : [
+        "a",
+        "one.txt"
+      ],
+      "posixPermissions" : 420,
+      "rawName" : {
+        "bytes" : [
+          97,
+          47,
+          111,
+          110,
+          101,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 30000
+    },
+    {
+      "compressedSize" : 732,
+      "content" : {
+        "sha256" : "9458d505e21fa672c1e6f652c469792a93da6f8089a3a8b18765ac223b0bfa0b"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "280b",
+        "dataOffset" : "15997",
+        "headerLevel" : "2",
+        "headerOffset" : "15939",
+        "method" : "-lh5-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 2,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh5-",
+      "modificationDate" : 1672596245,
+      "name" : "a/two.txt",
+      "pathComponents" : [
+        "a",
+        "two.txt"
+      ],
+      "posixPermissions" : 420,
+      "rawName" : {
+        "bytes" : [
+          97,
+          47,
+          116,
+          119,
+          111,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 1262
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

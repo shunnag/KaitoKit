@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+- GyoshukuKit の LHA 編集用に `LHARawLayout` SPI を追加。member の header / data 範囲、
+  level・method・OS ID・CRC16、公開 entry との対応、SFX 開始位置と終端を返す。
+  終端後の byte は最大 65,536 byte だけ読み、recovery・分割巻・LHA 以外では nil。
+  `reopen()` は解析済み record を共有し、既存の公開値・受理条件・LHA の `rawRecord(of:) == nil` は維持する。
+  0.x の SPI は追加だけとし、破壊的変更は GyoshukuKit と同時に release する。
+  [検証記録](Documentation/verification/2026-09-26-lha-raw-layout.md)。
 - `TarEditLayout` SPI に、opt-in の tar member 配置、gzip / bzip2 / xz の区切りと圧縮 byte の CRC-32、
   復号済み image と元の記述子を共有する編集用 snapshot を追加。`reopen()` は再読せず共有する。
   圧縮 tar / cpio の bzip2 staging は上限付きで並列復号し、境界を検証できない区間から直列へ戻す。

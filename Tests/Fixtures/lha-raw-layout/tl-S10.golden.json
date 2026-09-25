@@ -1,0 +1,59 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 6832,
+      "content" : {
+        "sha256" : "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "a33a",
+        "dataOffset" : "51",
+        "headerLevel" : "2",
+        "headerOffset" : "0",
+        "method" : "-lh6-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh6-",
+      "modificationDate" : 1672628645,
+      "name" : "renamed-gpl-2.txt",
+      "pathComponents" : [
+        "renamed-gpl-2.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          114,
+          101,
+          110,
+          97,
+          109,
+          101,
+          100,
+          45,
+          103,
+          112,
+          108,
+          45,
+          50,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 18092
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

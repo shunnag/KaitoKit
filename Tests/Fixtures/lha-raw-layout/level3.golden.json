@@ -1,0 +1,52 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 16,
+      "content" : {
+        "sha256" : "74549b542fb4cf632dcf261eb9604cf73274d8a7b08fe394e2975f9d1c0da28b"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "3b2a",
+        "dataOffset" : "61",
+        "headerLevel" : "3",
+        "headerOffset" : "0",
+        "method" : "-lh0-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1672628645,
+      "name" : "level3.txt",
+      "pathComponents" : [
+        "level3.txt"
+      ],
+      "posixPermissions" : 420,
+      "rawName" : {
+        "bytes" : [
+          108,
+          101,
+          118,
+          101,
+          108,
+          51,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 16
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

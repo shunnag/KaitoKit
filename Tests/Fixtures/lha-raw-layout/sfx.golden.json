@@ -1,0 +1,53 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 26,
+      "content" : {
+        "sha256" : "5dc9fbab9080669d45b9efc9defb0aa7d250775998206e17b5dd8caefa2f6ecd"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "3ff9",
+        "dataOffset" : "135",
+        "headerLevel" : "1",
+        "headerOffset" : "97",
+        "method" : "-lh0-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1741653238,
+      "name" : "payload.txt",
+      "pathComponents" : [
+        "payload.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          112,
+          97,
+          121,
+          108,
+          111,
+          97,
+          100,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 26
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

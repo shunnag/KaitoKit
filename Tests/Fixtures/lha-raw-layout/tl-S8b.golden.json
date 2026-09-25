@@ -1,0 +1,6 @@
+{
+  "error" : {
+    "message" : "Malformed archive: LHA header CRC mismatch",
+    "type" : "KaitoKit.KaitoError"
+  }
+}

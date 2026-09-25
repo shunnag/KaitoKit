@@ -1,0 +1,100 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 3,
+      "content" : {
+        "sha256" : "b5d4045c3f466fa91fe2cc6abe79232a1a57cdf104f7a26e716e0a1e2789df78"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x10",
+        "dataCRC16" : "4521",
+        "dataOffset" : "37",
+        "headerLevel" : "0",
+        "headerOffset" : "0",
+        "method" : "-lh0-",
+        "os" : "unspecified"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "directory",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1741653238,
+      "name" : "attribute-dir",
+      "pathComponents" : [
+        "attribute-dir"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          97,
+          116,
+          116,
+          114,
+          105,
+          98,
+          117,
+          116,
+          101,
+          45,
+          100,
+          105,
+          114
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : true
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 3
+    },
+    {
+      "compressedSize" : 7,
+      "content" : {
+        "sha256" : "4c5f91d8424f9529acf7118d133a93d2a6cab19141c35c3064837e6dd57b99a3"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "2673",
+        "dataOffset" : "84",
+        "headerLevel" : "2",
+        "headerOffset" : "40",
+        "method" : "-lh5-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 1,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "directory",
+      "methodDescription" : "-lh5-",
+      "modificationDate" : 1672628645,
+      "name" : "slash-dir/",
+      "pathComponents" : [
+        "slash-dir"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          115,
+          108,
+          97,
+          115,
+          104,
+          45,
+          100,
+          105,
+          114,
+          47
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : true
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 3
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

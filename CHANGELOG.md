@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+- GyoshukuKit の 7z 編集用に `SevenZipEditLayout` SPI を追加。
+  `recordsSevenZipEditLayout`（既定 false）で生の header 値を記録し、source を持たない snapshot を返す。
+  `reopen()` は記録を共有する。AES が直接読む packed stream の復号も既存の鍵 cache で提供し、
+  展開や出力 CRC の照合は行わない。既存の公開 API・値・検査・エラーは維持する。
+  [検証記録](Documentation/verification/2026-09-26-sevenzip-edit-layout.md)。
 - GyoshukuKit の LHA 編集用に `LHARawLayout` SPI を追加。member の header / data 範囲、
   level・method・OS ID・CRC16、公開 entry との対応、SFX 開始位置と終端を返す。
   終端後の byte は最大 65,536 byte だけ読み、recovery・分割巻・LHA 以外では nil。

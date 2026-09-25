@@ -25,6 +25,7 @@ enum SevenZipHeaderParser {
         bytes: [UInt8],
         limits: ReadLimits,
         budget: SevenZipMetadataBudget,
+        editRecorder: SevenZipEditRecorder? = nil,
         decodeStreams: StreamsDecoder
     ) throws -> SevenZipParsedHeader {
         var cursor = SevenZipHeaderCursor(bytes)
@@ -58,6 +59,7 @@ enum SevenZipHeaderParser {
                     throw KaitoError.malformed("misplaced 7z archive properties")
                 }
                 sawArchiveProperties = true
+                editRecorder?.note(.archiveProperties)
                 try skipArchiveProperties(cursor: &cursor, limits: limits)
 
             case .additionalStreamsInfo:
@@ -65,10 +67,12 @@ enum SevenZipHeaderParser {
                     throw KaitoError.malformed("misplaced or duplicate 7z additional streams")
                 }
                 sawAdditionalStreams = true
+                editRecorder?.note(.additionalStreams)
                 let streams = try SevenZipStreamsParser.parse(
                     cursor: &cursor,
                     limits: limits,
-                    budget: budget
+                    budget: budget,
+                    editRecorder: editRecorder
                 )
                 additionalStreams = try decodeStreams(streams, limits.maxMetadataSize)
 
@@ -80,7 +84,8 @@ enum SevenZipHeaderParser {
                     cursor: &cursor,
                     limits: limits,
                     externalStreams: additionalStreams,
-                    budget: budget
+                    budget: budget,
+                    editRecorder: editRecorder
                 )
 
             case .filesInfo:
@@ -91,7 +96,8 @@ enum SevenZipHeaderParser {
                     cursor: &cursor,
                     externalStreams: additionalStreams,
                     limits: limits,
-                    budget: budget
+                    budget: budget,
+                    editRecorder: editRecorder
                 )
 
             default:
@@ -125,7 +131,8 @@ enum SevenZipHeaderParser {
         cursor: inout SevenZipHeaderCursor,
         externalStreams: [Data],
         limits: ReadLimits,
-        budget: SevenZipMetadataBudget
+        budget: SevenZipMetadataBudget,
+        editRecorder: SevenZipEditRecorder?
     ) throws -> [SevenZipFileMetadata] {
         let count = try SevenZipStreamsParser.boundedCount(
             try cursor.readNumber(),
@@ -148,6 +155,9 @@ enum SevenZipHeaderParser {
         var creationTimes = [Date?](repeating: nil, count: count)
         var accessTimes = [Date?](repeating: nil, count: count)
         var modificationTimes = [Date?](repeating: nil, count: count)
+        var rawCreationTimes: [UInt64?]?
+        var rawAccessTimes: [UInt64?]?
+        var rawModificationTimes: [UInt64?]?
         var attributes = [UInt32?](repeating: nil, count: count)
         var startPositions = [UInt64?](repeating: nil, count: count)
         var seen = Set<UInt8>()
@@ -161,6 +171,7 @@ enum SevenZipHeaderParser {
                 throw KaitoError.limitExceeded("7z file property count")
             }
             propertyCount += 1
+            editRecorder?.state.filePropertyOrder.append(rawID)
             let repeatable = rawID == SevenZipNID.dummy.rawValue
                 || rawID == SevenZipNID.comment.rawValue
                 || SevenZipNID(rawValue: rawID) == nil
@@ -193,44 +204,50 @@ enum SevenZipHeaderParser {
                     property: &property,
                     count: count,
                     externalStreams: externalStreams,
-                    budget: budget
+                    budget: budget,
+                    editRecorder: editRecorder
                 )
                 rawNames = parsed.raw
                 names = parsed.decoded
 
             case .creationTime:
-                creationTimes = try parseTimes(
+                (creationTimes, rawCreationTimes) = try parseTimes(
                     property: &property,
                     count: count,
-                    externalStreams: externalStreams
+                    externalStreams: externalStreams,
+                    editRecorder: editRecorder
                 )
 
             case .accessTime:
-                accessTimes = try parseTimes(
+                (accessTimes, rawAccessTimes) = try parseTimes(
                     property: &property,
                     count: count,
-                    externalStreams: externalStreams
+                    externalStreams: externalStreams,
+                    editRecorder: editRecorder
                 )
 
             case .modificationTime:
-                modificationTimes = try parseTimes(
+                (modificationTimes, rawModificationTimes) = try parseTimes(
                     property: &property,
                     count: count,
-                    externalStreams: externalStreams
+                    externalStreams: externalStreams,
+                    editRecorder: editRecorder
                 )
 
             case .windowsAttributes:
                 attributes = try parseAttributes(
                     property: &property,
                     count: count,
-                    externalStreams: externalStreams
+                    externalStreams: externalStreams,
+                    editRecorder: editRecorder
                 )
 
             case .startPosition:
                 startPositions = try parseStartPositions(
                     property: &property,
                     count: count,
-                    externalStreams: externalStreams
+                    externalStreams: externalStreams,
+                    editRecorder: editRecorder
                 )
 
             case .dummy:
@@ -240,6 +257,7 @@ enum SevenZipHeaderParser {
                 }
 
             default:
+                editRecorder?.note(.unknownFileProperty(rawID))
                 // 未知 property は自己記述 length の範囲だけ読み飛ばす。
                 try property.skip(property.remaining)
             }
@@ -265,12 +283,23 @@ enum SevenZipHeaderParser {
         var result: [SevenZipFileMetadata] = []
         result.reserveCapacity(count)
         var emptyIndex = 0
+        var streamIndex = 0
+        editRecorder?.state.files.reserveCapacity(count)
         for index in 0..<count {
             if index & 0x3ff == 0 { try Task.checkCancellation() }
             let isEmpty = emptyStreams[index]
             let isEmptyFile = isEmpty ? emptyFiles[emptyIndex] : false
             let isAnti = isEmpty ? antiFiles[emptyIndex] : false
             if isEmpty { emptyIndex += 1 }
+            if let editRecorder {
+                editRecorder.state.files.append(SevenZipEditFile(
+                    rawName: rawNames[index], substreamIndex: isEmpty ? nil : streamIndex,
+                    isEmptyFile: isEmptyFile, isAnti: isAnti,
+                    creationTime: rawCreationTimes?[index], accessTime: rawAccessTimes?[index],
+                    modificationTime: rawModificationTimes?[index], attributes: attributes[index],
+                    startPosition: startPositions[index]))
+                if !isEmpty { streamIndex += 1 }
+            }
 
             result.append(SevenZipFileMetadata(
                 rawName: rawNames[index],
@@ -306,9 +335,10 @@ enum SevenZipHeaderParser {
         property: inout SevenZipHeaderCursor,
         count: Int,
         externalStreams: [Data],
-        budget: SevenZipMetadataBudget
+        budget: SevenZipMetadataBudget,
+        editRecorder: SevenZipEditRecorder?
     ) throws -> (raw: [[UInt8]], decoded: [String]) {
-        var values = try valueCursor(property: &property, externalStreams: externalStreams)
+        var values = try valueCursor(property: &property, externalStreams: externalStreams, editRecorder: editRecorder)
         var rawNames: [[UInt8]] = []
         var names: [String] = []
         rawNames.reserveCapacity(count)
@@ -351,29 +381,34 @@ enum SevenZipHeaderParser {
     private static func parseTimes(
         property: inout SevenZipHeaderCursor,
         count: Int,
-        externalStreams: [Data]
-    ) throws -> [Date?] {
+        externalStreams: [Data],
+        editRecorder: SevenZipEditRecorder?
+    ) throws -> ([Date?], [UInt64?]?) {
         let defined = try property.readDefinedVector(count: count)
-        var values = try valueCursor(property: &property, externalStreams: externalStreams)
+        var values = try valueCursor(property: &property, externalStreams: externalStreams, editRecorder: editRecorder)
         var result = [Date?](repeating: nil, count: count)
+        var raw = editRecorder == nil ? nil : [UInt64?](repeating: nil, count: count)
         for index in 0..<count {
             if index & 0x3ff == 0 { try Task.checkCancellation() }
             guard defined[index] else { continue }
-            result[index] = fileTimeDate(try values.readUInt64LE())
+            let value = try values.readUInt64LE()
+            result[index] = fileTimeDate(value)
+            raw?[index] = value
         }
         guard values.isAtEnd else {
             throw KaitoError.malformed("7z time property has trailing bytes")
         }
-        return result
+        return (result, raw)
     }
 
     private static func parseAttributes(
         property: inout SevenZipHeaderCursor,
         count: Int,
-        externalStreams: [Data]
+        externalStreams: [Data],
+        editRecorder: SevenZipEditRecorder?
     ) throws -> [UInt32?] {
         let defined = try property.readDefinedVector(count: count)
-        var values = try valueCursor(property: &property, externalStreams: externalStreams)
+        var values = try valueCursor(property: &property, externalStreams: externalStreams, editRecorder: editRecorder)
         var result = [UInt32?](repeating: nil, count: count)
         for index in 0..<count {
             if index & 0x3ff == 0 { try Task.checkCancellation() }
@@ -389,10 +424,11 @@ enum SevenZipHeaderParser {
     private static func parseStartPositions(
         property: inout SevenZipHeaderCursor,
         count: Int,
-        externalStreams: [Data]
+        externalStreams: [Data],
+        editRecorder: SevenZipEditRecorder?
     ) throws -> [UInt64?] {
         let defined = try property.readDefinedVector(count: count)
-        var values = try valueCursor(property: &property, externalStreams: externalStreams)
+        var values = try valueCursor(property: &property, externalStreams: externalStreams, editRecorder: editRecorder)
         var result = [UInt64?](repeating: nil, count: count)
         for index in 0..<count {
             if index & 0x3ff == 0 { try Task.checkCancellation() }
@@ -407,13 +443,15 @@ enum SevenZipHeaderParser {
 
     private static func valueCursor(
         property: inout SevenZipHeaderCursor,
-        externalStreams: [Data]
+        externalStreams: [Data],
+        editRecorder: SevenZipEditRecorder?
     ) throws -> SevenZipHeaderCursor {
         let external = try property.readUInt8()
         switch external {
         case 0:
             return try property.readSubcursor(property.remaining)
         case 1:
+            editRecorder?.note(.externalData)
             let index64 = try property.readNumber()
             guard index64 < UInt64(externalStreams.count), property.isAtEnd else {
                 throw KaitoError.malformed("invalid external 7z property stream")

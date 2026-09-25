@@ -170,9 +170,13 @@ public final class ArchiveReader {
                 sourceURL: sourceURL,
                 options: options
             )
+            var sevenZipOptions = options
+            sevenZipOptions.recordsSevenZipEditLayout = options.recordsSevenZipEditLayout
+                && volumeSet == nil && !(source is ConcatenatedByteSource)
             let sevenZip = try SevenZipReader(
                 source: sevenZipSource,
-                options: options
+                options: sevenZipOptions,
+                baseOffset: source.length - sevenZipSource.length
             )
             reader = sevenZip
             entries = sevenZip.entries
@@ -706,6 +710,24 @@ public final class ArchiveReader {
             stagedTarSource: stagedTarSource,
             tarEditingState: tarEditingState
         )
+    }
+
+    /// 保持済みの生値だけを返す。source の読取りや password の要求は行わない。
+    @_spi(SevenZipEditLayout)
+    public func sevenZipEditingSnapshot() -> SevenZipEditingSnapshot? {
+        guard options.recordsSevenZipEditLayout, format == .sevenZip,
+              volumeSet == nil, !(source is ConcatenatedByteSource) else { return nil }
+        return (reader as? SevenZipReader)?.editingSnapshot()
+    }
+
+    /// AES の出力長までの圧縮済み平文。展開と出力 CRC の照合は行わない。
+    @_spi(SevenZipEditLayout)
+    public func sevenZipDecryptedPackedStream(folder: Int, packedInput: Int) throws -> EntryStream {
+        guard let sevenZip = reader as? SevenZipReader else {
+            throw KaitoError.notFound("7z folder \(folder)")
+        }
+        sevenZip.setPassword(password)
+        return try sevenZip.decryptedPackedStream(folder: folder, packedInput: packedInput)
     }
 
     @_spi(TarEditLayout)

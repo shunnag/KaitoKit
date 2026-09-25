@@ -49,6 +49,7 @@ struct SevenZipCoder: Sendable, Equatable {
     let properties: [UInt8]
     let firstInput: Int
     let firstOutput: Int
+    var flags: UInt8 = 0
 }
 
 struct SevenZipBindPair: Sendable, Equatable {
@@ -261,7 +262,8 @@ enum SevenZipStreamsParser {
         cursor: inout SevenZipHeaderCursor,
         limits: ReadLimits,
         externalStreams: [Data] = [],
-        budget suppliedBudget: SevenZipMetadataBudget? = nil
+        budget suppliedBudget: SevenZipMetadataBudget? = nil,
+        editRecorder: SevenZipEditRecorder? = nil
     ) throws -> SevenZipStreamsInfo {
         let budget = suppliedBudget
             ?? SevenZipMetadataBudget(limit: limits.maxTotalMetadataSize)
@@ -324,7 +326,8 @@ enum SevenZipStreamsParser {
                     cursor: &cursor,
                     limits: limits,
                     externalStreams: externalStreams,
-                    budget: budget
+                    budget: budget,
+                    editRecorder: editRecorder
                 )
 
             case .subStreamsInfo:
@@ -397,7 +400,8 @@ enum SevenZipStreamsParser {
         cursor: inout SevenZipHeaderCursor,
         limits: ReadLimits,
         externalStreams: [Data],
-        budget: SevenZipMetadataBudget
+        budget: SevenZipMetadataBudget,
+        editRecorder: SevenZipEditRecorder?
     ) throws -> [SevenZipFolder] {
         guard SevenZipNID(rawValue: try cursor.readUInt8()) == .folder else {
             throw KaitoError.malformed("7z UnpackInfo is missing folders")
@@ -427,6 +431,7 @@ enum SevenZipStreamsParser {
                 ))
             }
         case 1:
+            editRecorder?.note(.externalData)
             let index64 = try cursor.readNumber()
             guard index64 < UInt64(externalStreams.count) else {
                 throw KaitoError.malformed("invalid external 7z folder stream")
@@ -569,7 +574,8 @@ enum SevenZipStreamsParser {
                 outputCount: outputCount,
                 properties: properties,
                 firstInput: totalInputs,
-                firstOutput: totalOutputs
+                firstOutput: totalOutputs,
+                flags: flags
             ))
             totalInputs += inputCount
             totalOutputs += outputCount

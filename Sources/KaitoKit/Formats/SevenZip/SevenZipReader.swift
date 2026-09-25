@@ -43,6 +43,7 @@ final class SevenZipReader: FormatReader {
     private let streams: SevenZipStreamsInfo?
     private let packedRanges: [[Int: SevenZipPackRange]]
     private let records: [Record]
+    private let editState: SevenZipEditState?
     private let keyCache: SevenZipAESKeyCache
     private let packedStreamVerifier: SevenZipPackedStreamVerifier
     private var coordinators: [Int: SevenZipFolderCoordinator] = [:]
@@ -54,11 +55,13 @@ final class SevenZipReader: FormatReader {
         coordinators.values.contains { $0.hasRetainedDecoderState }
     }
 
-    init(source: any ByteSource, options: ReaderOptions) throws {
+    init(source: any ByteSource, options: ReaderOptions, baseOffset: UInt64 = 0) throws {
         self.source = source
         self.limits = options.limits
         self.maximumAESCyclesPower = options.maxSevenZipAESCyclesPower
 
+        let editRecorder = options.recordsSevenZipEditLayout ? SevenZipEditRecorder() : nil
+        editRecorder?.state.baseOffset = baseOffset
         let keyCache = SevenZipAESKeyCache()
         let packedStreamVerifier = SevenZipPackedStreamVerifier(source: source)
         let metadataBudget = SevenZipMetadataBudget(
@@ -66,7 +69,7 @@ final class SevenZipReader: FormatReader {
         )
         var resolvedPassword = options.password
         var headerKDFBudget = HeaderKDFWorkBudget(remaining: options.limits.maxSevenZipHeaderKDFWork)
-        let nextHeader = try Self.readNextHeader(source: source, limits: options.limits)
+        let nextHeader = try Self.readNextHeader(source: source, limits: options.limits, editRecorder: editRecorder)
         let decodedHeader = try Self.decodeNextHeader(
             nextHeader.bytes,
             source: source,
@@ -78,8 +81,10 @@ final class SevenZipReader: FormatReader {
             packedStreamVerifier: packedStreamVerifier,
             metadataBudget: metadataBudget,
             password: &resolvedPassword,
-            passwordProvider: options.passwordProvider
+            passwordProvider: options.passwordProvider,
+            editRecorder: editRecorder
         )
+        editRecorder?.state.plainHeaderLength = UInt64(decodedHeader.bytes.count)
         let header: SevenZipParsedHeader
         do {
             header = try Self.parseHeader(
@@ -93,7 +98,8 @@ final class SevenZipReader: FormatReader {
                 packedStreamVerifier: packedStreamVerifier,
                 metadataBudget: metadataBudget,
                 password: &resolvedPassword,
-                passwordProvider: options.passwordProvider
+                passwordProvider: options.passwordProvider,
+                editRecorder: editRecorder
             )
         } catch let error as KaitoError {
             guard decodedHeader.isEncrypted else { throw error }
@@ -131,10 +137,12 @@ final class SevenZipReader: FormatReader {
         self.keyCache = keyCache
         self.packedStreamVerifier = packedStreamVerifier
         self.password = resolvedPassword
+        self.editState = editRecorder?.state
     }
 
     private init(source: any ByteSource, options: ReaderOptions, entries: [ArchiveEntry],
-                 streams: SevenZipStreamsInfo?, packedRanges: [[Int: SevenZipPackRange]], records: [Record]) {
+                 streams: SevenZipStreamsInfo?, packedRanges: [[Int: SevenZipPackRange]], records: [Record],
+                 editState: SevenZipEditState?) {
         self.source = source
         self.limits = options.limits
         self.maximumAESCyclesPower = options.maxSevenZipAESCyclesPower
@@ -142,6 +150,7 @@ final class SevenZipReader: FormatReader {
         self.streams = streams
         self.packedRanges = packedRanges
         self.records = records
+        self.editState = editState
         self.keyCache = SevenZipAESKeyCache()
         self.packedStreamVerifier = SevenZipPackedStreamVerifier(source: source)
         self.password = options.password
@@ -151,7 +160,24 @@ final class SevenZipReader: FormatReader {
         // No folder coordinator, verified-pack cache or derived key crosses
         // the reader boundary, including keys used to decode the header.
         SevenZipReader(source: source, options: options, entries: entries,
-                       streams: streams, packedRanges: packedRanges, records: records)
+                       streams: streams, packedRanges: packedRanges, records: records, editState: editState)
+    }
+
+    func editingSnapshot() -> SevenZipEditingSnapshot? {
+        editState?.snapshot(streams: streams)
+    }
+
+    func decryptedPackedStream(folder index: Int, packedInput: Int) throws -> EntryStream {
+        guard let streams, streams.folders.indices.contains(index) else {
+            throw KaitoError.notFound("7z folder \(index)")
+        }
+        let factory = try SevenZipFolderDecoderFactory(
+            source: source, folder: streams.folders[index], packedRanges: packedRanges[index],
+            limits: limits, password: password, keyCache: keyCache,
+            maximumAESCyclesPower: maximumAESCyclesPower, packedStreamVerifier: packedStreamVerifier)
+        let decrypted = try factory.makeDecryptedPackedDecoder(packedInput: packedInput)
+        return try EntryStream(decompressor: decrypted.decoder, length: decrypted.length,
+                               expectedCRC32: nil, entryIndex: -1, limits: limits)
     }
 
     func setPassword(_ password: String?) {
@@ -246,7 +272,8 @@ final class SevenZipReader: FormatReader {
 
     private static func readNextHeader(
         source: any ByteSource,
-        limits: ReadLimits
+        limits: ReadLimits,
+        editRecorder: SevenZipEditRecorder?
     ) throws -> NextHeader {
         guard source.length >= signatureHeaderSize else { throw KaitoError.truncated }
         let fixed = try readByteRange(source: source, offset: 0, count: 32)
@@ -279,6 +306,9 @@ final class SevenZipReader: FormatReader {
         guard CRC32.checksum(bytes) == nextCRC else {
             throw KaitoError.malformed("7z next-header CRC mismatch")
         }
+        editRecorder?.state.versionMajor = fixed[6]
+        editRecorder?.state.versionMinor = fixed[7]
+        editRecorder?.state.nextHeaderRange = absoluteOffset..<end
         return NextHeader(bytes: bytes, absoluteOffset: absoluteOffset)
     }
 
@@ -293,7 +323,8 @@ final class SevenZipReader: FormatReader {
         packedStreamVerifier: SevenZipPackedStreamVerifier,
         metadataBudget: SevenZipMetadataBudget,
         password: inout String?,
-        passwordProvider: (any PasswordProvider)?
+        passwordProvider: (any PasswordProvider)?,
+        editRecorder: SevenZipEditRecorder?
     ) throws -> DecodedHeader {
         guard let first = bytes.first else {
             throw KaitoError.malformed("empty 7z next header")
@@ -309,7 +340,8 @@ final class SevenZipReader: FormatReader {
         let streams = try SevenZipStreamsParser.parse(
             cursor: &cursor,
             limits: limits,
-            budget: metadataBudget
+            budget: metadataBudget,
+            editRecorder: editRecorder
         )
         guard cursor.isAtEnd else {
             throw KaitoError.malformed("7z encoded header has trailing bytes")
@@ -337,6 +369,7 @@ final class SevenZipReader: FormatReader {
         let isEncrypted = streams.folders[stream.folderIndex].coders.contains {
             SevenZipMethod.kind(for: $0.methodID) == .aes
         }
+        editRecorder?.state.encodedStreams = streams
         return DecodedHeader(bytes: [UInt8](decoded[0]), isEncrypted: isEncrypted)
     }
 
@@ -351,12 +384,14 @@ final class SevenZipReader: FormatReader {
         packedStreamVerifier: SevenZipPackedStreamVerifier,
         metadataBudget: SevenZipMetadataBudget,
         password: inout String?,
-        passwordProvider: (any PasswordProvider)?
+        passwordProvider: (any PasswordProvider)?,
+        editRecorder: SevenZipEditRecorder?
     ) throws -> SevenZipParsedHeader {
         try SevenZipHeaderParser.parse(
             bytes: bytes,
             limits: limits,
-            budget: metadataBudget
+            budget: metadataBudget,
+            editRecorder: editRecorder
         ) { streams, limit in
             try decodeStreamsResolvingPassword(
                 streams,

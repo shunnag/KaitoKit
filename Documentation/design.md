@@ -1909,6 +1909,33 @@ dispatch の固定費は残り、16 bytes は 2.179 → 1.983 GB/s（約 0.73 ns
 指定 SHA 比較、両 toolchain のテスト、x86_64 build、300 mutants の受入条件を達成した。
 上記の既存エラー書庫とハードウェア実機の検証範囲は区別する。
 
+### 7z の編集用 snapshot（2026-09-26）
+
+`@_spi(SevenZipEditLayout)` の `ReaderOptions.recordsSevenZipEditLayout` は既定 false。
+有効時だけ既存の解析で FILETIME の UInt64、生の coder flags、FilesInfo の property 順、
+header の符号化、開始 header の version と範囲を記録する。名前の byte 配列は公開 entry と共有する。
+folder graph は既存の解析結果を使い、`sevenZipEditingSnapshot()` を呼んだ時に SPI 値へ写す。
+snapshot は Sendable の値で source を持たず、accessor は読取り・password 要求・取消し検査を行わない。
+`reopen()` は生値の記録を共有し、source の再読や記述子の追加を行わない。
+
+全範囲は 7z 署名を原点とし、SFX の prefix は `baseOffset` に分離する。
+option が false、7z 以外、volumeSet のある分割巻、ConcatenatedByteSource では snapshot は nil。
+archive properties、additional streams、external data、未知の file property は最初の理由を記録する。
+既存の受理条件やエラーは変更せず、二つの空 header は空の snapshot、next header のない 32 byte の
+書庫は従来の `malformed("empty 7z next header")` になる。encoded header は複数 folder / pack を保持し、
+AES と Copy 以外の coder がある場合だけ `isCompressed` を返す。
+
+`sevenZipDecryptedPackedStream(folder:packedInput:)` は記録 option に依らず使える。
+packed input を直接読む 1 入力・1 出力の AES coder に限り、その出力長までの圧縮済み平文を返す。
+既存の AES decoder、key cache、cycles 上限、PackInfo CRC 検証を共有する。
+鍵は現在の `ArchiveReader.password` から導き、provider は呼ばない。範囲外は `notFound`、
+直接 AES に入らない input は `malformed`、password が無ければ `passwordRequired`。
+展開と出力 CRC の照合は行わず、誤った password を検出しない。
+
+SPI の型と accessor は P5 §0.2 の宣言だけを追加し、公開 API とその init は維持する。
+凍結した 33 fixture と変更前の公開値 golden、構造・AES の独立した期待値、release の 10 万件計測は
+[検証記録](verification/2026-09-26-sevenzip-edit-layout.md)を参照。
+
 ### LHA の raw 配置 SPI（2026-09-26）
 
 GyoshukuKit の LHA 編集は `@_spi(LHARawLayout)` で import したときだけ使える

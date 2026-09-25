@@ -1,0 +1,486 @@
+{
+  "_meta": {
+    "schemaVersion": 1,
+    "prototype": "SP/p45/sz.py",
+    "prototypeSHA256": "bf7c041ed1af8213ee5f98e1ef174adff58f0cf6401f37c772729c62c6bfa064",
+    "generator": "scripts/compute-expected.py",
+    "archiveCount": 33,
+    "plaintext": "AES coder output, before downstream decompression and trimmed to that coder output's unpackSizes entry. This is the compressed plaintext used for re-encryption checks, not extracted member data.",
+    "scopes": "Includes main, additional (if AES), and encoded-header folders. Archives without AES have an empty array.",
+    "padding": "Padded AES output is also hashed; zeroPaddingLength bytes are excluded from plaintextLength/SHA256.",
+    "verification": "Each AES folder was completely decoded with sz.decode_folder and checked against its stored folder/substream CRCs.",
+    "regeneratedFilters": {
+      "date": "2026-09-27",
+      "archives": [
+        "bcj.7z",
+        "bcj2.7z",
+        "ppmd.7z"
+      ],
+      "generator": "generate-filters.py",
+      "verification": "Regenerated coder graphs contain no AES; their expected decrypted-stream arrays remain empty."
+    }
+  },
+  "archives": {
+    "anti.7z": [],
+    "archive_properties.7z": [],
+    "bcj.7z": [],
+    "bcj2.7z": [],
+    "comment.7z": [],
+    "copyaes.7z": [
+      {
+        "scope": "main",
+        "folderIndex": 0,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 0,
+        "ciphertextRange": {
+          "offset": 32,
+          "length": 65552
+        },
+        "plaintextLength": 65537,
+        "plaintextSHA256": "b401db9582b11ebc193a1e294c860c53185ab60c76685da9653475a7a768a602",
+        "paddedPlaintextLength": 65552,
+        "paddedPlaintextSHA256": "c9e4099408e1079d0da3ce22b020745128732ea8eca97a45c2a7108a2360f699",
+        "zeroPaddingLength": 15,
+        "decodedFolderLength": 65537,
+        "decodedFolderSHA256": "b401db9582b11ebc193a1e294c860c53185ab60c76685da9653475a7a768a602",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      },
+      {
+        "scope": "main",
+        "folderIndex": 1,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 1,
+        "ciphertextRange": {
+          "offset": 65584,
+          "length": 4096
+        },
+        "plaintextLength": 4096,
+        "plaintextSHA256": "244be200e9d09fd8bf148706f7ec1b7102b8dde4a37110db246e64f6dec18735",
+        "paddedPlaintextLength": 4096,
+        "paddedPlaintextSHA256": "244be200e9d09fd8bf148706f7ec1b7102b8dde4a37110db246e64f6dec18735",
+        "zeroPaddingLength": 0,
+        "decodedFolderLength": 4096,
+        "decodedFolderSHA256": "244be200e9d09fd8bf148706f7ec1b7102b8dde4a37110db246e64f6dec18735",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      }
+    ],
+    "empty_7zz.7z": [],
+    "empty_fi0.7z": [],
+    "empty_gk.7z": [],
+    "external_names.7z": [],
+    "g_aes.7z": [
+      {
+        "scope": "main",
+        "folderIndex": 0,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 0,
+        "ciphertextRange": {
+          "offset": 32,
+          "length": 54400
+        },
+        "plaintextLength": 54388,
+        "plaintextSHA256": "29c182163c6226977adbe80022a6471aff778ec20df3f6521c4b29d4ee9cb3c6",
+        "paddedPlaintextLength": 54400,
+        "paddedPlaintextSHA256": "9a1eb2ad3df8417b98f7d0d964db991952d744e340edf56d167bdc5e92e2e9d7",
+        "zeroPaddingLength": 12,
+        "decodedFolderLength": 120000,
+        "decodedFolderSHA256": "145d2564b78c0225d06f59c7b32421638aeba03629dd168b22e7f4b5d1222995",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      },
+      {
+        "scope": "main",
+        "folderIndex": 1,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 1,
+        "ciphertextRange": {
+          "offset": 54432,
+          "length": 50016
+        },
+        "plaintextLength": 50004,
+        "plaintextSHA256": "35dc29b25378176da26d9dd182fee8903cfd86ccd9b65b7ad639a430eb6fca0d",
+        "paddedPlaintextLength": 50016,
+        "paddedPlaintextSHA256": "d036ffe3e50f6bacbfe34ffa06b7a16fe5342313db9e7d6ec80dad03f07ae461",
+        "zeroPaddingLength": 12,
+        "decodedFolderLength": 50000,
+        "decodedFolderSHA256": "24a5603e61f97d226342a7a4d26c9062f70005aef586f13acd6056c0c62a4003",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      },
+      {
+        "scope": "main",
+        "folderIndex": 2,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 2,
+        "ciphertextRange": {
+          "offset": 104448,
+          "length": 2032
+        },
+        "plaintextLength": 2022,
+        "plaintextSHA256": "126722f0efaeb90cd6b64316cb9e81f7f65c44f64f9f18cf55a2da949800e751",
+        "paddedPlaintextLength": 2032,
+        "paddedPlaintextSHA256": "de39066ec479fe7a3a8c9e693189a224054a1f25346f4aa089385818d0d5c990",
+        "zeroPaddingLength": 10,
+        "decodedFolderLength": 3507,
+        "decodedFolderSHA256": "ec0cc7587dfaf6a9a30589a324f7b2d7fea734cfb36db6c8253776b5061722ee",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      },
+      {
+        "scope": "main",
+        "folderIndex": 3,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 3,
+        "ciphertextRange": {
+          "offset": 106480,
+          "length": 752
+        },
+        "plaintextLength": 747,
+        "plaintextSHA256": "a229a4278055a4a4228384aa77a509014c8f8f5c3a55283f5fdc783e9b90551b",
+        "paddedPlaintextLength": 752,
+        "paddedPlaintextSHA256": "acc4fe45934a1c8943bad5770d750b5b46ee3c2041cd84b172c81e0b4d730974",
+        "zeroPaddingLength": 5,
+        "decodedFolderLength": 1156,
+        "decodedFolderSHA256": "470385c80717c44821cdd7d9bca5ff2eec1577a5861894168a9a8b2e05987658",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      },
+      {
+        "scope": "main",
+        "folderIndex": 4,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 4,
+        "ciphertextRange": {
+          "offset": 107232,
+          "length": 1632
+        },
+        "plaintextLength": 1619,
+        "plaintextSHA256": "a66227e76fe21e1298ea422614217d906a4d48dfc381151e3d689261c9ec3fcc",
+        "paddedPlaintextLength": 1632,
+        "paddedPlaintextSHA256": "41486b3ccb7a209b66c6e7480c6a1812087284027fb1b5e2d27de3df09ba0e22",
+        "zeroPaddingLength": 13,
+        "decodedFolderLength": 2737,
+        "decodedFolderSHA256": "b2ab072dbf959265e727b804a013129d6b171a93e1069b3212b8567eb876a786",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      }
+    ],
+    "g_aesh.7z": [
+      {
+        "scope": "main",
+        "folderIndex": 0,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 0,
+        "ciphertextRange": {
+          "offset": 32,
+          "length": 54400
+        },
+        "plaintextLength": 54388,
+        "plaintextSHA256": "29c182163c6226977adbe80022a6471aff778ec20df3f6521c4b29d4ee9cb3c6",
+        "paddedPlaintextLength": 54400,
+        "paddedPlaintextSHA256": "9a1eb2ad3df8417b98f7d0d964db991952d744e340edf56d167bdc5e92e2e9d7",
+        "zeroPaddingLength": 12,
+        "decodedFolderLength": 120000,
+        "decodedFolderSHA256": "145d2564b78c0225d06f59c7b32421638aeba03629dd168b22e7f4b5d1222995",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      },
+      {
+        "scope": "main",
+        "folderIndex": 1,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 1,
+        "ciphertextRange": {
+          "offset": 54432,
+          "length": 50016
+        },
+        "plaintextLength": 50004,
+        "plaintextSHA256": "35dc29b25378176da26d9dd182fee8903cfd86ccd9b65b7ad639a430eb6fca0d",
+        "paddedPlaintextLength": 50016,
+        "paddedPlaintextSHA256": "d036ffe3e50f6bacbfe34ffa06b7a16fe5342313db9e7d6ec80dad03f07ae461",
+        "zeroPaddingLength": 12,
+        "decodedFolderLength": 50000,
+        "decodedFolderSHA256": "24a5603e61f97d226342a7a4d26c9062f70005aef586f13acd6056c0c62a4003",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      },
+      {
+        "scope": "main",
+        "folderIndex": 2,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 2,
+        "ciphertextRange": {
+          "offset": 104448,
+          "length": 2032
+        },
+        "plaintextLength": 2022,
+        "plaintextSHA256": "126722f0efaeb90cd6b64316cb9e81f7f65c44f64f9f18cf55a2da949800e751",
+        "paddedPlaintextLength": 2032,
+        "paddedPlaintextSHA256": "de39066ec479fe7a3a8c9e693189a224054a1f25346f4aa089385818d0d5c990",
+        "zeroPaddingLength": 10,
+        "decodedFolderLength": 3507,
+        "decodedFolderSHA256": "ec0cc7587dfaf6a9a30589a324f7b2d7fea734cfb36db6c8253776b5061722ee",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      },
+      {
+        "scope": "main",
+        "folderIndex": 3,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 3,
+        "ciphertextRange": {
+          "offset": 106480,
+          "length": 752
+        },
+        "plaintextLength": 747,
+        "plaintextSHA256": "a229a4278055a4a4228384aa77a509014c8f8f5c3a55283f5fdc783e9b90551b",
+        "paddedPlaintextLength": 752,
+        "paddedPlaintextSHA256": "acc4fe45934a1c8943bad5770d750b5b46ee3c2041cd84b172c81e0b4d730974",
+        "zeroPaddingLength": 5,
+        "decodedFolderLength": 1156,
+        "decodedFolderSHA256": "470385c80717c44821cdd7d9bca5ff2eec1577a5861894168a9a8b2e05987658",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      },
+      {
+        "scope": "main",
+        "folderIndex": 4,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 4,
+        "ciphertextRange": {
+          "offset": 107232,
+          "length": 1632
+        },
+        "plaintextLength": 1619,
+        "plaintextSHA256": "a66227e76fe21e1298ea422614217d906a4d48dfc381151e3d689261c9ec3fcc",
+        "paddedPlaintextLength": 1632,
+        "paddedPlaintextSHA256": "41486b3ccb7a209b66c6e7480c6a1812087284027fb1b5e2d27de3df09ba0e22",
+        "zeroPaddingLength": 13,
+        "decodedFolderLength": 2737,
+        "decodedFolderSHA256": "b2ab072dbf959265e727b804a013129d6b171a93e1069b3212b8567eb876a786",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      },
+      {
+        "scope": "encodedHeader",
+        "folderIndex": 0,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 0,
+        "ciphertextRange": {
+          "offset": 108864,
+          "length": 544
+        },
+        "plaintextLength": 542,
+        "plaintextSHA256": "6946512fd530ee6075e500e4d68093f5a8abca3736478a354525587efc97b30c",
+        "paddedPlaintextLength": 544,
+        "paddedPlaintextSHA256": "550ee74325f6623e55941bcbd6d522d287962ff917209aaa4c603190f0a8d796",
+        "zeroPaddingLength": 2,
+        "decodedFolderLength": 542,
+        "decodedFolderSHA256": "6946512fd530ee6075e500e4d68093f5a8abca3736478a354525587efc97b30c",
+        "folderCRCChecked": true,
+        "substreamCRCsChecked": 1
+      }
+    ],
+    "g_plain.7z": [],
+    "lib.7z": [],
+    "m.7z": [],
+    "mix.7z": [
+      {
+        "scope": "main",
+        "folderIndex": 0,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 0,
+        "ciphertextRange": {
+          "offset": 32,
+          "length": 64
+        },
+        "plaintextLength": 50,
+        "plaintextSHA256": "3dc137679f313c9e09de9ebf5c1be72b20a248c85f0fc414706930c412098043",
+        "paddedPlaintextLength": 64,
+        "paddedPlaintextSHA256": "b357929ffd0a59d1e120383bb969d2aaf0ca8305d7b887a9209ca040660eccf5",
+        "zeroPaddingLength": 14,
+        "decodedFolderLength": 2300,
+        "decodedFolderSHA256": "b598e088f808feefc25f3569031ad5c15b9b63aaf16422b1ca7f9e86bfea94f9",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      },
+      {
+        "scope": "main",
+        "folderIndex": 1,
+        "coderIndex": 0,
+        "password": "secret2",
+        "packIndex": 1,
+        "ciphertextRange": {
+          "offset": 96,
+          "length": 8208
+        },
+        "plaintextLength": 8196,
+        "plaintextSHA256": "fb6dc607616b91ddcf9799b7c5005fb799c79e214c0589f2d4dcb08c8e3fde3f",
+        "paddedPlaintextLength": 8208,
+        "paddedPlaintextSHA256": "5b04c7d25dfd680a5f99ecaedbd7d4822fc8772287ec7975d9d88cafda164555",
+        "zeroPaddingLength": 12,
+        "decodedFolderLength": 8192,
+        "decodedFolderSHA256": "133da0d86a38d16632834b42c40a03837807fcbb3da46f46ef2f0b42e4804917",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 1
+      }
+    ],
+    "packpos16.7z": [],
+    "ppmd.7z": [],
+    "s200.7z": [],
+    "sfx.7z": [],
+    "solid_zero.7z": [],
+    "startpos.7z": [],
+    "unknown_1a.7z": [],
+    "z_aes.7z": [
+      {
+        "scope": "main",
+        "folderIndex": 0,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 0,
+        "ciphertextRange": {
+          "offset": 32,
+          "length": 108496
+        },
+        "plaintextLength": 108486,
+        "plaintextSHA256": "1d16d3fc6df427121ad399f3b849a7cda41607f806999b059a84e93f6fcf4c56",
+        "paddedPlaintextLength": 108496,
+        "paddedPlaintextSHA256": "91de195008fbf37938f375e6d3e6e8f2e239fadae4f3f5b4ddb2c4a35ddc6ec3",
+        "zeroPaddingLength": 10,
+        "decodedFolderLength": 177400,
+        "decodedFolderSHA256": "29b716726b5b673fdc5c7f6d52caa38bf2d23781a978cec9cd139ecbd7ef18a3",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 5
+      }
+    ],
+    "z_aesh.7z": [
+      {
+        "scope": "main",
+        "folderIndex": 0,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 0,
+        "ciphertextRange": {
+          "offset": 32,
+          "length": 108496
+        },
+        "plaintextLength": 108486,
+        "plaintextSHA256": "1d16d3fc6df427121ad399f3b849a7cda41607f806999b059a84e93f6fcf4c56",
+        "paddedPlaintextLength": 108496,
+        "paddedPlaintextSHA256": "91de195008fbf37938f375e6d3e6e8f2e239fadae4f3f5b4ddb2c4a35ddc6ec3",
+        "zeroPaddingLength": 10,
+        "decodedFolderLength": 177400,
+        "decodedFolderSHA256": "29b716726b5b673fdc5c7f6d52caa38bf2d23781a978cec9cd139ecbd7ef18a3",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 5
+      },
+      {
+        "scope": "encodedHeader",
+        "folderIndex": 0,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 0,
+        "ciphertextRange": {
+          "offset": 108528,
+          "length": 208
+        },
+        "plaintextLength": 200,
+        "plaintextSHA256": "261e73852efbf1d57eb12c1c70e92c3c49fa348cc8c261275667478a9e716e84",
+        "paddedPlaintextLength": 208,
+        "paddedPlaintextSHA256": "6d65d74311112bfbdc7ce28857725e7038dae6690e0572b0a1c4401fb5162894",
+        "zeroPaddingLength": 8,
+        "decodedFolderLength": 342,
+        "decodedFolderSHA256": "1590e05c42497a60b4f7c6be13f6335daf34847fc6a9611e02c40762a9fb4678",
+        "folderCRCChecked": true,
+        "substreamCRCsChecked": 1
+      }
+    ],
+    "z_aeshdirs.7z": [
+      {
+        "scope": "encodedHeader",
+        "folderIndex": 0,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 0,
+        "ciphertextRange": {
+          "offset": 32,
+          "length": 80
+        },
+        "plaintextLength": 69,
+        "plaintextSHA256": "f17e21b64104881b47e297965a237cfa881b96f85326a66cb0571e1aea848d8e",
+        "paddedPlaintextLength": 80,
+        "paddedPlaintextSHA256": "8e7746e11a9b052afd0a1997d93f379c99b09815b644cd563caa013182fac9a2",
+        "zeroPaddingLength": 11,
+        "decodedFolderLength": 106,
+        "decodedFolderSHA256": "7e63d80b3d3eccf157e332a0bb947143508bd2033e2f04e212a1809edda64270",
+        "folderCRCChecked": true,
+        "substreamCRCsChecked": 1
+      }
+    ],
+    "z_aesonlyh.7z": [
+      {
+        "scope": "main",
+        "folderIndex": 0,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 0,
+        "ciphertextRange": {
+          "offset": 32,
+          "length": 32
+        },
+        "plaintextLength": 31,
+        "plaintextSHA256": "5c3ec4a5eefae7e4eeaf962649665fad9c6e3c88f56e022ce462df1fe059990b",
+        "paddedPlaintextLength": 32,
+        "paddedPlaintextSHA256": "deb90eeb651088ccab7d6def72164de5c6fb40b9e1f7cb7540c74b2b7006bd66",
+        "zeroPaddingLength": 1,
+        "decodedFolderLength": 608,
+        "decodedFolderSHA256": "28e36863ec26bb4c86204a3f1b8f1cc0b40fb2a14d08c2ae393768f716f943cb",
+        "folderCRCChecked": false,
+        "substreamCRCsChecked": 2
+      },
+      {
+        "scope": "encodedHeader",
+        "folderIndex": 0,
+        "coderIndex": 0,
+        "password": "secret",
+        "packIndex": 0,
+        "ciphertextRange": {
+          "offset": 64,
+          "length": 144
+        },
+        "plaintextLength": 142,
+        "plaintextSHA256": "3da4599f2bc011be8bd3680001bc8701279d37a375326f739f978d20c10183ed",
+        "paddedPlaintextLength": 144,
+        "paddedPlaintextSHA256": "1533de88cceb24aac726f334afe5ec39d734dfa565bf7165cb4a09eec9967a05",
+        "zeroPaddingLength": 2,
+        "decodedFolderLength": 142,
+        "decodedFolderSHA256": "3da4599f2bc011be8bd3680001bc8701279d37a375326f739f978d20c10183ed",
+        "folderCRCChecked": true,
+        "substreamCRCsChecked": 1
+      }
+    ],
+    "z_default.7z": [],
+    "z_nonsolid.7z": [],
+    "z_plainhdr.7z": [],
+    "z_special.7z": [],
+    "z_times.7z": [],
+    "zero_lzma2.7z": []
+  }
+}

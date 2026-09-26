@@ -1179,14 +1179,26 @@ prose ページであることを確認し、`source-archive` を含む URL は�
 > exit codes, stdout and first stderr lines on both binaries, and ASan reported nothing.
 > See the verification record.
 
-- Zstandard（2026-09-12、bd `cooViewer-c1vj.3`）: `Codecs/Zstd/` の 6 ファイルに、FSE、
+- Zstandard（2026-09-12、bd `cooViewer-c1vj.3`）: `Codecs/Zstd/` の 7 ファイルに、FSE、
   Huffman、前向き byte / 逆向き bit reader、XXH64、frame / block / sequence、Decompressor を実装。
   ヘッダの先読みは 4 KiB とし、本文は先読みの残りを消費後、残り要求が 4 KiB 以上なら直接まとめて読む。
   履歴は空の配列から実出力に比例して伸ばし、保持上限に達したらリングとして更新する。
   保持上限は content size が既知なら `min(windowSize, max(1, contentSize))`、不明なら宣言 window。
   既知の全出力より古いバイトを参照できないという LZMA の retainedDictionarySize と同じ根拠である。
   宣言 window は従来どおり maxDictionarySize（既定 1 GiB）で検証し、block 上限・match 距離にも使う。
-  block / literals の作業領域は各最大 128 KiB。skip の挙動を保ちつつ一覧の先読み破棄量を抑える。
+  圧縮 block / literals の scratch は frame ごとに遅延確保し、初回は `min(block 上限, max(4 KiB, 要求))`、
+  以後は必要時だけ倍増する（各最大 128 KiB）。block の前 8 byte と有効データ直後の 32 byte だけを
+  padding として初期化し、raw literals は block 内を直接参照、RLE / Huffman literals は再利用領域に復号する。
+  出力には書込み専用の 32 byte 余白を設け、有効 byte だけを履歴・返却値・XXH64 の対象とする。
+  sequence は 8 byte の FSE cell と境界付きの逆向き word reader で実行し、各コピー前に長さ・距離を検査する。
+  Huffman は frame 所有の 2 byte cell 表を rank ごとに埋め、重みと集計領域も再利用する。
+  pair 表は同じ表での累計復号記号数が校正済みの閾値 32,768 に達した時だけ構築し、新表で無効化する。
+  1 / 4 stream の復号は残り bit 数と出力余地の両方で batch 長を制限し、同じ padded reader で終端を厳密検証する。
+  raw block は出力 storage へ直接読み、RLE block は同じ領域を直接埋める。
+  block は実 byte の view を返し、Decompressor が全 byte を消費するまで frame を保持する。
+  次 block の復号・storage の再配置・frame 解放は消費後だけ行う。最終サイズと checksum は view 返却前に検証し、
+  XXH64 は同じ算術で view を読み取る。空 block は出力領域を確保せず、raw/RLE の既知サイズは確保前に検証する。
+  skip の挙動を保ちつつ一覧の先読み破棄量を抑える。[P11 検証記録](verification/2026-09-26-zstd-p11.md)。
   `.zst`・圧縮 tar・RPM cpio・ZIP method 93 と CLI / Compat の表示名を接続した。
   全 frame の宣言サイズがあれば合計を entry に公開し、欠落があれば nil とする。
   fixture 46 件は決定的 text / binary / random / repetitive / empty / one byte、level 1/3/9/19/22、
@@ -1194,12 +1206,26 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   80 通りの実行時 matrix と 7zz の第二オラクルも備える。未対応は外部辞書（7z の zstd method は 2026-09-20 に対応）。
   件数・時間・コマンド・破損入力の受理範囲は [検証記録](verification/2026-09-12-zstd.md) に記録する。
 
-> Zstandard (2026-09-12, bd cooViewer-c1vj.3): six codec files implement bounded streaming decoding,
+> Zstandard (2026-09-12, bd cooViewer-c1vj.3): seven codec files implement bounded streaming decoding,
 > FSE/Huffman, frame/block/sequence processing and XXH64. History grows with actual output up to a
 > retained size of min(windowSize, contentSize) when the content size is known and the declared window
 > otherwise, then updates as a ring; the declared window is still validated against maxDictionarySize and
 > still bounds block size and match distance. Header lookahead is 4 KiB and bodies above that are read
-> directly. Standalone and tar streams, RPM and ZIP 93 share the decoder. Known frame sizes are summed; any unknown size makes the entry size unknown.
+> directly. Compressed-block and literal scratch is lazy and owned by each frame: it starts at the smaller
+> of the block limit and max(4 KiB, first request), then doubles as needed, up to 128 KiB each. Only the
+> 8-byte front pad and 32 bytes immediately after valid input are initialized as padding. Raw literals
+> remain in the block; RLE and Huffman literals use reusable storage. Output has 32 write-only slack bytes;
+> only valid bytes enter history, returned output and XXH64. Sequences use 8-byte FSE cells and a bounded
+> backward word reader, checking lengths and distances before copying. Huffman builds rank ranges in reusable,
+> frame-owned 2-byte cells, also reusing weights and rank workspace. Its pair table is built only when the
+> current table's cumulative symbol count reaches the calibrated threshold of 32,768, and is invalidated by a new table.
+> One- and four-stream batches are bounded by both remaining bits and output room, with exact tail checks on
+> the same padded reader. Raw blocks are read directly into output storage, and RLE blocks fill that storage.
+> Each block returns a view of its valid bytes. The Decompressor retains the frame until that view is fully
+> consumed, before decoding another block, relocating storage or releasing the frame. Final size and checksum
+> checks run before returning the view; XXH64 reads it using unchanged arithmetic. Empty blocks allocate no output
+> storage, and known raw/RLE sizes are checked before allocation.
+> Standalone and tar streams, RPM and ZIP 93 share the decoder. Known frame sizes are summed; any unknown size makes the entry size unknown.
 > The corpus has 46 fixed fixtures plus a 80-case runtime matrix and a 7zz oracle.
 > External dictionaries remain unsupported (the 7z zstd method was added on 2026-09-20); see the verification record for results.
 

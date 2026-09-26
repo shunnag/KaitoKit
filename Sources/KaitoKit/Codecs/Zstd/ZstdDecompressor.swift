@@ -5,20 +5,24 @@ final class ZstdDecompressor: Decompressor {
     private let input: ZstdInput
     private let limits: ReadLimits
     private let expectedSize: UInt64?
+    private let tuning: ZstdTuning
     private var frame: ZstdFrameDecoder?
-    private var pending: [UInt8] = []
+    private var pending = UnsafeRawBufferPointer(start: nil, count: 0)
     private var pendingOffset = 0
     private var produced: UInt64 = 0
     private var sawFrame = false
     private var terminalError: (any Error)?
     private(set) var isFinished = false
+    var allocatedScratchBytes: Int { frame?.allocatedScratchBytes ?? 0 }
+    var allocatedBufferBytes: Int { frame?.allocatedBufferBytes ?? 0 }
 
     init(source: any ByteSource, offset: UInt64 = 0, compressedSize: UInt64? = nil,
-         expectedSize: UInt64? = nil, limits: ReadLimits = ReadLimits()) throws {
+         expectedSize: UInt64? = nil, limits: ReadLimits = ReadLimits(), tuning: ZstdTuning = .default) throws {
         input = try ZstdInput(source: source, offset: offset,
                               size: compressedSize ?? Checked.sub(source.length, offset))
         self.limits = limits
         self.expectedSize = expectedSize
+        self.tuning = tuning
         if let expectedSize { try Checked.size(expectedSize, limit: limits.maxEntrySize) }
     }
 
@@ -27,9 +31,11 @@ final class ZstdDecompressor: Decompressor {
         guard !buffer.isEmpty, !isFinished else { return 0 }
         do {
             while pendingOffset == pending.count {
+                // D11: 全 byte を消費してから view を破棄する。その後だけ次 block に進むか frame を解放する。
+                pending = UnsafeRawBufferPointer(start: nil, count: 0)
+                pendingOffset = 0
                 if let frame, !frame.finished {
                     pending = try frame.nextBlock(input)
-                    pendingOffset = 0
                     produced = try Checked.add(produced, UInt64(pending.count))
                     try Checked.size(produced, limit: limits.maxEntrySize)
                     if let expectedSize, produced > expectedSize {
@@ -53,13 +59,12 @@ final class ZstdDecompressor: Decompressor {
                         continue
                     }
                     guard magic == ZstdFrameHeader.magic else { throw KaitoError.malformed("zstd frame magic") }
-                    frame = try ZstdFrameDecoder(header: ZstdFrameHeader(input: input, limits: limits))
+                    frame = try ZstdFrameDecoder(header: ZstdFrameHeader(input: input, limits: limits), tuning: tuning)
                 }
             }
             let count = min(buffer.count, pending.count - pendingOffset)
-            pending.withUnsafeBytes { bytes in
-                buffer.copyMemory(from: UnsafeRawBufferPointer(rebasing: bytes[pendingOffset..<(pendingOffset + count)]))
-            }
+            // D11: frame を保持中で nextBlock は未呼出し。検査済み pending 範囲だけを caller にコピーする。
+            buffer.copyMemory(from: UnsafeRawBufferPointer(rebasing: pending[pendingOffset..<(pendingOffset + count)]))
             pendingOffset += count
             return count
         } catch {

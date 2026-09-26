@@ -33,8 +33,13 @@ struct ZstdXXH64 {
     }
 
     mutating func update(_ bytes: ArraySlice<UInt8>) {
+        bytes.withUnsafeBytes { update($0) }
+    }
+
+    // D11: 呼出中に有効な実 byte の view。stripe / tail の算術は配列版と同じで、余白は含めない。
+    mutating func update(_ bytes: UnsafeRawBufferPointer) {
         length &+= UInt64(bytes.count)
-        var offset = bytes.startIndex
+        var offset = 0
         if !tail.isEmpty {
             let count = min(32 - tail.count, bytes.count)
             tail.append(contentsOf: bytes[offset..<(offset + count)])
@@ -44,11 +49,9 @@ struct ZstdXXH64 {
                 tail.removeAll(keepingCapacity: true)
             }
         }
-        bytes.withUnsafeBytes { buffer in
-            while bytes.endIndex - offset >= 32 {
-                stripe(buffer, at: offset - bytes.startIndex)
-                offset += 32
-            }
+        while bytes.count - offset >= 32 {
+            stripe(bytes, at: offset)
+            offset += 32
         }
         tail.append(contentsOf: bytes[offset...])
     }

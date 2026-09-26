@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+- zstd の sequence / Huffman 復号を高速化し、作業領域と表を frame ごとに再利用、block 出力を view 化する（P11 Stage 3）。
+  静穏条件の Stage 2 gate では 256 MiB tar.zst の open 0.568 倍、5 万件の method 93 ZIP の展開 0.393 倍。
+  出力・検査・公開 API を維持する。G1 / G2 は通過、Stage 3 の最終性能・RSS は host 判定待ち。
+  [検証記録](Documentation/verification/2026-09-26-zstd-p11.md)。
 - GyoshukuKit の 7z 編集用に `SevenZipEditLayout` SPI を追加。
   `recordsSevenZipEditLayout`（既定 false）で生の header 値を記録し、source を持たない snapshot を返す。
   `reopen()` は記録を共有する。AES が直接読む packed stream の復号も既存の鍵 cache で提供し、

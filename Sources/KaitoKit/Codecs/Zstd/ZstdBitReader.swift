@@ -73,20 +73,126 @@ struct ZstdBitReader {
     }
 }
 
-// ブロック内の前向き読み取り。部分領域を独立した上限付き reader にできる。
+// D0/D1: フレーム所有の遅延 scratch。再確保時に有効データは引き継がず、次の fill で埋める。
+final class ZstdScratchBuffer {
+    static let frontPad = 8
+    static let backPad = 32
+    private var allocation: UnsafeMutableRawPointer?
+    private(set) var capacity = 0
+    var allocatedBytes: Int { allocation == nil ? 0 : Self.frontPad + capacity + Self.backPad }
+    var base: UnsafeMutableRawPointer { allocation!.advanced(by: Self.frontPad) }
+
+    func reserve(_ count: Int, maximum: Int) {
+        precondition(count >= 0 && count <= maximum)
+        if allocation != nil, count <= capacity { return }
+        var nextCapacity = capacity == 0 ? min(maximum, max(4 * 1_024, count)) : capacity
+        while nextCapacity < count { nextCapacity = min(maximum, nextCapacity * 2) }
+        capacity = nextCapacity
+        allocation?.deallocate()
+        allocation = .allocate(byteCount: Self.frontPad + capacity + Self.backPad, alignment: 16)
+        // 前余白だけ初期化する。有効領域と直後の後余白は呼出側が毎回埋める。
+        allocation!.initializeMemory(as: UInt8.self, repeating: 0, count: Self.frontPad)
+    }
+
+    func pad(after count: Int, byte: UInt8 = 0) {
+        // count <= capacity。読取り可能な後余白は有効データ直後の 32 バイトだけ。
+        base.advanced(by: count).initializeMemory(as: UInt8.self, repeating: byte, count: Self.backPad)
+    }
+
+    deinit { allocation?.deallocate() }
+}
+
+// D5: 前余白 8 バイトを持つブロック上の逆向き reader。所有フレームの寿命内だけ使用する。
+struct ZstdPaddedBitReader {
+    private let base: UnsafeRawPointer
+    private let lower: Int
+    private var p: Int
+    private var container: UInt64
+    private(set) var consumed: Int
+
+    init(_ bytes: UnsafeRawBufferPointer, range: Range<Int>) throws {
+        guard range.lowerBound >= 0, range.upperBound <= bytes.count, !range.isEmpty,
+              bytes[range.upperBound - 1] != 0 else {
+            throw KaitoError.malformed("zstd bitstream end marker")
+        }
+        base = bytes.baseAddress!
+        lower = range.lowerBound
+        p = range.upperBound - 1
+        consumed = bytes[p].leadingZeroBitCount + 1
+        // [s,e) の s >= allocation + F >= allocation + 8。初回も [p-7,p] は確保内。
+        container = UInt64(littleEndian: base.loadUnaligned(fromByteOffset: p - 7, as: UInt64.self))
+    }
+
+    var remaining: Int { (p + 1 - lower) * 8 - consumed }
+
+    @inline(__always)
+    mutating func refill() throws {
+        let next = p - (consumed >> 3)
+        // D5 境界証明: 正常時 p >= s-1、従って [p-7,p] ⊂ [s-8,e) ⊂ allocation。
+        // 不正な前方への超過は cold helper で拒否し、確保外の load は実行しない。
+        if next < lower - 1 { try Self.underflow() }
+        p = next
+        consumed &= 7
+        container = UInt64(littleEndian: base.loadUnaligned(fromByteOffset: p - 7, as: UInt64.self))
+    }
+
+    @inline(__always)
+    mutating func readUnchecked(_ count: Int) -> Int {
+        // 呼出幅 0...31、refill schedule により consumed + count <= 63。残量は終端で厳密検査する。
+        let value = ((container &<< consumed) &>> 1) &>> (63 - count)
+        consumed += count
+        return Int(value)
+    }
+
+    @inline(__always)
+    func peekUnchecked(_ count: Int) -> Int {
+        // D10: Huffman の幅 <= 12。batch の K または tail の refill が consumed + count <= 63 を保証する。
+        Int(((container &<< consumed) &>> 1) &>> (63 - count))
+    }
+
+    @inline(__always)
+    mutating func dropUnchecked(_ count: Int) {
+        // D10: 検証済み cell の幅だけ進む。batch は最大幅で残量を予約し、tail は実幅を検査する。
+        consumed += count
+    }
+
+    @inline(never)
+    private static func underflow() throws -> Never {
+        throw KaitoError.malformed("zstd bitstream underflow")
+    }
+}
+
+// ブロック内の前向き view。部分領域を独立した上限付き reader にできる。
 struct ZstdByteReader {
-    let bytes: [UInt8]
+    let bytes: UnsafeRawBufferPointer
+    // 配列 API の互換 wrapper のみ所有する。本番はフレームの scratch を借用する。
+    fileprivate let owner: ZstdScratchBuffer?
     private(set) var position: Int
     let end: Int
 
     init(_ bytes: [UInt8]) {
-        self.bytes = bytes
+        let owner = ZstdScratchBuffer()
+        owner.reserve(bytes.count, maximum: bytes.count)
+        bytes.withUnsafeBytes { source in
+            if !source.isEmpty { owner.base.copyMemory(from: source.baseAddress!, byteCount: source.count) }
+        }
+        owner.pad(after: bytes.count)
+        self.owner = owner
+        self.bytes = UnsafeRawBufferPointer(start: owner.base, count: bytes.count)
         position = 0
         end = bytes.count
     }
 
-    private init(bytes: [UInt8], range: Range<Int>) {
+    init(_ bytes: UnsafeRawBufferPointer) {
         self.bytes = bytes
+        owner = nil
+        position = 0
+        end = bytes.count
+    }
+
+    private init(bytes: UnsafeRawBufferPointer, range: Range<Int>, owner: ZstdScratchBuffer?) {
+        self.bytes = bytes
+        self.owner = owner
         position = range.lowerBound
         end = range.upperBound
     }
@@ -98,6 +204,7 @@ struct ZstdByteReader {
     mutating func integer(_ count: Int) throws -> UInt64 {
         guard (0...8).contains(count), count <= remaining else { throw KaitoError.truncated }
         var value: UInt64 = 0
+        // 直前の guard が [position, position + count) を view 内に制限する。
         for index in 0..<count { value |= UInt64(bytes[position + index]) << (8 * index) }
         position += count
         return value
@@ -111,18 +218,20 @@ struct ZstdByteReader {
     }
 
     mutating func subreader(_ count: Int) throws -> Self {
-        Self(bytes: bytes, range: try take(count))
+        Self(bytes: bytes, range: try take(count), owner: owner)
     }
 }
 
 // FSE 分布だけは最下位ビットから前向きに読む。各読取りで境界を確認する。
 struct ZstdForwardBits {
-    let bytes: [UInt8]
+    let bytes: UnsafeRawBufferPointer
+    private let owner: ZstdScratchBuffer?
     let end: Int
     var position: Int
 
     init(_ reader: ZstdByteReader) {
         bytes = reader.bytes
+        owner = reader.owner
         end = reader.end * 8
         position = reader.position * 8
     }
@@ -134,6 +243,7 @@ struct ZstdForwardBits {
         while written < count {
             let shift = position & 7
             let width = min(8 - shift, count - written)
+            // count <= end - position の検査により、参照バイトは部分 view 内。
             result |= ((Int(bytes[position >> 3]) >> shift) & ((1 << width) - 1)) << written
             position += width
             written += width
@@ -200,6 +310,40 @@ final class ZstdInput {
             }
         }
         return result
+    }
+
+    func read(_ count: Int, into destination: UnsafeMutableRawPointer) throws {
+        // 呼出側は count バイトを確保済み。入力範囲を検査してから source に触れる。
+        guard count >= 0, UInt64(count) <= remaining else { throw KaitoError.truncated }
+        var filled = 0
+        while filled < count {
+            if bufferOffset < buffer.count {
+                let amount = min(count - filled, buffer.count - bufferOffset)
+                buffer.withUnsafeBytes { bytes in
+                    // 両範囲は残量で制限済みで、先読み配列と destination は独立している。
+                    destination.advanced(by: filled).copyMemory(
+                        from: bytes.baseAddress!.advanced(by: bufferOffset), byteCount: amount)
+                }
+                bufferOffset += amount
+                position += UInt64(amount)
+                filled += amount
+            } else if count - filled >= 4 * 1_024 {
+                // readByteRange と同じく short read を完了まで続け、不正な返却長は拒否する。
+                while filled < count {
+                    let remaining = count - filled
+                    let actual = try source.read(
+                        into: UnsafeMutableRawBufferPointer(start: destination.advanced(by: filled), count: remaining),
+                        at: position)
+                    guard actual > 0, actual <= remaining else { throw KaitoError.truncated }
+                    filled += actual
+                    position += UInt64(actual)
+                }
+            } else {
+                let amount = Int(min(4 * 1_024, remaining))
+                buffer = try readByteRange(source: source, offset: position, count: amount)
+                bufferOffset = 0
+            }
+        }
     }
 
     func skip(_ count: UInt64) throws {

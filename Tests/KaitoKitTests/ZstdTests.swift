@@ -52,8 +52,10 @@ final class ZstdTests: XCTestCase {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    private func decode(_ data: Data, limits: ReadLimits = ReadLimits(), expectedSize: UInt64? = nil) throws -> Data {
-        let decoder = try ZstdDecompressor(source: DataByteSource(data), expectedSize: expectedSize, limits: limits)
+    private func decode(_ data: Data, limits: ReadLimits = ReadLimits(), expectedSize: UInt64? = nil,
+                        tuning: ZstdTuning = .default) throws -> Data {
+        let decoder = try ZstdDecompressor(source: DataByteSource(data), expectedSize: expectedSize,
+                                           limits: limits, tuning: tuning)
         return try EntryStream(decompressor: decoder, length: nil, expectedCRC32: nil,
                                entryIndex: 0, limits: limits).readAll()
     }
@@ -220,13 +222,15 @@ final class ZstdTests: XCTestCase {
         for (expected, allocation) in zip(blocks, allocations) {
             XCTAssertFalse(decoder.finished)
             let output = try decoder.nextBlock(input)
-            XCTAssertEqual(output, expected)
+            XCTAssertEqual(Array(output), expected)
             produced += output.count
             XCTAssertEqual(decoder.allocatedWindowBytes, allocation)
             XCTAssertLessThanOrEqual(decoder.allocatedWindowBytes, max(1, produced))
             XCTAssertLessThanOrEqual(decoder.allocatedWindowBytes, retained)
-            XCTAssertLessThanOrEqual(decoder.allocatedBufferBytes, 2 * retained + header.maximumBlockSize + 16)
-            XCTAssertLessThanOrEqual(decoder.allocatedBufferBytes, 2 * (produced + header.maximumBlockSize + 16))
+            XCTAssertLessThanOrEqual(decoder.allocatedBufferBytes,
+                                    2 * retained + header.maximumBlockSize + ZstdFrameDecoder.outputSlack)
+            XCTAssertLessThanOrEqual(decoder.allocatedBufferBytes,
+                                    2 * (produced + header.maximumBlockSize + ZstdFrameDecoder.outputSlack))
         }
         XCTAssertTrue(decoder.finished)
         XCTAssertEqual(input.remaining, 0)
@@ -317,9 +321,9 @@ final class ZstdTests: XCTestCase {
         let limits = ReadLimits(maxEntrySize: UInt64(Int.max), maxDictionarySize: UInt64(Int.max))
         let decoder = try ZstdFrameDecoder(header: ZstdFrameHeader(input: input, limits: limits))
         XCTAssertEqual(decoder.allocatedBufferBytes, 0)
-        XCTAssertEqual(try decoder.nextBlock(input), [97])
+        XCTAssertEqual(Array(try decoder.nextBlock(input)), [97])
         XCTAssertEqual(decoder.allocatedWindowBytes, 1)
-        XCTAssertEqual(decoder.allocatedBufferBytes, 17)
+        XCTAssertEqual(decoder.allocatedBufferBytes, 1 + ZstdFrameDecoder.outputSlack)
         XCTAssertThrowsError(try decoder.nextBlock(input)) {
             XCTAssertEqual($0 as? KaitoError, .malformed("zstd frame content size mismatch"))
         }
@@ -582,6 +586,105 @@ final class ZstdTests: XCTestCase {
         XCTAssertEqual(UInt64(UInt32(truncatingIfNeeded: hash.value)), stored)
     }
 
+    func testStage3XXH64RawViewsAndUnalignedChunks() {
+        let input = [UInt8](0...255) + [UInt8](0...100)
+        var expected = ZstdXXH64()
+        expected.update(input[...])
+        for start in 0...7 {
+            let storage = [UInt8](repeating: 0xa5, count: start) + input + [UInt8](repeating: 0x5a, count: 32)
+            storage.withUnsafeBytes { bytes in
+                for chunk in 1...65 {
+                    var hash = ZstdXXH64()
+                    hash.update(UnsafeRawBufferPointer(start: nil, count: 0))
+                    for offset in stride(from: 0, to: input.count, by: chunk) {
+                        let end = min(input.count, offset + chunk)
+                        hash.update(UnsafeRawBufferPointer(rebasing: bytes[(start + offset)..<(start + end)]))
+                    }
+                    hash.update(UnsafeRawBufferPointer(start: nil, count: 0))
+                    XCTAssertEqual(hash.value, expected.value, "start=\(start), chunk=\(chunk)")
+                }
+            }
+        }
+    }
+
+    func testStage3BlockViewsEmptyBlocksAndFinalValidation() throws {
+        // 空の raw / RLE / compressed は output storage を確保しない。RLE の byte は消費する。
+        for empty in [block([], type: 0), block([0xa5], type: 1, size: 0), block([0, 0])] {
+            let data = frame(empty)
+            let input = try ZstdInput(source: DataByteSource(data), offset: 4, size: UInt64(data.count - 4))
+            let decoder = try ZstdFrameDecoder(header: ZstdFrameHeader(input: input, limits: ReadLimits()))
+            XCTAssertTrue(try decoder.nextBlock(input).isEmpty)
+            XCTAssertTrue(decoder.finished)
+            XCTAssertEqual(input.remaining, 0)
+            XCTAssertEqual(decoder.allocatedBufferBytes, 0)
+            XCTAssertEqual(decoder.allocatedWindowBytes, 0)
+        }
+        for type in [0, 1] {
+            let oversized = Data([0x28, 0xb5, 0x2f, 0xfd, 0xc0, 0] + little(1, 8)
+                + block(type == 0 ? [65, 66] : [65], type: type, size: 2))
+            let input = try ZstdInput(source: DataByteSource(oversized), offset: 4, size: UInt64(oversized.count - 4))
+            let decoder = try ZstdFrameDecoder(header: ZstdFrameHeader(input: input, limits: ReadLimits()))
+            XCTAssertThrowsError(try decoder.nextBlock(input)) {
+                XCTAssertEqual($0 as? KaitoError, .malformed("zstd frame output exceeds content size"))
+            }
+            XCTAssertEqual(decoder.allocatedBufferBytes, 0)
+            XCTAssertEqual(decoder.allocatedScratchBytes, 0)
+        }
+
+        let blocks: [[UInt8]] = [Array("abcdefgh".utf8), [], [], [UInt8](repeating: 0x51, count: 65), Array("zzzz".utf8)]
+        let plain = blocks.flatMap { $0 }
+        var encoded = frame(block(blocks[0], type: 0, last: false)
+            + block([], type: 0, last: false) + block([0xa5], type: 1, last: false, size: 0)
+            + block([0x51], type: 1, last: false, size: 65)
+            + block(rleSequence(literals: [0x7a], ll: 1)), contentSize: UInt64(plain.count))
+        encoded[4] |= 4
+        var hash = ZstdXXH64()
+        hash.update(plain[...])
+        encoded.append(contentsOf: little(hash.value, 4))
+        let input = try ZstdInput(source: DataByteSource(encoded), offset: 4, size: UInt64(encoded.count - 4))
+        let frameDecoder = try ZstdFrameDecoder(header: ZstdFrameHeader(input: input, limits: ReadLimits()))
+        var viewHash = ZstdXXH64(), previousAllocation = 0
+        for (index, expected) in blocks.enumerated() {
+            let view = try frameDecoder.nextBlock(input)
+            XCTAssertEqual(view.count, expected.count)
+            XCTAssertEqual(Array(view), expected)
+            viewHash.update(view)
+            if expected.isEmpty { XCTAssertEqual(frameDecoder.allocatedBufferBytes, previousAllocation) }
+            previousAllocation = frameDecoder.allocatedBufferBytes
+            if index < blocks.count - 1 { XCTAssertEqual(frameDecoder.allocatedScratchBytes, 0) }
+        }
+        XCTAssertTrue(frameDecoder.finished)
+        XCTAssertEqual(viewHash.value, hash.value)
+        let skip = Data([0x50, 0x2a, 0x4d, 0x18, 0, 0, 0, 0])
+        for chunk in [1, 7, 31] {
+            let decoder = try ZstdDecompressor(source: DataByteSource(encoded + skip + encoded))
+            var buffer = [UInt8](repeating: 0, count: chunk)
+            var result = Data()
+            while true {
+                let count = try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }
+                if count == 0 { break }
+                result.append(contentsOf: buffer.prefix(count))
+            }
+            XCTAssertEqual(result, Data(plain + plain))
+        }
+        // 最終 block の checksum が不正なら、その view の最初の byte さえ返さず terminal にする。
+        var damaged = encoded
+        damaged[damaged.count - 1] ^= 1
+        let decoder = try ZstdDecompressor(source: DataByteSource(damaged))
+        var buffer = [UInt8](repeating: 0xa5, count: 128)
+        for expected in [blocks[0], blocks[3]] {
+            let count = try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }
+            XCTAssertEqual(Array(buffer.prefix(count)), expected)
+        }
+        for _ in 0..<2 {
+            buffer = [UInt8](repeating: 0xa5, count: 128)
+            XCTAssertThrowsError(try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }) {
+                XCTAssertEqual($0 as? KaitoError, .checksumMismatch(entry: 0))
+            }
+            XCTAssertEqual(buffer, [UInt8](repeating: 0xa5, count: 128))
+        }
+    }
+
     private final class CountingSource: ByteSource, @unchecked Sendable {
         private let source: DataByteSource
         // 読取りの記録は同じロックで保護する。
@@ -694,4 +797,223 @@ final class ZstdTests: XCTestCase {
         let rawStream = try EntryStream(decompressor: raw, length: nil, expectedCRC32: nil, entryIndex: 0, limits: ReadLimits())
         XCTAssertEqual(try rawStream.readAll(), Data(repeating: 65, count: 131072))
     }
+
+    func testStage1FixedStreamsWithEveryMatchPath() throws {
+        for item in try fixtures() where !item.unsupported {
+            let data = try fixture(item.file)
+            // コンテナ fixture もその内側の zstd frame を同じ設定で復号する。
+            // 固定 fixture の先頭 frame を検出し、frame/block の長さで終端を決める。
+            let magic = Data([0x28, 0xb5, 0x2f, 0xfd])
+            let encoded: Data
+            if item.file.hasSuffix(".zst") { encoded = data }
+            else {
+                let start = try XCTUnwrap(data.range(of: magic)).lowerBound
+                let input = try ZstdInput(source: DataByteSource(data), offset: UInt64(start),
+                                          size: UInt64(data.count - start))
+                repeat {
+                    let magic = try input.integer(4)
+                    if ZstdFrameHeader.isSkippable(magic) {
+                        try input.skip(input.integer(4))
+                    } else {
+                        XCTAssertEqual(magic, ZstdFrameHeader.magic)
+                        let header = try ZstdFrameHeader(input: input, limits: ReadLimits())
+                        var last = false
+                        while !last {
+                            let block = try header.blockHeader(input)
+                            try input.skip(UInt64(block.type == 1 ? 1 : block.size))
+                            last = block.last
+                        }
+                        if header.checksum { try input.skip(4) }
+                    }
+                    let next = Int(input.position)
+                    if next + 4 > data.count { break }
+                    let nextMagic = (0..<4).reduce(UInt64(0)) { $0 | (UInt64(data[next + $1]) << ($1 * 8)) }
+                    if nextMagic != ZstdFrameHeader.magic && !ZstdFrameHeader.isSkippable(nextMagic) { break }
+                } while true
+                encoded = data[start..<Int(input.position)]
+            }
+            let expected = try decode(encoded)
+            XCTAssertEqual(expected.count, item.decodedSize, item.file)
+            XCTAssertEqual(sha(expected), item.decodedSHA256, item.file)
+            for path: ZstdTuning.MatchPath in [.eightByteChunks, .byteThenPeriod] {
+                XCTAssertEqual(try decode(encoded, tuning: ZstdTuning(matchPath: path)), expected, item.file)
+            }
+            for tuning in ZstdTuning.huffmanTestVariants {
+                XCTAssertEqual(try decode(encoded, tuning: tuning), expected, item.file)
+            }
+        }
+    }
+
+    func testStage2HuffmanPairInvalidationAndTreelessLifetime() throws {
+        let first = (0..<128).map { UInt8($0 & 1) }
+        let second: [UInt8] = [2, 1, 2, 2, 1, 1, 2, 1]
+        let firstStream = bits(first.map { (Int($0), 1) })
+        let secondStream = bits(second.map { (Int($0) - 1, 1) })
+        let firstDescription: [UInt8] = [128, 0x10]
+        let secondDescription: [UInt8] = [129, 0x01]
+        func section(_ description: [UInt8], _ stream: [UInt8], _ count: Int, type: Int = 2) -> [UInt8] {
+            little(UInt64(type | (count << 4) | ((description.count + stream.count) << 14)), 3)
+                + description + stream + [0]
+        }
+        let encoded = frame(block(section(firstDescription, firstStream, first.count), last: false)
+            + block(section(secondDescription, secondStream, second.count), last: false)
+            + block(section([], secondStream, second.count, type: 3)))
+        let expected = Data(first + second + second)
+        XCTAssertEqual(try decode(encoded, tuning: ZstdTuning(pairTableThreshold: 64)), expected)
+        for tuning in ZstdTuning.huffmanTestVariants {
+            XCTAssertEqual(try decode(encoded, tuning: tuning), expected)
+        }
+
+        // T8: 最初だけ T=0、次は T=64。旧 pair を参照すると第二表の記号 1/2 が 0/1 になってしまう。
+        let table = ZstdHuffman()
+        XCTAssertEqual(table.allocatedTableBytes, 0)
+        var reader = ZstdByteReader(firstDescription + firstStream)
+        try table.readTable(from: &reader)
+        let singleAllocation = table.allocatedTableBytes
+        XCTAssertFalse(table.pairTableBuilt)
+        XCTAssertEqual(try table.decode(from: &reader, count: first.count, fourStreams: false,
+                                        tuning: ZstdTuning(pairTableThreshold: 0)), first)
+        XCTAssertTrue(table.pairTableBuilt)
+        XCTAssertEqual(table.decodedSymbols, first.count)
+        let allocation = table.allocatedTableBytes
+        XCTAssertGreaterThan(allocation, singleAllocation)
+        reader = ZstdByteReader(secondDescription + secondStream)
+        try table.readTable(from: &reader)
+        XCTAssertFalse(table.pairTableBuilt)
+        XCTAssertEqual(table.decodedSymbols, 0)
+        XCTAssertEqual(table.allocatedTableBytes, allocation)
+        XCTAssertEqual(try table.decode(from: &reader, count: second.count, fourStreams: false,
+                                        tuning: ZstdTuning(pairTableThreshold: 64)), second)
+        XCTAssertFalse(table.pairTableBuilt)
+        XCTAssertEqual(table.decodedSymbols, second.count)
+        // type 3 相当: 再読込せずに累計 64 記号へ到達してから構築する。
+        let reused = (0..<56).map { UInt8(1 + ($0 & 1)) }
+        reader = ZstdByteReader(bits(reused.map { (Int($0) - 1, 1) }))
+        XCTAssertEqual(try table.decode(from: &reader, count: reused.count, fourStreams: false,
+                                        tuning: ZstdTuning(pairTableThreshold: 64)), reused)
+        XCTAssertTrue(table.pairTableBuilt)
+        XCTAssertEqual(table.decodedSymbols, 64)
+        XCTAssertEqual(table.allocatedTableBytes, allocation)
+
+        guard FileManager.default.isExecutableFile(atPath: zstd) else { throw XCTSkip("zstd CLI がありません") }
+        let oracle = try ZipTestSupport.checkedRun(zstd, arguments: ["-q", "-d", "-c"],
+                                                   standardInput: encoded).standardOutput
+        XCTAssertEqual(oracle, expected)
+    }
+
+    func testStage2HuffmanDeepBatchesTailsAndPadding() throws {
+        XCTAssertEqual(MemoryLayout<ZstdHuffman.Cell>.stride, 2)
+        let codes = (1...10).map { (1, $0) } + [(0, 11), (1, 11)]
+        for count in [1, 4, 7, 8, 19, 20, 31, 32, 257, 1_027] {
+            let expected = (0..<count).map { UInt8($0 % 12) }
+            for four in [false, true] {
+                let segment = four ? (count + 3) / 4 : count
+                if four && 3 * segment > count { continue }
+                let streams = (0..<(four ? 4 : 1)).map { index in
+                    bits(expected[(index * segment)..<min((index + 1) * segment, count)].map { codes[Int($0)] })
+                }
+                let jumps = four ? streams.prefix(3).flatMap { little(UInt64($0.count), 2) } : []
+                for tuning in ZstdTuning.huffmanTestVariants {
+                    let table = try ZstdHuffman(weights: Array(stride(from: 11, through: 1, by: -1)))
+                    // 先頭以前が非ゼロでも tail の lookahead は stream 外を符号に混ぜない。
+                    var reader = ZstdByteReader([0xff, 0xa5, 0x7e] + jumps + streams.flatMap { $0 })
+                    _ = try reader.take(3)
+                    var output = [UInt8](repeating: 0xa5, count: count + ZstdScratchBuffer.backPad)
+                    try output.withUnsafeMutableBufferPointer {
+                        try table.decode(from: &reader, count: count, fourStreams: four, tuning: tuning, into: $0)
+                    }
+                    XCTAssertEqual(Array(output.prefix(count)), expected)
+                    XCTAssertEqual(Array(output.suffix(ZstdScratchBuffer.backPad)), [UInt8](repeating: 0, count: 32))
+                    XCTAssertLessThanOrEqual(table.allocatedTableBytes, (4 + 16) * 1_024 + 448)
+                }
+            }
+        }
+    }
+
+    func testStage1LargeOffsetsRefillAndHistoryRejection() throws {
+        let historySize = 33 << 20
+        let rawSize = 128 << 10
+        func counterByte(_ position: Int) -> UInt8 {
+            UInt8(truncatingIfNeeded: (position / 4) >> ((position & 3) * 8))
+        }
+        var rawBlocks = Data()
+        var raw = [UInt8](repeating: 0, count: rawSize)
+        for start in stride(from: 0, to: historySize, by: rawSize) {
+            raw.withUnsafeMutableBytes { buffer in
+                for position in stride(from: 0, to: rawSize, by: 4) {
+                    buffer.storeBytes(of: UInt32((start + position) / 4).littleEndian,
+                                      toByteOffset: position, as: UInt32.self)
+                }
+            }
+            rawBlocks.append(contentsOf: block(raw, type: 0, last: false))
+        }
+        let literalCount = 32_773
+        let matchCount = 65_546
+        let offset = historySize - 17
+        var expected = [UInt8](repeating: 0x61, count: literalCount)
+        for index in 0..<matchCount { expected.append(counterByte(historySize + literalCount - offset + index)) }
+        for code: UInt8 in [25, 30] {
+            let offsetExtra = code == 25 ? offset + 3 - (1 << 25) : 0
+            let sequence = little(UInt64(1 | (3 << 2) | (literalCount << 4)), 3)
+                + [0x61, 1, 0x54, 34, code, 52]
+                + bits([(offsetExtra, Int(code)), (matchCount - 65_539, 16), (literalCount - 32_768, 15)])
+            var data = Data([0x28, 0xb5, 0x2f, 0xfd, 0, 0x80])
+            data.append(rawBlocks)
+            data.append(contentsOf: block(sequence))
+            let input = try ZstdInput(source: DataByteSource(data), offset: 4, size: UInt64(data.count - 4))
+            let decoder = try ZstdFrameDecoder(header: ZstdFrameHeader(input: input, limits: ReadLimits()))
+            for _ in 0..<(historySize / rawSize) { XCTAssertEqual(try decoder.nextBlock(input).count, rawSize) }
+            XCTAssertEqual(decoder.allocatedWindowBytes, historySize)
+            if code == 25 {
+                let output = try decoder.nextBlock(input)
+                XCTAssertEqual(output.count, literalCount + matchCount)
+                XCTAssertEqual(Array(output), expected)
+                var actualHash = ZstdXXH64(), expectedHash = ZstdXXH64()
+                actualHash.update(output); expectedHash.update(expected[...])
+                XCTAssertEqual(actualHash.value, expectedHash.value)
+            } else {
+                XCTAssertThrowsError(try decoder.nextBlock(input)) {
+                    XCTAssertEqual($0 as? KaitoError, .malformed("zstd match exceeds history"))
+                }
+            }
+            XCTAssertEqual(decoder.allocatedWindowBytes, historySize)
+        }
+    }
+
+    func testStage1InputIntoShortReadsAndInvalidCounts() throws {
+        let data = Data((0..<20_000).map { UInt8(truncatingIfNeeded: $0 * 29) })
+        let source = ShortSource(data)
+        let input = try ZstdInput(source: source, offset: 17, size: UInt64(data.count))
+        let target = UnsafeMutableRawPointer.allocate(byteCount: data.count, alignment: 16)
+        defer { target.deallocate() }
+        XCTAssertEqual(try input.byte(), data[0])
+        for count in [4_094, 8_193, 7_712] {
+            let start = Int(input.position - 17)
+            try input.read(count, into: target)
+            XCTAssertEqual(Data(bytes: target, count: count), data[start..<(start + count)])
+        }
+        XCTAssertEqual(input.remaining, 0)
+        try input.read(0, into: target)
+        XCTAssertThrowsError(try input.read(-1, into: target)) { XCTAssertEqual($0 as? KaitoError, .truncated) }
+        XCTAssertThrowsError(try input.read(1, into: target)) { XCTAssertEqual($0 as? KaitoError, .truncated) }
+
+        final class InvalidSource: ByteSource {
+            let length: UInt64 = 8_192
+            let response: Int?
+            init(_ response: Int?) { self.response = response }
+            func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
+                guard let response else { throw KaitoError.malformed("unexpected source read") }
+                return response
+            }
+        }
+        let untouched = try ZstdInput(source: InvalidSource(nil), offset: 0, size: 8_192)
+        XCTAssertThrowsError(try untouched.read(8_193, into: target)) { XCTAssertEqual($0 as? KaitoError, .truncated) }
+        for response in [-1, 0, 8_193] {
+            let bad = InvalidSource(response)
+            let reader = try ZstdInput(source: bad, offset: 0, size: bad.length)
+            XCTAssertThrowsError(try reader.read(8_193, into: target)) { XCTAssertEqual($0 as? KaitoError, .truncated) }
+            XCTAssertThrowsError(try reader.read(8_192, into: target)) { XCTAssertEqual($0 as? KaitoError, .truncated) }
+        }
+    }
+
 }

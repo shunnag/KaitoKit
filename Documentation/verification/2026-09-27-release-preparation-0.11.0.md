@@ -1,6 +1,6 @@
 # KaitoKit 0.11.0 release preparation — 2026-09-27
 
-Prepared in `feature/2026-09-24-review` at `823ad46`, ten commits beyond
+Prepared in `feature/2026-09-24-review` at `aca39dc`, ten commits beyond
 `v0.10.0`. No commit, push, tag or history rewrite was performed. GyoshukuKit and
 KaitoFinder were not accessed or changed. The three replacement archives can be
 copied into those repositories by the orchestrator.
@@ -88,7 +88,7 @@ The remaining named tool-generated groups describe project-owned inputs and
 black-box writers. No other explicit bundled Apple executable payload was
 identified in NOTICE. No entry above or its bytes was changed.
 
-The old Apple-containing blobs still exist in local commit `ef06e22` and its
+The old Apple-containing blobs still exist in local commit `6a51d7a` and its
 descendants. Replacing working-tree files does not remove those historical
 objects. The orchestrator must account for that before the first public push;
 history was left untouched under the no-commit instruction.
@@ -189,7 +189,7 @@ The writable-cache flags shown above were used for both selections.
 
 Final `git diff --check` passed. The requested path scan produced no matches,
 and an additional scan including untracked new files also produced no matches.
-HEAD remains `823ad46`, with no staged changes.
+HEAD remains `aca39dc`, with no staged changes.
 
 For each replacement, all three commands below returned 0; every `kaito sha`
 entry digest/length matched the generator's input (nine entry comparisons):

@@ -29,6 +29,17 @@ jobs:
           KAITO_REQUIRE_BROTLI: "1"
           KAITO_REQUIRE_ZSTD: "1"
         run: swift test
+      # LHA の公開値の golden は日付を Asia/Tokyo で固定しており、UTC の runner では skip される。
+      - name: Test LHA golden values in Asia/Tokyo
+        env:
+          TZ: Asia/Tokyo
+          KAITO_REQUIRE_LHA_GOLDEN: "1"
+        # golden の 2 件が実際に走ったことも出力で確かめる（名前の変更で filter に一致しなくなっても緑にしない）。
+        run: |
+          set -o pipefail
+          swift test --skip-build --filter 'LHARawLayout|LHAPublicValueGolden' 2>&1 | tee "$RUNNER_TEMP/lha-golden.log"
+          grep -q 'LHA-GOLDEN Step0=31 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden.log"
+          grep -q 'LHA-GOLDEN existing=3 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden.log"
 
   # 利用側の cooViewer は、このスクリプトが作るフレームワークを組み込む。
   # swift build / swift test が緑でも、ここが壊れると利用側はビルドできない（2026-09 に実際に発生）。

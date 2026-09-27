@@ -38,7 +38,12 @@ final class LHAPublicValueGoldenTests: XCTestCase {
     }
 
     private func requireTokyo() throws {
-        try XCTSkipUnless(TimeZone.current.identifier == "Asia/Tokyo", "Run with TZ=Asia/Tokyo for frozen LHA dates")
+        guard TimeZone.current.identifier != "Asia/Tokyo" else { return }
+        // CI の Tokyo の step は KAITO_REQUIRE_LHA_GOLDEN=1 で、skip ではなく失敗にする（golden の比較を黙って落とさない）。
+        if ZipTestSupport.environmentFlagIsEnabled("KAITO_REQUIRE_LHA_GOLDEN") {
+            XCTFail("KAITO_REQUIRE_LHA_GOLDEN is set, but TimeZone.current is \(TimeZone.current.identifier)")
+        }
+        throw XCTSkip("Run with TZ=Asia/Tokyo for frozen LHA dates")
     }
 
     private func assertGolden(url: URL, golden: String) throws {

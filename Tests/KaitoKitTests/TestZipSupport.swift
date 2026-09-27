@@ -212,7 +212,7 @@ enum ZipTestSupport {
         return fallbackPaths[0]
     }
 
-    private static func environmentFlagIsEnabled(_ name: String) -> Bool {
+    static func environmentFlagIsEnabled(_ name: String) -> Bool {
         guard let value = ProcessInfo.processInfo.environment[name]?.lowercased() else {
             return false
         }

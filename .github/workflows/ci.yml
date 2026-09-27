@@ -1,100 +1,43 @@
 name: CI
 
-# push は main と tag だけにする。PR ブランチへの push でも起動すると
-# pull_request と合わせて同じ commit に 6 job × 2 が走る(2026-09-11 PR #5 で確認)。
+# 一時的な診断用（PR #35 の macos-26 で CompressedTarSpliceTests が signal 5 で落ちた原因を調べる）。
 on:
-  push:
-    branches: [main]
-    tags: ['*']
   pull_request:
 
 jobs:
-  build-and-test:
+  splice-crash:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-26, macos-26-intel, xcode-27]
-    # ラベルが利用できない場合は macos-15 へ一時的に戻す。
+        os: [macos-26, macos-26-intel]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-      - name: Install differential-test oracles
-        run: brew install sevenzip xz brotli zstd
-      - name: Build
-        run: swift build -v
-      - name: Test
-        env:
-          KAITO_REQUIRE_7ZZ: "1"
-          KAITO_REQUIRE_XZ: "1"
-          KAITO_REQUIRE_BROTLI: "1"
-          KAITO_REQUIRE_ZSTD: "1"
-        run: swift test
-
-  # 利用側の cooViewer は、このスクリプトが作るフレームワークを組み込む。
-  # swift build / swift test が緑でも、ここが壊れると利用側はビルドできない（2026-09 に実際に発生）。
-  # スクリプトは新旧のモジュール配置を分岐するため、macos-26 と xcode-27 の両方で検証する。
-  # 片方だけでは分岐の半分しか通らず、修正前のバグは実際に Xcode 27 でのみ再現した。
-  # xcode-27 は現時点ではプレビュー扱いの arm64 イメージで、Intel 版は存在しない。
-  framework:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-26, xcode-27]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - name: Show toolchain versions
+      - name: Versions
         run: |
+          sw_vers
           swift --version
           xcodebuild -version
-      - name: Build framework
-        run: ./Scripts/build-framework.sh
-      - name: Verify framework artifacts
-        shell: bash
+          sysctl -n machdep.cpu.brand_string hw.memsize hw.ncpu
+          df -h "$TMPDIR" .
+      - name: Build tests
+        run: swift build --build-tests
+      - name: Run the crashing test under lldb
         run: |
-          set -euo pipefail
-          binary="Frameworks/KaitoKit.framework/Versions/A/KaitoKit"
-          modules="Frameworks/KaitoKit.framework/Versions/A/Modules"
-
-          if ! lipo_info="$(lipo -info "$binary")"; then
-            echo "error: unable to inspect framework binary: $binary" >&2
-            exit 1
-          fi
-          printf '%s\n' "$lipo_info"
-          if ! grep -qw 'arm64' <<< "$lipo_info" ||
-             ! grep -qw 'x86_64' <<< "$lipo_info"; then
-            echo "error: KaitoKit must contain both arm64 and x86_64" >&2
-            exit 1
-          fi
-
-          for module in KaitoKit KaitoKitCompat; do
-            module_directory="$modules/$module.swiftmodule"
-            if [[ ! -d "$module_directory" ]]; then
-              echo "error: module directory not found: $module_directory" >&2
-              exit 1
-            fi
-            if ! interface="$(find "$module_directory" -type f -name '*.swiftinterface' -print -quit)" ||
-               [[ -z "$interface" ]]; then
-              echo "error: swiftinterface not found: $module_directory" >&2
-              exit 1
-            fi
-          done
-
-          ls "$modules/"
-
-  compressed-payload-mutants:
-    runs-on: macos-26
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install seed generator
-        run: brew install sevenzip
-      - name: Check fuzz tooling
+          bundle="$(find .build -name 'KaitoKitPackageTests.xctest' -maxdepth 4 | head -1)"
+          echo "bundle=$bundle"
+          lldb --batch \
+            -o 'settings set target.process.stop-on-exec false' \
+            -o run \
+            -k 'thread backtrace all' \
+            -k 'frame variable' \
+            -k quit \
+            -- "$(xcrun --find xctest)" -XCTest KaitoKitTests.CompressedTarSpliceTests "$bundle" 2>&1 | tail -400
+      - name: Run the suite normally
+        if: always()
+        run: swift test --skip-build --filter 'CompressedTarSplice' 2>&1 | tail -80
+      - name: Crash reports
+        if: always()
         run: |
-          bash -n Scripts/build-framework.sh Scripts/fuzz/*.sh
-          python3 -m py_compile Scripts/fuzz/mutate.py
-      - name: Run compressed-payload sanitizer smoke
-        run: |
-          seed_directory="$(mktemp -d)"
-          Scripts/fuzz/make-compressed-seeds.sh "$seed_directory"
-          Scripts/fuzz/run-mutants.sh --count 63 --timeout 5 \
-            --password KaitoFuzz --require-payload-ranges "$seed_directory"
+          ls -la ~/Library/Logs/DiagnosticReports/ || true
+          for f in ~/Library/Logs/DiagnosticReports/xctest*; do echo "== $f"; head -c 60000 "$f"; done || true

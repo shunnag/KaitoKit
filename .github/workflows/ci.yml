@@ -5,53 +5,6 @@ on:
   pull_request:
 
 jobs:
-  splice-crash:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-26, macos-26-intel]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - name: Versions
-        run: |
-          sw_vers
-          swift --version
-          xcodebuild -version
-          sysctl -n machdep.cpu.brand_string hw.memsize hw.ncpu
-          df -h "$TMPDIR" .
-      - name: Data slice repro matrix
-        if: false
-        run: |
-          set +e
-          swiftc -Onone Scripts/diag/data-slice-repro.swift -o /tmp/repro
-          for i in $(seq 1 55); do /tmp/repro $i >/dev/null 2>&1; echo "case $i exit=$?"; done
-          swiftc -O Scripts/diag/data-slice-repro.swift -o /tmp/repro-o
-          for i in $(seq 1 55); do /tmp/repro-o $i >/dev/null 2>&1; echo "case $i -O exit=$?"; done
-      - name: Build tests
-        if: false
-        run: swift build --build-tests
-      - name: Run the crashing test under lldb
-        if: false
-        run: |
-          bundle="$(find .build -name 'KaitoKitPackageTests.xctest' -maxdepth 4 | head -1)"
-          echo "bundle=$bundle"
-          lldb --batch \
-            -o 'settings set target.process.stop-on-exec false' \
-            -o run \
-            -k 'thread backtrace all' \
-            -k 'frame variable' \
-            -k quit \
-            -- "$(xcrun --find xctest)" -XCTest KaitoKitTests.CompressedTarSpliceTests "$bundle" 2>&1 | tail -400
-      - name: Run the suite normally
-        if: false
-        run: swift test --skip-build --filter 'CompressedTarSplice' 2>&1 | tail -80
-      - name: Crash reports
-        if: always()
-        run: |
-          ls -la ~/Library/Logs/DiagnosticReports/ || true
-          for f in ~/Library/Logs/DiagnosticReports/xctest*; do echo "== $f"; head -c 60000 "$f"; done || true
-
   # GyoshukuKit 0.6.0 の候補（release/0.6.0）を、この KaitoKit を隣に置いた path 依存で macOS 26 で試験する。
   gyoshukukit-on-macos26:
     runs-on: macos-26
@@ -61,7 +14,7 @@ jobs:
       - name: Clone GyoshukuKit next to KaitoKit
         run: git clone --depth 1 --branch release/0.6.0 https://github.com/shunnag/GyoshukuKit.git ../GyoshukuKit
       - name: Install oracles
-        run: brew install sevenzip xz
+        run: brew install sevenzip xz lha
       - name: Versions
         run: |
           sw_vers

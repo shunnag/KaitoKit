@@ -1,6 +1,6 @@
 # P4-K LHA raw layout verification — 2026-09-26
 
-Worktree: `/Users/nagash/Github/KaitoKit-p4k`, branch `feature/2026-09-26-p4k`,
+Worktree: `~/Github/KaitoKit-p4k`, branch `feature/2026-09-26-p4k`,
 base `d35f2da23ba2c213453aa36353eda7a0184b7fc1`. No commit was made. The canonical
 KaitoKit checkout, GyoshukuKit and KaitoFinder were not edited.
 

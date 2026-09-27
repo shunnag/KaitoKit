@@ -1,6 +1,6 @@
 # P5-K / S23: 7z edit layout and decrypted packed stream (2026-09-26)
 
-Worktree: `/Users/nagash/Github/KaitoKit-p4k`, starting HEAD
+Worktree: `~/Github/KaitoKit-p4k`, starting HEAD
 `d171f272686a6c5c87feeb86051fa84f2a3abb97`. No commit was made. The canonical
 KaitoKit checkout, GyoshukuKit and KaitoFinder were not changed.
 
@@ -82,8 +82,8 @@ outer workspace restrictions remained in effect.
 The following abbreviations reproduce the actual command arguments:
 
 ```sh
-cd /Users/nagash/Github/KaitoKit-p4k
-SP=/private/tmp/claude-501/-Users-nagash-Github-KaitoFinder/3d80b8d3-15ce-4c2d-bf52-2944c9d6e58c/scratchpad
+cd ~/Github/KaitoKit-p4k
+# $SP is the local scratchpad directory (absolute path redacted).
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/p5k/module-cache"
 export SWIFT_MODULECACHE_PATH="$PWD/.build/p5k/module-cache"
 p5k_flags=(--disable-sandbox --cache-path "$PWD/.build/p5k/cache"

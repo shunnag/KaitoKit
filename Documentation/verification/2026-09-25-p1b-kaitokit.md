@@ -30,7 +30,7 @@ skips are the same count as P1-K; optional performance/large-fixture and unavail
 
 Logs and temporary build/consumer artifacts are in `/private/tmp/kaitokit-p1b`.
 The initial, unmodified `swift build` failed because the sandbox cannot write the default
-`/Users/nagash/.cache/clang/ModuleCache`. The existing P1-K cache/backend workaround was reused.
+`~/.cache/clang/ModuleCache`. The existing P1-K cache/backend workaround was reused.
 `/private/tmp/kaitokit-p1b/swift.sh` contains exactly:
 
 ```sh

@@ -29,8 +29,8 @@ final class ZstdTests: XCTestCase {
     private var root: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     }
-    private let zstd = "/opt/homebrew/bin/zstd"
-    private let sevenZip = "/opt/homebrew/bin/7zz"
+    private let zstd = ZipTestSupport.zstdPath
+    private let sevenZip = ZipTestSupport.sevenZipPath
 
     private func fixtures() throws -> [Fixture] {
         try JSONDecoder().decode([Fixture].self, from: Data(contentsOf: root.appendingPathComponent("Fixtures/zstd/manifest.json")))
@@ -105,7 +105,7 @@ final class ZstdTests: XCTestCase {
     }
 
     func testCLIGeneratedMatrix() throws {
-        guard FileManager.default.isExecutableFile(atPath: zstd) else { throw XCTSkip("zstd CLI がありません") }
+        try ZipTestSupport.requireExecutable(zstd, reason: "zstd CLI がありません")
         let directory = try temporary()
         defer { try? FileManager.default.removeItem(at: directory) }
         let started = Date()
@@ -129,7 +129,7 @@ final class ZstdTests: XCTestCase {
     }
 
     func testSevenZipSecondOracleForAllFixedStreamsAndZIP93() throws {
-        guard FileManager.default.isExecutableFile(atPath: sevenZip) else { throw XCTSkip("7zz がありません") }
+        try ZipTestSupport.requireExecutable(sevenZip, reason: "7zz がありません")
         let directory = try temporary()
         defer { try? FileManager.default.removeItem(at: directory) }
         for item in try fixtures() where !item.unsupported && (item.file.hasSuffix(".zst") || item.format == "zip") {
@@ -895,7 +895,7 @@ final class ZstdTests: XCTestCase {
         XCTAssertEqual(table.decodedSymbols, 64)
         XCTAssertEqual(table.allocatedTableBytes, allocation)
 
-        guard FileManager.default.isExecutableFile(atPath: zstd) else { throw XCTSkip("zstd CLI がありません") }
+        try ZipTestSupport.requireExecutable(zstd, reason: "zstd CLI がありません")
         let oracle = try ZipTestSupport.checkedRun(zstd, arguments: ["-q", "-d", "-c"],
                                                    standardInput: encoded).standardOutput
         XCTAssertEqual(oracle, expected)

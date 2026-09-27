@@ -6,9 +6,28 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-27
+
+GyoshukuKit の編集用 SPI `ZipRawLayout` / `TarEditLayout` / `LHARawLayout` / `SevenZipEditLayout` と、
+ZIP・zstd の高速化をまとめた release。新しい宣言はすべて `@_spi` で、公開 API・公開 enum の変更は無い。
+SPI は SemVer の対象外だが、0.x の間は追加だけとし、破壊的変更は GyoshukuKit と同時に release する。
+取消し済み Task からの open の挙動変更と既知の性能制限は以下に記載する。
+
+### 変更
+
+- `ArchiveReader.open`（URL / Data / ByteSource などの open 経路）は、既に取消し済みの Task 内から
+  呼ぶと、最初の record（index 0）の取消し検査で `CancellationError` を投げる。
+  `KaitoKitCompat` の failable initializer はこの場合も `nil` を返す。
+- ZIP 中央ディレクトリ解析で DOS timestamp の変換と `Calendar` の再利用を改善し、
+  500,000 entry の open を 1,142 ms から 463 ms へ短縮した（`d412a02`）。
+  ZIP / tar / 7z / RAR / ISO / UDF / StuffIt / WIM / xar の長い metadata 走査で
+  1,024 record ごとに取消しを検査し、ZIP64 と UDF → ISO の再試行でも `CancellationError` を保持する。
+- zstd の最初の高速化で 256 MiB `text.tar.zst` の open を 1,449 ms から 513 ms へ短縮した
+  （約 3 倍、`b518014`）。[検証記録](Documentation/verification/2026-09-24-zstd-performance.md)。
 - zstd の sequence / Huffman 復号を高速化し、作業領域と表を frame ごとに再利用、block 出力を view 化する（P11 Stage 3）。
-  静穏条件の Stage 2 gate では 256 MiB tar.zst の open 0.568 倍、5 万件の method 93 ZIP の展開 0.393 倍。
-  出力・検査・公開 API を維持する。G1 / G2 は通過、Stage 3 の最終性能・RSS は host 判定待ち。
+  静穏条件の最終 host gate は通過。`text.tar.zst` の open は 0.558 倍（上限 0.70）、
+  `small-zstd.zip` の展開は 0.388 倍（上限 0.55）、`headers-zstd.zip` は 0.440 倍（上限 0.65）。
+  RSS も before + 1 MiB の上限内。出力・検査・公開 API を維持する。
   [検証記録](Documentation/verification/2026-09-26-zstd-p11.md)。
 - GyoshukuKit の 7z 編集用に `SevenZipEditLayout` SPI を追加。
   `recordsSevenZipEditLayout`（既定 false）で生の header 値を記録し、source を持たない snapshot を返す。
@@ -29,7 +48,8 @@
   `openSplicedCompressedTar` は区切りの digest・辞書・枠を検証し、再利用する image の葉を共有する。
   `CompressedTarSplice` と理由付きの `TarSpliceVerificationError` を追加。K5 の snapshot は option に依らず作る。
   mixed の追加の K5 / 全体 open 比は 0.298 / 0.213 / 0.085（tgz / tbz / txz、負荷付き計測）。
-  静穏条件の性能判定は保留し、tbz の大削除で測った 0.432 は閾値 0.25 を上回る。
+  既知の性能制限として、tbz の大削除の K5 / 全体 open 比は実測 0.432 で目標 0.25 を上回る。
+  静穏条件での再計測記録は無く、この未達値を制限として扱う。
   [段階 A の計測と検証記録](Documentation/verification/2026-09-25-tar-edit-layout.md)・
   [段階 B の計測と検証記録](Documentation/verification/2026-09-25-tar-splice-verification.md)。
 - `ZipRawLayout` SPI に暗号方式・保存 CRC・実圧縮方式と、保存 payload の復号 stream を追加。

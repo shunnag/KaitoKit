@@ -3,13 +3,20 @@
 設計書（[`../design.md`](../design.md)）の各追補が主張する数値の裏付けとなる、実行コマンドと
 その出力をそのまま残した記録。ファイル名は `YYYY-MM-DD-<主題>.md` で、日付順に並ぶ。
 
-本文中の絶対パスは `<repo>` / `<corpus>` / `<home>` / `<tmp>` に置換してある。コーパスや大きな実書庫は
+本文中の絶対パスは `<repo>` / `<corpus>` / `<home>` / `<tmp>`、home は `~`、scratchpad は `$SP` に置換してある。コーパスや大きな実書庫は
 リポジトリに含めないため、記録の再現には同じ書庫を用意する必要がある。
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
-| [2026-09-25-tar-edit-layout.md](2026-09-25-tar-edit-layout.md) | 2026-09-25 | S12 / P3-K 段階 A: tar 配置・圧縮区切り・snapshot・並列 bzip2、golden・fuzz・Release 計測 | Unreleased |
-| [2026-09-25-zip-raw-layout.md](2026-09-25-zip-raw-layout.md) | 2026-09-25 | ZIP raw layout SPI、local header 先読み、公開値 golden、差分 fuzz、500k Release 計測 | Unreleased |
+| [2026-09-27-release-preparation-0.11.0.md](2026-09-27-release-preparation-0.11.0.md) | 2026-09-27 | filter fixture の自作 payload への置換、出自・path 監査、0.11.0 文書・CI・全件検証 | v0.11.0 |
+| [2026-09-26-zstd-p11.md](2026-09-26-zstd-p11.md) | 2026-09-26 | zstd P11 Stage 1〜3、最終 host 性能・RSS gate 通過 | v0.11.0 |
+| [2026-09-26-sevenzip-edit-layout.md](2026-09-26-sevenzip-edit-layout.md) | 2026-09-26 | SevenZipEditLayout SPI、header snapshot、AES packed stream、AC-K5 計測 | v0.11.0 |
+| [2026-09-26-lha-raw-layout.md](2026-09-26-lha-raw-layout.md) | 2026-09-26 | LHARawLayout SPI、raw 範囲・終端・SFX、公開値 golden | v0.11.0 |
+| [2026-09-25-tar-splice-verification.md](2026-09-25-tar-splice-verification.md) | 2026-09-25 | 段階 B: 圧縮 tar splice の区間再利用・検証、K5 計測と tbz 大削除の既知制限 | v0.11.0 |
+| [2026-09-25-tar-edit-layout.md](2026-09-25-tar-edit-layout.md) | 2026-09-25 | S12 / P3-K 段階 A: tar 配置・圧縮区切り・snapshot・並列 bzip2、golden・fuzz・Release 計測 | v0.11.0 |
+| [2026-09-25-p1b-kaitokit.md](2026-09-25-p1b-kaitokit.md) | 2026-09-25 | ZIP 保存 payload の復号、AES key material、公開値・HMAC・CRC・fuzz 検証 | v0.11.0 |
+| [2026-09-25-zip-raw-layout.md](2026-09-25-zip-raw-layout.md) | 2026-09-25 | ZIP raw layout SPI、local header 先読み、公開値 golden、差分 fuzz、500k Release 計測 | v0.11.0 |
+| [2026-09-24-zstd-performance.md](2026-09-24-zstd-performance.md) | 2026-09-24 | 最初の zstd 高速化、256 MiB tar.zst open 1,449 → 513 ms、差分・全件検証 | v0.11.0 |
 | [2026-09-23-archive-volume-set.md](2026-09-23-archive-volume-set.md) | 2026-09-23 | 分割巻の公開 API、巻名生成、保持 fd の同一性、reopen の引き継ぎ、回帰テスト・全件検証 | v0.10.0 |
 | [2026-09-22-release-review-0.9.0.md](2026-09-22-release-review-0.9.0.md) | 2026-09-22 | 0.9.0 リリースレビュー R1〜R11、HFS+ / RPM の上限、tar・属性・file list の回帰テスト、文書整合 | v0.9.0 |
 | [2026-09-22-sevenzip-deflate64.md](2026-09-22-sevenzip-deflate64.md) | 2026-09-22 | 7z Deflate64 coder 040109 の追加、7zz fixture、32 KiB を超える距離、上限・破損の検証 | v0.9.0 |

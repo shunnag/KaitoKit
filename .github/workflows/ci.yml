@@ -20,6 +20,12 @@ jobs:
           xcodebuild -version
           sysctl -n machdep.cpu.brand_string hw.memsize hw.ncpu
           df -h "$TMPDIR" .
+      - name: Data slice repro matrix
+        run: |
+          swiftc -Onone Scripts/diag/data-slice-repro.swift -o /tmp/repro
+          for i in $(seq 1 30); do /tmp/repro $i >/dev/null 2>&1; echo "case $i exit=$?"; done
+          swiftc -O Scripts/diag/data-slice-repro.swift -o /tmp/repro-o
+          for i in $(seq 1 30); do /tmp/repro-o $i >/dev/null 2>&1; echo "case $i -O exit=$?"; done
       - name: Build tests
         run: swift build --build-tests
       - name: Run the crashing test under lldb

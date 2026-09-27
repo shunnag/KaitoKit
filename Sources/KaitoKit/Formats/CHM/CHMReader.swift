@@ -272,7 +272,9 @@ final class CHMReader: FormatReader {
         // 利用者 file（`/` で始まる）を公開する。`::` の内部 file は出さない（7-Zip と同じ）。
         var entries: [ArchiveEntry] = []
         var locations: [Location] = []
-        for entry in directory where entry.name.hasPrefix("/") && entry.name != "/" {
+        for (index, entry) in directory.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            guard entry.name.hasPrefix("/") && entry.name != "/" else { continue }
             guard entry.section <= UInt64(Int.max) else { throw KaitoError.malformed("chm section id exceeds Int") }
             guard entries.count < limits.maxEntryCount else { throw KaitoError.limitExceeded("chm entry count") }
             let isDirectory = entry.name.hasSuffix("/")
@@ -335,6 +337,7 @@ final class CHMReader: FormatReader {
         var chunk = firstChunk
         var visited = 0
         while chunk >= 0 {
+            if visited & 0x3ff == 0 { try Task.checkCancellation() }
             guard Int(chunk) < chunkCount, visited < chunkCount else { throw KaitoError.malformed("chm listing chunk chain") }
             visited += 1
             let base = headerLength + Int(chunk) * chunkSize
@@ -346,6 +349,7 @@ final class CHMReader: FormatReader {
             var index = base + 0x14
             let end = base + chunkSize - freeLength
             for _ in 0..<count {
+                if entries.count & 0x3ff == 0 { try Task.checkCancellation() }
                 guard entries.count < limits.maxMetadataRecordCount else { throw KaitoError.limitExceeded("chm directory entries") }
                 let nameLength = try CHMBytes.encint(d, &index, end: end)
                 guard nameLength <= UInt64(end - index), nameLength <= 4096 else { throw KaitoError.malformed("chm entry name length") }

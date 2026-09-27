@@ -1,0 +1,51 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 12,
+      "content" : {
+        "sha256" : "386e8e32f9b53a4452734f1559ce415b0d3452962b460e0f87dea12107e53cb6"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "479a",
+        "dataOffset" : "34",
+        "headerLevel" : "0",
+        "headerOffset" : "0",
+        "method" : "-lh0-",
+        "os" : "unspecified"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1741653238,
+      "name" : "before.txt",
+      "pathComponents" : [
+        "before.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          98,
+          101,
+          102,
+          111,
+          114,
+          101,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 12
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

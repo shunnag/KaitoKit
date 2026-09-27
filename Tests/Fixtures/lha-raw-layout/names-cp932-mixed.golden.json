@@ -1,0 +1,146 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 13,
+      "content" : {
+        "sha256" : "0dd97704412b371e18c945acd40bd31c78105716eccbe465aed5189ed707868e"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "9b57",
+        "dataOffset" : "37",
+        "headerLevel" : "0",
+        "headerOffset" : "0",
+        "method" : "-lh0-",
+        "os" : "unspecified"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1741653238,
+      "name" : "漫画/表紙.txt",
+      "pathComponents" : [
+        "漫画",
+        "表紙.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          150,
+          159,
+          137,
+          230,
+          92,
+          149,
+          92,
+          142,
+          134,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 13
+    },
+    {
+      "compressedSize" : 15,
+      "content" : {
+        "sha256" : "b8fdb38b8b209113a047f0342c2047812e1ad676664d5ee9388abc6a5f67142f"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "codePage" : "932",
+        "dataCRC16" : "e15a",
+        "dataOffset" : "92",
+        "headerLevel" : "1",
+        "headerOffset" : "50",
+        "method" : "-lh0-",
+        "os" : "MS-DOS",
+        "osID" : "M"
+      },
+      "index" : 1,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1741653238,
+      "name" : "東京.txt",
+      "pathComponents" : [
+        "東京.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          147,
+          140,
+          139,
+          158,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : 8,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 15
+    },
+    {
+      "compressedSize" : 6,
+      "content" : {
+        "sha256" : "93595c7b51e3a3f60370b882224f5699522cc7d321c357aa2cf6227e2fbda41f"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "d8f8",
+        "dataOffset" : "151",
+        "headerLevel" : "2",
+        "headerOffset" : "107",
+        "method" : "-lh0-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 2,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1672628645,
+      "name" : "readme.txt",
+      "pathComponents" : [
+        "readme.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          114,
+          101,
+          97,
+          100,
+          109,
+          101,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 6
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : 8
+}

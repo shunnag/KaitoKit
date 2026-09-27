@@ -55,7 +55,10 @@ final class ArReader: FormatReader {
                 throw KaitoError.limitExceeded("ar name size")
             }
         }
+        var headerCount = 0
         walk: while offset < source.length {
+            if headerCount & 0x3ff == 0 { try Task.checkCancellation() }
+            headerCount &+= 1
             guard source.length - offset >= 60 else {
                 if options.recoverDamagedArchives { break }
                 throw KaitoError.truncated
@@ -164,7 +167,8 @@ final class ArReader: FormatReader {
         }
         var entries: [ArchiveEntry] = []
         // 表と pending を保持したまま復号名・component を追加するため、合算で制限する。
-        for item in pending {
+        for (index, item) in pending.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             let record = item.record, header = record.header
             let name = resolve(item.name)
             let parts = try components(name)

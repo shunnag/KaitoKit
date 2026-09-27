@@ -1,0 +1,52 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 44,
+      "content" : {
+        "sha256" : "6cd8064887de40222ca1b0d90b05bed2de3d108a643f08580b805e422eab79a5"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "a6a4",
+        "dataOffset" : "37",
+        "headerLevel" : "1",
+        "headerOffset" : "0",
+        "method" : "-lh0-",
+        "os" : "Macintosh",
+        "osID" : "m"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1741653238,
+      "name" : "mac-nm.txt",
+      "pathComponents" : [
+        "mac-nm.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          109,
+          97,
+          99,
+          45,
+          110,
+          109,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 44
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

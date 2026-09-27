@@ -1,0 +1,49 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 11,
+      "content" : {
+        "sha256" : "f1f476d2715b36167bdf0851b9f02491ab4e6ffcd5d30eaa588ae7b5b0aba8c1"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "d0ed",
+        "dataOffset" : "32",
+        "headerLevel" : "0",
+        "headerOffset" : "0",
+        "method" : "-lzs-",
+        "os" : "unspecified"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lzs-",
+      "modificationDate" : 1741653238,
+      "name" : "larc.txt",
+      "pathComponents" : [
+        "larc.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          108,
+          97,
+          114,
+          99,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 9
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

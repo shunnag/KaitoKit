@@ -1,0 +1,13 @@
+corpus	codec	edit	metric	value
+large	tgz	append	load1	3.869140625
+large	tgz	append	base_ms	1355.806084
+large	tgz	append	full_ms	1287.22675
+large	tgz	append	splice_ms	314.784708
+large	tbz	append	load1	3.0830078125
+large	tbz	append	base_ms	658.165875
+large	tbz	append	full_ms	652.801583
+large	tbz	append	splice_ms	2.424875
+large	txz	append	load1	2.5048828125
+large	txz	append	base_ms	6890.845458
+large	txz	append	full_ms	6819.599541
+large	txz	append	splice_ms	297.211042

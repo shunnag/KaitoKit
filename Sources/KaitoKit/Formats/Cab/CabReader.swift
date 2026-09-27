@@ -48,14 +48,16 @@ final class CabReader: FormatReader {
         try budget.array(count: header.folderCount, stride: 128)
         try budget.array(count: header.fileCount, stride: 256)
         var folders: [CabFolder] = []
-        for _ in 0..<header.folderCount {
+        for index in 0..<header.folderCount {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             let folder = CabFolder(try cursor.read(8))
             guard folder.dataOffset <= header.cabinetSize else { throw KaitoError.truncated }
             folders.append(folder)
             try cursor.skip(folderReserve)
         }
         var files: [CabFile] = []
-        for _ in 0..<header.fileCount {
+        for index in 0..<header.fileCount {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             let bytes = try fileCursor.read(16)
             let name = try fileCursor.name(limit: limits.maxMetadataSize, label: "cab file name")
             let file = CabFile(bytes, name: name)
@@ -68,7 +70,8 @@ final class CabReader: FormatReader {
         }
         var blocks: [[CabDataBlock]] = [], folderSizes: [UInt64] = []
         var totalOutput: UInt64 = 0
-        for folder in folders {
+        for (index, folder) in folders.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             var dataCursor = CabCursor(source: source, end: header.cabinetSize, offset: folder.dataOffset)
             try dataCursor.validateRecords(count: folder.blockCount, stride: Checked.add(8, dataReserve))
             guard folder.blockCount <= limits.maxMetadataRecordCount else {
@@ -77,7 +80,8 @@ final class CabReader: FormatReader {
             try budget.array(count: folder.blockCount, stride: MemoryLayout<CabDataBlock>.stride)
             var folderBlocks: [CabDataBlock] = []
             var size: UInt64 = 0
-            for _ in 0..<folder.blockCount {
+            for blockIndex in 0..<folder.blockCount {
+                if blockIndex & 0x3ff == 0 { try Task.checkCancellation() }
                 let bytes = try dataCursor.read(8)
                 try dataCursor.skip(dataReserve)
                 let block = try CabDataBlock(bytes, dataOffset: dataCursor.offset, folderOffset: size)
@@ -108,7 +112,9 @@ final class CabReader: FormatReader {
             for (bytes, string) in zip(names, strings) { if let string { decoded[bytes] = string } }
         }
         var entries: [ArchiveEntry] = []
-        for file in files {
+        var dosTimestampDecoder = DOSTimestampDecoder()
+        for (index, file) in files.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             let declared: String.Encoding? = file.attributes & 0x80 != 0 ? .utf8 : nil
             let resolved = declared == .utf8 ? String(decoding: file.name, as: UTF8.self)
                 : decoded[file.name] ?? EncodingDetector.resolveUndeclaredName(bytes: file.name,
@@ -140,7 +146,7 @@ final class CabReader: FormatReader {
             entries.append(ArchiveEntry(index: entries.count,
                 rawName: RawName(bytes: file.name, declaredEncoding: declared), name: name, pathComponents: parts,
                 kind: .file, uncompressedSize: file.size, compressedSize: nil,
-                modificationDate: try? dosModificationDate(date: file.date, time: file.time),
+                modificationDate: try? dosTimestampDecoder.modificationDate(date: file.date, time: file.time),
                 posixPermissions: nil, isEncrypted: false, solidGroup: Int(file.folderIndex), crc32: nil,
                 methodDescription: "cab (\(method))", formatSpecific: specific))
         }

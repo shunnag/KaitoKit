@@ -1,0 +1,49 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 31,
+      "content" : {
+        "sha256" : "c35cdcfb6fbf9e66fce8b1678e2bdcb998308b241fc7e2c619614f108c0ab310"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "c2c5",
+        "dataOffset" : "41",
+        "headerLevel" : "2",
+        "headerOffset" : "0",
+        "method" : "-lh0-",
+        "os" : "OS/68K",
+        "osID" : "K"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1672628645,
+      "name" : "os9.txt",
+      "pathComponents" : [
+        "os9.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          111,
+          115,
+          57,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 31
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

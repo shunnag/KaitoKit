@@ -10,7 +10,7 @@ final class TarReader: FormatReader {
         "GNU.sparse.major", "GNU.sparse.minor", "GNU.sparse.name", "GNU.sparse.realsize",
     ]
 
-    private struct Record: Sendable {
+    struct Record: Sendable {
         let dataOffset: UInt64
         let size: UInt64
         var sparse: TarSparseMap? = nil
@@ -38,6 +38,7 @@ final class TarReader: FormatReader {
     let nameEncoding: String.Encoding?
     private let records: [Record]
     private let source: any ByteSource
+    let layoutStorage: TarLayoutStorage?
 
     init(source: any ByteSource, options: ReaderOptions) throws {
         self.source = source
@@ -45,23 +46,26 @@ final class TarReader: FormatReader {
             source: source,
             policy: options.encodingPolicy,
             limits: options.limits,
-            recoverDamagedArchives: options.recoverDamagedArchives
+            recoverDamagedArchives: options.recoverDamagedArchives,
+            recordsLayout: options.recordsTarEditLayout
         )
         entries = parsed.entries
         nameEncoding = parsed.nameEncoding
         records = parsed.records
+        layoutStorage = parsed.layout
     }
 
     private init(source: any ByteSource, entries: [ArchiveEntry],
-                 nameEncoding: String.Encoding?, records: [Record]) {
+                 nameEncoding: String.Encoding?, records: [Record], layoutStorage: TarLayoutStorage?) {
         self.source = source
         self.entries = entries
         self.nameEncoding = nameEncoding
         self.records = records
+        self.layoutStorage = layoutStorage
     }
 
     func reopened(options: ReaderOptions) -> sending TarReader {
-        TarReader(source: source, entries: entries, nameEncoding: nameEncoding, records: records)
+        TarReader(source: source, entries: entries, nameEncoding: nameEncoding, records: records, layoutStorage: layoutStorage)
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
@@ -88,12 +92,15 @@ final class TarReader: FormatReader {
         source: any ByteSource,
         policy: EncodingPolicy,
         limits: ReadLimits,
-        recoverDamagedArchives: Bool
+        recoverDamagedArchives: Bool,
+        recordsLayout: Bool
     ) throws -> (
         entries: [ArchiveEntry],
         records: [Record],
-        nameEncoding: String.Encoding?
+        nameEncoding: String.Encoding?,
+        layout: TarLayoutStorage?
     ) {
+        let layout = recordsLayout ? TarLayoutStorage.Builder(recovery: recoverDamagedArchives) : nil
         var pendingEntries: [PendingEntry] = []
         var records: [Record] = []
         var offset: UInt64 = 0
@@ -107,8 +114,12 @@ final class TarReader: FormatReader {
         // Headers are separated by member bodies, which listing must not
         // prefetch. Extension payloads use their own bounded ranged reads.
         var byteReader = try ByteReader(source: source, bufferCapacity: 4 * 1_024)
+        var headerCount = 0
 
         while offset < source.length {
+            // PAX/GNU 拡張も数え、公開 entry が増えない走査でも中断する。
+            if headerCount & 0x3ff == 0 { try Task.checkCancellation() }
+            headerCount &+= 1
             let remaining = try Checked.sub(source.length, offset)
             guard remaining >= 512 else {
                 if recoverDamagedArchives { break }
@@ -175,10 +186,12 @@ final class TarReader: FormatReader {
                 default:
                     break
                 }
-                offset = try nextHeaderOffset(
+                let extensionEnd = try nextHeaderOffset(
                     dataOffset: dataOffset, size: headerSize, source: source,
                     recoverDamagedArchives: recoverDamagedArchives
                 )
+                layout?.recordExtension(type: typeByte, start: offset, end: extensionEnd)
+                offset = extensionEnd
                 continue
             }
 
@@ -384,6 +397,7 @@ final class TarReader: FormatReader {
                     : storedSize,
                 sparse: sparse
             ))
+            layout?.recordMember(header: offset, body: dataOffset, end: nextOffset)
 
             localPAX.removeAll(keepingCapacity: true)
             hasLocalPAX = false
@@ -399,7 +413,8 @@ final class TarReader: FormatReader {
         }
         var undecoratedNames: [[UInt8]] = []
         undecoratedNames.reserveCapacity(pendingEntries.count)
-        for pending in pendingEntries {
+        for (index, pending) in pendingEntries.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             if pending.name.declaredEncoding == nil {
                 switch policy {
                 case .fixed:
@@ -424,7 +439,8 @@ final class TarReader: FormatReader {
                 maximumBatchByteCount: Int(clamping: limits.maxMetadataSize)
             )
             archiveDecodedNames.reserveCapacity(undecoratedNames.count)
-            for (bytes, string) in zip(undecoratedNames, decodedNames) {
+            for (index, (bytes, string)) in zip(undecoratedNames, decodedNames).enumerated() {
+                if index & 0x3ff == 0 { try Task.checkCancellation() }
                 if let string { archiveDecodedNames[bytes] = string }
             }
         }
@@ -435,7 +451,74 @@ final class TarReader: FormatReader {
             archiveDecodedNames: archiveDecodedNames,
             limits: limits
         )
-        return (entries, records, archiveEncoding)
+        let storage = layout.map { TarLayoutStorage(builder: $0, records: records, imageLength: source.length, end: offset) }
+        return (entries, records, archiveEncoding, storage)
+    }
+
+    static func headerGroup(_ member: TarMemberLayout, layout: TarArchiveLayout,
+                            source: any ByteSource, limits: ReadLimits) throws -> TarHeaderGroup {
+        do {
+            var global: [String: [UInt8]] = [:], local: [String: [UInt8]] = [:]
+            for range in layout.globalHeaderRanges where range.lowerBound < member.headerOffset {
+                let header = try readByteRange(source: source, offset: range.lowerBound, count: 512)
+                try validateChecksum(header)
+                guard header[156] == ascii("g") else { throw KaitoError.truncated }
+                let size = try parseUnsigned(Array(header[124..<136]), fieldName: "size")
+                try Checked.size(size, limit: limits.maxMetadataSize)
+                let body = try Checked.add(range.lowerBound, 512)
+                guard try nextHeaderOffset(dataOffset: body, size: size, source: source) == range.upperBound else { throw KaitoError.truncated }
+                let values = try parsePAX(readPayload(source: source, offset: body, size: size), recordLimit: limits.maxMetadataRecordCount)
+                try rejectSparse(values)
+                let retained = retainedPAXValues(values)
+                try validatePAXMerge(existing: global, new: retained, limits: limits)
+                applyPAX(retained, to: &global)
+            }
+            var cursor = member.groupRange.lowerBound
+            var extensions: [TarHeaderGroup.Extension] = []
+            while cursor < member.headerOffset {
+                let header = try readByteRange(source: source, offset: cursor, count: 512)
+                try validateChecksum(header)
+                let type = header[156]
+                guard [ascii("x"), ascii("X"), ascii("L"), ascii("K")].contains(type) else { throw KaitoError.truncated }
+                let size = try parseUnsigned(Array(header[124..<136]), fieldName: "size")
+                try Checked.size(size, limit: limits.maxMetadataSize)
+                let body = try Checked.add(cursor, 512)
+                let end = try nextHeaderOffset(dataOffset: body, size: size, source: source)
+                guard end <= member.headerOffset else { throw KaitoError.truncated }
+                let payload = try readPayload(source: source, offset: body, size: size)
+                if type == ascii("x") || type == ascii("X") {
+                    local = retainedPAXValues(try parsePAX(payload, recordLimit: limits.maxMetadataRecordCount))
+                } else { _ = try parseGNULongValue(payload, fieldName: type == ascii("L") ? "name" : "link") }
+                extensions.append(.init(typeFlag: type, headerOffset: cursor, payloadRange: body..<(body + size), end: end))
+                cursor = end
+            }
+            guard cursor == member.headerOffset else { throw KaitoError.truncated }
+            let header = try readByteRange(source: source, offset: cursor, count: 512)
+            try validateChecksum(header)
+            let type = header[156]
+            guard ![ascii("x"), ascii("X"), ascii("L"), ascii("K"), ascii("g")].contains(type) else { throw KaitoError.truncated }
+            try validatePAXMerge(existing: global, new: local, limits: limits)
+            applyPAX(local, to: &global)
+            let headerSize = try parseUnsigned(Array(header[124..<136]), fieldName: "size")
+            let effectiveSize = try global["size"].map { try parsePAXUnsigned($0, fieldName: "size") } ?? headerSize
+            let extensionStart = try Checked.add(cursor, 512)
+            var body = extensionStart
+            if type == ascii("S") {
+                body = try parseOldGNUSparse(header, dataOffset: body, storedSize: effectiveSize, source: source, limits: limits).dataOffset
+            }
+            var reader = try ByteReader(source: source, bufferCapacity: 4 * 1024)
+            let size = try storedBodySize(typeByte: type, declaredSize: effectiveSize,
+                                          hasAuthoritativePAXSize: global["size"] != nil, dataOffset: body,
+                                          source: source, reader: &reader, recoverDamagedArchives: false)
+            guard body == member.bodyRange.lowerBound, size == member.bodyRange.upperBound - body,
+                  try nextHeaderOffset(dataOffset: body, size: size, source: source) == member.groupRange.upperBound else {
+                throw KaitoError.truncated
+            }
+            return TarHeaderGroup(extensions: extensions, headerOffset: cursor, typeFlag: type,
+                                  sparseExtensionRange: body > extensionStart ? extensionStart..<body : nil)
+        } catch {
+            throw KaitoError.malformed("tar layout does not match the image")
+        }
     }
 
     private static func finalizeEntries(
@@ -450,7 +533,8 @@ final class TarReader: FormatReader {
         var retainedMetadataSize: UInt64 = 0
         var lastEntryByNormalizedPath: [String: Int] = [:]
 
-        for pending in pendingEntries {
+        for (index, pending) in pendingEntries.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             let resolvedName = try resolve(
                 pending.name,
                 policy: policy,

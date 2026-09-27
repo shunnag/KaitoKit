@@ -1,0 +1,49 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 6832,
+      "content" : {
+        "sha256" : "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "a33a",
+        "dataOffset" : "41",
+        "gid" : "1000",
+        "headerLevel" : "0",
+        "headerOffset" : "0",
+        "method" : "-lh7-",
+        "os" : "Unix",
+        "osID" : "U",
+        "uid" : "1000"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh7-",
+      "modificationDate" : 1262304000,
+      "name" : "gpl-2",
+      "pathComponents" : [
+        "gpl-2"
+      ],
+      "posixPermissions" : 292,
+      "rawName" : {
+        "bytes" : [
+          103,
+          112,
+          108,
+          45,
+          50
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 18092
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

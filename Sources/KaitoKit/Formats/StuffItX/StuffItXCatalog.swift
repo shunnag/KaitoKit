@@ -14,7 +14,8 @@ struct StuffItXCatalog {
         guard count <= limits.maxEntryCount else { throw KaitoError.limitExceeded("StuffIt X catalog records") }
         let input = try StuffItXBitReader(source: DataByteSource(bytes))
         var records: [Record] = []
-        for _ in 0..<count {
+        for index in 0..<count {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             var record = Record(), fields = 0
             while true {
                 let key = try input.p2()

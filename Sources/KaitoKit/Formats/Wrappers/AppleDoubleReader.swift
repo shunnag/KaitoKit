@@ -78,7 +78,8 @@ final class AppleDoubleReader: FormatReader {
         // 一段目: 名前で候補を選ぶ。`__MACOSX/a/._b` → `a/b`、`a/._b` → `a/b`。
         var sidecarTargets: [Int: [String]] = [:]
         var underMacOSX = Set<Int>()
-        for entry in source {
+        for (index, entry) in source.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             let components = entry.pathComponents
             guard !components.isEmpty else { continue }
             let macOSX = components[0] == "__MACOSX"
@@ -93,14 +94,17 @@ final class AppleDoubleReader: FormatReader {
 
         // ZIP の directory 名は末尾に `/` を持つので、`pathComponents` で照合する。
         var indexByPath: [String: Int] = [:]
-        for entry in source where entry.kind != .other && sidecarTargets[entry.index] == nil {
+        for (index, entry) in source.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            guard entry.kind != .other && sidecarTargets[entry.index] == nil else { continue }
             let key = entry.pathComponents.joined(separator: "/")
             if indexByPath[key] == nil { indexByPath[key] = entry.index }
         }
         // 二段目: 先頭を読んで AppleDouble であることを確かめ、resource fork の位置を得る。
         var hidden = Set<Int>()
         var forks: [Int: (sidecar: Int, offset: UInt64, length: UInt64, entry: ArchiveEntry)] = [:]
-        for (index, target) in sidecarTargets {
+        for (position, (index, target)) in sidecarTargets.enumerated() {
+            if position & 0x3ff == 0 { try Task.checkCancellation() }
             let sidecar = source[index]
             let targetPath = target.joined(separator: "/")
             let targetIndex = indexByPath[targetPath]
@@ -157,13 +161,17 @@ final class AppleDoubleReader: FormatReader {
         // sidecar の除去と fork の挿入を含む最終 index へ、hard link の参照も写す。
         var publishedIndices: [Int: Int] = [:]
         var nextIndex = 0
-        for entry in source where !hidden.contains(entry.index) {
+        for (index, entry) in source.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            guard !hidden.contains(entry.index) else { continue }
             publishedIndices[entry.index] = nextIndex
             nextIndex += forks[entry.index] == nil ? 1 : 2
         }
         var entries: [ArchiveEntry] = []
         var mappings: [Mapping] = []
-        for entry in source where !hidden.contains(entry.index) {
+        for (index, entry) in source.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            guard !hidden.contains(entry.index) else { continue }
             entries.append(entry.reindexed(entries.count, targetIndices: publishedIndices))
             mappings.append(.passthrough(entry.index))
             if let fork = forks[entry.index] {
@@ -222,6 +230,18 @@ final class AppleDoubleReader: FormatReader {
         guard entries.indices.contains(entry.index), entries[entry.index] == entry,
               case .passthrough(let index) = mappings[entry.index] else { return nil }
         return try inner.rawRecord(for: try innerEntry(index), limits: limits)
+    }
+
+    func zipRawRecordLayout(at index: Int, limits: ReadLimits) throws -> ZipRawRecordLayout? {
+        guard entries.indices.contains(index),
+              case .passthrough(let innerIndex) = mappings[index] else { return nil }
+        return try inner.zipRawRecordLayout(at: innerIndex, limits: limits)
+    }
+
+    func zipStream(at index: Int, limits: ReadLimits, aesKey: ZipAESKeyMaterial?, storedOnly: Bool) throws -> EntryStream? {
+        guard entries.indices.contains(index),
+              case .passthrough(let innerIndex) = mappings[index] else { return nil }
+        return try inner.zipStream(at: innerIndex, limits: limits, aesKey: aesKey, storedOnly: storedOnly)
     }
 
     func setPassword(_ password: String?) { inner.setPassword(password) }

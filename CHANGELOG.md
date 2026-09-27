@@ -6,6 +6,67 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-27
+
+GyoshukuKit の編集用 SPI `ZipRawLayout` / `TarEditLayout` / `LHARawLayout` / `SevenZipEditLayout` と、
+ZIP・zstd の高速化をまとめた release。新しい宣言はすべて `@_spi` で、公開 API・公開 enum の変更は無い。
+SPI は SemVer の対象外だが、0.x の間は追加だけとし、破壊的変更は GyoshukuKit と同時に release する。
+取消し済み Task からの open の挙動変更と既知の性能制限は以下に記載する。
+
+### 変更
+
+- `ArchiveReader.open`（URL / Data / ByteSource などの open 経路）は、既に取消し済みの Task 内から
+  呼ぶと、最初の record（index 0）の取消し検査で `CancellationError` を投げる。
+  `KaitoKitCompat` の failable initializer はこの場合も `nil` を返す。
+- ZIP 中央ディレクトリ解析で DOS timestamp の変換と `Calendar` の再利用を改善し、
+  500,000 entry の open を 1,142 ms から 463 ms へ短縮した（`d412a02`）。
+  ZIP / tar / 7z / RAR / ISO / UDF / StuffIt / WIM / xar の長い metadata 走査で
+  1,024 record ごとに取消しを検査し、ZIP64 と UDF → ISO の再試行でも `CancellationError` を保持する。
+- zstd の最初の高速化で 256 MiB `text.tar.zst` の open を 1,449 ms から 513 ms へ短縮した
+  （約 3 倍、`b518014`）。[検証記録](Documentation/verification/2026-09-24-zstd-performance.md)。
+- zstd の sequence / Huffman 復号を高速化し、作業領域と表を frame ごとに再利用、block 出力を view 化する（P11 Stage 3）。
+  静穏条件の最終 host gate は通過。`text.tar.zst` の open は 0.558 倍（上限 0.70）、
+  `small-zstd.zip` の展開は 0.388 倍（上限 0.55）、`headers-zstd.zip` は 0.440 倍（上限 0.65）。
+  RSS も before + 1 MiB の上限内。出力・検査・公開 API を維持する。
+  [検証記録](Documentation/verification/2026-09-26-zstd-p11.md)。
+- GyoshukuKit の 7z 編集用に `SevenZipEditLayout` SPI を追加。
+  `recordsSevenZipEditLayout`（既定 false）で生の header 値を記録し、source を持たない snapshot を返す。
+  `reopen()` は記録を共有する。AES が直接読む packed stream の復号も既存の鍵 cache で提供し、
+  展開や出力 CRC の照合は行わない。既存の公開 API・値・検査・エラーは維持する。
+  [検証記録](Documentation/verification/2026-09-26-sevenzip-edit-layout.md)。
+- GyoshukuKit の LHA 編集用に `LHARawLayout` SPI を追加。member の header / data 範囲、
+  level・method・OS ID・CRC16、公開 entry との対応、SFX 開始位置と終端を返す。
+  終端後の byte は最大 65,536 byte だけ読み、recovery・分割巻・LHA 以外では nil。
+  `reopen()` は解析済み record を共有し、既存の公開値・受理条件・LHA の `rawRecord(of:) == nil` は維持する。
+  0.x の SPI は追加だけとし、破壊的変更は GyoshukuKit と同時に release する。
+  [検証記録](Documentation/verification/2026-09-26-lha-raw-layout.md)。
+- `TarEditLayout` SPI に、opt-in の tar member 配置、gzip / bzip2 / xz の区切りと圧縮 byte の CRC-32、
+  復号済み image と元の記述子を共有する編集用 snapshot を追加。`reopen()` は再読せず共有する。
+  圧縮 tar / cpio の bzip2 staging は上限付きで並列復号し、境界を検証できない区間から直列へ戻す。
+  `ReaderOptions.recordsTarEditLayout` の既定は false。有効時の圧縮 tar の reopen は元の圧縮 source の
+  記述子も保持する。既存の公開値と公開 API は維持し、0.x の SPI は追加を基本とする。
+  `openSplicedCompressedTar` は区切りの digest・辞書・枠を検証し、再利用する image の葉を共有する。
+  `CompressedTarSplice` と理由付きの `TarSpliceVerificationError` を追加。K5 の snapshot は option に依らず作る。
+  mixed の追加の K5 / 全体 open 比は 0.298 / 0.213 / 0.085（tgz / tbz / txz、負荷付き計測）。
+  既知の性能制限として、tbz の大削除の K5 / 全体 open 比は実測 0.432 で目標 0.25 を上回る。
+  静穏条件での再計測記録は無く、この未達値を制限として扱う。
+  [段階 A の計測と検証記録](Documentation/verification/2026-09-25-tar-edit-layout.md)・
+  [段階 B の計測と検証記録](Documentation/verification/2026-09-25-tar-splice-verification.md)。
+- `ZipRawLayout` SPI に暗号方式・保存 CRC・実圧縮方式と、保存 payload の復号 stream を追加。
+  `ZipAESKeyMaterial` で導出を並行実行でき、材料を渡す読取は password provider と鍵 cache を使わない。
+  AES の verifier / HMAC と展開 stream の CRC 照合は維持する。ZipCrypto の保存 stream は 1 byte の
+  照合値だけを検査するため、呼出側で展開後の CRC を検証する。既存の公開値・API は変更しない。
+- ZIP の公開値・検証・エラー・取消しの挙動を維持し、GyoshukuKit 用の `ZipRawLayout` SPI を追加。
+  index から検証済みの生レコード範囲と local / CD の ZIP64 marker を取得できる。公開 `rawRecord(of:)` の
+  同一性検査は維持する。SPI は SemVer の対象外だが、0.x の間は追加だけとし、破壊的変更は GyoshukuKit と
+  同時に release して依存の下限を上げる。
+- ZIP の local header を最大 256 KiB の前方窓で読み、CD 解析時の `formatSpecific` を 8 枠の cache で共有。
+  pathComponents は一回の走査と directory prefix の再利用で分割し、CRC の 16 進表記も直接構築する。
+  splitter 単独で 500k の解析を 18.5–23.5% 短縮。2,000 件の小さな UT / descriptor 書庫では local 読み取りが各 3 回、
+  一様な 1,000 件の辞書 storage は 1 個。
+  500k の 3 corpus で SPI 全件走査は 136.6–201.2 ms（基準公開 raw の 14.0–15.3%）、CLI open は 246.3–324.8 ms。
+  [検証記録](Documentation/verification/2026-09-25-zip-raw-layout.md)に基準との公開値比較と計測を記載。
+
 ## [0.10.0] - 2026-09-24
 
 分割巻の情報を取得する公開 API `ArchiveReader.volumeSet` と `ArchiveVolumeSet` を追加した release。公開 enum の

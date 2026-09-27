@@ -87,7 +87,10 @@ struct StuffItParser {
         guard end <= source.length else { throw KaitoError.truncated }
         var position: UInt64 = 22
         var stack: [Int] = []
+        var headerCount = 0
         while end - position >= 112 {
+            if headerCount & 0x3ff == 0 { try Task.checkCancellation() }
+            headerCount &+= 1
             let b = try bytes(position, 112, end: end)
             guard CRC16.checksum(Array(b[..<110])) == StuffItHeader.be16(b, 110) else {
                 throw KaitoError.malformed("StuffIt classic header CRC")

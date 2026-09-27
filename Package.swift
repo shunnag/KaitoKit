@@ -37,7 +37,8 @@ let package = Package(
         ),
         .testTarget(
             name: "KaitoKitTests",
-            dependencies: ["KaitoKit"]
+            dependencies: ["KaitoKit", "CBzip2"],
+            swiftSettings: [.enableUpcomingFeature("InternalImportsByDefault")]
         ),
         .testTarget(
             name: "KaitoKitCompatTests",

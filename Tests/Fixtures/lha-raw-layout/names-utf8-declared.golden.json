@@ -1,0 +1,53 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 15,
+      "content" : {
+        "sha256" : "9c8506b94771c9b63bca6b907d8300baa638e2736bf6004eec89b8f70b1b9a7a"
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "codePage" : "65001",
+        "dataCRC16" : "a5d6",
+        "dataOffset" : "44",
+        "headerLevel" : "1",
+        "headerOffset" : "0",
+        "method" : "-lh0-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1741653238,
+      "name" : "資料.txt",
+      "pathComponents" : [
+        "資料.txt"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          232,
+          179,
+          135,
+          230,
+          150,
+          153,
+          46,
+          116,
+          120,
+          116
+        ],
+        "declaredEncoding" : 4,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 15
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

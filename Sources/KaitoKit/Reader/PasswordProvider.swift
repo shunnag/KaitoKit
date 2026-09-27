@@ -8,6 +8,12 @@ public protocol PasswordProvider: Sendable {
 
 /// Options used while opening and reading an archive.
 public struct ReaderOptions: Sendable {
+    /// 7z の編集用の生値を記録する。reopen は値と記録を引き継ぐ。
+    @_spi(SevenZipEditLayout) public var recordsSevenZipEditLayout: Bool = false
+
+    /// tar の配置と圧縮の区切りを記録する。reopen は保持済みの記録を共有する。
+    @_spi(TarEditLayout) public var recordsTarEditLayout: Bool = false
+
     /// The largest executable prefix inspected for an embedded archive marker.
     ///
     /// File-URL opens use this value automatically. Values above one MiB are

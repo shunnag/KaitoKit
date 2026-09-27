@@ -7,6 +7,9 @@ final class SingleFileReader: FormatReader {
     let nameEncoding: String.Encoding?
 
     private let source: any ByteSource
+    private var gzipHeaderLength: UInt64?
+
+    var tarSpliceGzipHeaderLength: UInt64? { gzipHeaderLength }
 
     // fallbackFileName は通常 URL の末尾要素。gzip の FNAME を優先する。
     init(
@@ -33,6 +36,7 @@ final class SingleFileReader: FormatReader {
                 source: source,
                 limits: options.limits
             )
+            gzipHeaderLength = header.length
             if let originalName = header.originalName {
                 storedName = StoredName(bytes: originalName, declaredEncoding: nil)
             } else {
@@ -149,23 +153,38 @@ final class SingleFileReader: FormatReader {
         )
     }
 
+    func stagingStream(limits: ReadLimits, recorder: CompressedTarMapRecorder?) throws -> EntryStream {
+        if let gzipHeaderLength { recorder?.prepareGzip(headerLength: gzipHeaderLength) }
+        let decoder: any Decompressor
+        if format == .bzip2 {
+            decoder = try ParallelBzip2Decompressor(source: source, recorder: recorder)
+        } else {
+            decoder = try Self.makeDecompressor(format: format, source: source, limits: limits, recorder: recorder)
+        }
+        return try EntryStream(
+            decompressor: decoder,
+            length: entries[0].uncompressedSize, expectedCRC32: nil, entryIndex: 0, limits: limits)
+    }
+
     static func makeDecompressor(
         format: ArchiveFormat,
         source: any ByteSource,
-        limits: ReadLimits
+        limits: ReadLimits,
+        recorder: CompressedTarMapRecorder? = nil
     ) throws -> any Decompressor {
         switch format {
         case .gzip:
-            return try GzipDecompressor(source: source)
+            return try GzipDecompressor(source: source, recorder: recorder)
         case .bzip2:
             return try Bzip2Decompressor(
                 source: source,
                 offset: 0,
                 compressedSize: source.length,
-                concatenatedStreams: true
+                concatenatedStreams: true,
+                recorder: recorder
             )
         case .xz:
-            return try XZDecompressor(source: source, limits: limits)
+            return try XZDecompressor(source: source, limits: limits, recorder: recorder)
         case .zstd:
             return try ZstdDecompressor(source: source, limits: limits)
         case .lz4:

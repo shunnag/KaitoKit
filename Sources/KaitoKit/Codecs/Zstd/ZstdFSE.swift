@@ -46,19 +46,37 @@ struct ZstdFSE: Sendable {
             let state = next[symbol]
             next[symbol] += 1
             let bits = accuracyLog - (Int.bitWidth - 1 - state.leadingZeroBitCount)
-            table.append(Cell(symbol: symbol, bits: bits, baseline: (state << bits) - size))
+            let baseline = (state << bits) - size
+            // 復号ループは、この検査により状態の添字検査を省ける。
+            guard bits >= 0, bits <= accuracyLog, baseline >= 0, baseline + (1 << bits) <= size else {
+                throw KaitoError.malformed("zstd FSE state")
+            }
+            table.append(Cell(symbol: symbol, bits: bits, baseline: baseline))
         }
         cells = table
     }
 
     static func read(from reader: inout ZstdByteReader, maximumLog: Int, maximumSymbol: Int) throws -> Self {
+        // Huffman weights / テスト用 API。本番 sequence はフレーム所有の 53 要素を再利用する。
+        try withUnsafeTemporaryAllocation(of: Int.self, capacity: maximumSymbol + 1) { scratch in
+            let description = try readDistribution(from: &reader, maximumLog: maximumLog,
+                                                  maximumSymbol: maximumSymbol, into: scratch)
+            return try Self(probabilities: Array(scratch.prefix(description.count)),
+                            accuracyLog: description.accuracyLog)
+        }
+    }
+
+    static func readDistribution(from reader: inout ZstdByteReader, maximumLog: Int, maximumSymbol: Int,
+                                 into probabilities: UnsafeMutableBufferPointer<Int>) throws
+        -> (accuracyLog: Int, count: Int) {
+        precondition(probabilities.count > maximumSymbol)
         var bits = ZstdForwardBits(reader)
         let log = try bits.read(4) + 5
         guard log <= maximumLog else { throw KaitoError.malformed("zstd FSE accuracy log") }
         var remaining = 1 << log
-        var probabilities: [Int] = []
+        var count = 0
         while remaining > 0 {
-            guard probabilities.count <= maximumSymbol else {
+            guard count <= maximumSymbol else {
                 throw KaitoError.malformed("zstd FSE symbol count")
             }
             let maximum = remaining + 1
@@ -73,21 +91,27 @@ struct ZstdFSE: Sendable {
             guard abs(probability) <= remaining else {
                 throw KaitoError.malformed("zstd FSE probability overflow")
             }
-            probabilities.append(probability)
+            // count <= maximumSymbol < scratch.count。値は -1...remaining に制限済み。
+            probabilities[count] = probability
+            count += 1
             remaining -= abs(probability)
             if probability == 0 {
                 var repeatCount: Int
                 repeat {
                     repeatCount = try bits.read(2)
-                    guard repeatCount <= maximumSymbol + 1 - probabilities.count else {
+                    guard repeatCount <= maximumSymbol + 1 - count else {
                         throw KaitoError.malformed("zstd FSE zero run")
                     }
-                    probabilities.append(contentsOf: repeatElement(0, count: repeatCount))
+                    // zero run 全体が scratch 内であることを直前で検査済み。
+                    for _ in 0..<repeatCount {
+                        probabilities[count] = 0
+                        count += 1
+                    }
                 } while repeatCount == 3
             }
         }
         _ = try reader.take((bits.position + 7) / 8 - reader.position)
-        return try Self(probabilities: probabilities, accuracyLog: log)
+        return (log, count)
     }
 
     @inline(__always)

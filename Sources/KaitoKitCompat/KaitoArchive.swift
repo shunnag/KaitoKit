@@ -268,7 +268,8 @@ public final class KaitoArchive {
 
     /// Reproduces XADMaster's failable archive initializer for a file-system path.
     ///
-    /// It returns `nil` for every open failure like XADMaster. Use `ArchiveReader.open(url:)`
+    /// It returns `nil` for every open failure, including `CancellationError` when called
+    /// inside an already-cancelled Task. Use `ArchiveReader.open(url:)`
     /// when the caller needs the opening error or a password provider for encrypted headers.
     public init?(file path: String) {
         let input = Input.file(
@@ -290,7 +291,8 @@ public final class KaitoArchive {
     /// Reproduces XADMaster's failable archive initializer for an in-memory `Data` value.
     ///
     /// KaitoKitCompat retains the `Data` so ``setNameEncoding(_:)`` can rebuild the reader.
-    /// As with XADMaster's compatibility shape, open failures are represented by `nil`.
+    /// As with XADMaster's compatibility shape, open failures are represented by `nil`,
+    /// including `CancellationError` when called inside an already-cancelled Task.
     public init?(data: Data) {
         let input = Input.data(data)
         let options = ReaderOptions(
@@ -308,7 +310,8 @@ public final class KaitoArchive {
     /// Reproduces XADMaster's failable file initializer with a URL-shaped Swift overload.
     ///
     /// Unlike the path initializer, this overload accepts only a file URL. The returned value is
-    /// `nil` for non-file URLs and open failures; ``filename()`` reports the URL's path.
+    /// `nil` for non-file URLs and open failures, including `CancellationError` when called
+    /// inside an already-cancelled Task; ``filename()`` reports the URL's path.
     public init?(fileURL: URL) {
         guard fileURL.isFileURL else { return nil }
         let input = Input.file(

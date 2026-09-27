@@ -14,6 +14,7 @@ struct LHAEntryRecord: Sendable {
     let uncompressedSize: UInt64
     let crc16: UInt16
     let headerLevel: UInt8
+    let osID: UInt8?
 
     init(
         method: String,
@@ -21,7 +22,8 @@ struct LHAEntryRecord: Sendable {
         compressedSize: UInt64,
         uncompressedSize: UInt64,
         crc16: UInt16,
-        headerLevel: UInt8
+        headerLevel: UInt8,
+        osID: UInt8?
     ) {
         self.method = method
         self.dataOffset = dataOffset
@@ -29,22 +31,37 @@ struct LHAEntryRecord: Sendable {
         self.uncompressedSize = uncompressedSize
         self.crc16 = crc16
         self.headerLevel = headerLevel
+        self.osID = osID
     }
+}
+
+struct LHAUnpublishedMember: Sendable {
+    let position: Int
+    let record: LHAEntryRecord
 }
 
 struct LHAParsedArchive {
     let entries: [ArchiveEntry]
     let records: [LHAEntryRecord]
     let nameEncoding: String.Encoding?
+    let firstHeaderOffset: UInt64
+    let terminator: LHAArchiveTerminator?
+    let unpublishedMembers: [LHAUnpublishedMember]
 
     init(
         entries: [ArchiveEntry],
         records: [LHAEntryRecord],
-        nameEncoding: String.Encoding?
+        nameEncoding: String.Encoding?,
+        firstHeaderOffset: UInt64,
+        terminator: LHAArchiveTerminator?,
+        unpublishedMembers: [LHAUnpublishedMember]
     ) {
         self.entries = entries
         self.records = records
         self.nameEncoding = nameEncoding
+        self.firstHeaderOffset = firstHeaderOffset
+        self.terminator = terminator
+        self.unpublishedMembers = unpublishedMembers
     }
 }
 
@@ -165,15 +182,18 @@ enum LHAHeaderParser {
         guard startOffset <= source.length else { throw KaitoError.truncated }
         var offset = startOffset
         var foundEndMarker = false
+        var terminator: LHAArchiveTerminator?
         var sawAnonymousRegularMember = false
         var retainedPendingMetadataSize: UInt64 = 0
         var reader = try ByteReader(source: source)
 
         while offset < source.length {
+            if pendingEntries.count & 0x3ff == 0 { try Task.checkCancellation() }
             try reader.seek(to: offset)
             let firstByte = try reader.readUInt8()
             if firstByte == 0 {
                 foundEndMarker = true
+                if !recoverDamagedArchives { terminator = .zeroByte(offset: offset) }
                 break
             }
 
@@ -235,6 +255,9 @@ enum LHAHeaderParser {
             // avoids inventing a filesystem name or exposing the tail.
             if parsed.pending.method == "-lhd-", parsed.pending.rawName.isEmpty {
                 foundEndMarker = true
+                if !recoverDamagedArchives {
+                    terminator = .emptyNameDirectoryMember(offset..<parsed.nextOffset)
+                }
                 break
             }
             if parsed.pending.rawName.isEmpty {
@@ -266,7 +289,8 @@ enum LHAHeaderParser {
                     : record.compressedSize,
                 uncompressedSize: record.uncompressedSize,
                 crc16: record.crc16,
-                headerLevel: record.headerLevel
+                headerLevel: record.headerLevel,
+                osID: record.osID
             ))
             offset = parsed.nextOffset
         }
@@ -281,13 +305,16 @@ enum LHAHeaderParser {
            let finalMethod = records.last?.method,
            larcMethods.contains(finalMethod) || sawAnonymousRegularMember {
             foundEndMarker = true
+            if !recoverDamagedArchives { terminator = .endOfFile }
         }
         guard foundEndMarker || recoverDamagedArchives else { throw KaitoError.truncated }
         return try publish(
             pendingEntries: &pendingEntries,
             records: records,
             policy: policy,
-            limits: limits
+            limits: limits,
+            firstHeaderOffset: startOffset,
+            terminator: terminator
         )
     }
 
@@ -388,7 +415,8 @@ enum LHAHeaderParser {
                 compressedSize: packedSize,
                 uncompressedSize: originalSize,
                 crc16: crc16,
-                headerLevel: 0
+                headerLevel: 0,
+                osID: osID
             ),
             nextOffset: nextOffset,
             extensionRecordCount: 0
@@ -515,7 +543,8 @@ enum LHAHeaderParser {
                 compressedSize: compressedSize,
                 uncompressedSize: uncompressedSize,
                 crc16: crc16,
-                headerLevel: 1
+                headerLevel: 1,
+                osID: osID
             ),
             nextOffset: nextOffset,
             extensionRecordCount: extensionResult.recordCount
@@ -658,7 +687,8 @@ enum LHAHeaderParser {
                 compressedSize: compressedSize,
                 uncompressedSize: uncompressedSize,
                 crc16: crc16,
-                headerLevel: 2
+                headerLevel: 2,
+                osID: osID
             ),
             nextOffset: nextOffset,
             extensionRecordCount: extensionResult.recordCount
@@ -762,7 +792,8 @@ enum LHAHeaderParser {
                 compressedSize: compressedSize,
                 uncompressedSize: uncompressedSize,
                 crc16: crc16,
-                headerLevel: 3
+                headerLevel: 3,
+                osID: osID
             ),
             nextOffset: nextOffset,
             extensionRecordCount: extensionRecordCount
@@ -1000,7 +1031,9 @@ enum LHAHeaderParser {
         pendingEntries: inout [PendingEntry?],
         records: [LHAEntryRecord],
         policy: EncodingPolicy,
-        limits: ReadLimits
+        limits: ReadLimits,
+        firstHeaderOffset: UInt64,
+        terminator: LHAArchiveTerminator?
     ) throws -> LHAParsedArchive {
         guard pendingEntries.count == records.count else {
             throw KaitoError.malformed("LHA entry index is inconsistent")
@@ -1041,9 +1074,11 @@ enum LHAHeaderParser {
         entries.reserveCapacity(pendingEntries.count)
         var publishedRecords: [LHAEntryRecord] = []
         publishedRecords.reserveCapacity(records.count)
+        var unpublishedMembers: [LHAUnpublishedMember] = []
         var retainedMetadataSize: UInt64 = 0
 
         for index in pendingEntries.indices {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             guard let pending = pendingEntries[index] else {
                 throw KaitoError.malformed("LHA pending entry is missing")
             }
@@ -1093,6 +1128,9 @@ enum LHAHeaderParser {
                 // with a zero-length filename. Lhasa ignores these on
                 // extraction; skip their public entry while retaining the
                 // already-validated member boundary for traversal.
+                if terminator != nil {
+                    unpublishedMembers.append(LHAUnpublishedMember(position: index, record: records[index]))
+                }
                 continue
             }
             guard !name.utf8.contains(0) else {
@@ -1225,7 +1263,10 @@ enum LHAHeaderParser {
         return LHAParsedArchive(
             entries: entries,
             records: publishedRecords,
-            nameEncoding: archiveEncoding
+            nameEncoding: archiveEncoding,
+            firstHeaderOffset: firstHeaderOffset,
+            terminator: terminator,
+            unpublishedMembers: unpublishedMembers
         )
     }
 

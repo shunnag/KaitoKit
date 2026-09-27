@@ -24,9 +24,11 @@ final class XZDecompressor: Decompressor {
     )
     private var streamWasInitialized = false
     private var finished = false
+    private let recorder: CompressedTarMapRecorder?
 
     init(source: any ByteSource, offset: UInt64 = 0, compressedSize: UInt64? = nil,
-         limits: ReadLimits) throws {
+         limits: ReadLimits, recorder: CompressedTarMapRecorder? = nil) throws {
+        self.recorder = recorder
         let size: UInt64
         if let compressedSize {
             size = compressedSize
@@ -39,7 +41,7 @@ final class XZDecompressor: Decompressor {
         self.compressedEnd = end
         self.sourceOffset = offset
         let window = try BoundedByteSource(source: source, baseOffset: offset, length: size)
-        try XZResourceValidator.validate(source: window, dictionaryLimit: limits.maxDictionarySize)
+        try XZResourceValidator.validate(source: window, dictionaryLimit: limits.maxDictionarySize, recorder: recorder)
         try initializeStream()
     }
 
@@ -95,6 +97,12 @@ final class XZDecompressor: Decompressor {
             }
             let consumed = availableInput - stream.src_size
             let produced = availableOutput - stream.dst_size
+            if let recorder, recorder.isRecording {
+                let offset = try currentCompressedOffset()
+                input.withUnsafeBytes {
+                    recorder.consumeXZ(UnsafeRawBufferPointer(rebasing: $0[inputOffset..<(inputOffset + consumed)]), at: offset)
+                }
+            }
             inputOffset += consumed
             totalProduced += produced
 

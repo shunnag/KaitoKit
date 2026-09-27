@@ -188,7 +188,8 @@ final class CFBReader: FormatReader {
         var directory: [CFBDirectoryEntry] = []
         let entriesPerSector = sectorSize / CFBDirectoryEntry.size
         try Checked.size(UInt64(directorySectors.count) * UInt64(entriesPerSector), limit: UInt64(options.limits.maxMetadataRecordCount))
-        for location in directorySectors {
+        for (position, location) in directorySectors.enumerated() {
+            if position & 0x3ff == 0 { try Task.checkCancellation() }
             let b = try Self.sector(location, source: source, sectorSize: sectorSize, sectorCount: sectorCount, budget: &budget)
             for index in 0..<entriesPerSector {
                 directory.append(try CFBDirectoryEntry(b, index * CFBDirectoryEntry.size, majorVersion: header.majorVersion))
@@ -223,7 +224,10 @@ final class CFBReader: FormatReader {
         var records: [Record] = []
         var visited = Set<UInt32>()
         var pending: [(id: UInt32, components: [String], depth: Int, publish: Bool)] = [(root.child, [], 0, false)]
+        var nodeCount = 0
         while let item = pending.popLast() {
+            if nodeCount & 0x3ff == 0 { try Task.checkCancellation() }
+            nodeCount &+= 1
             let (id, components, depth, publish) = item
             guard id != CFBHeader.noStream else { continue }
             guard id <= CFBHeader.maxRegularSector, Int(id) < directory.count else { throw KaitoError.malformed("cfb stream id \(id)") }

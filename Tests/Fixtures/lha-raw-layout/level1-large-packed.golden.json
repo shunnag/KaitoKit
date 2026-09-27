@@ -1,0 +1,61 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 4294967296,
+      "content" : {
+        "error" : {
+          "message" : "Malformed archive: entry output exceeds its declared size",
+          "type" : "KaitoKit.KaitoError"
+        }
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "0000",
+        "dataOffset" : "62",
+        "headerLevel" : "1",
+        "headerOffset" : "0",
+        "method" : "-lh0-",
+        "os" : "Unix",
+        "osID" : "U"
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh0-",
+      "modificationDate" : 1741653238,
+      "name" : "large-packed.bin",
+      "pathComponents" : [
+        "large-packed.bin"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          108,
+          97,
+          114,
+          103,
+          101,
+          45,
+          112,
+          97,
+          99,
+          107,
+          101,
+          100,
+          46,
+          98,
+          105,
+          110
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 1
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

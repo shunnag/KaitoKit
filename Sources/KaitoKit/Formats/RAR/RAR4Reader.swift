@@ -1231,8 +1231,11 @@ final class RAR4Reader: FormatReader {
         var records: [Record] = []
         var retainedMetadataSize: UInt64 = 0
         var encryptedHeaderWasValidated = false
+        var blockCount = 0
 
         while offset < source.length {
+            if blockCount & 0x3ff == 0 { try Task.checkCancellation() }
+            blockCount &+= 1
             let encryptedHeader = mainHeader?.hasEncryptedHeaders == true
             let encryptedHeaderEnvelopeIsShort = encryptedHeader
                 && source.length - offset < 24
@@ -1682,8 +1685,9 @@ final class RAR4Reader: FormatReader {
         // leave all solid state untouched, regardless of flags or unpack version.
         var solidGroups = [Int](repeating: -1, count: pendingEntries.count)
         var previousFileIndex: Int?
-        for index in pendingEntries.indices
-        where pendingEntries[index].kind != .directory && records[index].method != 0x30 {
+        for index in pendingEntries.indices {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            guard pendingEntries[index].kind != .directory && records[index].method != 0x30 else { continue }
             let continuesSolidStream = records[index].firstFlags & FileFlag.solid != 0
             if continuesSolidStream {
                 guard mainHeader.isSolid else {
@@ -1706,6 +1710,7 @@ final class RAR4Reader: FormatReader {
         }
 
         for (index, pending) in pendingEntries.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             let unresolved = pending.decodedUnicodeName == nil
             let decoded = pending.decodedUnicodeName ??
                 EncodingDetector.resolveUndeclaredName(

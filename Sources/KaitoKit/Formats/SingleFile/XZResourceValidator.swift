@@ -8,10 +8,12 @@ import Foundation
 /// Format input: https://tukaani.org/xz/xz-file-format.txt and LZMA2's public
 /// control-byte layout. Apple Compression still verifies the decoded data.
 enum XZResourceValidator {
-    static func validate(source: any ByteSource, dictionaryLimit: UInt64) throws {
+    static func validate(source: any ByteSource, dictionaryLimit: UInt64,
+                         recorder: CompressedTarMapRecorder? = nil) throws {
         guard source.length >= 24, source.length % 4 == 0 else { throw KaitoError.truncated }
         var reader = try ByteReader(source: source, bufferCapacity: 1_024)
         repeat {
+            let streamStart = reader.offset
             let header = try reader.readBytes(12)
             guard header.prefix(6) == Data([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0]),
                   header[6] == 0, header[7] & 0xf0 == 0,
@@ -20,6 +22,7 @@ enum XZResourceValidator {
             }
             let check = header[7] & 0x0f
             let checkSize: UInt64 = check == 0 ? 0 : UInt64(1) << ((Int(check) - 1) / 3 + 2)
+            recorder?.beginXZ(at: streamStart, flags: UInt16(header[6]) | UInt16(header[7]) << 8, checkSize: checkSize)
             var blocks: UInt64 = 0
             var actualIndex = SHA256()
             var indexStart: UInt64
@@ -44,6 +47,9 @@ enum XZResourceValidator {
                 try reader.seek(to: Checked.add(reader.offset, checkSize))
                 hashRecord(&actualIndex, UInt64(headerSize) + compressedSize + checkSize, outputSize)
                 blocks = try Checked.add(blocks, 1)
+                recorder?.appendXZ(compressedRange: blockStart..<reader.offset, headerSize: UInt64(headerSize),
+                                   payloadSize: compressedSize, unpaddedSize: UInt64(headerSize) + compressedSize + checkSize,
+                                   outputSize: outputSize)
             }
             let records = try variableInteger(&reader)
             guard records == blocks else { throw KaitoError.malformed("XZ Index block count mismatch") }
@@ -60,6 +66,7 @@ enum XZResourceValidator {
             // The native decoder validates Index CRC and payload checksums.
             _ = try reader.readUInt32LE()
             let indexSize = reader.offset - indexStart
+            let footerStart = reader.offset
             let footer = try reader.readBytes(12)
             guard footer.suffix(2) == Data([0x59, 0x5a]),
                   footer[8] == header[6], footer[9] == header[7],
@@ -67,12 +74,14 @@ enum XZResourceValidator {
                   CRC32.checksum(Data(footer[4..<10])) == littleEndian(footer, at: 0) else {
                 throw KaitoError.malformed("invalid XZ stream footer")
             }
+            recorder?.endXZ(index: indexStart..<footerStart, footer: footerStart..<reader.offset)
             while reader.remaining > 0 {
                 let offset = reader.offset
                 if try reader.readUInt32LE() != 0 {
                     try reader.seek(to: offset)
                     break
                 }
+                recorder?.disable(.xzStreamPadding)
             }
         } while reader.remaining > 0
     }

@@ -217,6 +217,54 @@ final class SevenZipFolderDecoderFactory {
         self.isEncrypted = folder.coders.contains { SevenZipMethod.kind(for: $0.methodID) == .aes }
     }
 
+    func makeDecryptedPackedDecoder(packedInput: Int) throws -> (decoder: any Decompressor, length: UInt64) {
+        guard folder.packedIndices.indices.contains(packedInput) else {
+            throw KaitoError.notFound("7z packed input \(packedInput)")
+        }
+        let inputIndex = folder.packedIndices[packedInput]
+        guard let coder = folder.coders.first(where: { $0.firstInput == inputIndex
+            && $0.inputCount == 1 && $0.outputCount == 1
+            && SevenZipMethod.kind(for: $0.methodID) == .aes }),
+              folder.boundOutput(forInput: inputIndex) == nil else {
+            throw KaitoError.malformed("7z packed input is not read by AES")
+        }
+        guard let range = packedRanges[inputIndex] else {
+            throw KaitoError.malformed("7z packed input size is missing")
+        }
+        try packedStreamVerifier.verify([inputIndex: range])
+        let length = folder.unpackSizes[coder.firstOutput]
+        let value = try decryptedBytes(coder: coder,
+            input: SevenZipByteInput(source: source, offset: range.offset, length: range.size),
+            expectedSize: length, chargeKDFWork: { _ in })
+        return (try value.asStream(), length)
+    }
+
+    private func decryptedBytes(
+        coder: SevenZipCoder, input: SevenZipByteInput, expectedSize: UInt64,
+        chargeKDFWork: (UInt64) throws -> Void
+    ) throws -> SevenZipPipelineValue {
+        guard let password else { throw KaitoError.passwordRequired }
+        let properties = try SevenZipAESProperties(
+            bytes: coder.properties,
+            maximumCyclesPower: maximumAESCyclesPower
+        )
+        let key = try keyCache.key(password: password, properties: properties,
+                                  chargeKDFWork: chargeKDFWork)
+        let decrypted = try SevenZipAESByteSource(
+            source: input.source,
+            ciphertextOffset: input.offset,
+            ciphertextSize: input.length,
+            plaintextSize: expectedSize,
+            key: key,
+            initializationVector: properties.initializationVector
+        )
+        return .bytes(SevenZipByteInput(
+            source: decrypted,
+            offset: 0,
+            length: decrypted.length
+        ))
+    }
+
     func makeDecoder(chargeKDFWork: (UInt64) throws -> Void = { _ in }) throws -> any Decompressor {
         var activeOutputs = Set<Int>()
 
@@ -373,26 +421,8 @@ final class SevenZipFolderDecoderFactory {
             case .aes:
                 try requireArity(coder, inputs: 1)
                 let input = try byteInput(coder.firstInput)
-                guard let password else { throw KaitoError.passwordRequired }
-                let properties = try SevenZipAESProperties(
-                    bytes: coder.properties,
-                    maximumCyclesPower: maximumAESCyclesPower
-                )
-                let key = try keyCache.key(password: password, properties: properties,
+                return try decryptedBytes(coder: coder, input: input, expectedSize: expectedSize,
                                           chargeKDFWork: chargeKDFWork)
-                let decrypted = try SevenZipAESByteSource(
-                    source: input.source,
-                    ciphertextOffset: input.offset,
-                    ciphertextSize: input.length,
-                    plaintextSize: expectedSize,
-                    key: key,
-                    initializationVector: properties.initializationVector
-                )
-                return .bytes(SevenZipByteInput(
-                    source: decrypted,
-                    offset: 0,
-                    length: decrypted.length
-                ))
 
             case let .swap(width):
                 try requireArity(coder, inputs: 1)

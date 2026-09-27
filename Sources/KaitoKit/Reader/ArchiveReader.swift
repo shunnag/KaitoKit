@@ -10,7 +10,8 @@ private final class ArchiveOutputBudget {
     init(entries: [ArchiveEntry], limit: UInt64) throws {
         self.limit = limit
         var declaredTotal: UInt64 = 0
-        for entry in entries {
+        for (index, entry) in entries.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             guard let size = entry.uncompressedSize else { continue }
             let next = declaredTotal.addingReportingOverflow(size)
             guard !next.overflow, next.partialValue <= limit else {
@@ -77,6 +78,7 @@ private final class ArchiveOutputBudget {
 public final class ArchiveReader {
     private let source: any ByteSource
     private let stagedTarSource: (any ByteSource)?
+    private let tarEditingState: TarEditingSnapshot?
     // 拡張子・単一ストリームの名前・SFX 検出のヒント。分割セットでは .001 を除く。
     // Data と名前ヒントのない ByteSource はファイル名の由来を持たない。
     private let sourceURL: URL?
@@ -141,12 +143,21 @@ public final class ArchiveReader {
             throw KaitoError.malformed("ZIP split volume set is not a ZIP archive")
         }
         var stagedTarSource: (any ByteSource)?
+        var tarEditingState: TarEditingSnapshot?
+        let recordsTarLayout = options.recordsTarEditLayout && volumeSet == nil && !(source is ConcatenatedByteSource)
+        var tarOptions = options
+        tarOptions.recordsTarEditLayout = recordsTarLayout
         switch detected {
         case .tar:
-            let tar = try AppleDoubleReader.wrap(TarReader(source: source, options: options), options: options)
+            let identityBefore = recordsTarLayout ? currentTarArchiveIdentity(source) : nil
+            let tar = try AppleDoubleReader.wrap(TarReader(source: source, options: tarOptions), options: options)
             reader = tar
             entries = tar.entries
             format = .tar
+            if recordsTarLayout {
+                tarEditingState = Self.makeTarEditingState(container: .plain, archive: source, image: source,
+                                                           reader: tar, options: options, identityBefore: identityBefore)
+            }
         case .zip:
             // Finder / ditto の `__MACOSX/._name` sidecar は方針に従って畳む（既定は resource fork へ統合）。
             let zip = try AppleDoubleReader.wrap(ZipReader(source: source, options: options, diskLayout: zipDiskLayout), options: options)
@@ -159,9 +170,13 @@ public final class ArchiveReader {
                 sourceURL: sourceURL,
                 options: options
             )
+            var sevenZipOptions = options
+            sevenZipOptions.recordsSevenZipEditLayout = options.recordsSevenZipEditLayout
+                && volumeSet == nil && !(source is ConcatenatedByteSource)
             let sevenZip = try SevenZipReader(
                 source: sevenZipSource,
-                options: options
+                options: sevenZipOptions,
+                baseOffset: source.length - sevenZipSource.length
             )
             reader = sevenZip
             entries = sevenZip.entries
@@ -334,21 +349,21 @@ public final class ArchiveReader {
             entries = xar.entries
             format = .xar
         case .gzip, .bzip2, .xz, .zstd, .lz4, .compress, .lzma, .lzip, .brotli, .pbzx:
+            let container = Self.compressedContainer(for: sourceURL, detected: detected)
+            let identityBefore = recordsTarLayout && container == .tar ? currentTarArchiveIdentity(source) : nil
             let single = try SingleFileReader(
                 source: source,
                 format: detected,
                 options: options,
                 fallbackFileName: sourceURL?.lastPathComponent
             )
-            let container = Self.compressedContainer(for: sourceURL, detected: detected)
+            let mapRecorder = recordsTarLayout && !options.recoverDamagedArchives && container == .tar
+                && [.gzip, .bzip2, .xz].contains(detected) ? CompressedTarMapRecorder(format: detected) : nil
             if let container {
                 // The expanded tar / cpio envelope is staging input, not a
                 // published entry. Its stream uses maxEntrySize; the aggregate
                 // budget constructed below applies to the inner reader's members.
-                let stream = try single.stream(
-                    for: single.entries[0],
-                    limits: options.limits
-                )
+                let stream = try single.stagingStream(limits: options.limits, recorder: mapRecorder)
                 let staged = try SingleFileMaterializer.materialize(
                     stream,
                     limits: options.limits
@@ -356,10 +371,16 @@ public final class ArchiveReader {
                 stagedTarSource = staged
                 switch container {
                 case .tar:
-                    let tar = try AppleDoubleReader.wrap(TarReader(source: staged, options: options), options: options)
+                    let tar = try AppleDoubleReader.wrap(TarReader(source: staged, options: tarOptions), options: options)
                     reader = tar
                     entries = tar.entries
                     format = .tar
+                    if recordsTarLayout {
+                        let kind: TarContainer = detected == .gzip ? .gzip : detected == .bzip2 ? .bzip2 : detected == .xz ? .xz : .other(detected)
+                        tarEditingState = Self.makeTarEditingState(container: kind, archive: source, image: staged,
+                                                                   reader: tar, options: options, recorder: mapRecorder,
+                                                                   identityBefore: identityBefore)
+                    }
                 case .cpio:
                     let cpio = try CpioReader(source: staged, options: options)
                     reader = cpio
@@ -389,6 +410,7 @@ public final class ArchiveReader {
         }
 
         self.stagedTarSource = stagedTarSource
+        self.tarEditingState = tarEditingState
         self.outputBudget = try ArchiveOutputBudget(
             entries: entries,
             limit: options.limits.maxTotalUncompressedSize
@@ -407,10 +429,12 @@ public final class ArchiveReader {
         outputBudget: ArchiveOutputBudget,
         zipDiskLayout: ZipDiskLayout? = nil,
         volumeSet: ArchiveVolumeSet? = nil,
-        stagedTarSource: (any ByteSource)? = nil
+        stagedTarSource: (any ByteSource)? = nil,
+        tarEditingState: TarEditingSnapshot? = nil
     ) throws {
         self.source = source
         self.stagedTarSource = stagedTarSource
+        self.tarEditingState = tarEditingState
         self.sourceURL = sourceURL
         self.zipDiskLayout = zipDiskLayout
         self.assembledVolumeSet = volumeSet
@@ -501,6 +525,11 @@ public final class ArchiveReader {
         }
         try preparePassword(for: entry)
         let stream = try reader.stream(for: entry, limits: options.limits)
+        observeOutputBudget(stream, for: entry)
+        return stream
+    }
+
+    private func observeOutputBudget(_ stream: EntryStream, for entry: ArchiveEntry) {
         if entry.uncompressedSize == nil {
             stream.observeProducedSize(
                 availableAdditionalSize: { [outputBudget] producedSize in
@@ -520,7 +549,6 @@ public final class ArchiveReader {
                 }
             )
         }
-        return stream
     }
 
     /// Reads one entry into an exactly sized in-memory buffer.
@@ -541,6 +569,64 @@ public final class ArchiveReader {
         try validate(entry)
         guard !entry.isIncomplete, zipDiskLayout != nil || !(source is ConcatenatedByteSource) else { return nil }
         return try reader.rawRecord(for: entry, limits: options.limits)
+    }
+
+    /// entries[index] の生レコード範囲。同一性比較だけを省き、公開 API と同じ検証を行う。
+    /// .expose の ZIP は CD 順。password を要求せず、取消しも検査しない。
+    @_spi(ZipRawLayout)
+    public func zipRawRecordLayout(at index: Int) throws -> ZipRawRecordLayout? {
+        guard entries.indices.contains(index) else {
+            throw KaitoError.notFound("archive entry index \(index)")
+        }
+        guard !entries[index].isIncomplete,
+              zipDiskLayout != nil || !(source is ConcatenatedByteSource) else { return nil }
+        return try reader.zipRawRecordLayout(at: index, limits: options.limits)
+    }
+
+    /// LHA の member の配置。LHA 以外、recovery、分割巻では nil。
+    /// 終端の後ろを最大 65,536 byte だけ読む。password を要求せず、取消しを検査しない。
+    @_spi(LHARawLayout)
+    public func lhaRawLayout() throws -> LHAArchiveLayout? {
+        guard let lha = reader as? LHAReader,
+              !options.recoverDamagedArchives,
+              volumeSet == nil, !(source is ConcatenatedByteSource) else { return nil }
+        return try lha.rawLayout()
+    }
+
+    /// 暗号だけを外した保存 payload。展開と CRC 照合は行わない。
+    /// ZipCrypto の 1 byte 照合値を通る誤 password は、呼出側で CRC を検査する。
+    /// AES は verifier と、最終 chunk を返す前の HMAC を照合する。
+    /// aesKey があれば password/provider と鍵 cache を使わず、salt・強度の相違は malformed。
+    @_spi(ZipRawLayout)
+    public func zipStoredPayloadStream(at index: Int, aesKey: ZipAESKeyMaterial? = nil) throws -> EntryStream {
+        try makeZipStream(at: index, aesKey: aesKey, storedOnly: true)
+    }
+
+    /// 渡した AES 材料で stream(_:) と同じ復号・展開・CRC / HMAC 照合を行う。
+    /// AES 以外への材料は malformed。password/provider と鍵 cache は使わない。
+    @_spi(ZipRawLayout)
+    public func zipStream(at index: Int, aesKey: ZipAESKeyMaterial) throws -> EntryStream {
+        try makeZipStream(at: index, aesKey: aesKey, storedOnly: false)
+    }
+
+    private func makeZipStream(at index: Int, aesKey: ZipAESKeyMaterial?, storedOnly: Bool) throws -> EntryStream {
+        guard entries.indices.contains(index) else {
+            throw KaitoError.notFound("archive entry index \(index)")
+        }
+        let entry = entries[index]
+        guard !entry.isIncomplete, zipDiskLayout != nil || !(source is ConcatenatedByteSource) else {
+            throw KaitoError.unsupportedMethod("ZIP stored payload")
+        }
+        if !storedOnly, entry.uncompressedSize == nil {
+            try outputBudget.ensureUsable()
+        }
+        if aesKey == nil { try preparePassword(for: entry) }
+        guard let stream = try reader.zipStream(at: index, limits: options.limits,
+                                               aesKey: aesKey, storedOnly: storedOnly) else {
+            throw KaitoError.unsupportedMethod("ZIP stored payload")
+        }
+        if !storedOnly { observeOutputBudget(stream, for: entry) }
+        return stream
     }
 
     /// Safely extracts one entry below `directory` and returns its destination.
@@ -621,8 +707,106 @@ public final class ArchiveReader {
             outputBudget: outputBudget.reopened(),
             zipDiskLayout: zipDiskLayout,
             volumeSet: volumeSet,
-            stagedTarSource: stagedTarSource
+            stagedTarSource: stagedTarSource,
+            tarEditingState: tarEditingState
         )
+    }
+
+    /// 保持済みの生値だけを返す。source の読取りや password の要求は行わない。
+    @_spi(SevenZipEditLayout)
+    public func sevenZipEditingSnapshot() -> SevenZipEditingSnapshot? {
+        guard options.recordsSevenZipEditLayout, format == .sevenZip,
+              volumeSet == nil, !(source is ConcatenatedByteSource) else { return nil }
+        return (reader as? SevenZipReader)?.editingSnapshot()
+    }
+
+    /// AES の出力長までの圧縮済み平文。展開と出力 CRC の照合は行わない。
+    @_spi(SevenZipEditLayout)
+    public func sevenZipDecryptedPackedStream(folder: Int, packedInput: Int) throws -> EntryStream {
+        guard let sevenZip = reader as? SevenZipReader else {
+            throw KaitoError.notFound("7z folder \(folder)")
+        }
+        sevenZip.setPassword(password)
+        return try sevenZip.decryptedPackedStream(folder: folder, packedInput: packedInput)
+    }
+
+    @_spi(TarEditLayout)
+    public func tarEditingSnapshot() -> TarEditingSnapshot? { tarEditingState }
+
+    /// 保持した復号済み image と圧縮 byte の digest で継ぎを検証する。
+    @_spi(TarEditLayout)
+    public static func openSplicedCompressedTar(
+        output: any ByteSource, sourceURL: URL?, base: TarEditingSnapshot,
+        splice: CompressedTarSplice, options: ReaderOptions
+    ) throws -> sending ArchiveReader {
+        try openSplicedCompressedTar(output: output, sourceURL: sourceURL, base: base,
+                                    splice: splice, options: options, storagePolicy: TarSpliceStoragePolicy())
+    }
+
+    static func openSplicedCompressedTar(
+        output: any ByteSource, sourceURL: URL?, base: TarEditingSnapshot,
+        splice: CompressedTarSplice, options: ReaderOptions, storagePolicy: TarSpliceStoragePolicy
+    ) throws -> sending ArchiveReader {
+        let identity = currentTarArchiveIdentity(output)
+        let codec: ArchiveFormat
+        switch (base.container, base.chunkMap) {
+        case (.gzip, .gzip): codec = .gzip
+        case (.bzip2, .bzip2): codec = .bzip2
+        case (.xz, .xz): codec = .xz
+        default: throw TarSpliceVerificationError(.baseNotSpliceable)
+        }
+        guard !options.recoverDamagedArchives else { throw TarSpliceVerificationError(.baseNotSpliceable) }
+        let detected = try tarSpliceVerification(.baseNotSpliceable) {
+            let stuffItInput = try FormatDetector.stuffItInput(source: output, limits: options.limits,
+                maximumSFXScanSize: sourceURL != nil || options.scanForSFXInData ? options.maximumSFXScanSize : 0)
+            return try stuffItInput == nil ? FormatDetector.detect(source: output, sourceURL: sourceURL,
+                options: options, skipStuffIt: true) : FormatDetector.envelopeFormat(stuffItInput!)
+        }
+        guard detected == codec, compressedContainer(for: sourceURL, detected: detected) == .tar else {
+            throw TarSpliceVerificationError(.baseNotSpliceable)
+        }
+        // 外側の名前・metadata の上限も、全体の open と同じ順で検める。
+        let single = try tarSpliceVerification(.framingMismatch) {
+            try SingleFileReader(source: output, format: detected, options: options, fallbackFileName: sourceURL?.lastPathComponent)
+        }
+        let verifier = try CompressedTarSpliceVerifier(output: output, base: base, splice: splice, limits: options.limits,
+                                                     gzipHeaderLength: single.tarSpliceGzipHeaderLength)
+        let image = try verifier.materialize(policy: storagePolicy)
+        var tarOptions = options
+        tarOptions.recordsTarEditLayout = true
+        let parsed = try AppleDoubleReader.wrap(TarReader(source: image, options: tarOptions), options: options)
+        let budget = try ArchiveOutputBudget(entries: parsed.entries, limit: options.limits.maxTotalUncompressedSize)
+        if let identity, currentTarArchiveIdentity(output) != identity { throw TarSpliceVerificationError(.outputChanged) }
+        let tar = parsed as? TarReader
+        let snapshot = TarEditingSnapshot(container: base.container, image: image, archive: output,
+            layout: tar?.layoutStorage?.layout,
+            layoutUnavailableReason: tar == nil ? .wrappedEntries : tar?.layoutStorage?.unavailableReason,
+            chunkMap: verifier.map, chunkMapUnavailableReason: verifier.mapUnavailableReason,
+            archiveIdentity: identity, limits: options.limits)
+        return try ArchiveReader(sharing: output, sourceURL: sourceURL, options: tarOptions,
+            parsedReader: parsed, outputBudget: budget, stagedTarSource: image, tarEditingState: snapshot)
+    }
+
+    private static func makeTarEditingState(container: TarContainer, archive: any ByteSource,
+                                           image: any ByteSource, reader: any FormatReader,
+                                           options: ReaderOptions, recorder: CompressedTarMapRecorder? = nil,
+                                           identityBefore: ByteSourceFileIdentity?) -> TarEditingSnapshot {
+        let tar = reader as? TarReader
+        let mapReason: ChunkMapUnavailableReason
+        switch container {
+        case .plain: mapReason = .notCompressed
+        case .other(let format): mapReason = .unsupportedCodec(format)
+        default: mapReason = options.recoverDamagedArchives ? .recoveryMode : .inconsistent
+        }
+        let recorded = recorder?.finish(imageLength: image.length, archiveLength: archive.length)
+        let identityAfter = currentTarArchiveIdentity(archive)
+        let changed = identityBefore != identityAfter
+        return TarEditingSnapshot(container: container, image: image, archive: archive,
+                                  layout: tar?.layoutStorage?.layout,
+                                  layoutUnavailableReason: tar == nil ? .wrappedEntries : tar?.layoutStorage?.unavailableReason,
+                                  chunkMap: changed ? nil : recorded?.map,
+                                  chunkMapUnavailableReason: changed ? .archiveChangedDuringOpen : recorded?.map == nil ? recorded?.reason ?? mapReason : nil,
+                                  archiveIdentity: changed ? nil : identityBefore, limits: options.limits)
     }
 
     private func validate(_ entry: ArchiveEntry) throws {

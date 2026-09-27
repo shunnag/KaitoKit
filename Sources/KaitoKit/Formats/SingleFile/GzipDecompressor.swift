@@ -6,6 +6,7 @@ private import zlib
 struct GzipHeader {
     let originalName: [UInt8]?
     let modificationDate: Date?
+    let length: UInt64
 }
 
 enum GzipHeaderParser {
@@ -109,7 +110,7 @@ enum GzipHeaderParser {
         let date = modificationTime == 0
             ? nil
             : Date(timeIntervalSince1970: TimeInterval(modificationTime))
-        return GzipHeader(originalName: originalName, modificationDate: date)
+        return GzipHeader(originalName: originalName, modificationDate: date, length: cursor.reader.offset)
     }
 }
 
@@ -127,8 +128,12 @@ final class GzipDecompressor: Decompressor {
     private var stream = z_stream()
     private var streamWasInitialized = false
     private var finished = false
+    private let recorder: CompressedTarMapRecorder?
+    private var emptyStops = 0
 
-    init(source: any ByteSource, offset: UInt64 = 0, compressedSize: UInt64? = nil) throws {
+    init(source: any ByteSource, offset: UInt64 = 0, compressedSize: UInt64? = nil,
+         recorder: CompressedTarMapRecorder? = nil) throws {
+        self.recorder = recorder
         let size: UInt64
         if let compressedSize {
             size = compressedSize
@@ -191,7 +196,7 @@ final class GzipDecompressor: Decompressor {
                     stream.next_in = nil
                     stream.next_out = nil
                 }
-                return inflate(&stream, Z_NO_FLUSH)
+                return inflate(&stream, recorder?.isRecording == true ? Z_BLOCK : Z_NO_FLUSH)
             }
 
             let remainingInput = Int(stream.avail_in)
@@ -202,6 +207,14 @@ final class GzipDecompressor: Decompressor {
             }
             let consumed = availableInput - remainingInput
             let produced = availableOutput - remainingOutput
+            if let recorder, recorder.isRecording {
+                let end = try currentCompressedOffset() + UInt64(consumed)
+                input.withUnsafeBytes {
+                    recorder.consumeGzip(UnsafeRawBufferPointer(rebasing: $0[inputOffset..<(inputOffset + consumed)]),
+                                         end: end, produced: produced, dataType: stream.data_type,
+                                         crc: UInt32(truncatingIfNeeded: stream.adler), streamEnd: status == Z_STREAM_END)
+                }
+            }
             inputOffset += consumed
             totalProduced += produced
 
@@ -214,6 +227,7 @@ final class GzipDecompressor: Decompressor {
                 guard try hasMemberSignature(at: nextOffset) else {
                     throw KaitoError.malformed("gzip stream has trailing bytes")
                 }
+                recorder?.disable(.multipleGzipMembers)
                 let resetStatus = inflateReset2(&stream, MAX_WBITS + 16)
                 guard resetStatus == Z_OK else {
                     throw KaitoError.malformed("zlib gzip reset failed (\(resetStatus))")
@@ -224,8 +238,16 @@ final class GzipDecompressor: Decompressor {
             guard status == Z_OK || status == Z_BUF_ERROR else {
                 throw gzipError(status)
             }
-            if totalProduced > 0 { return totalProduced }
-            if consumed == 0 {
+            let recording = recorder?.isRecording == true
+            // Z_BLOCK の停止で小さく戻ると Swift 側の反復が増える。入力切れか出力満杯まで進む。
+            if totalProduced > 0, !recording || inputOffset == inputCount { return totalProduced }
+            if consumed == 0, produced == 0, recording, stream.data_type & 128 != 0 {
+                emptyStops += 1
+                guard emptyStops <= 64 else { throw KaitoError.malformed("gzip stream made no progress") }
+                continue
+            }
+            emptyStops = 0
+            if consumed == 0, produced == 0 {
                 throw KaitoError.malformed("gzip stream made no progress")
             }
         }

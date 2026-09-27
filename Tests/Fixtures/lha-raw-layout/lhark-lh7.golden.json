@@ -1,0 +1,54 @@
+{
+  "entries" : [
+    {
+      "compressedSize" : 1,
+      "content" : {
+        "error" : {
+          "message" : "The archive is truncated",
+          "type" : "KaitoKit.KaitoError"
+        }
+      },
+      "crc32" : null,
+      "formatSpecific" : {
+        "attribute" : "0x20",
+        "dataCRC16" : "30c0",
+        "dataOffset" : "43",
+        "headerLevel" : "2",
+        "headerOffset" : "0",
+        "method" : "-lh7-",
+        "os" : "LHARK",
+        "osID" : " "
+      },
+      "index" : 0,
+      "isEncrypted" : false,
+      "isIncomplete" : false,
+      "kind" : "file",
+      "methodDescription" : "-lh7-",
+      "modificationDate" : 1672628645,
+      "name" : "lhark.bin",
+      "pathComponents" : [
+        "lhark.bin"
+      ],
+      "posixPermissions" : null,
+      "rawName" : {
+        "bytes" : [
+          108,
+          104,
+          97,
+          114,
+          107,
+          46,
+          98,
+          105,
+          110
+        ],
+        "declaredEncoding" : null,
+        "isDirectoryHint" : false
+      },
+      "solidGroup" : -1,
+      "uncompressedSize" : 1
+    }
+  ],
+  "format" : "lha",
+  "nameEncoding" : null
+}

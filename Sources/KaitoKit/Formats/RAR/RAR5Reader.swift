@@ -1383,7 +1383,10 @@ final class RAR5Reader: FormatReader {
             }
         }
 
+        var blockCount = 0
         while offset < source.length, !state.sawEndHeader {
+            if blockCount & 0x3ff == 0 { try Task.checkCancellation() }
+            blockCount &+= 1
             let block: Block
             headerBodyWasVerified = false
             do {
@@ -2334,9 +2337,10 @@ final class RAR5Reader: FormatReader {
         var solidGroups = [Int](repeating: -1, count: pending.count)
         if archiveFlags.contains(RAR5ArchiveFlags.solid) {
             var previousFileIndex: Int?
-            for index in pending.indices
-            where pending[index].kind != .directory
-                && !isZeroBodyRedirection(pending[index].extras.redirection?.type) {
+            for index in pending.indices {
+                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                guard pending[index].kind != .directory
+                    && !isZeroBodyRedirection(pending[index].extras.redirection?.type) else { continue }
                 if pending[index].compression.isSolid {
                     guard let predecessor = previousFileIndex else {
                         throw KaitoError.malformed(
@@ -2366,6 +2370,7 @@ final class RAR5Reader: FormatReader {
         records.reserveCapacity(pending.count)
 
         for (index, item) in pending.enumerated() {
+            if index & 0x3ff == 0 { try Task.checkCancellation() }
             let zeroBodyRedirection = isZeroBodyRedirection(
                 item.extras.redirection?.type
             )

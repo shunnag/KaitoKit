@@ -1179,14 +1179,26 @@ prose ページであることを確認し、`source-archive` を含む URL は�
 > exit codes, stdout and first stderr lines on both binaries, and ASan reported nothing.
 > See the verification record.
 
-- Zstandard（2026-09-12、bd `cooViewer-c1vj.3`）: `Codecs/Zstd/` の 6 ファイルに、FSE、
+- Zstandard（2026-09-12、bd `cooViewer-c1vj.3`）: `Codecs/Zstd/` の 7 ファイルに、FSE、
   Huffman、前向き byte / 逆向き bit reader、XXH64、frame / block / sequence、Decompressor を実装。
   ヘッダの先読みは 4 KiB とし、本文は先読みの残りを消費後、残り要求が 4 KiB 以上なら直接まとめて読む。
   履歴は空の配列から実出力に比例して伸ばし、保持上限に達したらリングとして更新する。
   保持上限は content size が既知なら `min(windowSize, max(1, contentSize))`、不明なら宣言 window。
   既知の全出力より古いバイトを参照できないという LZMA の retainedDictionarySize と同じ根拠である。
   宣言 window は従来どおり maxDictionarySize（既定 1 GiB）で検証し、block 上限・match 距離にも使う。
-  block / literals の作業領域は各最大 128 KiB。skip の挙動を保ちつつ一覧の先読み破棄量を抑える。
+  圧縮 block / literals の scratch は frame ごとに遅延確保し、初回は `min(block 上限, max(4 KiB, 要求))`、
+  以後は必要時だけ倍増する（各最大 128 KiB）。block の前 8 byte と有効データ直後の 32 byte だけを
+  padding として初期化し、raw literals は block 内を直接参照、RLE / Huffman literals は再利用領域に復号する。
+  出力には書込み専用の 32 byte 余白を設け、有効 byte だけを履歴・返却値・XXH64 の対象とする。
+  sequence は 8 byte の FSE cell と境界付きの逆向き word reader で実行し、各コピー前に長さ・距離を検査する。
+  Huffman は frame 所有の 2 byte cell 表を rank ごとに埋め、重みと集計領域も再利用する。
+  pair 表は同じ表での累計復号記号数が校正済みの閾値 32,768 に達した時だけ構築し、新表で無効化する。
+  1 / 4 stream の復号は残り bit 数と出力余地の両方で batch 長を制限し、同じ padded reader で終端を厳密検証する。
+  raw block は出力 storage へ直接読み、RLE block は同じ領域を直接埋める。
+  block は実 byte の view を返し、Decompressor が全 byte を消費するまで frame を保持する。
+  次 block の復号・storage の再配置・frame 解放は消費後だけ行う。最終サイズと checksum は view 返却前に検証し、
+  XXH64 は同じ算術で view を読み取る。空 block は出力領域を確保せず、raw/RLE の既知サイズは確保前に検証する。
+  skip の挙動を保ちつつ一覧の先読み破棄量を抑える。[P11 検証記録](verification/2026-09-26-zstd-p11.md)。
   `.zst`・圧縮 tar・RPM cpio・ZIP method 93 と CLI / Compat の表示名を接続した。
   全 frame の宣言サイズがあれば合計を entry に公開し、欠落があれば nil とする。
   fixture 46 件は決定的 text / binary / random / repetitive / empty / one byte、level 1/3/9/19/22、
@@ -1194,12 +1206,26 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   80 通りの実行時 matrix と 7zz の第二オラクルも備える。未対応は外部辞書（7z の zstd method は 2026-09-20 に対応）。
   件数・時間・コマンド・破損入力の受理範囲は [検証記録](verification/2026-09-12-zstd.md) に記録する。
 
-> Zstandard (2026-09-12, bd cooViewer-c1vj.3): six codec files implement bounded streaming decoding,
+> Zstandard (2026-09-12, bd cooViewer-c1vj.3): seven codec files implement bounded streaming decoding,
 > FSE/Huffman, frame/block/sequence processing and XXH64. History grows with actual output up to a
 > retained size of min(windowSize, contentSize) when the content size is known and the declared window
 > otherwise, then updates as a ring; the declared window is still validated against maxDictionarySize and
 > still bounds block size and match distance. Header lookahead is 4 KiB and bodies above that are read
-> directly. Standalone and tar streams, RPM and ZIP 93 share the decoder. Known frame sizes are summed; any unknown size makes the entry size unknown.
+> directly. Compressed-block and literal scratch is lazy and owned by each frame: it starts at the smaller
+> of the block limit and max(4 KiB, first request), then doubles as needed, up to 128 KiB each. Only the
+> 8-byte front pad and 32 bytes immediately after valid input are initialized as padding. Raw literals
+> remain in the block; RLE and Huffman literals use reusable storage. Output has 32 write-only slack bytes;
+> only valid bytes enter history, returned output and XXH64. Sequences use 8-byte FSE cells and a bounded
+> backward word reader, checking lengths and distances before copying. Huffman builds rank ranges in reusable,
+> frame-owned 2-byte cells, also reusing weights and rank workspace. Its pair table is built only when the
+> current table's cumulative symbol count reaches the calibrated threshold of 32,768, and is invalidated by a new table.
+> One- and four-stream batches are bounded by both remaining bits and output room, with exact tail checks on
+> the same padded reader. Raw blocks are read directly into output storage, and RLE blocks fill that storage.
+> Each block returns a view of its valid bytes. The Decompressor retains the frame until that view is fully
+> consumed, before decoding another block, relocating storage or releasing the frame. Final size and checksum
+> checks run before returning the view; XXH64 reads it using unchanged arithmetic. Empty blocks allocate no output
+> storage, and known raw/RLE sizes are checked before allocation.
+> Standalone and tar streams, RPM and ZIP 93 share the decoder. Known frame sizes are summed; any unknown size makes the entry size unknown.
 > The corpus has 46 fixed fixtures plus a 80-case runtime matrix and a 7zz oracle.
 > External dictionaries remain unsupported (the 7z zstd method was added on 2026-09-20); see the verification record for results.
 
@@ -1908,3 +1934,199 @@ dispatch の固定費は残り、16 bytes は 2.179 → 1.983 GB/s（約 0.73 ns
 16 MiB の 3 倍 / 8 GB/s、stored の 30% / 120 ms、TIFF lh7 の 15% / 300 ms、
 指定 SHA 比較、両 toolchain のテスト、x86_64 build、300 mutants の受入条件を達成した。
 上記の既存エラー書庫とハードウェア実機の検証範囲は区別する。
+
+### 7z の編集用 snapshot（2026-09-26）
+
+`@_spi(SevenZipEditLayout)` の `ReaderOptions.recordsSevenZipEditLayout` は既定 false。
+有効時だけ既存の解析で FILETIME の UInt64、生の coder flags、FilesInfo の property 順、
+header の符号化、開始 header の version と範囲を記録する。名前の byte 配列は公開 entry と共有する。
+folder graph は既存の解析結果を使い、`sevenZipEditingSnapshot()` を呼んだ時に SPI 値へ写す。
+snapshot は Sendable の値で source を持たず、accessor は読取り・password 要求・取消し検査を行わない。
+`reopen()` は生値の記録を共有し、source の再読や記述子の追加を行わない。
+
+全範囲は 7z 署名を原点とし、SFX の prefix は `baseOffset` に分離する。
+option が false、7z 以外、volumeSet のある分割巻、ConcatenatedByteSource では snapshot は nil。
+archive properties、additional streams、external data、未知の file property は最初の理由を記録する。
+既存の受理条件やエラーは変更せず、二つの空 header は空の snapshot、next header のない 32 byte の
+書庫は従来の `malformed("empty 7z next header")` になる。encoded header は複数 folder / pack を保持し、
+AES と Copy 以外の coder がある場合だけ `isCompressed` を返す。
+
+`sevenZipDecryptedPackedStream(folder:packedInput:)` は記録 option に依らず使える。
+packed input を直接読む 1 入力・1 出力の AES coder に限り、その出力長までの圧縮済み平文を返す。
+既存の AES decoder、key cache、cycles 上限、PackInfo CRC 検証を共有する。
+鍵は現在の `ArchiveReader.password` から導き、provider は呼ばない。範囲外は `notFound`、
+直接 AES に入らない input は `malformed`、password が無ければ `passwordRequired`。
+展開と出力 CRC の照合は行わず、誤った password を検出しない。
+
+SPI の型と accessor は P5 §0.2 の宣言だけを追加し、公開 API とその init は維持する。
+凍結した 33 fixture と変更前の公開値 golden、構造・AES の独立した期待値、release の 10 万件計測は
+[検証記録](verification/2026-09-26-sevenzip-edit-layout.md)を参照。
+
+### LHA の raw 配置 SPI（2026-09-26）
+
+GyoshukuKit の LHA 編集は `@_spi(LHARawLayout)` で import したときだけ使える
+`ArchiveReader.lhaRawLayout()` と `LHAArchiveLayout` を使う。公開 initializer は持たず、
+`archiveLength`・`firstHeaderOffset`・`endOfMembersOffset`・`terminator`・`trailingBytes` と
+`memberCount`・`unpublishedMemberCount` を返す。`member(at:)` は書庫の順の位置を取り、
+`LHAMemberLayout` の `headerRange`・`dataRange`・`headerLevel`・`method`・`osID`・`crc16`・
+`entryIndex` を必要な分だけ作る。範囲外は `KaitoError.notFound("LHA member position \(position)")`。
+範囲は SFX を含む source 先頭からの絶対位置。level 1 の header は拡張 header の列を含み、
+data は skip size から拡張を除いた長さ、または 0x42 の 64 bit サイズ。OS-9 `K` は実効 header 長を使う。
+
+解析済みの公開 record 配列は reader と返却値で共有する。headerOffset は直前の member の data 終端から
+求め、公開 record には OS ID だけを追加する。公開しない member の record と書庫内の位置だけを別配列に
+残し、二分探索で公開 entry の index に対応付ける。通常の書庫には entry ごとの対応表を持たせない。
+返却値は reader の寿命から独立した Sendable の値で、`reopen()` も同じ配列・終端を読み直さず共有する。
+ByteSource・FormatReader の要件、ReaderOptions の項目、reopen 時の記述子数は変えない。
+
+`LHAArchiveTerminator` は `.zeroByte(offset:)`・`.emptyNameDirectoryMember(range)`・`.endOfFile`。
+空名の `-lhd-` 終端は member 数に含めず、その後ろは読まない。LArc または匿名 member を含む書庫の EOF
+受理条件は従来どおり。level 2 の header 長の下位 byte が 0 の tl-S11 も、従来どおり zeroByte で止まる。
+`LHATrailingBytes` は zeroByte の後ろだけを分類し、長さ 0 は `.none`、65,536 以下はまとめて読んで
+`.zeros(count:)` / `.nonZero(count:)`、それより長ければ読まず `.unchecked(count:)`。
+zeroByte 以外では `.notApplicable`。短い read は残りを読み、読み取りの失敗は KaitoError を返す。
+
+LHA 以外、`recoverDamagedArchives`、`volumeSet != nil`、または ConcatenatedByteSource では nil。
+recovery では終端・非公開 member の記録を作らない。SPI は password を要求せず、取消しを検査しない。
+既存の open の検査・受理条件、全 entry の公開値・formatSpecific・nameEncoding、
+LHA の公開 `rawRecord(of:) == nil` は変えない。凍結した Step 0 の全 31 fixture と既存の LHA fixture 3 件を、
+`TZ=Asia/Tokyo` の全項目 JSON・内容 SHA-256・エラーで比較する。
+
+SPI は SemVer の公開契約外。ただし GyoshukuKit の 0.x の依存を考慮し、0.x の間は追加だけ
+（削除・改名・型の変更をしない）とする。破壊的変更は GyoshukuKit と同時に release する。
+
+### ZIP の生レコード範囲 SPI と local header の先読み（2026-09-25）
+
+GyoshukuKit の ZIP 編集は `@_spi(ZipRawLayout)` で import したときだけ使える
+`ArchiveReader.zipRawRecordLayout(at:)` と `ZipRawRecordLayout` を使う。公開 initializer は持たず、
+`recordRange` / `payloadRange` / `hasDataDescriptor` / `centralHasZIP64Extra` / `localHasZIP64Extra`、
+および両 ZIP64 marker の論理和である `isZIP64` を返す。範囲は SFX を含む source 先頭からの絶対位置。
+`.expose` では index が CD 順に一致する。`.merge` / `.hide` は公開 entry の index を内側へ写し、
+resource fork は nil。未完の entry、ZIP 以外、native layout のない `.001` 連結も公開 rawRecord と同じ nil。
+
+公開 `rawRecord(of:)` の二つの同一性比較は維持する。SPI は index を直接受けるため比較だけを省き、
+同じ local cache と local 順の prefix 検証を使う。署名・暗号 flag・strong encryption・ZIP64 サイズ・
+CD / entry の重なり・descriptor の幅と内容・署名ありなしの曖昧さを従来と同じ順で検証し、同じエラーを返す。
+password を要求せず、取消し検査を追加しない。既存の open の取消し検査と reopen の契約は維持する。
+公開 rawRecord の CRC 文字列は `0x` と小文字 8 桁を直接構築する。
+
+local header の先読みは reader ごとの前方専用窓。初期 32 KiB、成功ごとに倍増し最大 256 KiB、
+さらに `maxMetadataSize` 以下に抑える。local 順で次の offset（最後は CD / source length の小さい方）までの
+span が `min(4 KiB, 実効容量)` 以下の record だけをまとめる。SFX prefix、CD、長い payload は読まず、
+成功した埋めで同じ byte を二度読まない。固定部から始まる単調な検証だけが窓を進め、extra と descriptor は
+要求された byte 数だけを返す。最後の record の検証完了後に buffer を解放する。
+`ByteSource.read(into:at:)` のみを使い、短い read は繰り返す。throw / 0 以下 / 残りを超える返り値では
+この reader の先読みを止め、従来の exact read が返す値・エラーを採る。reopen は方針だけを引き継ぎ、窓と可変 cache は空から始める。
+
+CD 解析ごとの 8 枠 FIFO cache が `formatSpecific` を COW で共有する。key は実方式、versionMadeBy、flags、
+暗号種別、AES strength、symlink の有無。論理 metadata の費用は共有時も全 entry に従来どおり課金する。
+rawRecord と AppleDouble が辞書を追加編集しても、共有元の公開値は変わらない。
+
+pathComponents は連続した UTF-8 storage を一回走査し、直前と同じ directory prefix の配列を再利用する。
+prefix は長さと byte 列で比べ、NFC / NFD を同一視する String の等価比較は使わない。
+連続 storage がない bridged String は従来の split 式を使う。空の要素を省く規則と path component の上限は維持する。
+
+SPI は SemVer の公開契約外。ただし GyoshukuKit の 0.x の `from:` 依存を考慮し、0.x の間の
+`ZipRawLayout` は追加だけ（削除・改名・型の変更をしない）とする。破壊的変更は GyoshukuKit と同時に release し、
+依存の下限も上げる。framework の公開 `.swiftinterface` には出ないが、同梱 binary `.swiftmodule` からは
+SPI import により到達できる。P1b の追加も同じ group に置き、本 SPI の範囲・検証の意味は変えない。
+
+P1b は layout に `encryption: ZipRawEncryption`、`storedCRC32`、`compressionMethod` を追加する。
+暗号は CD の flag と 0x9901、CRC は CD の保存値（AE-2 は 0）、方式は AES extra を解いた実方式。
+`zipStoredPayloadStream(at:aesKey:)` は暗号 header / salt / verifier / HMAC を除いた保存 byte を返し、
+展開と CRC 照合を行わない。ZipCrypto の照合値は従来どおり local の bit 3 に応じて DOS 時刻か CRC から取る。
+誤 password が 1 byte の照合値を偶然通る場合は保存 stream が成功するので、呼出側で展開後の CRC を検証する。
+AES の verifier は stream 作成時、HMAC は最終 chunk を返す前に照合する。保存 stream は XZ でも staging しない。
+
+`ZipAESKeyMaterial` は salt（8 / 12 / 16 byte）、強度（1 / 2 / 3）、鍵 2 本と verifier 2 byte の導出結果を持つ。
+initializer は強度と長さを検査し、`derive(passwordBytes:salt:strength:)` は既存と同じ
+PBKDF2-HMAC-SHA1（1,000 回）を共有する。状態を持たないので導出だけを並行実行できる。
+材料を渡した読取は password / provider を使わず、entry の salt・強度を照合し、鍵 cache を参照・更新しない。
+`zipStream(at:aesKey:)` は通常の stream と同じ復号・展開・CRC / HMAC・出力予算の検査を行う。
+材料の salt・強度が entry と異なる場合、または AES 以外に材料を渡す場合は `malformed`。
+両 stream SPI は範囲外に `notFound`、未完の entry・native layout のない `.001`・ZIP 以外・
+`.merge` の resource fork に `unsupportedMethod("ZIP stored payload")` を返す。
+
+公開値の凍結、差分 fuzz、I/O と Release の測定は
+[検証記録](verification/2026-09-25-zip-raw-layout.md)を参照。
+
+### tar の member 配置・圧縮 tar の区切りの地図・継ぎの検証（2026-09-25）
+
+S12 / P3-K 段階 A は `@_spi(TarEditLayout)` の材料を、S14 / 段階 B は継ぎの出力を検証する
+`openSplicedCompressedTar`（K5）を追加する。書き手や公開の判断は含めない。
+`ReaderOptions.recordsTarEditLayout` の既定は false。public initializer、entry の全公開値、
+検査とエラーは変えず、有効にした tar open だけが配置と地図を記録する。
+
+`TarLayoutStorage` は member ごとに群の先頭・本体 header・格納本文の先頭・詰め物の終わりの
+UInt64 四つ（32 B）を持ち、本文長は既存の Record 配列を COW 共有する。局所拡張 x / X / L / K は
+次の member の群に含め、g は独立した範囲にする。g の値は以後の member に継続して効き、末尾に追加する
+member にも適用されるので、書き手は追加時にもその状態を引き継ぐ。旧 GNU S の拡張 block は header 群、GNU sparse 1.0
+の map は本文に含める。群と g が最初の zero block までを隙間なく覆うことを構築時に検査する。
+recovery、局所拡張と member の間の g、AppleDouble wrapper、内部の不整合では理由付きで配置を返さない。
+open の成否は変えない。`headerGroup(ofMember:)` は必要な群だけを既存の checksum・数値・PAX・sparse・
+hard-link 判定と limits で読み直し、保存した境界との食い違いを拒否する。
+`trailingBytesAreZero()` は EOF 以後を 1 MiB ずつ読む。名前の NFC / NFD 衝突や `._` の編集方針は GK / KF の責務。
+
+地図は既存の staging の一度の復号から採る。gzip は Z_BLOCK の非最終・byte 境界・空 block の停止を
+同期点にし、走る image CRC と圧縮範囲の CRC-32 を保持する。同じ image offset は後の点へ正規化するが、
+先頭 (headerLength, 0, 0) は動かさない。停止の上限を越えたら Z_NO_FLUSH に戻す。bzip2 は検証済みの
+独立 stream、xz は既存 validator の block / Index / footer を使う。圧縮 CRC は復号器が消費した byte
+（並列 bzip2 では worker が全 byte の消費を検証した区間）から計算し、原本を再読しない。
+地図の上限は 1,048,576 区間、gzip の停止は 1,048,576 + 出力 byte / 4,096。
+staging 成功後、圧縮と image の隙間のない被覆、image 長、gzip trailer、xz Index との整合を検査する。
+複数 gzip member、複数 xz stream / padding、上限、不整合は理由付きで地図を返さず、復号は続ける。
+第三者の CRC64 xz にも地図を返し、継げるかどうかは GK が判断する。
+
+snapshot は Sendable の値で、元の archive と復号済み image の双方を保持する。reopen は解析・配置・地図・
+記述子を共有し、読み直さず、記述子を増やさない。option on の圧縮 tar の reopen は元の圧縮 source の寿命も
+延ばす。メモリ staging と unlink 済み一時ファイルのどちらも同じ契約。分割巻、cpio、pbzx、tar 以外は snapshot を作らない。
+ByteSource の要件は変えず、FileByteSource の内部 fstat または SPI の ByteSourceFileIdentityProviding から
+dev / inode / size / mtime を採る。解析・復号の前後で異なれば同一性と地図を破棄する。
+ctime は rename・chmod・xattr でも変わるので採らない。パスを別 inode に替えても保持 fd の同一性は変わらず、
+パスとの照合は呼出側が行う。HFS+ / FAT / exFAT の時刻粒度やネットワークの属性 cache ではこの補助検査が弱い。
+継ぎの証明は圧縮 CRC に依る。残る危険は区間あたり 2^-32 の偶然の一致であり、故意の改竄を防ぐ認証ではない。
+
+K5 が証明するのは「output の圧縮 byte が合成 image I′ に復号されること」であり、意図した編集かどうかは
+KF が member を計画と照合する。base の archive は読まず、`archiveIsUnchanged()` も条件にしない。
+reused の各区間を 1 MiB ずつ読んで、base の open で消費した圧縮 byte の CRC-32 と照合する。
+同じ inode・長さ・復元した mtime の原本から別の byte を運んでも digest が違えば拒否する。
+output の同一性が取得できるときは検証の前後でも比較する。取得できない source は byte の証明だけを使う。
+全体の open と同じ detector・圧縮 tar hint・単一 stream の metadata 検査・TarReader・AppleDoubleReader を使い、
+新しい出力予算を作る。recovery は拒否し、合計 image が maxEntrySize を超えれば従来と同じ entry size エラーにする。
+
+gzip は base image を一度読み、区間ごとの CRC を地図の累積 CRC の差分と照合して、内部の点のずれも拒否する。
+再利用の直前の最大 32 KiB を比較する。
+p = 0 の再利用は窓が空なので、先頭への追加にも使える。encoded は raw inflate の Z_BLOCK で検証し、
+途中の橋は非最終・byte 境界・空 block、最後は入力をちょうど消費して STREAM_END となることを要求する。
+最後が reused なら base の最終 block を含むことも要求する。
+全体の CRC と ISIZE の下位 32 bit を trailer と比較し、地図は K2 と同じ正規化を使う。
+bzip2 は独立 stream の digest を照合し、encoded だけを既存の直列 decoder に通す。
+xz は全体の header・block・LZMA2 枠・Index・footer を既存 validator で歩き、Index CRC を追加で検証する。
+reused の block のサイズ列を比較し、CRC32 check なら base image も自己検査する。encoded は対象 block だけの
+Index/footer を付けて Apple の既存 decoder で検証する。stream flags の base との一致は reused がある場合だけ要求し、
+全体の再符号化では有効な none / CRC32 / CRC64 / SHA-256 を受理する。
+
+encoded の全出力は SingleFileMaterializer の一つの staging にまとめる。過去の合成は葉まで平らにし、
+Data の葉は slice の長さではなく保持する Data 全体の長さを一度ずつメモリ予算へ数える。
+断片が 1,024 超、葉が 8 超、または今回のメモリ上限を超えれば、一つの新しい staging へ順に写す。
+連鎖した合成は写すまで最大 8 葉を意図して保持する。ファイルの葉は unlink 済み fd で、古い葉は以前の image 全体を
+保持するが、この有界な保持は漏れではない。取消しは圧縮 digest と image の自己検査の 64 MiB ごと、
+encoded と写しは既存 materializer の read ごとに検査する。取消し・I/O・資源・tar 解析のエラーはそのまま、
+その他の検証失敗は reason・segmentIndex・underlying を持つ TarSpliceVerificationError として返す。
+
+圧縮 tar / cpio の bzip2 staging は option に依らず並列化する。単独 bz2 の stream は従来の直列のまま。
+消費側は 1 MiB の読み取り窓と 9 byte の重なりで BZh[1-9] + block / EOS magic を探し、区間を worker に渡す。
+worker は END と区間全体の消費が一致したときだけ成功し、順番に出力する。最初の異常な区間の始点は
+直前に成功した END（または 0）なので、そこから従来の decoder を再開すれば同じ決定的な状態機械になる。
+偽の magic、途中の END、切断、CRC エラー、8 MiB の圧縮 / 16 MiB の出力上限はすべてこの直列経路へ戻る。
+エラー前に返せる byte 数は入力の分け方で変わりうるが、両方とも同じ復号列の prefix となり、staging は失敗時に全体を捨てる。
+
+W = min(8, activeProcessorCount)、投入は W 区間までとし、走査と完了通知の受け渡しに二つの余裕を持つ。
+保持する圧縮・出力領域は (W + 2) × 24 MiB 以下。内部の Diagnostics で worker 数と領域予約を計数する。
+待機は 50 ms ごとに既存と同じ CancellationError を検査する。deinit / 取消しは放棄を通知し、worker は
+1 MiB の出力ごとに観測する。deinit は worker を待たない。共有状態は reader ごとの lock で守り、global の可変状態は置かない。
+
+TarEditLayout は 0.x の間は追加だけとし、削除・改名・型変更が必要なら GK と同時に release して依存下限を上げる。
+公開 swiftinterface には出さない。全公開値の frozen golden、各段の回帰・差分 fuzz、TSan / ASan、Release と
+負荷付きの計測は [段階 A](verification/2026-09-25-tar-edit-layout.md)・
+[段階 B](verification/2026-09-25-tar-splice-verification.md)の検証記録に残す。

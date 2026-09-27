@@ -34,3 +34,32 @@ jobs:
           grep -E "Test Case .* started" /tmp/gk.log | tail -3 || true
           grep -E "with [0-9]+ tests? skipped|exited with" /tmp/gk.log | tail -5 || true
 
+  # GyoshukuKit の CI 案（ci/minimal、試験の環境依存を直した版）を、この KaitoKit を隣に置いた path 依存で macOS 26 で試験する。
+  gyoshukukit-ci-branch-on-macos26:
+    runs-on: macos-26
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v5
+      - name: Clone GyoshukuKit next to KaitoKit
+        run: git clone --depth 1 --branch ci/minimal https://github.com/shunnag/GyoshukuKit.git ../GyoshukuKit
+      - name: Install oracles
+        run: brew install sevenzip xz lhasa
+      - name: Versions
+        run: |
+          sw_vers
+          swift --version
+          git -C ../GyoshukuKit log --oneline -1
+      - name: Build GyoshukuKit and its tests
+        working-directory: ../GyoshukuKit
+        run: swift build --build-tests
+      - name: Test GyoshukuKit
+        working-directory: ../GyoshukuKit
+        run: |
+          set -o pipefail
+          swift test --skip-build 2>&1 | tee /tmp/gk.log | grep -E "error:|failed|Executed [0-9]+ tests|signal|Fatal|exited with"
+      - name: Summary
+        if: always()
+        run: |
+          grep -E "Test Case .* started" /tmp/gk.log | tail -3 || true
+          grep -E "with [0-9]+ tests? skipped|exited with" /tmp/gk.log | tail -5 || true
+

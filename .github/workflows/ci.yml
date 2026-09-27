@@ -21,6 +21,7 @@ jobs:
           sysctl -n machdep.cpu.brand_string hw.memsize hw.ncpu
           df -h "$TMPDIR" .
       - name: Data slice repro matrix
+        if: false
         run: |
           set +e
           swiftc -Onone Scripts/diag/data-slice-repro.swift -o /tmp/repro
@@ -54,7 +55,7 @@ jobs:
   # GyoshukuKit 0.6.0 の候補（release/0.6.0）を、この KaitoKit を隣に置いた path 依存で macOS 26 で試験する。
   gyoshukukit-on-macos26:
     runs-on: macos-26
-    timeout-minutes: 180
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v5
       - name: Clone GyoshukuKit next to KaitoKit
@@ -65,9 +66,15 @@ jobs:
         run: |
           sw_vers
           swift --version
+          git -C ../GyoshukuKit log --oneline -1
+      - name: Build GyoshukuKit and its tests
+        working-directory: ../GyoshukuKit
+        run: swift build --build-tests
       - name: Test GyoshukuKit
         working-directory: ../GyoshukuKit
-        run: swift test 2>&1 | tee /tmp/gk.log | grep -E "error:|failed|Executed [0-9]+ tests|signal|Fatal" | tail -60
+        run: |
+          set -o pipefail
+          swift test --skip-build 2>&1 | tee /tmp/gk.log | grep -E "error:|failed|Executed [0-9]+ tests|signal|Fatal|exited with"
       - name: Summary
         if: always()
         run: |

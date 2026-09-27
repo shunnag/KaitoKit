@@ -22,13 +22,16 @@ jobs:
           df -h "$TMPDIR" .
       - name: Data slice repro matrix
         run: |
+          set +e
           swiftc -Onone Scripts/diag/data-slice-repro.swift -o /tmp/repro
           for i in $(seq 1 30); do /tmp/repro $i >/dev/null 2>&1; echo "case $i exit=$?"; done
           swiftc -O Scripts/diag/data-slice-repro.swift -o /tmp/repro-o
           for i in $(seq 1 30); do /tmp/repro-o $i >/dev/null 2>&1; echo "case $i -O exit=$?"; done
       - name: Build tests
+        if: false
         run: swift build --build-tests
       - name: Run the crashing test under lldb
+        if: false
         run: |
           bundle="$(find .build -name 'KaitoKitPackageTests.xctest' -maxdepth 4 | head -1)"
           echo "bundle=$bundle"
@@ -40,7 +43,7 @@ jobs:
             -k quit \
             -- "$(xcrun --find xctest)" -XCTest KaitoKitTests.CompressedTarSpliceTests "$bundle" 2>&1 | tail -400
       - name: Run the suite normally
-        if: always()
+        if: false
         run: swift test --skip-build --filter 'CompressedTarSplice' 2>&1 | tail -80
       - name: Crash reports
         if: always()

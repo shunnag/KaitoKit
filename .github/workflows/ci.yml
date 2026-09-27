@@ -47,3 +47,26 @@ jobs:
         run: |
           ls -la ~/Library/Logs/DiagnosticReports/ || true
           for f in ~/Library/Logs/DiagnosticReports/xctest*; do echo "== $f"; head -c 60000 "$f"; done || true
+
+  # GyoshukuKit 0.6.0 の候補（release/0.6.0）を、この KaitoKit を隣に置いた path 依存で macOS 26 で試験する。
+  gyoshukukit-on-macos26:
+    runs-on: macos-26
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+      - name: Clone GyoshukuKit next to KaitoKit
+        run: git clone --depth 1 --branch release/0.6.0 https://github.com/shunnag/GyoshukuKit.git ../GyoshukuKit
+      - name: Install oracles
+        run: brew install sevenzip xz
+      - name: Versions
+        run: |
+          sw_vers
+          swift --version
+      - name: Test GyoshukuKit
+        working-directory: ../GyoshukuKit
+        run: swift test 2>&1 | tee /tmp/gk.log | grep -E "error:|failed|Executed [0-9]+ tests|signal|Fatal" | tail -60
+      - name: Summary
+        if: always()
+        run: |
+          grep -E "Test Case .* started" /tmp/gk.log | tail -3 || true
+          grep -E "with [0-9]+ tests? skipped|exited with" /tmp/gk.log | tail -5 || true

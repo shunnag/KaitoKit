@@ -212,3 +212,27 @@ Raw local logs: `/tmp/kaitokit-011-build.log`,
 `/tmp/kaitokit-011-fixture-oracles.log`, `/tmp/kaitokit-011-zstd-path-test.log`,
 `/tmp/kaitokit-011-zstd-required-test.log`. They are not checked in; this record
 retains commands, results and portable paths.
+
+## PR #35 の CI: macOS 26 の Foundation で試験の補助コードが trap した（2026-09-27）
+
+PR #35（`release/0.11.0`、`c5740a2`）の build-and-test は xcode-27（macOS 27.0）で成功し、
+macos-26（macOS 26.6.2、Xcode 26.6、Swift 6.3.3）と macos-26-intel で xctest が signal 5 / 4 で終了した。
+手元（macOS 27.2、Xcode 27）では再現しない。
+
+診断用の draft PR #36（branch `ci-debug/splice-crash`、マージしない）で lldb の backtrace を取った。
+`CompressedTarSpliceTests.testEditsAndThreeGenerationsInMemoryAndOnDisk` → `TarSpliceTestSupport.edit`
+（`TarSpliceTestSupport.swift:85`、`image[s1..<a] + replacement + image[b..<s2]`、delete-mid の a = s1 = 16384、
+replacement は空）→ `Data.InlineSlice.append(contentsOf:)` → `__DataStorage.ensureUniqueBufferReference(growingTo:clear:)` の `brk`。
+
+同じ runner で 55 通りの小さな再現を実行し、次の条件がそろうときだけ trap することを確かめた（arm64・x86_64、`-Onone`・`-O` とも）。
+
+- 追加先の Data が、位置 0 でない空の slice（`d[k..<k]`、`p = p[p.endIndex...]`、`removeFirst` で空にした slice など）。
+- その記憶域を別の Data と共有している（一意に参照される記憶域では起きない）。
+- 空の内容を汎用の経路で足す（`append(contentsOf:)`・`+`・`+=`・`replaceSubrange`・`insert(contentsOf:)`）。
+
+`append(_: Data)`、`append(contentsOf: [UInt8])`、`append(UnsafeBufferPointer)`、どちらかが空でない場合、
+位置 0 の空の slice、`removeAll()` の後は trap しない。
+
+対応: 試験の補助コードの連結を、新しい Data へ `append(_: Data)` で積む `joined` に置き換えた。
+Sources は静的に監査し、この条件を満たす箇所はなかった（ほとんどの byte buffer は `[UInt8]`、
+Data の追加先は新しい `Data()`）。ライブラリの挙動は変えない。

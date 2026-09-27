@@ -82,8 +82,8 @@ enum TarSpliceTestSupport {
         let i = try XCTUnwrap(chunks.indices.last { chunks[$0].imageRange.lowerBound <= a })
         let j = chunks.indices.first { $0 > i && chunks[$0].imageRange.lowerBound >= b + (codec == .tgz ? 32_768 : 0) }
         let s1 = Int(chunks[i].imageRange.lowerBound), s2 = j.map { Int(chunks[$0].imageRange.lowerBound) } ?? image.count
-        let bridge = image[s1..<a] + replacement + image[b..<s2]
-        let changed = image[..<a] + replacement + image[b...]
+        let bridge = joined(image[s1..<a], replacement, image[b..<s2])
+        let changed = joined(image[..<a], replacement, image[b...])
         let packed: Data, records: [(UInt64, UInt64)]
         if codec == .tgz {
             packed = try rawGzip(Data(bridge), dictionary: Data(image[max(0, s1 - 32_768)..<s1]), final: j == nil)
@@ -112,12 +112,12 @@ enum TarSpliceTestSupport {
         return .init(name: name, bytes: output, splice: .init(segments: segments), image: Data(changed))
     }
     static func prefix(_ base: TarEditingSnapshot, _ codec: Codec, bytes: Data) throws -> Output {
-        let archive = try TarEditTestSupport.bytes(base.archive), image = try bytes + TarEditTestSupport.bytes(base.image)
+        let archive = try TarEditTestSupport.bytes(base.archive), image = try joined(bytes, TarEditTestSupport.bytes(base.image))
         let range = payload(archive, codec)
         let encoded = try encode(bytes, codec), packed: Data
         if codec == .tgz { packed = try rawGzip(bytes, dictionary: Data(), final: false) }
         else { let r = payload(encoded.data, codec); packed = Data(encoded.data[Int(r.lowerBound)..<Int(r.upperBound)]) }
-        var output = Data(archive.prefix(Int(range.lowerBound))) + packed
+        var output = joined(archive.prefix(Int(range.lowerBound)), packed)
         let end = UInt64(output.count)
         output.append(archive[Int(range.lowerBound)..<Int(range.upperBound)])
         let segments: [CompressedTarSplice.Segment] = [.encoded(output: range.lowerBound..<end), .reused(output: end..<UInt64(output.count), base: range)]
@@ -147,6 +147,14 @@ enum TarSpliceTestSupport {
             let indexLength = Int(GyoshukuFramingTestSupport.uint32(bytes, bytes.count - 8) + 1) * 4
             return 12..<UInt64(bytes.count - 12 - indexLength)
         }
+    }
+    // macOS 26 の Foundation は、位置 0 でない空の slice（記憶域を共有）へ空の Data を
+    // 汎用の append(contentsOf:)（`+` を含む）で足すと trap する（macOS 27 では起きない）。
+    // 新しい Data へ append(_: Data) で積み、slice の連結に `+` を使わない。
+    static func joined(_ parts: Data...) -> Data {
+        var result = Data(capacity: parts.reduce(0) { $0 + $1.count })
+        for part in parts { result.append(part) }
+        return result
     }
     static func xzRecords(_ bytes: Data) throws -> [(UInt64, UInt64)] {
         var offset = Int(payload(bytes, .txz).upperBound) + 1

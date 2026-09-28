@@ -602,7 +602,7 @@ final class RAR4Reader: FormatReader {
 
         let decompressor: any Decompressor
         switch record.method {
-        case 0x30:
+        case RAR4Method.stored:
             guard record.isEncrypted || record.packedSize == record.unpackedSize else {
                 throw KaitoError.malformed(
                     "RAR4 stored entry has unequal packed and unpacked sizes"
@@ -618,7 +618,7 @@ final class RAR4Reader: FormatReader {
                 offset: compressedOffset,
                 compressedSize: record.unpackedSize
             )
-        case 0x31...0x35:
+        case RAR4Method.compressed:
             decompressor = try Self.makeCompressedDecompressor(
                 source: compressedSource,
                 offset: compressedOffset,
@@ -673,7 +673,7 @@ final class RAR4Reader: FormatReader {
             let dictionarySize = records[groupIndices[0]].dictionarySize
             for index in groupIndices {
                 let member = records[index]
-                guard (0x31...0x35).contains(member.method) else {
+                guard RAR4Method.compressed.contains(member.method) else {
                     throw KaitoError.unsupportedMethod(
                         "RAR4 solid group containing a stored entry"
                     )
@@ -802,7 +802,7 @@ final class RAR4Reader: FormatReader {
         keyCache: RAR3KeyCache,
         unixScalars: Bool
     ) throws -> EntryStream {
-        guard (0x31...0x35).contains(record.method),
+        guard RAR4Method.compressed.contains(record.method),
               record.unpackVersion == 29 else {
             throw KaitoError.unsupportedMethod("RAR4 unsupported solid stream member")
         }
@@ -1504,25 +1504,25 @@ final class RAR4Reader: FormatReader {
             throw KaitoError.malformed("RAR4 entry has an empty name")
         }
 
-        let windowsDirectory = hostOS <= 2 && attributes & 0x10 != 0
+        let windowsDirectory = RAR4HostOS.usesDOSAttributes(hostOS) && attributes & 0x10 != 0
         let unixType = attributes & 0o170000
         let kind: EntryKind
         if isDirectory || windowsDirectory {
             kind = .directory
-        } else if (hostOS == 3 || hostOS == 4 || hostOS == 5),
+        } else if RAR4HostOS.usesUnixMode(hostOS),
                   unixType == 0o120000 {
             kind = .symlink
         } else {
             kind = .file
         }
         let permissions: UInt16?
-        if hostOS == 3 || hostOS == 4 || hostOS == 5 {
+        if RAR4HostOS.usesUnixMode(hostOS) {
             permissions = UInt16(truncatingIfNeeded: attributes) & 0o7777
         } else {
             permissions = nil
         }
 
-        guard method == 0x30 || (0x31...0x35).contains(method) else {
+        guard method == RAR4Method.stored || RAR4Method.compressed.contains(method) else {
             // Unknown methods remain listable, and fail explicitly when read.
             // This is intentionally not a parse failure.
             return makePendingAndRecord(
@@ -1687,7 +1687,8 @@ final class RAR4Reader: FormatReader {
         var previousFileIndex: Int?
         for index in pendingEntries.indices {
             try checkCancellation(every: index)
-            guard pendingEntries[index].kind != .directory && records[index].method != 0x30 else { continue }
+            guard pendingEntries[index].kind != .directory
+                && records[index].method != RAR4Method.stored else { continue }
             let continuesSolidStream = records[index].firstFlags & FileFlag.solid != 0
             if continuesSolidStream {
                 guard mainHeader.isSolid else {
@@ -2100,25 +2101,25 @@ final class RAR4Reader: FormatReader {
 
     private static func methodDescription(_ method: UInt8) -> String {
         switch method {
-        case 0x30: "stored"
-        case 0x31: "RAR4 fastest"
-        case 0x32: "RAR4 fast"
-        case 0x33: "RAR4 normal"
-        case 0x34: "RAR4 good"
-        case 0x35: "RAR4 best"
+        case RAR4Method.stored: "stored"
+        case RAR4Method.fastest: "RAR4 fastest"
+        case RAR4Method.fast: "RAR4 fast"
+        case RAR4Method.normal: "RAR4 normal"
+        case RAR4Method.good: "RAR4 good"
+        case RAR4Method.best: "RAR4 best"
         default: String(format: "RAR4 method 0x%02x", method)
         }
     }
 
     private static func hostDescription(_ host: UInt8) -> String {
         switch host {
-        case 0: "MS-DOS"
-        case 1: "OS/2"
-        case 2: "Windows"
-        case 3: "Unix"
-        case 4: "Mac OS"
-        case 5: "BeOS"
-        case 6: "WinCE"
+        case RAR4HostOS.msDOS: "MS-DOS"
+        case RAR4HostOS.os2: "OS/2"
+        case RAR4HostOS.windows: "Windows"
+        case RAR4HostOS.unix: "Unix"
+        case RAR4HostOS.macOS: "Mac OS"
+        case RAR4HostOS.beOS: "BeOS"
+        case RAR4HostOS.winCE: "WinCE"
         default: "unknown \(host)"
         }
     }

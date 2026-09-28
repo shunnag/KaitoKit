@@ -50,6 +50,40 @@ struct RAR5EndFlags: OptionSet, Sendable {
     static let moreVolumes = Self(rawValue: 0x0001)
 }
 
+/// Host OS values of the file header that change how attributes are read.
+enum RAR5HostOS {
+    static let windows: UInt64 = 0
+    static let unix: UInt64 = 1
+}
+
+/// Record types of the file and service header extra area.
+enum RAR5ExtraRecordType {
+    static let encryption: UInt64 = 0x01
+    static let hash: UInt64 = 0x02
+    static let time: UInt64 = 0x03
+    static let version: UInt64 = 0x04
+    static let redirection: UInt64 = 0x05
+    static let owner: UInt64 = 0x06
+    static let serviceData: UInt64 = 0x07
+}
+
+/// Redirection types of the file-system redirection extra record.
+enum RAR5RedirectionType {
+    static let unixSymlink: UInt64 = 1
+    static let windowsSymlink: UInt64 = 2
+    static let junction: UInt64 = 3
+    static let hardLink: UInt64 = 4
+    static let fileCopy: UInt64 = 5
+
+    /// Types published as symbolic links whose target is the record's text.
+    static let symbolicLinks: ClosedRange<UInt64> = unixSymlink...junction
+
+    /// Hard links and file copies store no data body of their own.
+    static func isZeroBody(_ type: UInt64?) -> Bool {
+        type == hardLink || type == fileCopy
+    }
+}
+
 struct RAR5CompressionInfo: Sendable, Equatable {
     let rawValue: UInt64
     let version: UInt8

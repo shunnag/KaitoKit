@@ -29,6 +29,10 @@ import Foundation
 ///   window cursors and output accounting stay local for the entire read.
 final class RAR5Decoder: Decompressor {
     private static let sentinelByteCount = 16
+    /// Smallest window the version-zero grammar declares (dictionary exponent 0).
+    private static let minimumDictionarySize = 128 * 1_024
+    /// Initial value of the XOR check over a compressed block header.
+    private static let blockHeaderChecksumSeed: UInt8 = 0x5a
     private static let mainSymbolCount = 306
     private static let distanceSymbolCount = 64
     private static let lowDistanceSymbolCount = 16
@@ -90,7 +94,7 @@ final class RAR5Decoder: Decompressor {
 
         init(dictionarySize: UInt64) throws {
             let size = try Checked.toInt(dictionarySize)
-            guard size >= 128 * 1_024, size.nonzeroBitCount == 1 else {
+            guard size >= RAR5Decoder.minimumDictionarySize, size.nonzeroBitCount == 1 else {
                 throw KaitoError.unsupportedMethod(
                     "RAR5 decoder requires a power-of-two dictionary"
                 )
@@ -243,7 +247,7 @@ final class RAR5Decoder: Decompressor {
         try Checked.size(compressedSize, limit: limits.maxEntrySize)
         try Checked.size(dictionarySize, limit: limits.maxDictionarySize)
         let requiredDictionarySize = try Checked.toInt(dictionarySize)
-        guard requiredDictionarySize >= 128 * 1_024,
+        guard requiredDictionarySize >= Self.minimumDictionarySize,
               requiredDictionarySize.nonzeroBitCount == 1 else {
             throw KaitoError.unsupportedMethod(
                 "RAR5 decoder requires a power-of-two dictionary"
@@ -862,7 +866,7 @@ final class RAR5Decoder: Decompressor {
             throw KaitoError.malformed("RAR5 compressed block has an invalid size field")
         }
 
-        var checksum: UInt8 = 0x5a ^ flags
+        var checksum: UInt8 = Self.blockHeaderChecksumSeed ^ flags
         var blockSize = 0
         for index in 0..<sizeByteCount {
             let byte = input[start + 2 + index]

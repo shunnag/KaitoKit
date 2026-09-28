@@ -37,6 +37,8 @@ final class RAR29Decoder: Decompressor {
     private static let lengthSymbolCount = 28
     private static let combinedLengthCount = 404
     private static let sentinelByteCount = 8
+    /// PPMd-H block headers store the model size in MiB, biased by one.
+    private static let ppmdMemoryUnit: UInt64 = 1_024 * 1_024
 
     private static let lengthBases = RAR29IntegerTable([
         0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20,
@@ -852,7 +854,7 @@ final class RAR29Decoder: Decompressor {
         var replacementModel: PPMd7Model?
         if resetsModel {
             let storedMemory = try readPackedByte(at: &byteOffset)
-            let memorySize = UInt64(Int(storedMemory) + 1) * 1_024 * 1_024
+            let memorySize = UInt64(Int(storedMemory) + 1) * Self.ppmdMemoryUnit
             try Checked.size(memorySize, limit: maximumPPMdMemorySize)
 
             let storedOrder = Int(header & 0x1f) + 1

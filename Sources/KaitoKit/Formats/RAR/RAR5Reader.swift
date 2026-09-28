@@ -536,7 +536,7 @@ final class RAR5Reader: FormatReader {
             throw KaitoError.truncated
         }
 
-        if record.redirectionType == 5,
+        if record.redirectionType == RAR5RedirectionType.fileCopy,
            let targetText = entry.formatSpecific["fileCopyTargetIndex"],
            let targetIndex = Int(targetText),
            entries.indices.contains(targetIndex) {
@@ -544,7 +544,7 @@ final class RAR5Reader: FormatReader {
             // 列挙時に参照先と照合済みなので、参照先の stream をそのまま返す（CRC も参照先のもの）。
             return try stream(for: entries[targetIndex], limits: limits)
         }
-        if Self.isZeroBodyRedirection(record.redirectionType) {
+        if RAR5RedirectionType.isZeroBody(record.redirectionType) {
             return try EntryStream(
                 source: source,
                 offset: 0,
@@ -911,16 +911,12 @@ final class RAR5Reader: FormatReader {
         }
     }
 
-    private static func isZeroBodyRedirection(_ type: UInt64?) -> Bool {
-        type == 4 || type == 5
-    }
-
     private static func symbolicLinkStream(
         entry: ArchiveEntry,
         record: Record,
         limits: ReadLimits
     ) throws -> EntryStream? {
-        guard let type = record.redirectionType, (1...3).contains(type) else {
+        guard let type = record.redirectionType, RAR5RedirectionType.symbolicLinks.contains(type) else {
             return nil
         }
         guard let target = entry.formatSpecific["linkPath"] else {
@@ -1821,7 +1817,7 @@ final class RAR5Reader: FormatReader {
         guard !name.isEmpty, name.utf8.first != 0x2F, !name.utf8.contains(0) else {
             throw KaitoError.malformed("RAR5 file name is unsafe")
         }
-        if hostOS == 0, name.contains("\\") {
+        if hostOS == RAR5HostOS.windows, name.contains("\\") {
             throw KaitoError.malformed("RAR5 Windows file name contains a backslash")
         }
         let components = name
@@ -1845,20 +1841,20 @@ final class RAR5Reader: FormatReader {
                 headerKind: "file"
             )
             switch type {
-            case 0x01:
+            case RAR5ExtraRecordType.encryption:
                 extras.encryption = try parseEncryptionRecord(&record)
-            case 0x02:
+            case RAR5ExtraRecordType.hash:
                 extras.hash = try parseHashRecord(&record)
-            case 0x03:
+            case RAR5ExtraRecordType.time:
                 try parseTimeRecord(&record, extras: &extras)
-            case 0x04:
+            case RAR5ExtraRecordType.version:
                 _ = try record.readVInt() // reserved flags
                 extras.version = try record.readVInt()
-            case 0x05:
+            case RAR5ExtraRecordType.redirection:
                 extras.redirection = try parseRedirectionRecord(&record)
-            case 0x06:
+            case RAR5ExtraRecordType.owner:
                 try parseOwnerRecord(&record, extras: &extras)
-            case 0x07:
+            case RAR5ExtraRecordType.serviceData:
                 break // service-data record; bounded by its enclosing record
             default:
                 break // extensions are explicitly skippable
@@ -1866,23 +1862,24 @@ final class RAR5Reader: FormatReader {
         }
 
         var kind: EntryKind
-        let unixMode = hostOS == 1 ? UInt16(truncatingIfNeeded: attributes) : 0
-        if fileFlags.contains(.directory) || (hostOS == 1 && unixMode & 0o170000 == 0o040000) {
+        let isUnixHost = hostOS == RAR5HostOS.unix
+        let unixMode = isUnixHost ? UInt16(truncatingIfNeeded: attributes) : 0
+        if fileFlags.contains(.directory) || (isUnixHost && unixMode & 0o170000 == 0o040000) {
             kind = .directory
-        } else if hostOS == 1 && unixMode & 0o170000 == 0o120000 {
+        } else if isUnixHost && unixMode & 0o170000 == 0o120000 {
             kind = .symlink
         } else {
             kind = .file
         }
         if let redirection = extras.redirection {
             switch redirection.type {
-            case 1, 2, 3: kind = .symlink
-            case 4: kind = .hardlink
+            case RAR5RedirectionType.symbolicLinks: kind = .symlink
+            case RAR5RedirectionType.hardLink: kind = .hardlink
             default: kind = .other
             }
         }
 
-        let permissions: UInt16? = hostOS == 1 ? unixMode & 0o7777 : nil
+        let permissions: UInt16? = isUnixHost ? unixMode & 0o7777 : nil
         let retained = try retainedMetadataCost(
             rawName: rawName,
             name: name,
@@ -2008,7 +2005,7 @@ final class RAR5Reader: FormatReader {
         seen: inout Set<UInt64>,
         headerKind: String
     ) throws {
-        guard (0x01...0x06).contains(type) else { return }
+        guard (RAR5ExtraRecordType.encryption...RAR5ExtraRecordType.owner).contains(type) else { return }
         guard seen.insert(type).inserted else {
             throw KaitoError.malformed(
                 "duplicate RAR5 \(headerKind) extra record type \(type)"
@@ -2340,7 +2337,7 @@ final class RAR5Reader: FormatReader {
             for index in pending.indices {
                 try checkCancellation(every: index)
                 guard pending[index].kind != .directory
-                    && !isZeroBodyRedirection(pending[index].extras.redirection?.type) else { continue }
+                    && !RAR5RedirectionType.isZeroBody(pending[index].extras.redirection?.type) else { continue }
                 if pending[index].compression.isSolid {
                     guard let predecessor = previousFileIndex else {
                         throw KaitoError.malformed(
@@ -2357,7 +2354,7 @@ final class RAR5Reader: FormatReader {
             }
         } else if pending.contains(where: {
             $0.kind != .directory
-                && !isZeroBodyRedirection($0.extras.redirection?.type)
+                && !RAR5RedirectionType.isZeroBody($0.extras.redirection?.type)
                 && $0.compression.isSolid
         }) {
             throw KaitoError.malformed("RAR5 solid file is not in a solid archive")
@@ -2371,14 +2368,14 @@ final class RAR5Reader: FormatReader {
 
         for (index, item) in pending.enumerated() {
             try checkCancellation(every: index)
-            let zeroBodyRedirection = isZeroBodyRedirection(
+            let zeroBodyRedirection = RAR5RedirectionType.isZeroBody(
                 item.extras.redirection?.type
             )
             // file copy（type 5）は参照先が先行する通常 file として解決できたときだけ、
             // その内容と同じ大きさの `.file` として公開する。解決できなければ従来どおり
             // 本文 0 の `.other` に留める。
             var fileCopyTarget: (index: Int, entry: ArchiveEntry)?
-            if let redirection = item.extras.redirection, redirection.type == 5,
+            if let redirection = item.extras.redirection, redirection.type == RAR5RedirectionType.fileCopy,
                let normalizedTarget = normalizedExtractionPath(redirection.target),
                let targetIndex = lastEntryByNormalizedPath[normalizedTarget],
                entries.indices.contains(targetIndex),
@@ -2418,7 +2415,7 @@ final class RAR5Reader: FormatReader {
                 specific["linkPath"] = redirection.target
                 specific["redirectionType"] = String(redirection.type)
                 specific["redirectionTargetIsDirectory"] = redirection.flags & 1 != 0 ? "true" : "false"
-                if redirection.type == 4,
+                if redirection.type == RAR5RedirectionType.hardLink,
                    let normalizedTarget = normalizedExtractionPath(redirection.target),
                    let targetIndex = lastEntryByNormalizedPath[normalizedTarget],
                    entries.indices.contains(targetIndex) {

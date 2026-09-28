@@ -89,7 +89,7 @@ final class LArcDecoder: Decompressor {
             window.update(repeating: 0x20, count: windowSize)
             self.windowPosition = windowSize - 17
         } else {
-            Self.initializeLZ5Window(window)
+            seedLArcLZ5Window(window)
             self.windowPosition = 0
         }
 
@@ -244,31 +244,5 @@ final class LArcDecoder: Decompressor {
         let byte = input.bytes[inputOffset]
         inputOffset += 1
         return byte
-    }
-
-    private static func initializeLZ5Window(_ window: UnsafeMutablePointer<UInt8>) {
-        // The fixed seed is part of LArc's -lz5- wire format. It occupies
-        // positions 18...4095; positions 0...17 start as zero and are where
-        // newly produced bytes are first written.
-        var position = 18
-        for value in 0..<256 {
-            for _ in 0..<13 {
-                window[position] = UInt8(value)
-                position += 1
-            }
-        }
-        for value in 0..<256 {
-            window[position] = UInt8(value)
-            position += 1
-        }
-        for value in 0..<256 {
-            window[position] = UInt8(255 - value)
-            position += 1
-        }
-        position += 128 // This range was zeroed with the allocation.
-        while position < 4_096 {
-            window[position] = 0x20
-            position += 1
-        }
     }
 }

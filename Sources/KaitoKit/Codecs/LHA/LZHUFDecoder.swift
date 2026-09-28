@@ -36,13 +36,7 @@ final class LZHUFDecoder: Decompressor {
     // The fixed position alphabet is canonical in symbol order. Its code
     // lengths are: 3; 4 x3; 5 x8; 6 x12; 7 x24; 8 x16.
     private static let positionTable: [UInt16] = {
-        var lengths = [Int](repeating: 0, count: 64)
-        lengths[0] = 3
-        for index in 1...3 { lengths[index] = 4 }
-        for index in 4...11 { lengths[index] = 5 }
-        for index in 12...23 { lengths[index] = 6 }
-        for index in 24...47 { lengths[index] = 7 }
-        for index in 48...63 { lengths[index] = 8 }
+        let lengths = lzhufPositionCodeLengths
 
         var result = [UInt16](repeating: 0, count: 256)
         var code = 0

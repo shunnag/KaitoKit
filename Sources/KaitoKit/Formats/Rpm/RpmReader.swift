@@ -88,8 +88,7 @@ final class RpmReader: FormatReader {
                 try Checked.size(Checked.add(nameSize, 1), limit: CpioReader.maximumNameSize)
                 try Checked.size(nameSize, limit: limits.maxMetadataSize)
                 let name = file.name.hasPrefix("/") ? "." + file.name : file.name
-                let parts = name.utf8.split(separator: 47, maxSplits: limits.maxPathComponentCount)
-                guard parts.count <= limits.maxPathComponentCount else { throw KaitoError.limitExceeded("rpm path component count") }
+                let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "rpm path component count")
                 let group = stripped.group(for: file)
                 var specific = ["rpmFileIndex": String(record.fileIndex), "nlink": String(group?.count ?? 1),
                     "ino": String(file.ino), "dev": String(file.dev)]
@@ -97,8 +96,8 @@ final class RpmReader: FormatReader {
                     specific["hardLinkGroup"] = "\(group.archiveIndex):\(file.dev):\(file.ino)"
                 }
                 if file.kind == .symlink {
-                    guard file.linkTarget.utf8.split(separator: 47, maxSplits: limits.maxPathComponentCount).count
-                            <= limits.maxPathComponentCount else { throw KaitoError.limitExceeded("rpm link component count") }
+                    try ArchivePath.validateComponentCount(of: file.linkTarget, limit: limits.maxPathComponentCount,
+                                                           label: "rpm link component count")
                     specific["linkPath"] = file.linkTarget
                 }
                 if let digest = file.digest { specific["rpmFileDigest"] = digest }
@@ -106,7 +105,7 @@ final class RpmReader: FormatReader {
                 specific.merge(metadata) { original, _ in original }
                 let entry = ArchiveEntry(index: index,
                     rawName: RawName(bytes: Array(name.utf8), declaredEncoding: .utf8, isDirectoryHint: file.kind == .directory),
-                    name: name, pathComponents: parts.map { String(decoding: $0, as: UTF8.self) }, kind: file.kind,
+                    name: name, pathComponents: parts, kind: file.kind,
                     uncompressedSize: record.dataLength, compressedSize: record.dataLength,
                     modificationDate: Date(timeIntervalSince1970: TimeInterval(file.mtime)),
                     posixPermissions: file.mode & 0o7777, isEncrypted: false, solidGroup: -1, crc32: nil,
@@ -118,10 +117,9 @@ final class RpmReader: FormatReader {
             guard limits.maxEntryCount >= 1 else { throw KaitoError.limitExceeded("rpm entry count") }
             try Checked.size(payload.length, limit: limits.maxEntrySize)
             let name = (header.values[.name] ?? "payload") + ".cpio" + (extensions[compressor ?? ""] ?? "")
-            let parts = name.utf8.split(separator: 47, maxSplits: limits.maxPathComponentCount)
-            guard parts.count <= limits.maxPathComponentCount else { throw KaitoError.limitExceeded("rpm path component count") }
+            let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "rpm path component count")
             let entry = ArchiveEntry(index: 0, rawName: RawName(bytes: Array(name.utf8), declaredEncoding: .utf8),
-                name: name, pathComponents: parts.map { String(decoding: $0, as: UTF8.self) }, kind: .file,
+                name: name, pathComponents: parts, kind: .file,
                 uncompressedSize: payload.length, compressedSize: payload.length,
                 modificationDate: nil, posixPermissions: nil, isEncrypted: false, solidGroup: -1, crc32: nil,
                 methodDescription: "rpm payload (\(compressor == "none" ? "stored" : compressor ?? "stored"))",

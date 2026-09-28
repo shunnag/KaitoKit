@@ -116,19 +116,6 @@ final class CpioReader: FormatReader {
             decoded[bytes] ?? EncodingDetector.resolveUndeclaredName(bytes: bytes, policy: options.encodingPolicy,
                 archiveEncoding: encoding).string
         }
-        func components(_ path: String) throws -> [String] {
-            var count = 0
-            var inComponent = false
-            for byte in path.utf8 {
-                if byte == 47 { inComponent = false }
-                else if !inComponent {
-                    guard count < limits.maxPathComponentCount else { throw KaitoError.limitExceeded("cpio path component count") }
-                    count += 1
-                    inComponent = true
-                }
-            }
-            return path.utf8.split(separator: 47).map { String(decoding: $0, as: UTF8.self) }
-        }
         var entries: [ArchiveEntry] = []
         metadata = 0
         let concatenated = pending.contains { $0.archiveIndex > 0 }
@@ -136,7 +123,7 @@ final class CpioReader: FormatReader {
             if index & 0x3ff == 0 { try Task.checkCancellation() }
             let record = item.record, header = record.header
             let name = resolve(item.name)
-            let parts = try components(name)
+            let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "cpio path component count")
             var specific = ["variant": header.variant.rawValue, "uid": String(header.uid), "gid": String(header.gid),
                 "nlink": String(header.nlink), "ino": String(header.ino), "dev": String(header.dev)]
             if header.variant == .crc { specific["check"] = String(format: "%08x", header.check) }
@@ -150,7 +137,7 @@ final class CpioReader: FormatReader {
             }
             if let link = item.link {
                 let target = resolve(link)
-                _ = try components(target)
+                try ArchivePath.validateComponentCount(of: target, limit: limits.maxPathComponentCount, label: "cpio path component count")
                 specific["linkPath"] = target
             }
             var cost = UInt64(256 + item.name.count + name.utf8.count + parts.count * MemoryLayout<String>.stride)

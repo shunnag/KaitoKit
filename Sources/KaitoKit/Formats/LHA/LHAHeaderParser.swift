@@ -1136,26 +1136,14 @@ enum LHAHeaderParser {
             guard !name.utf8.contains(0) else {
                 throw KaitoError.malformed("LHA entry name cannot be decoded safely")
             }
-            var componentCount = 0
-            var insideComponent = false
-            for byte in name.utf8 {
-                if byte == 0x2F {
-                    insideComponent = false
-                } else if !insideComponent {
-                    componentCount += 1
-                    guard componentCount <= limits.maxPathComponentCount else {
-                        throw KaitoError.limitExceeded("LHA path component count")
-                    }
-                    insideComponent = true
-                }
-            }
-            let pathComponents = name
-                .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
-                .map { String(decoding: $0, as: UTF8.self) }
+            let pathComponents = try ArchivePath.components(
+                of: name,
+                limit: limits.maxPathComponentCount,
+                label: "LHA path component count"
+            )
             guard !pathComponents.isEmpty else {
                 throw KaitoError.malformed("LHA entry has no path component")
             }
-            assert(pathComponents.count == componentCount)
 
             let kind: EntryKind
             if isUnixSymbolicLink {

@@ -103,12 +103,11 @@ final class SingleFileReader: FormatReader {
 
         let resolved = try Self.resolveName(storedName, policy: options.encodingPolicy)
         nameEncoding = resolved.archiveEncoding
-        let components = resolved.string
-            .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
-            .map { String(decoding: $0, as: UTF8.self) }
-        guard components.count <= options.limits.maxPathComponentCount else {
-            throw KaitoError.limitExceeded("single-file path component count")
-        }
+        let components = try ArchivePath.components(
+            of: resolved.string,
+            limit: options.limits.maxPathComponentCount,
+            label: "single-file path component count"
+        )
         guard !components.isEmpty else {
             throw KaitoError.malformed("single-file entry name is empty")
         }

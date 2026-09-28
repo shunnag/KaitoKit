@@ -152,26 +152,13 @@ final class ArReader: FormatReader {
             decoded[bytes] ?? EncodingDetector.resolveUndeclaredName(bytes: bytes, policy: options.encodingPolicy,
                 archiveEncoding: encoding).string
         }
-        func components(_ path: String) throws -> [String] {
-            var count = 0
-            var inComponent = false
-            for byte in path.utf8 {
-                if byte == 47 { inComponent = false }
-                else if !inComponent {
-                    guard count < limits.maxPathComponentCount else { throw KaitoError.limitExceeded("ar path component count") }
-                    count += 1
-                    inComponent = true
-                }
-            }
-            return path.utf8.split(separator: 47).map { String(decoding: $0, as: UTF8.self) }
-        }
         var entries: [ArchiveEntry] = []
         // 表と pending を保持したまま復号名・component を追加するため、合算で制限する。
         for (index, item) in pending.enumerated() {
             if index & 0x3ff == 0 { try Task.checkCancellation() }
             let record = item.record, header = record.header
             let name = resolve(item.name)
-            let parts = try components(name)
+            let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "ar path component count")
             var specific = ["nameForm": item.nameForm, "headerOffset": String(record.headerOffset)]
             if let uid = header.uid { specific["uid"] = String(uid) }
             if let gid = header.gid { specific["gid"] = String(gid) }

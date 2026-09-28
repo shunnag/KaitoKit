@@ -37,11 +37,6 @@ final class XarReader: FormatReader {
         var paths: [String: Int] = [:]
         var metadata = toc.metadataSize
         var dateFormatter: DateFormatter?
-        func components(_ path: String) throws -> [String] {
-            let parts = path.utf8.split(separator: 47, maxSplits: limits.maxPathComponentCount)
-            guard parts.count <= limits.maxPathComponentCount else { throw KaitoError.limitExceeded("xar path component count") }
-            return parts.map { String(decoding: $0, as: UTF8.self) }
-        }
         for (index, node) in toc.files.enumerated() {
             if index & 0x3ff == 0 { try Task.checkCancellation() }
             let kind: EntryKind
@@ -62,7 +57,7 @@ final class XarReader: FormatReader {
                 archiveEncoding: .utf8).string
             let parentName = node.parent.map { entries[$0].name + "/" } ?? ""
             let name = parentName + component
-            let parts = try components(name)
+            let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "xar path component count")
             var raw = node.parent.map { entries[$0].rawName.bytes + [47] } ?? []
             raw += node.name
             var specific = node.fields.filter { ["fileID", "uid", "gid", "user", "group"].contains($0.key) }
@@ -71,7 +66,7 @@ final class XarReader: FormatReader {
                 ids[id] = entries.count
             }
             if let link = kind == .symlink ? node.symlink : (kind == .hardlink ? node.hardlink : nil) {
-                _ = try components(link)
+                try ArchivePath.validateComponentCount(of: link, limit: limits.maxPathComponentCount, label: "xar path component count")
                 specific["linkPath"] = link
             }
             if let data = node.data {

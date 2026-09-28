@@ -120,19 +120,9 @@ final class CabReader: FormatReader {
                 : decoded[file.name] ?? EncodingDetector.resolveUndeclaredName(bytes: file.name,
                     policy: options.encodingPolicy, archiveEncoding: encoding).string
             let name = resolved.replacingOccurrences(of: "\\", with: "/")
-            var componentCount = 0, inComponent = false
-            for byte in name.utf8 {
-                if byte == 47 { inComponent = false }
-                else if !inComponent {
-                    guard componentCount < limits.maxPathComponentCount else {
-                        throw KaitoError.limitExceeded("cab path component count")
-                    }
-                    componentCount += 1; inComponent = true
-                }
-            }
-            try budget.charge(Checked.mul(UInt64(componentCount), UInt64(MemoryLayout<String>.stride)))
+            let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "cab path component count")
+            try budget.charge(Checked.mul(UInt64(parts.count), UInt64(MemoryLayout<String>.stride)))
             try budget.charge(Checked.mul(UInt64(name.utf8.count), 2))
-            let parts = name.split(separator: "/").map(String.init)
             var specific = ["folder": String(file.folderIndex), "attributes": String(format: "%04x", file.attributes),
                 "setID": String(header.setID), "cabinetIndex": String(header.cabinetIndex)]
             if let continued = file.continued { specific["continued"] = continued }

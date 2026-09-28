@@ -545,14 +545,11 @@ final class TarReader: FormatReader {
             guard !resolvedName.isEmpty else {
                 throw KaitoError.malformed("tar entry name cannot be decoded")
             }
-            try validatePathComponentCount(
-                in: resolvedName,
+            let pathComponents = try ArchivePath.components(
+                of: resolvedName,
                 limit: limits.maxPathComponentCount,
-                fieldName: "entry path"
+                label: "tar entry path component count"
             )
-            let pathComponents = resolvedName
-                .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
-                .map { String(decoding: $0, as: UTF8.self) }
 
             var specific = pending.formatSpecific
             if let pendingLink = pending.link {
@@ -563,10 +560,10 @@ final class TarReader: FormatReader {
                     archiveDecodedNames: archiveDecodedNames,
                     invalidDeclaredMessage: "pax linkpath is not valid UTF-8"
                 )
-                try validatePathComponentCount(
-                    in: link,
+                try ArchivePath.validateComponentCount(
+                    of: link,
                     limit: limits.maxPathComponentCount,
-                    fieldName: "link"
+                    label: "tar link component count"
                 )
                 specific["linkPath"] = link
                 if pending.kind == .hardlink,
@@ -943,29 +940,6 @@ final class TarReader: FormatReader {
         _ values: [String: [UInt8]]
     ) -> [String: [UInt8]] {
         values.filter { retainedPAXKeys.contains($0.key) }
-    }
-
-    private static func validatePathComponentCount(
-        in path: String,
-        limit: Int,
-        fieldName: String
-    ) throws {
-        guard let unsignedLimit = UInt64(exactly: limit) else {
-            throw KaitoError.limitExceeded("tar \(fieldName) component count")
-        }
-        var count: UInt64 = 0
-        var insideComponent = false
-        for byte in path.utf8 {
-            if byte == ascii("/") {
-                insideComponent = false
-            } else if !insideComponent {
-                count = try Checked.add(count, 1)
-                guard count <= unsignedLimit else {
-                    throw KaitoError.limitExceeded("tar \(fieldName) component count")
-                }
-                insideComponent = true
-            }
-        }
     }
 
     private static func retainedMetadataCost(

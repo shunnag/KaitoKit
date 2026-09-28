@@ -121,7 +121,8 @@ enum NameFunctionProfile {
     }
 }
 '''.replace('LABEL_COUNT', str(len(labels))).replace('LABELS', swift_labels))
-    command = ['xcrun', 'swiftc', '-O', '-swift-version', '6', '-parse-as-library', '-package-name', 'KaitoKit', '-module-cache-path', str(ROOT / '.build/clang-cache'), *sources, str(observer), '-o', str(args.out_dir / 'profile')]
+    # 採点器は複数ファイルの extension に分かれているため、release と同じ whole-module 最適化で比べる。
+    command = ['xcrun', 'swiftc', '-O', '-wmo', '-swift-version', '6', '-parse-as-library', '-package-name', 'KaitoKit', '-module-cache-path', str(ROOT / '.build/clang-cache'), *sources, str(observer), '-o', str(args.out_dir / 'profile')]
     subprocess.run(command, check=True)
     print(args.out_dir / 'profile')
 

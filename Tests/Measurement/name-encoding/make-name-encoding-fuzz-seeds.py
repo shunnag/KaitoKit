@@ -36,7 +36,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("out_dir", type=Path)
     args = parser.parse_args()
-    fixture = Path(__file__).resolve().parents[1] / "Fixtures/encoding/names-multilingual.tsv"
+    fixture = Path(__file__).resolve().parents[2] / "Fixtures/encoding/names-multilingual.tsv"
     groups = defaultdict(list)
     with fixture.open(encoding="utf-8") as source:
         for row in csv.DictReader(source, delimiter="\t"):

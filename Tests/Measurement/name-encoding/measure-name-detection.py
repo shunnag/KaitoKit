@@ -25,7 +25,7 @@ import tempfile
 import time
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 # RFC 1456 の自前 codec は生成器の表を共有する。採点・CF 正解復号の経路は変えない。
 import_module("make-name-corpus")
 BUCKETS = ("1", "2–3", "4–7", "8+")

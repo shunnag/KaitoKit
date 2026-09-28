@@ -22,7 +22,7 @@ import time
 import unicodedata
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 WESTERN = [("cp1252", "windows-1252"), ("iso8859_15", "iso-8859-15"),
            ("mac_roman", "macintosh"), ("cp850", "cp850")]
 CENTRAL = [("cp1250", "windows-1250"), ("iso8859_2", "iso-8859-2"),

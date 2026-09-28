@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read the P3 prototype corpus without changing it; print its 63 + 12 splice manifest.
 
-Usage: python3 Scripts/fixtures/make-tar-splice-manifest.py <scratchpad>/p3val > <tmp>/splice-manifest.json
+Usage: python3 Tests/Measurement/tar-splice/make-tar-splice-manifest.py <scratchpad>/p3val > <tmp>/splice-manifest.json
 The original results.jsonl, maps, chain.py algorithm and output bytes are the oracle.
 """
 import bisect

@@ -1,5 +1,11 @@
 # CRC-16/ARC verification
 
+Measurement kit for the folded CRC-16/ARC in `Sources/KaitoKit/Core/CRC16.swift` (not run by CI).
+Inputs: the old and new `CRC16.swift`, a release `kaito` built before and after the change, and the
+authorized corpus scratchpad `$S` (LHA store archives, fuzz seeds). Outputs: medians and CRCs on stdout,
+logs under `.build/crc16-work/` and `.build/crc16-fuzz/`. Record: `Documentation/design.md`
+section "CRC-16/ARC carry-less multiply folding（2026-09-09）".
+
 Run from the KaitoKit repository root. The benchmark compiles the actual CRC16
 source with the same driver for both versions. Keep a copy of the old source and
 release CLI **before editing** (or obtain CRC16.swift from the intended baseline
@@ -16,9 +22,9 @@ export DEVELOPER_DIR=/Applications/Xcode.app
 # Baseline for this change; source is KaitoKit's own code.
 git show 66bc07a:Sources/KaitoKit/Core/CRC16.swift > "$W/CRC16-before.swift"
 swiftc -O -module-cache-path "$W/cache" \
-  "$W/CRC16-before.swift" Tests/Benchmarks/CRC16Bench.swift -o "$W/micro-before"
+  "$W/CRC16-before.swift" Tests/Measurement/crc16/CRC16Bench.swift -o "$W/micro-before"
 swiftc -O -I Sources/CBzip2 -module-cache-path "$W/cache" \
-  Sources/KaitoKit/Core/CRC16.swift Tests/Benchmarks/CRC16Bench.swift -o "$W/micro-after"
+  Sources/KaitoKit/Core/CRC16.swift Tests/Measurement/crc16/CRC16Bench.swift -o "$W/micro-after"
 
 # Stop concurrent builds/tests before measuring. Seven samples per invocation;
 # take the median of each process, then the median of three alternating pairs.
@@ -50,12 +56,12 @@ are retained and compared, rather than counted as successful extraction.
 ```sh
 swift build --disable-sandbox -c release --product kaito
 K="$(swift build --disable-sandbox -c release --show-bin-path)/kaito"
-python3 Tests/Benchmarks/CRC16Compare.py bench "$W/kaito-before" "$K" "$S"
-python3 Tests/Benchmarks/CRC16Compare.py bench "$S/bin/kaito-r3" "$K" "$S"
-python3 Tests/Benchmarks/CRC16Compare.py sha "$S/bin/kaito-r3" "$K" "$S"
-python3 Tests/Benchmarks/CRC16Compare.py sha-lha "$S/bin/kaito-r3" "$K" "$S"
+python3 Tests/Measurement/crc16/CRC16Compare.py bench "$W/kaito-before" "$K" "$S"
+python3 Tests/Measurement/crc16/CRC16Compare.py bench "$S/bin/kaito-r3" "$K" "$S"
+python3 Tests/Measurement/crc16/CRC16Compare.py sha "$S/bin/kaito-r3" "$K" "$S"
+python3 Tests/Measurement/crc16/CRC16Compare.py sha-lha "$S/bin/kaito-r3" "$K" "$S"
 
-python3 Tests/Benchmarks/CRC16Constants.py
+python3 Tests/Measurement/crc16/CRC16Constants.py
 swift test --disable-sandbox
 DEVELOPER_DIR=/Applications/Xcode-beta.app swift test --disable-sandbox \
   --scratch-path .build/crc16-swift64
@@ -90,16 +96,16 @@ check also tests each 16-byte block length from 64...4096 at all 64 alignments,
 with exact allocation endpoints and random seeds, on both instruction sets.
 
 ```sh
-bash Tests/Benchmarks/CRC16Fuzz.sh "$S"/fuzz-seeds/*/*
+bash Tests/Measurement/crc16/CRC16Fuzz.sh "$S"/fuzz-seeds/*/*
 clang -O1 -g -fsanitize=address,undefined \
-  Tests/Benchmarks/CRC16FoldingSanitizer.c -o "$W/c-sanitizer"
+  Tests/Measurement/crc16/CRC16FoldingSanitizer.c -o "$W/c-sanitizer"
 "$W/c-sanitizer"
 clang -arch x86_64 -O1 -g -fsanitize=address,undefined \
-  Tests/Benchmarks/CRC16FoldingSanitizer.c -o "$W/c-sanitizer-x86"
+  Tests/Measurement/crc16/CRC16FoldingSanitizer.c -o "$W/c-sanitizer-x86"
 "$W/c-sanitizer-x86"
 git diff --check
 ```
 
 The 2026-09-09 results, mathematical derivation, references and limitations are in
-[Documentation/design.md](../../Documentation/design.md). Full measured samples,
+[Documentation/design.md](../../../Documentation/design.md). Full measured samples,
 comparison rows and build/test logs from that run are in `.build/crc16-work/`.

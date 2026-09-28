@@ -2,7 +2,7 @@
 # 支給 Python だけを差分オラクルとして使い、同一ストリームの結果を再利用する。
 import argparse, concurrent.futures, hashlib, json, os, sys, time
 from pathlib import Path
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT/'inbox/stuffit/tools'))
 from stuffitx_jpeg_restore import restore_jpeg, JpegLimits

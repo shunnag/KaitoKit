@@ -114,7 +114,7 @@ def save(output, name, archive, inputs):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path,
-                        default=Path(__file__).resolve().parents[2] / "Tests/Fixtures/zip-ppmd")
+                        default=Path(__file__).resolve().parent)
     parser.add_argument("--seven-zip", default=shutil.which("7zz"), help="7zz バイナリのパス")
     args = parser.parse_args()
     if not args.seven_zip:

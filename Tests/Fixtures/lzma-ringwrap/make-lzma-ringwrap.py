@@ -11,7 +11,7 @@ dictionaryPosition < byteDistance の wrapped-source 経路に入る。
 g = 0, 15, 16, 32 も境界の比較用に含める。
 
 使用例:
-  python3 Scripts/fixtures/make-lzma-ringwrap.py /private/tmp/lzma-ringwrap-new --include-lzma1
+  python3 Tests/Fixtures/lzma-ringwrap/make-lzma-ringwrap.py /private/tmp/lzma-ringwrap-new --include-lzma1
 
 Python 標準ライブラリと外部コマンド 7zz を使う。出力先は新規ディレクトリ。
 元の 15 本の乱数データは復元できないため、同じ性質の書庫を生成する手順であり、

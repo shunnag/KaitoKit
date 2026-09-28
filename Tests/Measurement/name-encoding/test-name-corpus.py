@@ -3,6 +3,7 @@
 
 from importlib import import_module
 from pathlib import Path
+import sys
 import re
 import tempfile
 import unittest
@@ -10,6 +11,8 @@ import unicodedata
 
 
 corpus = import_module("make-name-corpus")
+# make-exemplars.py は Sources/ の表を作る生成器なので Scripts/generate/ にある。
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "Scripts/generate"))
 exemplars = import_module("make-exemplars")
 
 

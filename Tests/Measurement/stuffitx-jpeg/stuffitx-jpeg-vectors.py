@@ -3,7 +3,7 @@
 import hashlib, json, struct, sys
 from pathlib import Path
 sys.dont_write_bytecode=True
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parents[3]
 sys.path.insert(0,str(ROOT/'inbox/stuffit/tools'))
 from stuffitx_jpeg import *
 from stuffitx_jpeg_models import *

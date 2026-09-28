@@ -1,5 +1,5 @@
 // Standalone C ASan/UBSan coverage of the imported instruction helper.
-// clang -O1 -g -fsanitize=address,undefined Tests/Benchmarks/CRC16FoldingSanitizer.c -o CHECK
+// clang -O1 -g -fsanitize=address,undefined Tests/Measurement/crc16/CRC16FoldingSanitizer.c -o CHECK
 #include "../../Sources/CBzip2/CRC16Folding.h"
 #include <stdio.h>
 #include <stdlib.h>

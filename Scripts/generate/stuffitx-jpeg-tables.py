@@ -1,3 +1,5 @@
+# StuffIt X JPEG の定数表を、利用者の独立実装（inbox/stuffit/tools/stuffitx_jpeg_tables.py）から
+# Sources/KaitoKit/Codecs/StuffItX/StuffItXJPEGTables.swift へ書き出す。リポジトリの root で実行する。
 import importlib.util
 from pathlib import Path
 p=Path('inbox/stuffit/tools/stuffitx_jpeg_tables.py')

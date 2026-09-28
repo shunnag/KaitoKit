@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Run the spec's kaito bench/sha comparisons; retain complete output in JSONL.
-Usage: python3 Tests/Benchmarks/CRC16Compare.py bench|sha|sha-lha BEFORE AFTER SCRATCH
+Usage: python3 Tests/Measurement/crc16/CRC16Compare.py bench|sha|sha-lha BEFORE AFTER SCRATCH
 """
 import json
 import pathlib

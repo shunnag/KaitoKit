@@ -13,7 +13,7 @@ import XCTest
 // 圧縮前の .bin から採取した SHA-256 で出力全体を検証する。
 final class LZMARingWrapTests: XCTestCase {
     // 最初の 15 本はレビュー時の元書庫を保存したもの。元 .bin 自体は保存しない。
-    // 追加の LZMA1 版は Scripts/fixtures/make-lzma-ringwrap.py の既定 seed で生成。
+    // 追加の LZMA1 版は Tests/Fixtures/lzma-ringwrap/make-lzma-ringwrap.py の既定 seed で生成。
     // テスト時には乱数生成・再圧縮・外部コマンドを使わない。
     private let expectedSHA256: [String: String] = [
         "test-g0.7z": "5850b518ac4aa9edffc86fd2eb243879376e67f74b963aaf1810d8598b64477e",

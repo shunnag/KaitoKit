@@ -738,42 +738,9 @@ public final class ArchiveReader {
         }
     }
 
-    /// 単一 stream の展開結果を渡す内側の container。
-    private enum CompressedContainer {
-        case tar
-        case cpio
-        /// pbzx: 展開結果が cpio ならその entry を公開し、そうでなければ単一 stream。
-        case pbzxAuto
-    }
-
     /// 名前（または pbzx の形式）から、単一 stream の展開結果を渡す container を決める。
-    /// `.tlz` は LZMA_Alone（GNU tar）と lzip（lzip 自身の慣習）の両方が使うため、
-    /// 署名で判別した方を採る。cpio は `.cpgz`（Archive Utility）と `.cpio.<codec>` を扱う。
-    private static func compressedContainer(for sourceURL: URL?, detected: ArchiveFormat) -> CompressedContainer? {
-        if detected == .pbzx { return .pbzxAuto }
-        guard let name = sourceURL?.lastPathComponent.lowercased() else {
-            return nil
-        }
-        let codecSuffixes: [(String, ArchiveFormat)] = [
-            (".gz", .gzip), (".bz2", .bzip2), (".xz", .xz), (".zst", .zstd), (".lz4", .lz4),
-            (".lzma", .lzma), (".lz", .lzip), (".br", .brotli), (".z", .compress),
-        ]
-        for (suffix, format) in codecSuffixes where name.hasSuffix(".tar" + suffix) {
-            return format == detected ? .tar : nil
-        }
-        for (suffix, format) in codecSuffixes where name.hasSuffix(".cpio" + suffix) {
-            return format == detected ? .cpio : nil
-        }
-        let tarAliases: [(String, Set<ArchiveFormat>)] = [
-            (".tgz", [.gzip]), (".tbz2", [.bzip2]), (".tbz", [.bzip2]), (".txz", [.xz]),
-            (".tzst", [.zstd]), (".tlz", [.lzma, .lzip]), (".tbr", [.brotli]),
-            (".tz", [.compress]), (".taz", [.compress]),
-        ]
-        for (suffix, formats) in tarAliases where name.hasSuffix(suffix) {
-            return formats.contains(detected) ? .tar : nil
-        }
-        if name.hasSuffix(".cpgz") { return detected == .gzip ? .cpio : nil }
-        return nil
+    private static func compressedContainer(for sourceURL: URL?, detected: ArchiveFormat) -> CompressedNaming.Container? {
+        CompressedNaming.compressedContainer(name: sourceURL?.lastPathComponent, detected: detected)
     }
 
     private static func sevenZipSource(

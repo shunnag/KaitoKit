@@ -87,7 +87,7 @@ final class RAR5DecoderTests: XCTestCase {
             source: DataByteSource(data: blocks.first),
             offset: 0,
             compressedSize: UInt64(blocks.first.count),
-            unpackedSize: 22,
+            expectedSize: 22,
             dictionarySize: 128 * 1_024,
             limits: ReadLimits(),
             solidState: state
@@ -104,7 +104,7 @@ final class RAR5DecoderTests: XCTestCase {
             source: DataByteSource(data: blocks.continuation),
             offset: 0,
             compressedSize: UInt64(blocks.continuation.count),
-            unpackedSize: 18,
+            expectedSize: 18,
             dictionarySize: 128 * 1_024,
             limits: ReadLimits(),
             solidState: state
@@ -119,7 +119,7 @@ final class RAR5DecoderTests: XCTestCase {
                 source: DataByteSource(data: blocks.continuation),
                 offset: 0,
                 compressedSize: UInt64(blocks.continuation.count),
-                unpackedSize: 18,
+                expectedSize: 18,
                 dictionarySize: 128 * 1_024,
                 limits: ReadLimits()
             )
@@ -174,7 +174,7 @@ final class RAR5DecoderTests: XCTestCase {
                 source: source,
                 offset: UInt64(prefix.count),
                 compressedSize: UInt64(packed.count),
-                unpackedSize: UInt64(payload.count),
+                expectedSize: UInt64(payload.count),
                 dictionarySize: dictionarySize,
                 limits: ReadLimits()
             )
@@ -216,7 +216,7 @@ final class RAR5DecoderTests: XCTestCase {
                 }
                 let decoder = try RAR5Decoder(
                     source: DataByteSource(data: packed), offset: 0,
-                    compressedSize: UInt64(packed.count), unpackedSize: UInt64(expected.count),
+                    compressedSize: UInt64(packed.count), expectedSize: UInt64(expected.count),
                     dictionarySize: UInt64(size), limits: ReadLimits(), solidState: state
                 )
                 XCTAssertEqual(try drain(decoder, bufferSize: bufferSize), expected)
@@ -553,7 +553,7 @@ final class RAR5DecoderTests: XCTestCase {
                         source: DataByteSource(data: Data(bytes)),
                         offset: 0,
                         compressedSize: UInt64(bytes.count),
-                        unpackedSize: UInt64(expectedSize),
+                        expectedSize: UInt64(expectedSize),
                         dictionarySize: 128 * 1_024,
                         limits: limits
                     )
@@ -593,7 +593,7 @@ final class RAR5DecoderTests: XCTestCase {
             source: source,
             offset: 0,
             compressedSize: UInt64(compressedSize),
-            unpackedSize: expectedSize.map(UInt64.init),
+            expectedSize: expectedSize.map(UInt64.init),
             dictionarySize: 128 * 1_024,
             limits: limits
         )

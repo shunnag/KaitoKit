@@ -71,7 +71,7 @@ final class RAR4ReaderTests: XCTestCase {
                 source: DataByteSource(data: Data(packed)),
                 offset: 0,
                 compressedSize: UInt64(packed.count),
-                uncompressedSize: 1,
+                expectedSize: 1,
                 unpackVersion: 29,
                 method: 0x31,
                 dictionarySize: 64 * 1_024,
@@ -152,7 +152,7 @@ final class RAR4ReaderTests: XCTestCase {
                     let decoder = try RAR29Decoder(
                         source: DataByteSource(data: Data(bits.bytes)), offset: 0,
                         compressedSize: UInt64(bits.bytes.count),
-                        uncompressedSize: UInt64(expected.count), unpackVersion: 29,
+                        expectedSize: UInt64(expected.count), unpackVersion: 29,
                         method: 0x31, dictionarySize: 32, isSolid: false,
                         limits: ReadLimits()
                     )
@@ -194,7 +194,7 @@ final class RAR4ReaderTests: XCTestCase {
             source: DataByteSource(data: Data(bits.bytes)),
             offset: 0,
             compressedSize: UInt64(bits.bytes.count),
-            uncompressedSize: 1,
+            expectedSize: 1,
             unpackVersion: 29,
             method: 0x31,
             dictionarySize: 64 * 1_024,
@@ -522,7 +522,7 @@ final class RAR4ReaderTests: XCTestCase {
                 source: source,
                 offset: 0,
                 compressedSize: 2,
-                uncompressedSize: 1,
+                expectedSize: 1,
                 unpackVersion: 29,
                 method: 0x31,
                 dictionarySize: 64 * 1_024,

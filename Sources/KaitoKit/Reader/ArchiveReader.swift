@@ -115,36 +115,14 @@ public final class ArchiveReader {
         url: URL,
         options: ReaderOptions = ReaderOptions()
     ) throws -> ArchiveReader {
-        let standardized = url.standardizedFileURL
-        let opened = try FileByteSource.openAnchored(url: standardized)
-        let split = try SplitVolumeSet.assemble(
-            firstVolumeURL: standardized,
-            firstVolumeSource: opened.source,
-            directory: opened.directory,
-            limits: options.limits
-        )
-        let zipSplit = try split == nil ? ZipSplitVolumeSet.assemble(
-            url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
-        ) : nil
-        // classic StuffIt の分割セット（100 byte header の part）は兄弟を集めて data / resource fork に組む。
-        let stuffItSplit = try split == nil && zipSplit == nil ? StuffItSplitSet.assemble(
-            firstVolumeURL: standardized, source: opened.source, directory: opened.directory, limits: options.limits
-        ) : nil
-        // `.cue` は data track の image file（同じ directory）を開く。
-        let cue = try split == nil && zipSplit == nil && stuffItSplit == nil ? CueSheet.assemble(
-            url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
-        ) : nil
-        // 兄弟のない .001 でも .tar.gz などのヒントを保持する。
-        let sourceURL = SplitVolumeSet.naming(forFirstVolumeName: standardized.lastPathComponent) != nil
-            ? standardized.deletingPathExtension()
-            : standardized
+        let input = try OpenedArchiveInput.assemble(url: url, limits: options.limits)
         return try ArchiveReader(
-            source: split?.source ?? zipSplit?.source ?? stuffItSplit.map { $0 as any ByteSource } ?? cue ?? opened.source,
-            sourceURL: sourceURL,
-            sourceDirectoryAnchor: split == nil ? opened.directory : nil,
-            sourceVolumeURL: split == nil ? standardized : nil,
-            zipDiskLayout: zipSplit?.layout,
-            volumeSet: split?.volumeSet ?? zipSplit?.volumeSet,
+            source: input.source,
+            sourceURL: input.sourceURL,
+            sourceDirectoryAnchor: input.directoryAnchor,
+            sourceVolumeURL: input.volumeURL,
+            zipDiskLayout: input.zipDiskLayout,
+            volumeSet: input.volumeSet,
             options: options
         )
     }

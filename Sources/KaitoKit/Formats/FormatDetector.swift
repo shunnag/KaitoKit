@@ -101,32 +101,9 @@ public enum FormatDetector {
         url: URL,
         options: ReaderOptions = ReaderOptions()
     ) throws -> ArchiveFormat {
-        let standardized = url.standardizedFileURL
-        let opened = try FileByteSource.openAnchored(url: standardized)
-        let split = try SplitVolumeSet.assemble(
-            firstVolumeURL: standardized,
-            firstVolumeSource: opened.source,
-            directory: opened.directory,
-            limits: options.limits
-        )
-        let zipSplit = try split == nil ? ZipSplitVolumeSet.assemble(
-            url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
-        ) : nil
-        let stuffItSplit = try split == nil && zipSplit == nil ? StuffItSplitSet.assemble(
-            firstVolumeURL: standardized, source: opened.source, directory: opened.directory, limits: options.limits
-        ) : nil
-        let cue = try split == nil && zipSplit == nil && stuffItSplit == nil ? CueSheet.assemble(
-            url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
-        ) : nil
-        let sourceURL = SplitVolumeSet.naming(forFirstVolumeName: standardized.lastPathComponent) != nil
-            ? standardized.deletingPathExtension()
-            : standardized
-        let format = try detect(
-            source: split?.source ?? zipSplit?.source ?? stuffItSplit.map { $0 as any ByteSource } ?? cue ?? opened.source,
-            sourceURL: sourceURL,
-            options: options
-        )
-        guard zipSplit == nil || format == .zip else {
+        let input = try OpenedArchiveInput.assemble(url: url, limits: options.limits)
+        let format = try detect(source: input.source, sourceURL: input.sourceURL, options: options)
+        guard input.zipDiskLayout == nil || format == .zip else {
             throw KaitoError.malformed("ZIP split volume set is not a ZIP archive")
         }
         return format

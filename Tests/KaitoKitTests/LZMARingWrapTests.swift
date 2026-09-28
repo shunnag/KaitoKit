@@ -122,7 +122,7 @@ final class LZMARingWrapTests: XCTestCase {
         let decoded = try reader.read(entry)
         XCTAssertEqual(decoded.count, size, name, file: file, line: line)
         XCTAssertEqual(
-            SHA256.hash(data: decoded).map { String(format: "%02x", $0) }.joined(),
+            decoded.sha256Hex,
             expected, name, file: file, line: line
         )
     }

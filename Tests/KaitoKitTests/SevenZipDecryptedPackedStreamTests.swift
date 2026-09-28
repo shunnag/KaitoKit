@@ -39,7 +39,7 @@ final class SevenZipDecryptedPackedStreamTests: XCTestCase {
                     }
                     data.append(try stream.readAll())
                     XCTAssertEqual(data.count, Int(folder.plaintextLength), name)
-                    XCTAssertEqual(SevenZipGolden.sha(data), folder.plaintextSHA256, "\(name)/\(folder.folderIndex)")
+                    XCTAssertEqual(data.sha256Hex, folder.plaintextSHA256, "\(name)/\(folder.folderIndex)")
                     XCTAssertEqual(stream.remaining, 0)
                     checked += 1
                 }

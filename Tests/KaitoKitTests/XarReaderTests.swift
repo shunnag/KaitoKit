@@ -25,12 +25,11 @@ final class XarReaderTests: XCTestCase {
         let text = try TestFixtures.text("container/\(name).b64")
         return try XCTUnwrap(Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)))
     }
-    private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
     private func rows(_ reader: ArchiveReader) throws -> [Row] {
         try reader.entries.map { entry in
             let data = try reader.read(entry)
             XCTAssertEqual(UInt64(data.count), entry.uncompressedSize, entry.name)
-            return Row(entry.name, try XCTUnwrap(entry.uncompressedSize), sha(data))
+            return Row(entry.name, try XCTUnwrap(entry.uncompressedSize), data.sha256Hex)
         }.sorted { $0.name < $1.name }
     }
     private func assertError(_ expected: String, _ body: () throws -> Void,
@@ -155,7 +154,7 @@ final class XarReaderTests: XCTestCase {
             var inode: NSNumber?
             for member in members {
                 let url = directory.appendingPathComponent(member)
-                XCTAssertEqual(sha(try Data(contentsOf: url)), digest, member)
+                XCTAssertEqual(try Data(contentsOf: url).sha256Hex, digest, member)
                 let actual = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? NSNumber)
                 if let inode { XCTAssertEqual(actual, inode) } else { inode = actual }
             }

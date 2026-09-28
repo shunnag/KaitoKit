@@ -147,7 +147,7 @@ final class StuffItXSlice4Tests: XCTestCase {
         XCTAssertEqual(Array(words.prefix(8)), ["the","and","that","was","for","you","with","have"])
         let data = Data((words.joined(separator: "\n") + "\n").utf8)
         XCTAssertEqual(data.count, 881_863)
-        XCTAssertEqual(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), StuffItXEnglishDictionary.sha256)
+        XCTAssertEqual(data.sha256Hex, StuffItXEnglishDictionary.sha256)
         let root = TestFixtures.repositoryRoot
         let temporary = root.appendingPathComponent(".build/slice4-dictionary-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)

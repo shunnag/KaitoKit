@@ -12,9 +12,6 @@ final class RAR5FileCopyTests: XCTestCase {
 
     private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("rar5/\(name).rar") }
 
-    private func sha(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 
     private func read(_ stream: EntryStream, chunk: Int) throws -> Data {
         var output = Data(), buffer = [UInt8](repeating: 0, count: chunk)
@@ -46,11 +43,11 @@ final class RAR5FileCopyTests: XCTestCase {
         // 逆順・小さな chunk・reopen のどれでも参照先と同じ byte を返す。
         for entry in reader.entries.reversed() {
             let data = try read(reader.stream(entry), chunk: 4_099)
-            XCTAssertEqual(sha(data), entry.name == "d.txt" ? otherSHA : textSHA, "\(label) \(entry.name)")
+            XCTAssertEqual(data.sha256Hex, entry.name == "d.txt" ? otherSHA : textSHA, "\(label) \(entry.name)")
         }
         let reopened = try reader.reopen()
         for entry in reopened.entries {
-            XCTAssertEqual(sha(try reopened.read(entry)), entry.name == "d.txt" ? otherSHA : textSHA, "\(label) \(entry.name)")
+            XCTAssertEqual(try reopened.read(entry).sha256Hex, entry.name == "d.txt" ? otherSHA : textSHA, "\(label) \(entry.name)")
         }
     }
 

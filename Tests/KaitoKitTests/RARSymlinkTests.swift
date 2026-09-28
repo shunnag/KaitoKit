@@ -6,9 +6,6 @@ import XCTest
 final class RARSymlinkTests: XCTestCase {
     private func fixture(_ path: String) throws -> Data { try TestFixtures.base64("\(path).rar") }
 
-    private func digest(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 
     func testRAR4StoredMemberPreservesSolidHistoryIncludingEncryption() throws {
         for name in ["solid-stored", "solid-stored-p", "solid-stored-hp"] {
@@ -26,7 +23,7 @@ final class RARSymlinkTests: XCTestCase {
             // Seek over the stored member, restart backwards, and read it while
             // a compressed stream is active. None may change the shared state.
             for index in [2, 0, 2] {
-                XCTAssertEqual(digest(try reader.read(reader.entries[index])),
+                XCTAssertEqual(try reader.read(reader.entries[index]).sha256Hex,
                                "74afbb86e62b28d58e0ed4535792c9d2d932ae7556dd0a8e90562ba92c933a85", name)
             }
             let stream = try reader.stream(reader.entries[0])
@@ -35,7 +32,7 @@ final class RARSymlinkTests: XCTestCase {
             XCTAssertEqual(try reader.read(link), Data(String(repeating: "x", count: 200).utf8))
             var data = Data([byte])
             data.append(try stream.readAll())
-            XCTAssertEqual(digest(data), "74afbb86e62b28d58e0ed4535792c9d2d932ae7556dd0a8e90562ba92c933a85")
+            XCTAssertEqual(data.sha256Hex, "74afbb86e62b28d58e0ed4535792c9d2d932ae7556dd0a8e90562ba92c933a85")
         }
     }
 
@@ -53,7 +50,7 @@ final class RARSymlinkTests: XCTestCase {
                 let data = try reader.read(entry)
                 let target = String(decoding: data, as: UTF8.self)
                 XCTAssertEqual(entry.uncompressedSize, UInt64(data.count))
-                XCTAssertEqual(digest(data), try XCTUnwrap(expected[target]))
+                XCTAssertEqual(data.sha256Hex, try XCTUnwrap(expected[target]))
                 let stream = try reader.stream(entry)
                 var streamed = Data()
                 var byte: UInt8 = 0

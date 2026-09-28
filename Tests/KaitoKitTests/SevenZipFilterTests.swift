@@ -353,7 +353,7 @@ final class SevenZipFilterTests: XCTestCase {
         let payload = try reader.read(entry)
         XCTAssertEqual(payload.count, 8_192)
         XCTAssertEqual(
-            SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined(),
+            payload.sha256Hex,
             "50707e3abaa5a1b0676e0bd6b120133034ba7358c4584acc2b473207e015a2b8"
         )
     }

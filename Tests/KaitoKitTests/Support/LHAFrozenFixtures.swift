@@ -34,7 +34,7 @@ enum LHAFrozenFixtures {
         let encoded = try Data(contentsOf: root.appendingPathComponent(fixture.file))
         let data = try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters))
         XCTAssertEqual(data.count, fixture.size, fixture.name)
-        XCTAssertEqual(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+        XCTAssertEqual(data.sha256Hex,
                        fixture.sha256, fixture.name)
         return data
     }

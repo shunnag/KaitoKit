@@ -716,7 +716,7 @@ final class LHAIntegrationTests: XCTestCase {
             let decoded = try reader.read(entry)
             XCTAssertEqual(decoded.count, 18_092, fixture)
             XCTAssertEqual(
-                SHA256.hash(data: decoded).map { String(format: "%02x", $0) }.joined(),
+                decoded.sha256Hex,
                 expectedDigest,
                 fixture
             )

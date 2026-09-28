@@ -134,8 +134,7 @@ final class SevenZipBranchLargePayloadTests: XCTestCase {
         let payload = Self.seededPayload(count: size, seed: 0x2545_F491_4F6C_DD1D)
         let payloadURL = directory.appendingPathComponent("payload.bin")
         try Data(payload).write(to: payloadURL)
-        let expectedDigest = SHA256.hash(data: Data(payload))
-            .map { String(format: "%02x", $0) }.joined()
+        let expectedDigest = Data(payload).sha256Hex
 
         for name in ["BCJ", "ARM64"] {
             let archiveURL = directory.appendingPathComponent("\(name).7z")
@@ -156,7 +155,7 @@ final class SevenZipBranchLargePayloadTests: XCTestCase {
             let data = try reader.read(entry)
             XCTAssertEqual(data.count, size, name)
             XCTAssertEqual(
-                SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+                data.sha256Hex,
                 expectedDigest,
                 name
             )

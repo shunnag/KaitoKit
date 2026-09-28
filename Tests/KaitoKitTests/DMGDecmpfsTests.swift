@@ -15,7 +15,6 @@ final class DMGDecmpfsTests: XCTestCase {
         return (try TestFixtures.gzipBase64("dmg/hfs-decmpfs.dmg"), manifest)
     }
 
-    private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     func testR1ReviewSkipsUnneededLargeAttributeTree() throws {
         let image = attributeVolume(leafCount: 4_100, compressed: false)
@@ -130,7 +129,7 @@ final class DMGDecmpfsTests: XCTestCase {
     func testFixtureContentsAndStreams() throws {
         let (image, manifest) = try fixture()
         XCTAssertEqual(UInt64(image.count), manifest.images["hfs-decmpfs.dmg"]?.size)
-        XCTAssertEqual(sha(image), manifest.images["hfs-decmpfs.dmg"]?.sha256)
+        XCTAssertEqual(image.sha256Hex, manifest.images["hfs-decmpfs.dmg"]?.sha256)
         let original = try ArchiveReader.open(data: image)
         XCTAssertEqual(Set(original.entries.map(\.name)), Set(manifest.payload.keys))
         XCTAssertEqual(Set(manifest.payload.values.map(\.decmpfsType)), [1, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13])
@@ -151,7 +150,7 @@ final class DMGDecmpfsTests: XCTestCase {
                         XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("HFS+ decmpfs (type \(want.decmpfsType))"))
                     }
                 } else {
-                    XCTAssertEqual(sha(try reader.read(entry)), want.sha256, entry.name)
+                    XCTAssertEqual(try reader.read(entry).sha256Hex, want.sha256, entry.name)
                 }
             }
             // 逆順でも前の entry の chunk / decoder 状態を使わない。
@@ -170,7 +169,7 @@ final class DMGDecmpfsTests: XCTestCase {
                 }
                 XCTAssertEqual(stream.remaining, 0, entry.name)
                 XCTAssertEqual(UInt64(data.count), want.size, entry.name)
-                XCTAssertEqual(sha(data), want.sha256, entry.name)
+                XCTAssertEqual(data.sha256Hex, want.sha256, entry.name)
             }
         }
     }

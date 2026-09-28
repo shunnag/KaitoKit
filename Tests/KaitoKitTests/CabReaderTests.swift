@@ -32,7 +32,7 @@ final class CabReaderTests: XCTestCase {
             let data = try reader.read(entry)
             XCTAssertEqual(UInt64(data.count), entry.uncompressedSize)
             return Row(entry.name, try XCTUnwrap(entry.uncompressedSize),
-                SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
+                data.sha256Hex)
         }
     }
 
@@ -387,7 +387,7 @@ final class CabReaderTests: XCTestCase {
             if count == 0 { break }
             result.append(contentsOf: buffer.prefix(count))
         }
-        XCTAssertEqual(SHA256.hash(data: result).map { String(format: "%02x", $0) }.joined(),
+        XCTAssertEqual(result.sha256Hex,
             "1cb0d807794c414b014ddbe05aa98fecd5bc75cb3cbc1c85b4e41f6b95b2342a")
     }
 }

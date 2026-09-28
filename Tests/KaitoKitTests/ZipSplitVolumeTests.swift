@@ -812,7 +812,7 @@ final class ZipSplitVolumeTests: XCTestCase {
             let extracted = try ZipTestSupport.checkedRun(ZipTestSupport.sevenZipPath,
                 arguments: ["x", "-so", last.path, "payload.bin"]).standardOutput
             XCTAssertEqual(extracted, payload)
-            let digest = SHA256.hash(data: extracted).map { String(format: "%02x", $0) }.joined()
+            let digest = extracted.sha256Hex
             for name in [stem + ".zip", stem + ".z01"] {
                 let url = directory.appendingPathComponent(name)
                 let reader = try ArchiveReader.open(url: url)

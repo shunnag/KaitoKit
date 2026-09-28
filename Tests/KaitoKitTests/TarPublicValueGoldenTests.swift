@@ -36,7 +36,7 @@ final class TarPublicValueGoldenTests: XCTestCase {
             guard utc else { throw TarTestSupportError.commandFailed("write tar golden with TZ=UTC") }
             let bytes = try TarGoldenCorpus.json(["values": values, "utcValues": dated])
             try ((bytes as NSData).compressed(using: .lzfse) as Data).write(to: destination)
-            try (TarGoldenCorpus.sha(bytes) + "\n").write(
+            try (bytes.sha256Hex + "\n").write(
                 to: TarGoldenCorpus.root.appendingPathComponent("public-values.json.sha256"),
                 atomically: true, encoding: .utf8)
         }
@@ -92,7 +92,6 @@ enum TarGoldenCorpus {
         let digits = Array("0123456789abcdef".utf8)
         return String(decoding: bytes.flatMap { [digits[Int($0 >> 4)], digits[Int($0 & 15)]] }, as: UTF8.self)
     }
-    static func sha(_ data: Data) -> String { hex(SHA256.hash(data: data)) }
     static func json(_ value: Any) throws -> Data {
         try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .prettyPrinted, .fragmentsAllowed]) + Data([10])
     }
@@ -101,7 +100,7 @@ enum TarGoldenCorpus {
         let bytes = try (encoded as NSData).decompressed(using: .lzfse) as Data
         let expectedHash = try String(contentsOf: root.appendingPathComponent("public-values.json.sha256"), encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        XCTAssertEqual(sha(bytes), expectedHash, "decompressed public golden SHA-256")
+        XCTAssertEqual(bytes.sha256Hex, expectedHash, "decompressed public golden SHA-256")
         return bytes
     }
     static func dump(_ values: [String: Any]) throws {
@@ -122,7 +121,7 @@ enum TarGoldenCorpus {
             let text = try String(contentsOf: root.appendingPathComponent(input.path), encoding: .utf8)
             bytes = try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))
         }
-        XCTAssertEqual(sha(bytes), input.sha256, input.id)
+        XCTAssertEqual(bytes.sha256Hex, input.sha256, input.id)
         return bytes
     }
     static func generated(_ generator: Generator) throws -> Data {
@@ -195,7 +194,7 @@ enum TarGoldenCorpus {
         } catch { return [["open": "failure", "error": String(describing: error)]] }
     }
     static func outcome(_ body: () throws -> Data) -> [String: Any] {
-        do { let data = try body(); return ["sha256": sha(data), "count": data.count] }
+        do { let data = try body(); return ["sha256": data.sha256Hex, "count": data.count] }
         catch { return ["error": String(describing: error)] }
     }
     static func streamOutcome(_ body: () throws -> EntryStream) -> [String: Any] {
@@ -211,7 +210,7 @@ enum TarGoldenCorpus {
     }
     static func summary(_ rows: [[String: Any]]) throws -> [String: Any] {
         if rows.count <= 65 { return ["rows": rows] }
-        return ["rowCount": rows.count, "sha256": sha(try json(rows)), "first": Array(rows.prefix(17)), "last": Array(rows.suffix(16))]
+        return ["rowCount": rows.count, "sha256": try json(rows).sha256Hex, "first": Array(rows.prefix(17)), "last": Array(rows.suffix(16))]
     }
     static func generateInputs() throws {
         try FileManager.default.createDirectory(at: root.appendingPathComponent("inputs"), withIntermediateDirectories: true)
@@ -230,7 +229,7 @@ enum TarGoldenCorpus {
             else {
                 try bytes.base64EncodedString(options: [.lineLength76Characters, .endLineWithLineFeed]).write(to: root.appendingPathComponent(path), atomically: true, encoding: .utf8)
             }
-            manifest.append(Input(id: id, origin: origin, path: path, suffix: suffix, sha256: sha(bytes), generator: generator))
+            manifest.append(Input(id: id, origin: origin, path: path, suffix: suffix, sha256: bytes.sha256Hex, generator: generator))
         }
         let fixtures = repository.appendingPathComponent("Tests/Fixtures")
         for path in ["appledouble/mac.tar", "singlefile/riscv.tar.xz", "singlefile/tar-compress.tar.Z", "zstd/bundle.tar.zst",

@@ -200,7 +200,7 @@ final class SevenZipEditingSnapshotTests: XCTestCase {
             SevenZipEditPack(range: $0.range.relative(to: expected.baseOffset), crc32: $0.crc32)
         } ?? [], name)
         for pack in expected.main?.packs ?? [] {
-            XCTAssertEqual(SevenZipGolden.sha(bytes.subdata(in: pack.range.dataRange)), pack.sha256, name)
+            XCTAssertEqual(bytes.subdata(in: pack.range.dataRange).sha256Hex, pack.sha256, name)
         }
         if let header = expected.encodedHeader {
             XCTAssertEqual(actual.header, .encoded(folders: header.editFolders,
@@ -210,7 +210,7 @@ final class SevenZipEditingSnapshotTests: XCTestCase {
             XCTAssertEqual(actual.header.isCompressed,
                 coders.contains { $0.methodIDHex != "06f10701" && $0.methodIDHex != "00" }, name)
             for pack in header.packs {
-                XCTAssertEqual(SevenZipGolden.sha(bytes.subdata(in: pack.range.dataRange)), pack.sha256, name)
+                XCTAssertEqual(bytes.subdata(in: pack.range.dataRange).sha256Hex, pack.sha256, name)
             }
         } else {
             XCTAssertEqual(actual.header, .plain, name)

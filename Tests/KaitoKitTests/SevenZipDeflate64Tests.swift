@@ -25,8 +25,8 @@ final class SevenZipDeflate64Tests: XCTestCase {
         let data = try fixture(item)
         let packed = data.subdata(in: stream.offset..<stream.offset + stream.size)
         let expected = try XCTUnwrap(manifest.entries["first.bin"])
-        XCTAssertEqual(sha256(try factory(packed: packed, size: stream.unpackedSize)
-            .decodeAll(limit: stream.unpackedSize)), expected.sha256)
+        XCTAssertEqual((try factory(packed: packed, size: stream.unpackedSize)
+            .decodeAll(limit: stream.unpackedSize)).sha256Hex, expected.sha256)
         for properties: [UInt8] in [[0], [1, 2, 3, 4]] {
             XCTAssertThrowsError(try factory(packed: packed, properties: properties,
                                             size: stream.unpackedSize).makeDecoder()) {
@@ -53,7 +53,7 @@ final class SevenZipDeflate64Tests: XCTestCase {
         XCTAssertEqual(Set(files), Set(manifest.fixtures.map(\.file)))
         for item in manifest.fixtures {
             let data = try fixture(item)
-            XCTAssertEqual(sha256(data), item.sha256, item.file)
+            XCTAssertEqual(data.sha256Hex, item.sha256, item.file)
             let reader = try ArchiveReader.open(data: data)
             XCTAssertEqual(reader.format, .sevenZip)
             XCTAssertEqual(reader.entries.map(\.name), item.entries, item.file)
@@ -209,9 +209,6 @@ final class SevenZipDeflate64Tests: XCTestCase {
                        expected.sha256, file: file, line: line)
     }
 
-    private func sha256(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 
     private func assertTruncatedOrMalformed(_ error: Error, file: StaticString = #filePath, line: UInt = #line) {
         switch error as? KaitoError {

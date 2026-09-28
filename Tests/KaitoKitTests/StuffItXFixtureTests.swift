@@ -14,7 +14,7 @@ final class StuffItXFixtureTests: XCTestCase {
         for item in manifest {
             let data = try fixture(item.file)
             XCTAssertEqual(data.count, item.size); XCTAssertLessThanOrEqual(data.count, 40 * 1024)
-            XCTAssertEqual(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), item.sha256)
+            XCTAssertEqual(data.sha256Hex, item.sha256)
             XCTAssertEqual(try FormatDetector.detect(data: data), .stuffItX)
             if item.file.contains("recoverability") {
                 XCTAssertThrowsError(try ArchiveReader.open(data: data)) {
@@ -45,7 +45,7 @@ final class StuffItXFixtureTests: XCTestCase {
                 }
                 let bytes = try StuffItXCodecTests.collect(coordinator.stream(offset: 0, length: stream.output), chunk: 7)
                 XCTAssertEqual(UInt64(bytes.count), stream.output)
-                XCTAssertEqual(SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(), stream.sha256)
+                XCTAssertEqual(bytes.sha256Hex, stream.sha256)
                 matches += 1
             }
         }

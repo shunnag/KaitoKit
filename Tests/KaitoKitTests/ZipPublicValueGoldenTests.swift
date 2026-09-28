@@ -32,7 +32,7 @@ final class ZipPublicValueGoldenTests: XCTestCase {
             let bytes = try ZipGoldenCorpus.json(["values": values, "utcValues": datedValues])
             let compressed = try (bytes as NSData).compressed(using: .lzfse) as Data
             try compressed.write(to: destination)
-            try (ZipGoldenCorpus.sha(bytes) + "\n").write(
+            try (bytes.sha256Hex + "\n").write(
                 to: ZipGoldenCorpus.root.appendingPathComponent("public-values.json.sha256"),
                 atomically: true, encoding: .utf8)
         }
@@ -92,7 +92,6 @@ enum ZipGoldenCorpus {
         let digits = Array("0123456789abcdef".utf8)
         return String(decoding: bytes.flatMap { [digits[Int($0 >> 4)], digits[Int($0 & 15)]] }, as: UTF8.self)
     }
-    static func sha(_ data: Data) -> String { hex(SHA256.hash(data: data)) }
     static func json(_ value: Any) throws -> Data {
         try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .prettyPrinted, .fragmentsAllowed]) + Data([10])
     }
@@ -101,7 +100,7 @@ enum ZipGoldenCorpus {
         let bytes = try (encoded as NSData).decompressed(using: .lzfse) as Data
         let expectedHash = try String(contentsOf: root.appendingPathComponent("public-values.json.sha256"), encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        XCTAssertEqual(sha(bytes), expectedHash, "decompressed public golden SHA-256")
+        XCTAssertEqual(bytes.sha256Hex, expectedHash, "decompressed public golden SHA-256")
         return bytes
     }
     static func decoded(_ file: File) throws -> Data {
@@ -112,7 +111,7 @@ enum ZipGoldenCorpus {
             let encoded = try String(contentsOf: root.appendingPathComponent(file.path), encoding: .utf8)
             bytes = try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters))
         }
-        XCTAssertEqual(sha(bytes), file.sha256, file.path)
+        XCTAssertEqual(bytes.sha256Hex, file.sha256, file.path)
         return bytes
     }
     static func generated(_ generator: Generator) throws -> Data {
@@ -192,7 +191,7 @@ enum ZipGoldenCorpus {
     }
     static func summary(_ rows: [[String: Any]]) throws -> [String: Any] {
         if rows.count <= 65 { return ["rows": rows] }
-        return ["rowCount": rows.count, "sha256": sha(try json(rows)),
+        return ["rowCount": rows.count, "sha256": try json(rows).sha256Hex,
                 "first": Array(rows.prefix(17)), "last": Array(rows.suffix(16))]
     }
 
@@ -204,7 +203,7 @@ enum ZipGoldenCorpus {
             if generator == nil {
                 try bytes.base64EncodedString(options: [.lineLength76Characters, .endLineWithLineFeed]).write(to: root.appendingPathComponent(path), atomically: true, encoding: .utf8)
             }
-            manifest.append(Input(id: id, origin: origin, files: [File(path: path, sha256: sha(bytes), generator: generator)], open: "\(id).zip"))
+            manifest.append(Input(id: id, origin: origin, files: [File(path: path, sha256: bytes.sha256Hex, generator: generator)], open: "\(id).zip"))
         }
         let fixtures = ZipTestSupport.repositoryRoot.appendingPathComponent("Tests/Fixtures")
         let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: fixtures, includingPropertiesForKeys: nil))
@@ -359,7 +358,7 @@ enum ZipGoldenCorpus {
                 let data = try Data(contentsOf: url)
                 let path = "inputs/\(id)/\(url.lastPathComponent).b64"
                 try data.base64EncodedString(options: [.lineLength76Characters, .endLineWithLineFeed]).write(to: root.appendingPathComponent(path), atomically: true, encoding: .utf8)
-                return File(path: path, sha256: sha(data))
+                return File(path: path, sha256: data.sha256Hex)
             }
             manifest.append(Input(id: id, origin: "synthetic", files: files, open: open))
         }

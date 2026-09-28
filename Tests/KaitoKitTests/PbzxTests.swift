@@ -34,9 +34,6 @@ final class PbzxTests: XCTestCase {
         try XCTUnwrap(Data(base64Encoded: Data(contentsOf: root.appendingPathComponent(file)), options: .ignoreUnknownCharacters))
     }
 
-    private func sha(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 
     private func decode(_ bytes: Data, chunk: Int = 8_191, limits: ReadLimits = ReadLimits()) throws -> Data {
         let decoder = try PbzxDecompressor(source: DataByteSource(bytes), limits: limits)
@@ -57,14 +54,14 @@ final class PbzxTests: XCTestCase {
         for item in try manifest().fixtures {
             let bytes = try fixture(item.file)
             XCTAssertEqual(bytes.count, item.size, item.file)
-            XCTAssertEqual(sha(bytes), item.sha256, item.file)
+            XCTAssertEqual(bytes.sha256Hex, item.sha256, item.file)
             let expectedSize = item.cpioSize ?? item.dataSize
             let expectedSHA = item.cpioSHA256 ?? item.dataSHA256
             XCTAssertEqual(try PbzxDecompressor.contentSize(source: DataByteSource(bytes), limits: ReadLimits()), UInt64(expectedSize!), item.file)
             for chunk in [1_000, 65_537] {
                 let output = try decode(bytes, chunk: chunk)
                 XCTAssertEqual(output.count, expectedSize, "\(item.file) chunk \(chunk)")
-                XCTAssertEqual(sha(output), expectedSHA, "\(item.file) chunk \(chunk)")
+                XCTAssertEqual(output.sha256Hex, expectedSHA, "\(item.file) chunk \(chunk)")
             }
         }
     }
@@ -81,7 +78,7 @@ final class PbzxTests: XCTestCase {
             for (name, info) in manifest.files {
                 let entry = try XCTUnwrap(reader.entries.first { $0.name == name || $0.name == "./" + name }, "\(file) \(name)")
                 XCTAssertEqual(entry.uncompressedSize, UInt64(info.size), name)
-                XCTAssertEqual(sha(try reader.read(entry)), info.sha256, name)
+                XCTAssertEqual(try reader.read(entry).sha256Hex, info.sha256, name)
             }
             XCTAssertTrue(names.contains { $0.hasSuffix("kaito-hello") }, file)
             let reopened = try reader.reopen()
@@ -98,7 +95,7 @@ final class PbzxTests: XCTestCase {
         XCTAssertEqual(single.entries[0].name, "data")
         XCTAssertEqual(single.entries[0].methodDescription, "XZ (pbzx)")
         XCTAssertEqual(single.entries[0].uncompressedSize, 18_000)
-        XCTAssertEqual(sha(try single.read(single.entries[0])), manifest.files["usr/local/share/kaito/text.txt"]?.sha256)
+        XCTAssertEqual(try single.read(single.entries[0]).sha256Hex, manifest.files["usr/local/share/kaito/text.txt"]?.sha256)
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }
         let url = temporary.appendingPathComponent("Payload")

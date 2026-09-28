@@ -20,7 +20,6 @@ final class LZ4FrameTests: XCTestCase {
         try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appendingPathComponent("manifest.json")))
     }
     private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("lz4-frame/" + name + ".lz4") }
-    private func sha(_ bytes: Data) -> String { SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined() }
     private func decode(_ bytes: Data, chunk: Int = 8191, limits: ReadLimits = ReadLimits(), partialInput: Int = Int.max) throws -> Data {
         let decoder = try LZ4FrameDecompressor(source: LZ4PartialSource(data: bytes, chunk: partialInput), limits: limits)
         var result = Data(), buffer = [UInt8](repeating: 0, count: chunk)
@@ -55,10 +54,10 @@ final class LZ4FrameTests: XCTestCase {
     func testAllIndependentFixturesMatchEveryDecodedByteAndDeclaredSizes() throws {
         for item in try manifest().fixtures {
             let bytes = try fixture(item.name)
-            XCTAssertEqual(sha(bytes), item.sha256, item.name)
+            XCTAssertEqual(bytes.sha256Hex, item.sha256, item.name)
             let output = try decode(bytes, chunk: item.name == "tiny" ? 1 : 65537, partialInput: 37)
             XCTAssertEqual(output.count, item.decoded_size, item.name)
-            XCTAssertEqual(sha(output), item.decoded_sha256, item.name)
+            XCTAssertEqual(output.sha256Hex, item.decoded_sha256, item.name)
             let size = try LZ4FrameDecompressor.contentSize(source: DataByteSource(bytes), limits: ReadLimits())
             // The CLI intentionally omits a content-size field for empty input.
             XCTAssertEqual(size, (["empty", "no-checksum"].contains(item.name) || item.name.hasPrefix("legacy-")) ? nil : UInt64(item.decoded_size), item.name)

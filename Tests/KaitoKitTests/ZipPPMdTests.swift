@@ -65,11 +65,11 @@ final class ZipPPMdTests: XCTestCase {
             XCTAssertEqual(entry.uncompressedSize, expected.size)
             XCTAssertEqual(entry.crc32, expected.crc)
             XCTAssertEqual(entry.methodDescription, expected.method == 98 ? "ppmd" : "stored")
-            XCTAssertEqual(hash(try reader.read(entry)), expected.sha, name)
+            XCTAssertEqual(try reader.read(entry).sha256Hex, expected.sha, name)
         }
         let reopened = try reader.reopen()
         for (entry, expected) in zip(reopened.entries, expected) {
-            XCTAssertEqual(hash(try reopened.read(entry)), expected.sha, name)
+            XCTAssertEqual(try reopened.read(entry).sha256Hex, expected.sha, name)
             let stream = try reopened.stream(entry)
             var bytes = [UInt8](repeating: 0, count: 37)
             var digest = SHA256()
@@ -87,7 +87,7 @@ final class ZipPPMdTests: XCTestCase {
             let packed = try packedFixture(index)
             let decoder = try makeDecoder(packed)
             let output = try drain(decoder, chunkSize: 113)
-            XCTAssertEqual(hash(output), Self.fixtures[index].1[0].sha)
+            XCTAssertEqual(output.sha256Hex, Self.fixtures[index].1[0].sha)
             if index == 4 { XCTAssertGreaterThanOrEqual(decoder.model.restartCount, 1) }
             else { XCTAssertGreaterThanOrEqual(decoder.model.cutOffCount, 1) }
             XCTAssertTrue(decoder.model.isArenaReleased)
@@ -196,7 +196,7 @@ final class ZipPPMdTests: XCTestCase {
     func testFreezeParameterAndCorruptRestoration() throws {
         var text = try packedFixture(0)
         text.parameter |= 0x2000
-        XCTAssertEqual(hash(try drain(makeDecoder(text))), Self.fixtures[0].1[0].sha)
+        XCTAssertEqual(try drain(makeDecoder(text)).sha256Hex, Self.fixtures[0].1[0].sha)
         var random = try packedFixture(4)
         random.parameter = (random.parameter & ~0x3000) | 0x2000
         let decoder = try makeDecoder(random)
@@ -253,7 +253,7 @@ final class ZipPPMdTests: XCTestCase {
         let decoder = try PPMdVarIDecoder(source: source, offset: UInt64(source.start),
                                          compressedSize: UInt64(packed.bytes.count), parameterWord: packed.parameter,
                                          expectedSize: packed.size, memorySizeLimit: 1 << 20)
-        XCTAssertEqual(hash(try drain(decoder, chunkSize: 1)), Self.fixtures[0].1[0].sha)
+        XCTAssertEqual(try drain(decoder, chunkSize: 1).sha256Hex, Self.fixtures[0].1[0].sha)
     }
 
     private struct ShortSource: ByteSource {
@@ -327,9 +327,6 @@ final class ZipPPMdTests: XCTestCase {
             if n == 0 { return output }
             output.append(contentsOf: bytes.prefix(n))
         }
-    }
-    private func hash(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
     private func u16(_ data: Data, _ offset: Int) -> UInt16 {
         UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)

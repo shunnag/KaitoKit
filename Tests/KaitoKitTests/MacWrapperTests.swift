@@ -23,7 +23,6 @@ final class MacWrapperTests: XCTestCase {
         let url = TestFixtures.url("macwrappers/manifest.json")
         return try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: url))
     }
-    private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     func testWrappersExposeDataAndResourceForks() throws {
         let manifest = try Self.manifest()
@@ -51,13 +50,13 @@ final class MacWrapperTests: XCTestCase {
             XCTAssertEqual(main.formatSpecific["wrapper"], item.format == .macBinary ? "macBinary" : (item.format == .appleSingle ? "appleSingle" : "binHex"), item.file)
             XCTAssertEqual(main.formatSpecific["macType"], "TEXT", item.file)
             XCTAssertEqual(main.formatSpecific["macCreator"], "ttxt", item.file)
-            XCTAssertEqual(sha(try reader.read(main)), data.sha256, item.file)
+            XCTAssertEqual(try reader.read(main).sha256Hex, data.sha256, item.file)
             if item.forks == 2 {
                 let fork = reader.entries[1]
                 XCTAssertEqual(fork.name, item.name + "/..namedfork/rsrc", item.file)
                 XCTAssertEqual(fork.formatSpecific["fork"], "resource", item.file)
                 XCTAssertEqual(fork.uncompressedSize, resource.size, item.file)
-                XCTAssertEqual(sha(try reader.read(fork)), resource.sha256, item.file)
+                XCTAssertEqual(try reader.read(fork).sha256Hex, resource.sha256, item.file)
             }
             // MacBinary / AppleSingle は作成・更新日時（1904 起点 / 2000 起点）を持ち、BinHex は持たない。
             if item.format == .binHex {
@@ -79,8 +78,8 @@ final class MacWrapperTests: XCTestCase {
         let reader = try ArchiveReader.open(data: try Self.fixture("readme.txt.bin"))
         for entry in reader.entries { _ = try reader.extract(entry, to: temporary) }
         let manifest = try Self.manifest()
-        XCTAssertEqual(sha(try Data(contentsOf: temporary.appendingPathComponent("readme.txt"))), manifest.data.sha256)
-        XCTAssertEqual(sha(try Data(contentsOf: temporary.appendingPathComponent("readme.txt/..namedfork/rsrc"))), manifest.resource.sha256)
+        XCTAssertEqual(try Data(contentsOf: temporary.appendingPathComponent("readme.txt")).sha256Hex, manifest.data.sha256)
+        XCTAssertEqual(try Data(contentsOf: temporary.appendingPathComponent("readme.txt/..namedfork/rsrc")).sha256Hex, manifest.resource.sha256)
     }
 
     func testStuffItPayloadsStillOpenAsStuffItAndNamesFallBackToTheFileName() throws {

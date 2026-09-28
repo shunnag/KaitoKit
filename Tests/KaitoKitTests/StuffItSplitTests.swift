@@ -80,7 +80,7 @@ final class StuffItSplitTests: XCTestCase {
 
     private func digests(_ reader: ArchiveReader) throws -> [String] {
         try reader.entries.map { entry in
-            entry.name + " " + SHA256.hash(data: try reader.read(entry)).map { String(format: "%02x", $0) }.joined()
+            entry.name + " " + (try reader.read(entry)).sha256Hex
         }
     }
 

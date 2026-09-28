@@ -60,7 +60,7 @@ final class LHLegacyDecoderTests: XCTestCase {
         let decoder = try makeLZHUF(packed, size: 1_000)
         let decoded = try drain(decoder, bufferSize: 7)
         XCTAssertEqual(
-            hexDigest(decoded),
+            decoded.sha256Hex,
             "6fb9c778ac764f33e00e114963344503fde329c9dd733ab22b7da21171e4c63c"
         )
     }
@@ -69,7 +69,7 @@ final class LHLegacyDecoderTests: XCTestCase {
         let decoder = try makeLZHUF(Data(repeating: 0, count: 10_000), size: 100_000)
         let decoded = try readPrefix(decoder, count: 40_000, bufferSize: 31)
         XCTAssertEqual(
-            hexDigest(decoded),
+            decoded.sha256Hex,
             "f3593edc5e874e84cd43e7cd83cdc76788118320d48f7d05e61185b3d048e7b7"
         )
     }
@@ -219,9 +219,6 @@ final class LHLegacyDecoderTests: XCTestCase {
         return result
     }
 
-    private func hexDigest(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 
     private func lhasaMember(
         executable: URL,

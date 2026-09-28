@@ -239,7 +239,7 @@ final class CLISmokeTests: XCTestCase {
                 for member in members {
                     let url = output.appendingPathComponent(member)
                     let data = try Data(contentsOf: url)
-                    XCTAssertEqual(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), expected)
+                    XCTAssertEqual(data.sha256Hex, expected)
                     let actual = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? NSNumber)
                     if let inode { XCTAssertEqual(actual, inode) } else { inode = actual }
                 }

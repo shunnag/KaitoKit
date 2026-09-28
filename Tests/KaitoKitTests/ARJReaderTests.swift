@@ -22,7 +22,6 @@ final class ARJReaderTests: XCTestCase {
         return try JSONDecoder().decode([String: Payload].self, from: JSONSerialization.data(withJSONObject: object["payload"] as Any))
     }
     private static func fixture(_ name: String) throws -> Data { try ZipTestSupport.checkedInFixture("arj/\(name)") }
-    private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
     private static let names = ["README.TXT", "DATA/TABLE.BIN", "DATA/SUB/DEEP.TXT", "EMPTY.TXT", "STORED.BIN", "日本語.TXT"]
 
     func testFixturesMatchTheIndependentReaders() throws {
@@ -41,7 +40,7 @@ final class ARJReaderTests: XCTestCase {
             for entry in files {
                 let want = payload[entry.name] ?? Payload(size: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
                 XCTAssertEqual(entry.uncompressedSize, want.size, "\(name): \(entry.name)")
-                XCTAssertEqual(sha(try reader.read(entry)), want.sha256, "\(name): \(entry.name)")
+                XCTAssertEqual(try reader.read(entry).sha256Hex, want.sha256, "\(name): \(entry.name)")
                 let expectedMethod = entry.name == "STORED.BIN" || entry.name == "EMPTY.TXT" ? "stored"
                     : entry.name == "NODATA.TXT" ? "no data" : "compressed most"
                 XCTAssertEqual(entry.methodDescription, expectedMethod, "\(name): \(entry.name)")
@@ -58,7 +57,7 @@ final class ARJReaderTests: XCTestCase {
                 if count == 0 { break }
                 result.append(contentsOf: buffer.prefix(count))
             }
-            XCTAssertEqual(sha(result), payload["DATA/TABLE.BIN"]?.sha256, name)
+            XCTAssertEqual(result.sha256Hex, payload["DATA/TABLE.BIN"]?.sha256, name)
             let reopened = try reader.reopen()
             XCTAssertEqual(reopened.entries, reader.entries, name)
         }

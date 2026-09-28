@@ -75,9 +75,6 @@ final class TarSparseTests: XCTestCase {
         return result
     }
 
-    private func sha(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 
     private func read(_ stream: EntryStream, chunk: Int) throws -> Data {
         var output = Data(), buffer = [UInt8](repeating: 0, count: chunk)
@@ -103,7 +100,7 @@ final class TarSparseTests: XCTestCase {
         let extracted = try Data(contentsOf: output.appendingPathComponent(member))
         let wanted = expectedBytes ?? expected
         XCTAssertEqual(extracted.count, wanted.count, label)
-        XCTAssertEqual(sha(extracted), sha(wanted), label)
+        XCTAssertEqual(extracted.sha256Hex, wanted.sha256Hex, label)
     }
 
     /// Python tarfile も reader としてだけ使い、実装 source は参照しない。
@@ -122,7 +119,7 @@ final class TarSparseTests: XCTestCase {
         let result = try ZipTestSupport.run("/usr/bin/env", arguments: ["python3", "-c", script, url.path])
         XCTAssertEqual(result.terminationStatus, 0, "\(label): \(result.diagnostics)")
         let hashes = try XCTUnwrap(JSONSerialization.jsonObject(with: result.standardOutput) as? [String: String])
-        XCTAssertEqual(hashes, Dictionary(uniqueKeysWithValues: expected.map { ($0.0, sha($0.1)) }), label)
+        XCTAssertEqual(hashes, Dictionary(uniqueKeysWithValues: expected.map { ($0.0, $0.1.sha256Hex) }), label)
     }
 
     private func oldGNUOctal(_ value: Int) -> Data {
@@ -194,11 +191,11 @@ final class TarSparseTests: XCTestCase {
             XCTAssertEqual(entry.methodDescription, "tar (sparse)", label)
             XCTAssertEqual(entry.formatSpecific["sparse"], "GNU.sparse old", label)
             XCTAssertEqual(entry.formatSpecific["sparseFragmentCount"], String(pieces.count), label)
-            XCTAssertEqual(sha(try reader.read(entry)), sha(expanded), label)
-            XCTAssertEqual(sha(try read(reader.stream(entry), chunk: 7)), sha(expanded), label)
+            XCTAssertEqual(try reader.read(entry).sha256Hex, expanded.sha256Hex, label)
+            XCTAssertEqual(try read(reader.stream(entry), chunk: 7).sha256Hex, expanded.sha256Hex, label)
             let reopened = try reader.reopen()
             XCTAssertEqual(reopened.entries, reader.entries, label)
-            XCTAssertEqual(sha(try reopened.read(entry)), sha(expanded), label)
+            XCTAssertEqual(try reopened.read(entry).sha256Hex, expanded.sha256Hex, label)
             try assertBSDTarReads(archive, member: "old.bin", label: label, expectedBytes: expanded)
             var expectedFiles = [("old.bin", expanded)]
             if following {
@@ -209,7 +206,7 @@ final class TarSparseTests: XCTestCase {
                 expectedFiles.append(("after.txt", bytes))
             }
             try assertPythonTarfileReads(archive, expected: expectedFiles, label: label)
-            print("old GNU \(label): bsdtar -xf / python3 tarfile / KaitoKit SHA-256 \(sha(expanded))")
+            print("old GNU \(label): bsdtar -xf / python3 tarfile / KaitoKit SHA-256 \(expanded.sha256Hex)")
         }
     }
 
@@ -271,11 +268,11 @@ final class TarSparseTests: XCTestCase {
         XCTAssertEqual(entry.methodDescription, "tar (sparse)", label)
         XCTAssertEqual(entry.formatSpecific["sparse"], version, label)
         XCTAssertEqual(entry.formatSpecific["sparseFragmentCount"], "2", label)
-        XCTAssertEqual(sha(try reader.read(entry)), sha(expected), label)
-        XCTAssertEqual(sha(try read(reader.stream(entry), chunk: 3_001)), sha(expected), label)
+        XCTAssertEqual(try reader.read(entry).sha256Hex, expected.sha256Hex, label)
+        XCTAssertEqual(try read(reader.stream(entry), chunk: 3_001).sha256Hex, expected.sha256Hex, label)
         let after = try XCTUnwrap(reader.entries.first { $0.name == "after.txt" }, label)
         XCTAssertEqual(try reader.read(after), Data("after".utf8), label)
-        XCTAssertEqual(sha(try reader.reopen().read(entry)), sha(expected), label)
+        XCTAssertEqual(try reader.reopen().read(entry).sha256Hex, expected.sha256Hex, label)
     }
 
     private func archive01(map: String, size: Int? = nil, body: Data? = nil) throws -> Data {
@@ -365,7 +362,7 @@ final class TarSparseTests: XCTestCase {
         XCTAssertEqual(entry.name, "holey.bin")
         XCTAssertEqual(entry.formatSpecific["sparse"], "GNU.sparse 1.0")
         XCTAssertEqual(entry.uncompressedSize, UInt64(realSize))
-        XCTAssertEqual(sha(try reader.read(entry)), sha(expected))
+        XCTAssertEqual(try reader.read(entry).sha256Hex, expected.sha256Hex)
     }
 
     func testMalformedPaxMapsAndForeignSparseAreRejected() throws {

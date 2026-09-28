@@ -10,26 +10,25 @@ final class RawSectorImageTests: XCTestCase {
     private static func raw(_ name: String) throws -> Data { try gunzipped("bincue/\(name)") }
     private static let isoVariants = ["mode1.bin", "mode1-garbage.bin", "mode2-subheader.bin", "mode2-plain.bin",
                                       "mode1-2448.bin", "mode2-2336.bin", "mode1-truncated.bin"]
-    private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     /// 6 通りの並びと trailer 欠けの image が、元の ISO と同じ entry・同じ内容を返す。
     func testRawImagesReadLikeTheUnderlyingISO() throws {
         let plain = try ArchiveReader.open(data: Self.gunzipped("iso/rr-joliet.iso"))
         XCTAssertEqual(plain.entries.count, 6)
-        let expected = try plain.entries.map { try sha(plain.read($0)) }
+        let expected = try plain.entries.map { try plain.read($0).sha256Hex }
         for name in Self.isoVariants {
             let bytes = try Self.raw(name)
             XCTAssertEqual(try FormatDetector.detect(data: bytes), .iso, name)
             let reader = try ArchiveReader.open(data: bytes)
             XCTAssertEqual(reader.format, .iso, name)
             XCTAssertEqual(reader.entries, plain.entries, name)
-            XCTAssertEqual(try reader.entries.map { try sha(reader.read($0)) }, expected, name)
+            XCTAssertEqual(try reader.entries.map { try reader.read($0).sha256Hex }, expected, name)
             let reopened = try reader.reopen()
             XCTAssertEqual(reopened.entries, plain.entries, name)
-            XCTAssertEqual(try reopened.entries.map { try sha(reopened.read($0)) }, expected, name)
+            XCTAssertEqual(try reopened.entries.map { try reopened.read($0).sha256Hex }, expected, name)
             // 1 byte ずつしか返さない source でも sector をまたいで同じ内容になる。
             let short = try ArchiveReader.open(source: ShortSource(bytes))
-            XCTAssertEqual(try short.entries.map { try sha(short.read($0)) }, expected, name)
+            XCTAssertEqual(try short.entries.map { try short.read($0).sha256Hex }, expected, name)
         }
         // 検出は sector の並びを正しく判定する。
         for (name, size, offset) in [("mode1.bin", 2352, 16), ("mode2-subheader.bin", 2352, 24), ("mode2-plain.bin", 2352, 16),
@@ -68,7 +67,7 @@ final class RawSectorImageTests: XCTestCase {
             let reader = try ArchiveReader.open(url: url)
             XCTAssertEqual(reader.format, .iso, cue)
             XCTAssertEqual(reader.entries.map(\.name), ["a.txt", "data.bin", "link", "sub", "sub/nested.txt", "日本語ファイル.txt"], cue)
-            XCTAssertEqual(sha(try reader.read(reader.entries[1])), "e05455bcbbec58463277e8874036e57bdcf8c49c792a23ce03d6baba0765271c", cue)
+            XCTAssertEqual(try reader.read(reader.entries[1]).sha256Hex, "e05455bcbbec58463277e8874036e57bdcf8c49c792a23ce03d6baba0765271c", cue)
             let reopened = try reader.reopen()
             XCTAssertEqual(reopened.entries, reader.entries, cue)
             XCTAssertThrowsError(try ArchiveReader.open(data: Data(contentsOf: url)), cue) {

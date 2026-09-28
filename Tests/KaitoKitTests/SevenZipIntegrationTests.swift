@@ -15,7 +15,7 @@ final class SevenZipIntegrationTests: XCTestCase {
         let decoded = try reader.read(reader.entries[0])
         XCTAssertEqual(decoded, payload)
         XCTAssertEqual(
-            SHA256.hash(data: decoded).map { String(format: "%02x", $0) }.joined(),
+            decoded.sha256Hex,
             "50707e3abaa5a1b0676e0bd6b120133034ba7358c4584acc2b473207e015a2b8"
         )
         XCTAssertEqual(try reader.reopen().read(reader.entries[0]), payload)

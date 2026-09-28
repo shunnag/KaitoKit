@@ -226,7 +226,7 @@ final class ZipModernMethodTests: XCTestCase {
             result.append(contentsOf: buffer.prefix(count))
         }
         XCTAssertEqual(result, ModernZIPFixtures.payload)
-        XCTAssertEqual(SHA256.hash(data: result).map { String(format: "%02x", $0) }.joined(),
+        XCTAssertEqual(result.sha256Hex,
             "16f3e0211c947966c0e1e379ac87c947174a6b227df976fe95373940be9449b4")
     }
 

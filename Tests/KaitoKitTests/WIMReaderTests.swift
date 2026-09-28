@@ -19,7 +19,6 @@ final class WIMReaderTests: XCTestCase {
         return result
     }()
 
-    private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     /// lookup table から entry の resource header を引く（`formatSpecific["sha1"]` 経由）。
     private func resource(in data: Data, for entry: ArchiveEntry) throws -> WIMResourceHeader {
@@ -55,8 +54,8 @@ final class WIMReaderTests: XCTestCase {
                 XCTAssertEqual(entry.kind, .file, file)
                 XCTAssertEqual(entry.uncompressedSize, expected.size, file)
                 XCTAssertEqual(entry.methodDescription, "WIM (stored)", file)
-                XCTAssertEqual(sha(try reader.read(entry)), expected.sha, "\(name) \(file)")
-                XCTAssertEqual(sha(try read(reader.stream(entry), chunk: 7)), expected.sha, "\(name) \(file) chunk 7")
+                XCTAssertEqual(try reader.read(entry).sha256Hex, expected.sha, "\(name) \(file)")
+                XCTAssertEqual(try read(reader.stream(entry), chunk: 7).sha256Hex, expected.sha, "\(name) \(file) chunk 7")
             }
             XCTAssertEqual(reader.entries.filter { $0.kind == .directory }.map(\.name).sorted(), ["sub", "sub/nested"], name)
             XCTAssertLessThan(try XCTUnwrap(reader.entries.firstIndex { $0.name == "sub" }),
@@ -95,9 +94,9 @@ final class WIMReaderTests: XCTestCase {
                 let expected = try XCTUnwrap(Self.manifest[file])
                 XCTAssertEqual(entry.uncompressedSize, expected.size, file)
                 XCTAssertEqual(entry.methodDescription, method, "\(name) \(file)")
-                XCTAssertEqual(sha(try reader.read(entry)), expected.sha, "\(name) \(file)")
-                XCTAssertEqual(sha(try read(reader.stream(entry), chunk: 1_000)), expected.sha, "\(name) \(file) chunk 1000")
-                XCTAssertEqual(sha(try read(reader.stream(entry), chunk: 1)), expected.sha, "\(name) \(file) chunk 1")
+                XCTAssertEqual(try reader.read(entry).sha256Hex, expected.sha, "\(name) \(file)")
+                XCTAssertEqual(try read(reader.stream(entry), chunk: 1_000).sha256Hex, expected.sha, "\(name) \(file) chunk 1000")
+                XCTAssertEqual(try read(reader.stream(entry), chunk: 1).sha256Hex, expected.sha, "\(name) \(file) chunk 1")
             }
             // random.bin は 1 chunk が縮まないので生格納。packed size == original で見分ける。
             let random = try XCTUnwrap(reader.entries.first { $0.name == "random.bin" })
@@ -128,7 +127,7 @@ final class WIMReaderTests: XCTestCase {
         let readme1 = try XCTUnwrap(reader.entries.first { $0.name == "1/readme.txt" })
         let readme2 = try XCTUnwrap(reader.entries.first { $0.name == "2/readme.txt" })
         XCTAssertEqual(try reader.read(readme1), try reader.read(readme2))
-        XCTAssertEqual(sha(try reader.read(readme2)), Self.manifest["readme.txt"]?.sha)
+        XCTAssertEqual(try reader.read(readme2).sha256Hex, Self.manifest["readme.txt"]?.sha)
     }
 
     func testXpress4KiBAnd64KiBChunksListReadHashAndReopen() throws {
@@ -147,9 +146,9 @@ final class WIMReaderTests: XCTestCase {
                 XCTAssertEqual(entry.formatSpecific["sha1"], try XCTUnwrap(expected.sha1), name)
                 let output = try reader.read(entry)
                 XCTAssertEqual(Insecure.SHA1.hash(data: output).map { String(format: "%02x", $0) }.joined(), expected.sha1, name)
-                XCTAssertEqual(sha(output), expected.sha, name)
-                XCTAssertEqual(sha(try read(reader.stream(entry), chunk: 1003)), expected.sha, name)
-                XCTAssertEqual(sha(try reopened.read(reopened.entries[entry.index])), expected.sha, name)
+                XCTAssertEqual(output.sha256Hex, expected.sha, name)
+                XCTAssertEqual(try read(reader.stream(entry), chunk: 1003).sha256Hex, expected.sha, name)
+                XCTAssertEqual(try reopened.read(reopened.entries[entry.index]).sha256Hex, expected.sha, name)
             }
             XCTAssertThrowsError(try ArchiveReader.open(data: data, options: ReaderOptions(limits: ReadLimits(maxDictionarySize: chunkSize - 1)))) {
                 guard case .limitExceeded = $0 as? KaitoError else { return XCTFail("\($0)") }

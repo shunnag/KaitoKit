@@ -46,9 +46,6 @@ final class ZstdTests: XCTestCase {
         return url
     }
 
-    private func sha(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 
     private func decode(_ data: Data, limits: ReadLimits = ReadLimits(), expectedSize: UInt64? = nil,
                         tuning: ZstdTuning = .default) throws -> Data {
@@ -95,7 +92,7 @@ final class ZstdTests: XCTestCase {
                 XCTAssertEqual(entry.uncompressedSize, fixture.format == "zstd" ? fixture.contentSize : row.size, fixture.file)
                 let data = try reader.read(entry)
                 XCTAssertEqual(UInt64(data.count), row.size, fixture.file)
-                XCTAssertEqual(sha(data), row.sha256, fixture.file)
+                XCTAssertEqual(data.sha256Hex, row.sha256, fixture.file)
                 XCTAssertEqual(try reopened.read(entry), data, fixture.file)
                 XCTAssertEqual(try drain(reader.stream(entry)), data, fixture.file)
             }
@@ -136,7 +133,7 @@ final class ZstdTests: XCTestCase {
             try data.write(to: url)
             let oracle = try ZipTestSupport.checkedRun(sevenZip, arguments: ["x", "-so", "-bd", url.path]).standardOutput
             XCTAssertEqual(oracle.count, item.decodedSize, item.file)
-            XCTAssertEqual(sha(oracle), item.decodedSHA256, item.file)
+            XCTAssertEqual(oracle.sha256Hex, item.decodedSHA256, item.file)
             if item.format == "zip" {
                 let reader = try ArchiveReader.open(data: data)
                 XCTAssertEqual(try reader.read(reader.entries[0]), oracle, item.file)
@@ -834,7 +831,7 @@ final class ZstdTests: XCTestCase {
             }
             let expected = try decode(encoded)
             XCTAssertEqual(expected.count, item.decodedSize, item.file)
-            XCTAssertEqual(sha(expected), item.decodedSHA256, item.file)
+            XCTAssertEqual(expected.sha256Hex, item.decodedSHA256, item.file)
             for path: ZstdTuning.MatchPath in [.eightByteChunks, .byteThenPeriod] {
                 XCTAssertEqual(try decode(encoded, tuning: ZstdTuning(matchPath: path)), expected, item.file)
             }

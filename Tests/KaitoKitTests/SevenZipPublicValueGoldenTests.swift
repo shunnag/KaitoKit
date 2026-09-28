@@ -11,7 +11,7 @@ final class SevenZipPublicValueGoldenTests: XCTestCase {
             XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
             guard !FileManager.default.fileExists(atPath: destination.path) else { return }
             try actual.write(to: destination, options: .withoutOverwriting)
-            try (SevenZipGolden.sha(actual) + "\n").write(
+            try (actual.sha256Hex + "\n").write(
                 to: destination.appendingPathExtension("sha256"), atomically: true, encoding: .utf8)
         }
         XCTAssertEqual(actual, try Data(contentsOf: destination))
@@ -21,7 +21,7 @@ final class SevenZipPublicValueGoldenTests: XCTestCase {
             return options
         }, try Data(contentsOf: destination))
         let digest = try String(contentsOf: destination.appendingPathExtension("sha256"), encoding: .utf8)
-        XCTAssertEqual(SevenZipGolden.sha(actual) + "\n", digest)
+        XCTAssertEqual(actual.sha256Hex + "\n", digest)
     }
 }
 
@@ -34,7 +34,6 @@ enum SevenZipGolden {
     }
 
     static func nullable<T>(_ value: T?) -> Any { value.map { $0 as Any } ?? NSNull() }
-    static func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
     static func json(_ value: Any) throws -> Data {
         var data = try JSONSerialization.data(withJSONObject: value,
             options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])

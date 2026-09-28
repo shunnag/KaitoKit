@@ -343,7 +343,7 @@ final class StuffItXJPEGTests: XCTestCase {
             let reader = try ArchiveReader.open(data:data,options:ReaderOptions(password:"password",scanForSFXInData:true))
             let entry = try XCTUnwrap(reader.entries.first { $0.pathComponents.last == "testfile.jpg" })
             let restored = try reader.read(entry)
-            XCTAssertEqual(restored.count,220,name); XCTAssertEqual(SHA256.hash(data:restored).map {String(format:"%02x",$0)}.joined(),hash,name)
+            XCTAssertEqual(restored.count,220,name); XCTAssertEqual(restored.sha256Hex,hash,name)
             for entry in reader.entries where entry.kind != .directory { _ = try reader.read(entry) }
             historical.append(["file":name,"bytes":restored.count,"sha256":hash,"scope":"archive"])
             if name == names[0] {
@@ -474,7 +474,7 @@ final class StuffItXJPEGTests: XCTestCase {
                 let seconds = Date().timeIntervalSince(start)
                 XCTAssertEqual(output,expected,name)
                 record["status"] = output == expected ? "match" : "mismatch"
-                record["sha256"] = SHA256.hash(data:output).map { String(format:"%02x",$0) }.joined()
+                record["sha256"] = output.sha256Hex
                 record["bytes"] = output.count; record["seconds"] = seconds
                 print("JPEG \(name) \(record["status"]!) \(seconds)")
             } catch KaitoError.unsupportedMethod(let reason) where name.hasPrefix("testfile-") && (name.contains("-b420q75.") || name.contains("-b422q50.")) && item.mode == 2 {

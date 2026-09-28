@@ -48,9 +48,6 @@ final class UDFReaderTests: XCTestCase {
 
     private static func fixture(_ name: String) throws -> Data { try TestFixtures.gzipBase64("udf/\(name)") }
 
-    private func sha(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 
     private func read(_ stream: EntryStream, chunk: Int) throws -> Data {
         var output = Data(), buffer = [UInt8](repeating: 0, count: chunk)
@@ -106,7 +103,7 @@ final class UDFReaderTests: XCTestCase {
                     XCTAssertEqual(entry.kind, .file, label)
                     XCTAssertEqual(entry.uncompressedSize, Self.resourceFork.size, label)
                     XCTAssertEqual(entry.formatSpecific["fork"], "resource", label)
-                    XCTAssertEqual(sha(try reader.read(entry)), Self.resourceFork.sha, label)
+                    XCTAssertEqual(try reader.read(entry).sha256Hex, Self.resourceFork.sha, label)
                     continue
                 }
                 let expected = try XCTUnwrap(Self.payload[entry.name], label)
@@ -123,16 +120,16 @@ final class UDFReaderTests: XCTestCase {
                 }
                 if expected.kind == .file {
                     XCTAssertEqual(entry.formatSpecific["namedStreams"], item.forks && entry.name == "forked.txt" ? "1" : nil, label)
-                    XCTAssertEqual(sha(try reader.read(entry)), expected.sha, label)
-                    XCTAssertEqual(sha(try read(reader.stream(entry), chunk: 1)), expected.sha, "\(label) chunk 1")
-                    XCTAssertEqual(sha(try read(reader.stream(entry), chunk: 700)), expected.sha, "\(label) chunk 700")
+                    XCTAssertEqual(try reader.read(entry).sha256Hex, expected.sha, label)
+                    XCTAssertEqual(try read(reader.stream(entry), chunk: 1).sha256Hex, expected.sha, "\(label) chunk 1")
+                    XCTAssertEqual(try read(reader.stream(entry), chunk: 700).sha256Hex, expected.sha, "\(label) chunk 700")
                 } else {
                     XCTAssertEqual(try reader.read(entry), Data(), label)
                 }
             }
             let reopened = try reader.reopen()
             XCTAssertEqual(reopened.entries, reader.entries, item.name)
-            XCTAssertEqual(sha(try reopened.read(try XCTUnwrap(reopened.entries.first { $0.name == "readme.txt" }))),
+            XCTAssertEqual(try reopened.read(try XCTUnwrap(reopened.entries.first { $0.name == "readme.txt" })).sha256Hex,
                            Self.payload["readme.txt"]!.sha, item.name)
         }
     }
@@ -151,7 +148,7 @@ final class UDFReaderTests: XCTestCase {
         XCTAssertEqual(fallback.format, .iso)
         XCTAssertNotEqual(fallback.entries.first?.formatSpecific["nameSource"], "udf")
         XCTAssertTrue(["rockRidge", "joliet"].contains(fallback.entries.first?.formatSpecific["nameSource"] ?? ""))
-        XCTAssertEqual(sha(try fallback.read(try XCTUnwrap(fallback.entries.first { $0.name == "readme.txt" }))), Self.payload["readme.txt"]!.sha)
+        XCTAssertEqual(try fallback.read(try XCTUnwrap(fallback.entries.first { $0.name == "readme.txt" })).sha256Hex, Self.payload["readme.txt"]!.sha)
         // UDF 専用 image の同じ破損は malformed。
         let pure = try Self.fixture("pure150.iso")
         let pureVolume = try UDFVolume(source: DataByteSource(pure), limits: ReadLimits())
@@ -274,7 +271,7 @@ final class UDFReaderTests: XCTestCase {
         damaged[Int(volume.partitions[0].start + metadataFileBlock) * 2_048 + 4] ^= 0xFF
         let reader = try ArchiveReader.open(data: damaged)
         XCTAssertEqual(reader.entries.count, 11)
-        XCTAssertEqual(sha(try reader.read(try XCTUnwrap(reader.entries.first { $0.name == "readme.txt" }))), Self.payload["readme.txt"]!.sha)
+        XCTAssertEqual(try reader.read(try XCTUnwrap(reader.entries.first { $0.name == "readme.txt" })).sha256Hex, Self.payload["readme.txt"]!.sha)
         // 両方壊れると開けない。
         damaged[Int(volume.partitions[0].start + mirrorBlock) * 2_048 + 4] ^= 0xFF
         XCTAssertThrowsError(try ArchiveReader.open(data: damaged)) {
@@ -414,7 +411,7 @@ final class UDFReaderTests: XCTestCase {
         }
         func write(_ name: String, _ data: Data) throws {
             try data.write(to: source.appendingPathComponent(name))
-            digests[name] = sha(data)
+            digests[name] = data.sha256Hex
         }
         try write("large.bin", random(3_000_000))
         try write("deep/er/still/tail.txt", Data("tail\n".utf8))
@@ -432,10 +429,10 @@ final class UDFReaderTests: XCTestCase {
             XCTAssertEqual(reader.entries.filter { $0.kind == .directory }.map(\.name).sorted(), ["deep", "deep/er", "deep/er/still"], name)
             for entry in files {
                 XCTAssertEqual(entry.formatSpecific["nameSource"], "udf", "\(name) \(entry.name)")
-                XCTAssertEqual(sha(try reader.read(entry)), digests[entry.name], "\(name) \(entry.name)")
+                XCTAssertEqual(try reader.read(entry).sha256Hex, digests[entry.name], "\(name) \(entry.name)")
             }
             let large = try XCTUnwrap(files.first { $0.name == "large.bin" })
-            XCTAssertEqual(sha(try read(reader.stream(large), chunk: 65_537)), digests["large.bin"], name)
+            XCTAssertEqual(try read(reader.stream(large), chunk: 65_537).sha256Hex, digests["large.bin"], name)
         }
     }
 }

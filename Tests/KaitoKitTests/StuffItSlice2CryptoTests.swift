@@ -75,7 +75,7 @@ final class StuffItSlice2CryptoTests: XCTestCase {
             reader.password = "wrong"
             XCTAssertThrowsError(try reader.read(entry)) { XCTAssertEqual($0 as? KaitoError, .wrongPassword) }
             reader.password = "password"
-            XCTAssertEqual(StuffItCorpusTests().sha(try reader.read(entry)), "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25")
+            XCTAssertEqual(try reader.read(entry).sha256Hex, "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25")
             let plain = try ArchiveReader.open(data: fixtures.fixture(name.replacingOccurrences(of: ".password", with: "")))
             for encrypted in reader.entries where encrypted.isEncrypted {
                 let expected = try XCTUnwrap(plain.entries.first { $0.pathComponents == encrypted.pathComponents })
@@ -149,7 +149,7 @@ final class StuffItSlice2CryptoTests: XCTestCase {
         let mode = StuffItCryptoSource.Mode.rc4(archiveKey + record.entryKey)
         let decrypted = try StuffItCryptoSource(source: source, offset: record.offset, stored: record.stored, mode: mode)
         let plaintext = try readByteRange(source: decrypted, offset: 0, count: 11)
-        XCTAssertEqual(StuffItCorpusTests().sha(Data(plaintext)), "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25")
+        XCTAssertEqual(Data(plaintext).sha256Hex, "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25")
         for offset in [7, 0, 9, 1] {
             XCTAssertEqual(try readByteRange(source: decrypted, offset: UInt64(offset), count: 2), Array(plaintext[offset..<offset + 2]))
         }

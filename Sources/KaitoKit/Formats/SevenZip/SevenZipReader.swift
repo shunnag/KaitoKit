@@ -150,8 +150,8 @@ final class SevenZipReader: FormatReader {
     }
 
     func reopened(options: ReaderOptions) -> sending (any FormatReader)? {
-        // No folder coordinator, verified-pack cache or derived key crosses
-        // the reader boundary, including keys used to decode the header.
+        // folder coordinator、検証済み pack の記録、導出済みの鍵（header の復号に使った鍵を含む）は
+        // reader の境界を越えて共有しない。
         SevenZipReader(source: source, options: options, entries: entries,
                        streams: streams, packedRanges: packedRanges, records: records, editState: editState)
     }

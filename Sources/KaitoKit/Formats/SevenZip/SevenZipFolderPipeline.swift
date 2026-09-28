@@ -856,8 +856,8 @@ final class SevenZipFolderCoordinator {
 
     private func verifyCompletion() throws {
         guard !completionVerified else { return }
-        // Completion and failure both release the decoder. A later request
-        // must rebuild from the factory rather than reuse partially read input.
+        // 完了でも失敗でも decoder を手放す。次の要求は途中まで読んだ入力を再利用せず、
+        // factory から作り直す。
         defer { self.decoder = nil }
         guard position == factory.finalSize,
               let decoder else {

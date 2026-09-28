@@ -62,8 +62,8 @@ final class SevenZipAESKeyCache {
             cyclesPower: properties.cyclesPower
         )
         if let cached = values[cacheKey] { return cached }
-        // Direct-key mode performs no SHA-256 rounds. Charge immediately before
-        // a cache miss so rejected work never reaches the derivation loop.
+        // direct-key mode（cyclesPower 0x3F）は SHA-256 を回さない。cache miss の直前に課金し、
+        // 予算で拒んだ仕事を導出 loop へ進ませない。
         let rounds = properties.cyclesPower == 0x3F
             ? 0 : try Checked.shiftLeft(1, by: UInt64(properties.cyclesPower))
         try chargeKDFWork(rounds)

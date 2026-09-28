@@ -237,7 +237,7 @@ final class NameEncodingLanguageExtensionTests: XCTestCase {
             [["windows-1251"], ["koi8-u", "koi8-r"], ["cp866"], ["cp855"], ["iso-8859-5", "x-mac-cyrillic"], ["x-mac-ukrainian"]],
             [["cp874"], ["x-mac-thai"]],
         ]
-        XCTAssertEqual(Set(NameEncodingScorer.priors.keys), Set(NameEncodingCandidates.all.map(\.name)))
+        XCTAssertEqual(Set(NameEncodingScorer.Tuning.priors.keys), Set(NameEncodingCandidates.all.map(\.name)))
         for family in families {
             var previous = Double.infinity
             for tier in family {

@@ -344,7 +344,7 @@ final class NameEncodingScorerTests: XCTestCase {
             NameEncodingScorer.ranked([.init(candidateIndex: index, string: "мама", score: 2, hanOnly: false, byteCount: n)], likelyLanguage: language)[0].score
         }
         XCTAssertGreaterThan(score(1, "ru") - score(1, nil), score(100, "ru") - score(100, nil))
-        XCTAssertEqual(score(1, nil), (2 + NameEncodingScorer.priorWeight * 0.6) / (1 + NameEncodingScorer.priorWeight), accuracy: 1e-12)
+        XCTAssertEqual(score(1, nil), (2 + NameEncodingScorer.Tuning.priorWeight * 0.6) / (1 + NameEncodingScorer.Tuning.priorWeight), accuracy: 1e-12)
     }
 
     func testObsoleteThaiLettersAreWeakEvidenceButStillDecode() throws {

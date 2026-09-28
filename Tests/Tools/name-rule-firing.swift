@@ -66,7 +66,7 @@ import CoreFoundation
                 var south = false
                 var east = false
                 for p in filtered + [NameEncodingScorer.traits(32)] {
-                    if p.letter { south = south || p.alphabetFlags & 1 != 0; east = east || p.alphabetFlags & 2 != 0 }
+                    if p.letter { south = south || p.alphabetFlags.contains(.southSlavic); east = east || p.alphabetFlags.contains(.eastSlavic) }
                     else if !p.mark { if south && east { events.insert("cyrillic-south-east-mixture") }; south = false; east = false }
                 }
                 var letters = 0

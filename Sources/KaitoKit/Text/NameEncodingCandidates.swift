@@ -121,20 +121,20 @@ enum NameEncodingCandidates {
                 switch form {
                 case .cp932:
                     let row = (lead < 0xA0 ? lead - 0x81 : lead - 0xC1) * 2 + 1 + (trail >= 0x9F ? 1 : 0)
-                    score = (16...47).contains(row) ? 2 : row >= 48 ? NameEncodingScorer.secondTierScore : 0
+                    score = (16...47).contains(row) ? 2 : row >= 48 ? NameEncodingScorer.Tuning.secondTierScore : 0
                 case .eucJP:
                     if lead == 0x8E { score = 0 }
-                    else if lead == 0x8F { score = NameEncodingScorer.secondTierScore; length = 3 }
-                    else { score = (0xB0...0xCF).contains(lead) ? 2 : lead >= 0xD0 ? NameEncodingScorer.secondTierScore : 0 }
+                    else if lead == 0x8F { score = NameEncodingScorer.Tuning.secondTierScore; length = 3 }
+                    else { score = (0xB0...0xCF).contains(lead) ? 2 : lead >= 0xD0 ? NameEncodingScorer.Tuning.secondTierScore : 0 }
                 case .gb18030:
-                    if (0x30...0x39).contains(trail) { score = NameEncodingScorer.secondTierScore; length = 4 }
-                    else { score = (0xB0...0xD7).contains(lead) && trail >= 0xA1 ? 2 : lead >= 0xA1 && lead <= 0xA9 && trail >= 0xA1 ? 0 : NameEncodingScorer.secondTierScore }
+                    if (0x30...0x39).contains(trail) { score = NameEncodingScorer.Tuning.secondTierScore; length = 4 }
+                    else { score = (0xB0...0xD7).contains(lead) && trail >= 0xA1 ? 2 : lead >= 0xA1 && lead <= 0xA9 && trail >= 0xA1 ? 0 : NameEncodingScorer.Tuning.secondTierScore }
                 case .big5:
                     let pair = lead * 256 + trail
-                    score = (0xA440...0xC67E).contains(pair) ? 2 : (0xA140...0xA3BF).contains(pair) ? 0 : NameEncodingScorer.secondTierScore
+                    score = (0xA440...0xC67E).contains(pair) ? 2 : (0xA140...0xA3BF).contains(pair) ? 0 : NameEncodingScorer.Tuning.secondTierScore
                 case .cp949:
                     if (0xB0...0xC8).contains(lead), trail >= 0xA1 { score = 2 }
-                    else if (0xCA...0xFD).contains(lead), trail >= 0xA1 { score = NameEncodingScorer.secondTierScore }
+                    else if (0xCA...0xFD).contains(lead), trail >= 0xA1 { score = NameEncodingScorer.Tuning.secondTierScore }
                     else { score = 0.25 }
                 case .single: break
                 }
@@ -203,4 +203,7 @@ enum NameEncodingCandidates {
         Candidate("x-mac-turkish", ["tr"]),
         Candidate("x-mac-thai", ["th"]),
     ]
+
+    // HKSCS の参加条件（CP950 の復号成否）を見るための CP950 の位置。
+    static let cp950Index = all.firstIndex { $0.name == "cp950" }!
 }

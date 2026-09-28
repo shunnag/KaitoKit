@@ -3,6 +3,36 @@ import Foundation
 // 設計書「採点 2〜7」: 復号の証拠と減衰する事前確率を分離し、言語で候補を除外しない。
 enum NameEncodingScorer {
     typealias Candidate = NameEncodingCandidates.Candidate
+
+    /// 採点の調整値。値を変えるときは name-encoding の検証記録の測定をやり直す。
+    enum Tuning {
+        // 設計書「採点 2」と変更履歴 c: 小差の Han 候補は言語で一度だけ決め、その後日本語経路へ委ねる。
+        static let secondTierScore = 0.5
+        static let hanTieThreshold = 0.4
+        // 第3回レビュー: 非 ASCII の証拠が増えるにつれて事前確率の重みを減らす。
+        static let priorWeight = 3.5
+        static let languagePriorBonus = 1.0
+        static let priors: [String: Double] = [
+            "windows-1252": 1, "cp932": 0.8, "euc-jp": 0.8,
+            "windows-1250": 0.6, "windows-1251": 0.6, "gb18030": 0.6,
+            "cp950": 0.5, "cp949": 0.5, "cp874": 0.4, "iso-8859-15": 0.4,
+            "koi8-u": 0.3, "koi8-r": 0.3, "windows-1253": 0.3, "windows-1254": 0.3,
+            "iso-8859-2": 0.3, "windows-1258": 0.3, "cp866": 0.2, "cp850": 0.2,
+            "macintosh": 0.2, "windows-1255": 0.2, "windows-1256": 0.2, "windows-1257": 0.2,
+            "iso-8859-5": 0.1, "x-mac-centraleurroman": 0.1, "x-mac-cyrillic": 0.1, "big5-hkscs": 0.1,
+            "iso-8859-7": 0.2, "cp737": 0.1, "cp869": 0.1, "x-mac-greek": 0.05,
+            "iso-8859-9": 0.2, "cp857": 0.1, "x-mac-turkish": 0.05,
+            "iso-8859-8": 0.15, "cp862": 0.1, "x-mac-hebrew": 0.05,
+            "iso-8859-6": 0.15, "cp864": 0.1, "x-mac-arabic": 0.05, "x-mac-farsi": 0.05,
+            "iso-8859-13": 0.15, "iso-8859-4": 0.12, "cp775": 0.1,
+            "iso-8859-10": 0.3, "cp437": 0.2, "cp865": 0.15, "x-mac-icelandic": 0.1,
+            "iso-8859-16": 0.25, "cp852": 0.15, "x-mac-romanian": 0.05, "x-mac-croatian": 0.05,
+            "cp855": 0.15, "x-mac-ukrainian": 0.05, "x-mac-thai": 0.05,
+        ]
+        /// 採点で読む先頭の scalar 数（1 byte 候補では byte 数）。EncodingDetector の日本語経路の上限と同じ値。
+        static let scoringScalarLimit = 256
+    }
+
     struct Result {
         let candidateIndex: Int
         let string: String
@@ -114,7 +144,31 @@ enum NameEncodingScorer {
         let vowel: Bool
         let bad: Bool
         let acute: Bool
-        let alphabetFlags: UInt16
+        let alphabetFlags: AlphabetFlags
+    }
+    /// 言語規則が参照する字母の種類。Traits は scalar ごと、LanguageRuleContext は名前全体の和集合を持つ。
+    struct AlphabetFlags: OptionSet, Sendable {
+        let rawValue: UInt16
+        /// セルビア・マケドニアの専用字（southSlavicLetters）。
+        static let southSlavic = AlphabetFlags(rawValue: 1 << 0)
+        /// 東スラブの専用字（eastSlavicLetters）。
+        static let eastSlavic = AlphabetFlags(rawValue: 1 << 1)
+        /// ъ / Ъ
+        static let hardSign = AlphabetFlags(rawValue: 1 << 2)
+        /// щ / Щ
+        static let shcha = AlphabetFlags(rawValue: 1 << 3)
+        /// ў / Ў
+        static let shortU = AlphabetFlags(rawValue: 1 << 4)
+        /// þ / Þ
+        static let thorn = AlphabetFlags(rawValue: 1 << 5)
+        /// ð / Ð
+        static let eth = AlphabetFlags(rawValue: 1 << 6)
+        /// ý / Ý
+        static let yAcute = AlphabetFlags(rawValue: 1 << 7)
+        /// й / Й
+        static let shortI = AlphabetFlags(rawValue: 1 << 8)
+        /// is の正書法規則が見る字。
+        static let icelandic: AlphabetFlags = [.thorn, .eth, .yAcute]
     }
     static let vowels = Set("aeiouyæœøıAEIOUYÆŒØаеиоуыэюяёіїєАЕИОУЫЭЮЯЁІЇЄαεηιουωΑΕΗΙΟΥΩ".unicodeScalars.map(\.value))
     // 第4回レビュー E2: 言語名の解決は一度だけ。BMP の所属マスクは候補をまたいで共有する。
@@ -126,7 +180,7 @@ enum NameEncodingScorer {
     }
     private static func makeTraits(_ value: UInt32) -> Traits {
         if (0xD800...0xDFFF).contains(value) {
-            return Traits(scalar: value, category: .surrogate, mainMask: 0, auxiliaryMask: 0, script: .other, letter: false, number: false, mark: false, upper: false, lower: false, vowel: false, bad: true, acute: false, alphabetFlags: 0)
+            return Traits(scalar: value, category: .surrogate, mainMask: 0, auxiliaryMask: 0, script: .other, letter: false, number: false, mark: false, upper: false, lower: false, vowel: false, bad: true, acute: false, alphabetFlags: [])
         }
         let scalar = Unicode.Scalar(value)!
         let p = scalar.properties
@@ -154,11 +208,23 @@ enum NameEncodingScorer {
         return Traits(scalar: value, category: category, mainMask: mainMask, auxiliaryMask: auxiliaryMask, script: script(value), letter: letter, number: number, mark: mark,
                       upper: p.isUppercase, lower: p.isLowercase, vowel: vowel, bad: bad,
                       acute: acuteVowels.contains(value),
-                      alphabetFlags: (southSlavicLetters.contains(value) ? 1 : 0) | (eastSlavicLetters.contains(value) ? 2 : 0)
-                        | (value == 0x44A || value == 0x42A ? 4 : 0) | (value == 0x449 || value == 0x429 ? 8 : 0)
-                        | (value == 0x45E || value == 0x40E ? 16 : 0) | (value == 0xFE || value == 0xDE ? 32 : 0)
-                        | (value == 0xF0 || value == 0xD0 ? 64 : 0)
-                        | (value == 0xFD || value == 0xDD ? 128 : 0) | (value == 0x439 || value == 0x419 ? 256 : 0))
+                      alphabetFlags: alphabetFlags(value))
+    }
+    private static func alphabetFlags(_ value: UInt32) -> AlphabetFlags {
+        var flags: AlphabetFlags = []
+        if southSlavicLetters.contains(value) { flags.insert(.southSlavic) }
+        if eastSlavicLetters.contains(value) { flags.insert(.eastSlavic) }
+        switch value {
+        case 0x44A, 0x42A: flags.insert(.hardSign)
+        case 0x449, 0x429: flags.insert(.shcha)
+        case 0x45E, 0x40E: flags.insert(.shortU)
+        case 0xFE, 0xDE: flags.insert(.thorn)
+        case 0xF0, 0xD0: flags.insert(.eth)
+        case 0xFD, 0xDD: flags.insert(.yAcute)
+        case 0x439, 0x419: flags.insert(.shortI)
+        default: break
+        }
+        return flags
     }
     // 設計書「性能」: 1 byte 候補の文字属性も初期化時に確定し、名前ごとの Unicode 問合せを避ける。
     static let byteTraits: [[[Traits]?]] = NameEncodingCandidates.all.map { candidate in
@@ -184,10 +250,10 @@ enum NameEncodingScorer {
             }
             self.count = count
             self.present = present
-            repeated = repeatedMask(Array(bytes.prefix(256)))
+            repeated = repeatedMask(Array(bytes.prefix(Tuning.scoringScalarLimit)))
             var run = 0
             var longest = 0
-            for byte in bytes.prefix(256) {
+            for byte in bytes.prefix(Tuning.scoringScalarLimit) {
                 if byte >= 128 || (65...90).contains(byte) || (97...122).contains(byte) { run += 1; longest = max(longest, run) }
                 else { run = 0 }
             }
@@ -355,7 +421,7 @@ enum NameEncodingScorer {
         let vietnamese = candidate.name == "windows-1258"
         if vietnamese, requireVietnameseEvidence, !vietnameseEvidence(text) { return nil }
         // 設計書変更履歴と Task B: 採点だけ NFC、呼出側へ返す scalar 列は保存する。
-        let scoringText = vietnamese ? String(text.unicodeScalars.prefix(256)).precomposedStringWithCanonicalMapping : text
+        let scoringText = vietnamese ? String(text.unicodeScalars.prefix(Tuning.scoringScalarLimit)).precomposedStringWithCanonicalMapping : text
         let single = candidate.form == .single && !vietnamese
         // 表に展開文字があっても、入力がその byte を含まなければ平坦な表を使える。
         let singleScalar = (expandingBytes[candidateIndex] & byteEvidence.present) == .zero
@@ -363,12 +429,13 @@ enum NameEncodingScorer {
         if single {
             if singleScalar {
                 let table = singleByteTraits[candidateIndex]
-                properties = bytes.prefix(256).map { table[Int($0)] }
+                properties = bytes.prefix(Tuning.scoringScalarLimit).map { table[Int($0)] }
             } else {
-                properties = Array(bytes.prefix(256).flatMap { byteTraits[candidateIndex][Int($0)] ?? [] }.prefix(256))
+                properties = Array(bytes.prefix(Tuning.scoringScalarLimit).flatMap { byteTraits[candidateIndex][Int($0)] ?? [] }
+                    .prefix(Tuning.scoringScalarLimit))
             }
         } else {
-            properties = scoringText.unicodeScalars.prefix(256).map { scalar in
+            properties = scoringText.unicodeScalars.prefix(Tuning.scoringScalarLimit).map { scalar in
                 if scalar.value <= 0xFFFF { return basicTraits[Int(scalar.value)] }
                 if let cached = nonBMP[scalar.value] { return cached }
                 let value = makeTraits(scalar.value)
@@ -394,7 +461,8 @@ enum NameEncodingScorer {
             && EncodingDetector.nameIsLikelyHalfWidth(text)
         let scores: [ScalarScore]
         if single, !singleScalar {
-            scores = Array(bytes.prefix(256).flatMap { byteScores[candidateIndex][Int($0)] ?? [] }.prefix(256))
+            scores = Array(bytes.prefix(Tuning.scoringScalarLimit).flatMap { byteScores[candidateIndex][Int($0)] ?? [] }
+                .prefix(Tuning.scoringScalarLimit))
         } else { scores = [] }
         for (offset, p) in properties.enumerated() {
             let value = p.scalar
@@ -464,7 +532,7 @@ enum NameEncodingScorer {
         }
         // 頻度と同じ正の証拠として平均し、助詞に見える偶然の語末一つで文字全体の証拠を覆さない。
         if candidate.form == .cp949 { value += koreanGrammar(ruleProperties) / Double(max(1, count)) }
-        if vietnamese { value += orthography(ruleText, language: "vi", maximumScalars: 256).boundedScore(scalarCount: count) }
+        if vietnamese { value += orthography(ruleText, language: "vi", maximumScalars: Tuning.scoringScalarLimit).boundedScore(scalarCount: count) }
         var languageScores = SIMD16<Double>(repeating: value)
         let common = value - (membership + frequency) / Double(max(1, count))
         let languageRules = candidateLanguage.requiresLanguageRules
@@ -474,7 +542,7 @@ enum NameEncodingScorer {
                 let language = candidate.languages[i]
                 var adjustment = candidateLanguage.additionalRules[i]
                     ? additionalOrthography(ruleProperties, language: language, context: rules.context, recordViolations: false).score : 0
-                if language == "bg", rules.context.flags & 4 != 0 {
+                if language == "bg", rules.context.flags.contains(.hardSign) {
                     adjustment += letterRules(ruleProperties, language: "bg") - rules.penalty
                 }
                 languageScores[i] = common + (Double(totals[i]) + Double(bonuses[i])) / (2 * Double(max(1, count))) + adjustment
@@ -612,7 +680,7 @@ enum NameEncodingScorer {
         var cyrillic = 0
         var hebrew = 0
         var arabic = 0
-        var flags: UInt16 = 0
+        var flags: AlphabetFlags = []
         init() {}
         init(_ properties: [Traits]) {
             for p in properties { append(p) }
@@ -627,7 +695,7 @@ enum NameEncodingScorer {
                 default: break
                 }
             }
-            flags |= p.alphabetFlags
+            flags.formUnion(p.alphabetFlags)
         }
     }
     struct LetterRuleState {
@@ -702,8 +770,8 @@ enum NameEncodingScorer {
             if b == .latin { latinLetters += 1; if p.scalar > 127 { markedLatin += 1 } }
             if b == .cyrillic {
                 cyrillicLetters += 1
-                southSlavic = southSlavic || p.alphabetFlags & 1 != 0
-                eastSlavic = eastSlavic || p.alphabetFlags & 2 != 0
+                southSlavic = southSlavic || p.alphabetFlags.contains(.southSlavic)
+                eastSlavic = eastSlavic || p.alphabetFlags.contains(.eastSlavic)
             }
             let aAlphabet = a == .latin || a == .cyrillic || a == .greek || a == .thai || a == .hebrew || a == .arabic
             let bAlphabet = b == .latin || b == .cyrillic || b == .greek || b == .thai || b == .hebrew || b == .arabic
@@ -926,9 +994,9 @@ enum NameEncodingScorer {
         }
         if language == "is" {
             let context = suppliedContext ?? LanguageRuleContext(properties)
-            guard context.flags & 224 != 0 else { return result }
+            guard !context.flags.isDisjoint(with: .icelandic) else { return result }
             var yAcute = 0
-            for (i, p) in properties.enumerated() where p.alphabetFlags & 224 != 0 {
+            for (i, p) in properties.enumerated() where !p.alphabetFlags.isDisjoint(with: .icelandic) {
                 let previous = i > 0 ? properties[i - 1] : nil
                 let next = i + 1 < properties.count ? properties[i + 1] : nil
                 if p.scalar == 0xFD || p.scalar == 0xDD {
@@ -990,8 +1058,9 @@ enum NameEncodingScorer {
             result.reject("alphabet-singleton-in-latin", index, properties[index].scalar, penalty: 1)
         }
         if native == .cyrillic {
-            let relevant: UInt16 = language == "be" ? 284 : language == "ru" || language == "uk" ? 268 : 264
-            guard context.flags & relevant != 0 else { return result }
+            let relevant: AlphabetFlags = language == "be" ? [.hardSign, .shcha, .shortU, .shortI]
+                : language == "ru" || language == "uk" ? [.hardSign, .shcha, .shortI] : [.shcha, .shortI]
+            guard !context.flags.isDisjoint(with: relevant) else { return result }
         }
 
         var base = Script.other
@@ -1147,13 +1216,13 @@ enum NameEncodingScorer {
     }
 
     static func vietnameseEvidence(_ text: String) -> Bool {
-        let values = Array(text.unicodeScalars.prefix(256).map(\.value))
+        let values = Array(text.unicodeScalars.prefix(Tuning.scoringScalarLimit).map(\.value))
         for (index, value) in values.enumerated() where index > 0 {
             if isVietnameseTone(value), vietnameseVowels.contains(values[index - 1]) { return true }
         }
         // 設計書「採点 6」: 識別字がなければ音節への分割・正規化も不要。
         guard values.contains(where: { [UInt32(0x111), 0x103, 0x1A1, 0x1B0, 0x110, 0x102, 0x1A0, 0x1AF].contains($0) }) else { return false }
-        let syllables = String(text.unicodeScalars.prefix(256)).lowercased().split { !$0.isLetter }
+        let syllables = String(text.unicodeScalars.prefix(Tuning.scoringScalarLimit)).lowercased().split { !$0.isLetter }
         for syllable in syllables {
             let s = String(syllable)
             if s.unicodeScalars.contains(where: { [UInt32(0x111), 0x103, 0x1A1, 0x1B0].contains($0.value) }),
@@ -1183,43 +1252,20 @@ enum NameEncodingScorer {
         return false
     }
 
-    // 設計書「採点 2」と変更履歴 c: 小差の Han 候補は言語で一度だけ決め、その後日本語経路へ委ねる。
-    static let secondTierScore = 0.5
-    static let hanTieThreshold = 0.4
-    // 第3回レビュー: 非 ASCII の証拠が増えるにつれて事前確率の重みを減らす。
-    static let priorWeight = 3.5
-    static let languagePriorBonus = 1.0
-    static let priors: [String: Double] = [
-        "windows-1252": 1, "cp932": 0.8, "euc-jp": 0.8,
-        "windows-1250": 0.6, "windows-1251": 0.6, "gb18030": 0.6,
-        "cp950": 0.5, "cp949": 0.5, "cp874": 0.4, "iso-8859-15": 0.4,
-        "koi8-u": 0.3, "koi8-r": 0.3, "windows-1253": 0.3, "windows-1254": 0.3,
-        "iso-8859-2": 0.3, "windows-1258": 0.3, "cp866": 0.2, "cp850": 0.2,
-        "macintosh": 0.2, "windows-1255": 0.2, "windows-1256": 0.2, "windows-1257": 0.2,
-        "iso-8859-5": 0.1, "x-mac-centraleurroman": 0.1, "x-mac-cyrillic": 0.1, "big5-hkscs": 0.1,
-        "iso-8859-7": 0.2, "cp737": 0.1, "cp869": 0.1, "x-mac-greek": 0.05,
-        "iso-8859-9": 0.2, "cp857": 0.1, "x-mac-turkish": 0.05,
-        "iso-8859-8": 0.15, "cp862": 0.1, "x-mac-hebrew": 0.05,
-        "iso-8859-6": 0.15, "cp864": 0.1, "x-mac-arabic": 0.05, "x-mac-farsi": 0.05,
-        "iso-8859-13": 0.15, "iso-8859-4": 0.12, "cp775": 0.1,
-        "iso-8859-10": 0.3, "cp437": 0.2, "cp865": 0.15, "x-mac-icelandic": 0.1,
-        "iso-8859-16": 0.25, "cp852": 0.15, "x-mac-romanian": 0.05, "x-mac-croatian": 0.05,
-        "cp855": 0.15, "x-mac-ukrainian": 0.05, "x-mac-thai": 0.05,
-    ]
     static func prior(for candidate: Candidate) -> Double {
         // 候補を追加するときは family 内の順序を明示し、種別だけの既定値で同点にしない。
-        priors[candidate.name]!
+        Tuning.priors[candidate.name]!
     }
     static func ranked(_ results: [Result], likelyLanguage: String?, fromWindows: Bool = false) -> [Result] {
         let lang = language(likelyLanguage)
         let adjusted = results.map { result in
             let candidate = NameEncodingCandidates.all[result.candidateIndex]
             var prior = prior(for: candidate)
-            if let lang, candidate.languages.contains(lang) { prior += languagePriorBonus }
+            if let lang, candidate.languages.contains(lang) { prior += Tuning.languagePriorBonus }
             if fromWindows, candidate.isMac { prior -= 0.3 }
             let n = Double(result.byteCount)
             return Result(candidateIndex: result.candidateIndex, string: result.string,
-                          score: (n * result.score + priorWeight * prior) / (n + priorWeight),
+                          score: (n * result.score + Tuning.priorWeight * prior) / (n + Tuning.priorWeight),
                           hanOnly: result.hanOnly, scalarCount: result.scalarCount, byteCount: result.byteCount)
         }
         var sorted = adjusted.sorted { a, b in
@@ -1231,7 +1277,7 @@ enum NameEncodingScorer {
         }
         if let top = sorted.first, top.hanOnly, let lang, ["ja", "zh", "zh-Hant"].contains(lang),
            let preferred = sorted.firstIndex(where: {
-               $0.hanOnly && top.score - $0.score < hanTieThreshold && NameEncodingCandidates.all[$0.candidateIndex].languages.contains(lang)
+               $0.hanOnly && top.score - $0.score < Tuning.hanTieThreshold && NameEncodingCandidates.all[$0.candidateIndex].languages.contains(lang)
            }), preferred > 0 {
             let chosen = sorted.remove(at: preferred)
             sorted.insert(chosen, at: 0)

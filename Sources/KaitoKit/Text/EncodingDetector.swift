@@ -1075,7 +1075,7 @@ public enum EncodingDetector {
         let results = candidates.indices.compactMap { i -> NameEncodingScorer.Result? in
             guard decoded[i] > 0 else { return nil }
             if candidates[i].name == "windows-1258", !vietnameseEvidence { return nil }
-            if candidates[i].name == "big5-hkscs", decoded[3] == weight { return nil }
+            if candidates[i].name == "big5-hkscs", decoded[NameEncodingCandidates.cp950Index] == weight { return nil }
             // 第5回レビュー: 名前ごとの最大ではなく、同じ言語の証拠を全 sample で合算してから選ぶ。
             let best = candidates[i].languages.indices.reduce(-Double.infinity) { max($0, totals[i][$1]) }
             return NameEncodingScorer.Result(candidateIndex: i, string: "", score: best / Double(max(1, evidenceCounts[i])), hanOnly: hanOnly[i], byteCount: evidenceCounts[i])

@@ -143,11 +143,7 @@ final class SevenZipReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entry.index >= 0, entry.index < records.count,
-              entries[entry.index] == entry else {
-            throw KaitoError.notFound("7z entry index \(entry.index)")
-        }
-        let record = records[entry.index]
+        let record = records[try recordIndex(of: entry, label: "7z")]
         guard let substream = record.substream else {
             let empty = DataByteSource(data: Data())
             let decoder = try CopyDecompressor(source: empty, offset: 0, compressedSize: 0)

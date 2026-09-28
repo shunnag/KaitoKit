@@ -392,7 +392,7 @@ enum SevenZipHeaderParser {
             try checkCancellation(every: index)
             guard defined[index] else { continue }
             let value = try values.readUInt64LE()
-            result[index] = fileTimeDate(value)
+            result[index] = WindowsFileTime.date(ticks: value)
             raw?[index] = value
         }
         guard values.isAtEnd else {
@@ -460,11 +460,5 @@ enum SevenZipHeaderParser {
         default:
             throw KaitoError.malformed("invalid 7z external-data flag")
         }
-    }
-
-    private static func fileTimeDate(_ value: UInt64) -> Date? {
-        let seconds = Double(value) / 10_000_000.0 - 11_644_473_600.0
-        guard seconds.isFinite else { return nil }
-        return Date(timeIntervalSince1970: seconds)
     }
 }

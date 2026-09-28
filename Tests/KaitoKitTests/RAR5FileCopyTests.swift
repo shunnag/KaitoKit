@@ -10,10 +10,7 @@ final class RAR5FileCopyTests: XCTestCase {
     private let textSHA = "ac15dd767cb2eed6421721727c17c45970f4a7cb41dbb84487782d8290b7dad1"
     private let otherSHA = "94b306c8e7bf7f836da506b6c80297ecfead0481e6fe11086d8433d304a129eb"
 
-    private func fixture(_ name: String) throws -> Data {
-        let url = ZipTestSupport.repositoryRoot.appendingPathComponent("Tests/Fixtures/rar5/\(name).rar.b64")
-        return try XCTUnwrap(Data(base64Encoded: Data(contentsOf: url), options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("rar5/\(name).rar") }
 
     private func sha(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()

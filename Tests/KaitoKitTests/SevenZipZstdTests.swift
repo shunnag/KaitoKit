@@ -57,8 +57,7 @@ final class SevenZipZstdTests: XCTestCase {
 
     func testDictionaryFramesAndBadChecksumsAreRejectedInsideSevenZip() throws {
         // 既存 zstd fixture の辞書付き frame（Dictionary_ID 非零）は unsupportedMethod のまま。
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let dictionary = try XCTUnwrap(Data(base64Encoded: Data(contentsOf: root.appendingPathComponent("Fixtures/zstd/dictionary.zst.b64")), options: .ignoreUnknownCharacters))
+        let dictionary = try TestFixtures.base64("zstd/dictionary.zst")
         XCTAssertThrowsError(try factory(packed: [UInt8](dictionary), size: 1 << 20).decodeAll(limit: 1 << 20)) {
             guard case .unsupportedMethod = $0 as? KaitoError else { return XCTFail("Unexpected error: \($0)") }
         }
@@ -142,11 +141,7 @@ final class SevenZipZstdTests: XCTestCase {
          "second.bin": Data((0..<1027).map { UInt8(truncatingIfNeeded: $0 * 73 + 41) }), "empty": Data()]
     }
 
-    private func fixture(_ name: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let encoded = try Data(contentsOf: root.appendingPathComponent("Fixtures/sevenzip-zstd/" + name + ".b64"))
-        return try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("sevenzip-zstd/" + name) }
 
     private func factory(packed: [UInt8], properties: [UInt8] = [1, 5, 3, 0, 0], inputs: Int = 1,
                          size: UInt64, limits: ReadLimits = ReadLimits()) throws -> SevenZipFolderDecoderFactory {

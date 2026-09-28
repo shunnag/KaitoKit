@@ -84,10 +84,7 @@ final class RAR5PasswordCompatibilityTests: XCTestCase {
         }
     }
 
-    private func fixture(_ name: String) throws -> Data {
-        let url = ZipTestSupport.repositoryRoot.appendingPathComponent("Tests/Fixtures/rar5/\(name).rar.b64")
-        return try XCTUnwrap(Data(base64Encoded: String(contentsOf: url, encoding: .utf8), options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("rar5/\(name).rar") }
 
     private func verify(_ name: String, password: String, payloads: [Data]) throws {
         let data = try fixture(name)

@@ -6,12 +6,7 @@ import XCTest
 /// 生 sector の CD image（BIN/CUE、.img、.mdf の並び）を ISO 9660 / UDF として読む。fixture は
 /// Tests/Fixtures/bincue（rr-joliet.iso / pure150.iso を ECMA-130 §14 の sector に包んだもの、generate.py）。
 final class RawSectorImageTests: XCTestCase {
-    private static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-    private static func gunzipped(_ relative: String) throws -> Data {
-        let base64 = try String(contentsOf: root.appendingPathComponent("Fixtures/\(relative).gz.b64"), encoding: .utf8)
-        let gzip = try ArchiveReader.open(data: XCTUnwrap(Data(base64Encoded: base64, options: .ignoreUnknownCharacters)))
-        return try gzip.read(gzip.entries[0])
-    }
+    private static func gunzipped(_ relative: String) throws -> Data { try TestFixtures.gzipBase64(relative) }
     private static func raw(_ name: String) throws -> Data { try gunzipped("bincue/\(name)") }
     private static let isoVariants = ["mode1.bin", "mode1-garbage.bin", "mode2-subheader.bin", "mode2-plain.bin",
                                       "mode1-2448.bin", "mode2-2336.bin", "mode1-truncated.bin"]
@@ -68,7 +63,7 @@ final class RawSectorImageTests: XCTestCase {
         }
         for cue in ["mode1.cue", "multi.cue"] {
             let url = directory.appendingPathComponent(cue)
-            try FileManager.default.copyItem(at: Self.root.appendingPathComponent("Fixtures/bincue/\(cue)"), to: url)
+            try FileManager.default.copyItem(at: TestFixtures.url("bincue/\(cue)"), to: url)
             XCTAssertEqual(try FormatDetector.detect(url: url), .iso, cue)
             let reader = try ArchiveReader.open(url: url)
             XCTAssertEqual(reader.format, .iso, cue)

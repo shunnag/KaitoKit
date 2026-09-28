@@ -25,8 +25,8 @@ final class StuffItCorpusTests: XCTestCase {
         let sha256: String
         let forks: [Row]
     }
-    var root: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() }
-    var fixtureRoot: URL { root.appendingPathComponent("Tests/Fixtures/stuffit") }
+    var root: URL { TestFixtures.repositoryRoot }
+    var fixtureRoot: URL { TestFixtures.url("stuffit") }
     func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
     func fixture(_ name: String) throws -> Data {
         let encoded = try Data(contentsOf: fixtureRoot.appendingPathComponent(name + ".b64"))

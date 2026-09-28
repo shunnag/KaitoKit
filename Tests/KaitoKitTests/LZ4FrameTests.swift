@@ -15,17 +15,11 @@ final class LZ4FrameTests: XCTestCase {
         let fixtures: [Fixture]
         let xxh32_vectors: [Vector]
     }
-    private var root: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/lz4-frame")
-    }
+    private var root: URL { TestFixtures.url("lz4-frame") }
     private func manifest() throws -> Manifest {
         try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appendingPathComponent("manifest.json")))
     }
-    private func fixture(_ name: String) throws -> Data {
-        try XCTUnwrap(Data(base64Encoded: Data(contentsOf: root.appendingPathComponent(name + ".lz4.b64")),
-                           options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("lz4-frame/" + name + ".lz4") }
     private func sha(_ bytes: Data) -> String { SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined() }
     private func decode(_ bytes: Data, chunk: Int = 8191, limits: ReadLimits = ReadLimits(), partialInput: Int = Int.max) throws -> Data {
         let decoder = try LZ4FrameDecompressor(source: LZ4PartialSource(data: bytes, chunk: partialInput), limits: limits)

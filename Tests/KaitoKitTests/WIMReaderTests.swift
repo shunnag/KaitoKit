@@ -7,15 +7,10 @@ import XCTest
 /// 全 fixture は生成時に 7-Zip が展開して原本と一致している。実物の LZX WIM（Microsoft 製 boot.wim）は
 /// 検証記録に記した開発時の照合で、ここには含めない。
 final class WIMReaderTests: XCTestCase {
-    private static func fixture(_ name: String) throws -> Data {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/wim/\(name).b64")
-        return try XCTUnwrap(Data(base64Encoded: try String(contentsOf: url, encoding: .utf8), options: .ignoreUnknownCharacters))
-    }
+    private static func fixture(_ name: String) throws -> Data { try TestFixtures.base64("wim/\(name)") }
 
     private static let manifest: [String: (size: UInt64, sha: String, sha1: String?)] = {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/wim/manifest.json")
+        let url = TestFixtures.url("wim/manifest.json")
         let json = try! JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
         var result: [String: (UInt64, String, String?)] = [:]
         for (name, value) in json["payload"] as! [String: [String: Any]] {

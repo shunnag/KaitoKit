@@ -24,10 +24,7 @@ final class PbzxTests: XCTestCase {
         let fixtures: [Fixture]
     }
 
-    private var root: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/pbzx")
-    }
+    private var root: URL { TestFixtures.url("pbzx") }
 
     private func manifest() throws -> Manifest {
         try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appendingPathComponent("manifest.json")))

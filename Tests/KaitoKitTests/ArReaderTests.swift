@@ -5,11 +5,7 @@ import XCTest
 
 final class ArReaderTests: XCTestCase {
     private typealias B = ArArchiveBuilder
-    private func fixture(_ name: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/\(name).a.b64"), encoding: .utf8)
-        return try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("container/\(name).a") }
     private func direct(_ b: B, limits: ReadLimits = ReadLimits(), recover: Bool = false) throws -> ArReader {
         try ArReader(source: DataByteSource(data: b.data), options: ReaderOptions(limits: limits, recoverDamagedArchives: recover))
     }

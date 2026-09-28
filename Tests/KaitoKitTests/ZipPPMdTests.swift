@@ -314,8 +314,7 @@ final class ZipPPMdTests: XCTestCase {
     }
 
     private func fixture(_ name: String) throws -> Data {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/zip-ppmd/" + name + ".zip.b64")
+        let url = TestFixtures.url("zip-ppmd/" + name + ".zip.b64")
         let encoded = try Data(contentsOf: url)
         XCTAssertLessThanOrEqual(encoded.count, 40 * 1024)
         return try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters))

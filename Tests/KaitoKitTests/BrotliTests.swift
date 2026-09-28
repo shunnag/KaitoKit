@@ -18,19 +18,13 @@ final class BrotliTests: XCTestCase {
         let fixtures: [Fixture]
     }
 
-    private var root: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/brotli")
-    }
+    private var root: URL { TestFixtures.url("brotli") }
 
     private func manifest() throws -> Manifest {
         try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appendingPathComponent("manifest.json")))
     }
 
-    private func fixture(_ name: String) throws -> Data {
-        try XCTUnwrap(Data(base64Encoded: Data(contentsOf: root.appendingPathComponent(name + ".b64")),
-                           options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("brotli/" + name) }
 
     private func sha(_ bytes: Data) -> String {
         SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()

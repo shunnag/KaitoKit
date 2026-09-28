@@ -16,16 +16,11 @@ final class MacWrapperTests: XCTestCase {
         }
     }
 
-    private static func fixture(_ name: String) throws -> Data {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/macwrappers/\(name).b64")
-        return try XCTUnwrap(Data(base64Encoded: try String(contentsOf: url, encoding: .utf8), options: .ignoreUnknownCharacters))
-    }
+    private static func fixture(_ name: String) throws -> Data { try TestFixtures.base64("macwrappers/\(name)") }
     private struct Payload: Decodable { let size: UInt64; let sha256: String }
     private struct Manifest: Decodable { let data: Payload; let resource: Payload }
     private static func manifest() throws -> Manifest {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/macwrappers/manifest.json")
+        let url = TestFixtures.url("macwrappers/manifest.json")
         return try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: url))
     }
     private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }

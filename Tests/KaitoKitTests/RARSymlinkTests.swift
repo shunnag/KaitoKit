@@ -4,13 +4,7 @@ import Foundation
 import XCTest
 
 final class RARSymlinkTests: XCTestCase {
-    private func fixture(_ path: String) throws -> Data {
-        let url = ZipTestSupport.repositoryRoot.appendingPathComponent("Tests/Fixtures/\(path).rar.b64")
-        return try XCTUnwrap(Data(
-            base64Encoded: String(contentsOf: url, encoding: .utf8),
-            options: .ignoreUnknownCharacters
-        ))
-    }
+    private func fixture(_ path: String) throws -> Data { try TestFixtures.base64("\(path).rar") }
 
     private func digest(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()

@@ -6,11 +6,7 @@ import XCTest
 /// PE / Mach-O 実行形式の後ろに置かれた CAB（IExpress や hotfix の self-extractor）。
 /// 既存の 7z / RAR / ZIP と同じ上限付き署名走査で `MSCF` を見つけ、header を検証してから開く。
 final class CabSFXTests: XCTestCase {
-    private func fixture(_ variant: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/cab-\(variant).cab.b64"), encoding: .utf8)
-        return try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ variant: String) throws -> Data { try TestFixtures.base64("container/cab-\(variant).cab") }
 
     private func digests(_ reader: ArchiveReader) throws -> [String] {
         try reader.entries.map { entry in

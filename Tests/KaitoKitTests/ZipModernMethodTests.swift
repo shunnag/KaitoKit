@@ -7,11 +7,7 @@ import XCTest
 enum ModernZIPFixtures {
     static let password = "KaitoFixture"
     static let payload = Data(String(repeating: "XZ and Zstandard ZIP interoperability 日本語\n", count: 800).utf8)
-    static func data(_ name: String) throws -> Data {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/zip-modern/" + name + ".b64")
-        return try XCTUnwrap(Data(base64Encoded: Data(contentsOf: url), options: .ignoreUnknownCharacters))
-    }
+    static func data(_ name: String) throws -> Data { try TestFixtures.base64("zip-modern/" + name) }
     static func payloadRange(_ bytes: Data) throws -> Range<Int> {
         let layout = try ZipTestSupport.layout(of: bytes)
         let local = try XCTUnwrap(layout.localHeaderOffsets.first)

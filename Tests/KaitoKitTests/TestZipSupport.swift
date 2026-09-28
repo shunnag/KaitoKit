@@ -141,11 +141,7 @@ struct ZipCommandResult {
 }
 
 enum ZipTestSupport {
-    static func checkedInFixture(_ relativePath: String) throws -> Data {
-        let url = repositoryRoot.appendingPathComponent("Tests/Fixtures/\(relativePath).b64")
-        let encoded = try String(contentsOf: url, encoding: .utf8)
-        return try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters))
-    }
+    static func checkedInFixture(_ relativePath: String) throws -> Data { try TestFixtures.base64(relativePath) }
 
     static let infoZipPath = "/usr/bin/zip"
     static let unzipPath = "/usr/bin/unzip"
@@ -224,12 +220,7 @@ enum ZipTestSupport {
         }
     }
 
-    static var repositoryRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-    }
+    static var repositoryRoot: URL { TestFixtures.repositoryRoot }
 
     static var cp932FixtureScript: URL {
         repositoryRoot.appendingPathComponent("Scripts/fixtures/make-cp932-zip.py")

@@ -16,10 +16,7 @@ enum TarEditTestSupport {
             return (bytes, nil)
         } catch { return (bytes, String(describing: error)) }
     }
-    static func fixture(_ name: String) throws -> Data {
-        let path = TarGoldenCorpus.repository.appendingPathComponent("Tests/Fixtures/tar-edit/" + name + ".b64")
-        return try XCTUnwrap(Data(base64Encoded: String(contentsOf: path, encoding: .utf8), options: .ignoreUnknownCharacters))
-    }
+    static func fixture(_ name: String) throws -> Data { try TestFixtures.base64("tar-edit/" + name) }
     static func snapshot(_ data: Data, suffix: String, disk: Bool = false) throws -> TarEditingSnapshot {
         var limits = ReadLimits(); if disk { limits.inMemorySingleFileLimit = 0 }
         var options = ReaderOptions(limits: limits, appleDoublePolicy: .expose); options.recordsTarEditLayout = true

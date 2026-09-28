@@ -25,11 +25,7 @@ final class CabReaderTests: XCTestCase {
          Row("big.txt", 20000, "82d8ba8d086497e77afcbd0bd1a670921a00e141c733e8907c2b91ba447a210d")]
     }
 
-    private func fixture(_ variant: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/cab-\(variant).cab.b64"), encoding: .utf8)
-        return try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ variant: String) throws -> Data { try TestFixtures.base64("container/cab-\(variant).cab") }
 
     private func rows(_ reader: ArchiveReader) throws -> [Row] {
         try reader.entries.map { entry in

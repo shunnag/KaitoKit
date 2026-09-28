@@ -22,8 +22,7 @@ final class XarReaderTests: XCTestCase {
         }
     }
     private func fixture(_ name: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/\(name).b64"), encoding: .utf8)
+        let text = try TestFixtures.text("container/\(name).b64")
         return try XCTUnwrap(Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)))
     }
     private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }

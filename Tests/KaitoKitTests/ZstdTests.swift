@@ -26,18 +26,16 @@ final class ZstdTests: XCTestCase {
         let size: UInt64
         let known: Bool
     }
-    private var root: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-    }
+    private var root: URL { TestFixtures.url("zstd") }
     private let zstd = ZipTestSupport.zstdPath
     private let sevenZip = ZipTestSupport.sevenZipPath
 
     private func fixtures() throws -> [Fixture] {
-        try JSONDecoder().decode([Fixture].self, from: Data(contentsOf: root.appendingPathComponent("Fixtures/zstd/manifest.json")))
+        try JSONDecoder().decode([Fixture].self, from: Data(contentsOf: root.appendingPathComponent("manifest.json")))
     }
 
     private func fixture(_ name: String) throws -> Data {
-        let bytes = try Data(contentsOf: root.appendingPathComponent("Fixtures/zstd/\(name).b64"))
+        let bytes = try Data(contentsOf: root.appendingPathComponent("\(name).b64"))
         XCTAssertLessThanOrEqual(bytes.count, 40_000, name)
         return try XCTUnwrap(Data(base64Encoded: bytes, options: .ignoreUnknownCharacters))
     }
@@ -109,7 +107,7 @@ final class ZstdTests: XCTestCase {
         let directory = try temporary()
         defer { try? FileManager.default.removeItem(at: directory) }
         let started = Date()
-        let script = root.deletingLastPathComponent().appendingPathComponent("Scripts/fixtures/make-zstd.py")
+        let script = TestFixtures.repositoryRoot.appendingPathComponent("Scripts/fixtures/make-zstd.py")
         _ = try ZipTestSupport.checkedRun("/usr/bin/python3", arguments: [
             script.path, "--matrix", "--output", directory.path, "--zstd", zstd
         ])

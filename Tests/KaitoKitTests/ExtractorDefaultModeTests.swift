@@ -325,10 +325,7 @@ final class ExtractorDefaultModeTests: XCTestCase {
             ancestor.deleteLastPathComponent()
         }
 
-        let repository = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+        let repository = TestFixtures.repositoryRoot
         candidates.append(repository.appendingPathComponent(".build/debug/kaito"))
         candidates.append(repository.appendingPathComponent(".build/out/Products/Debug/kaito"))
         for candidate in candidates where fileManager.isExecutableFile(atPath: candidate.path) {

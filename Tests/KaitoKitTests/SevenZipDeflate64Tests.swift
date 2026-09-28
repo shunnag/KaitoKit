@@ -172,10 +172,7 @@ final class SevenZipDeflate64Tests: XCTestCase {
         let fixtures: [Fixture]
     }
 
-    private var root: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/sevenzip-deflate64")
-    }
+    private var root: URL { TestFixtures.url("sevenzip-deflate64") }
 
     private func manifest() throws -> Manifest {
         try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appendingPathComponent("manifest.json")))

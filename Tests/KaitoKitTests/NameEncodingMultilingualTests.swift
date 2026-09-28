@@ -47,9 +47,7 @@ final class NameEncodingMultilingualTests: XCTestCase {
     }
 
     private func names() throws -> [Name] {
-        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/encoding/names-multilingual.tsv")
-        return try String(contentsOf: file, encoding: .utf8).split(separator: "\n").dropFirst().map { line in
+        return try TestFixtures.text("encoding/names-multilingual.tsv").split(separator: "\n").dropFirst().map { line in
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             let hex = Array(fields[3])
             let bytes = try stride(from: 0, to: hex.count, by: 2).map { i in

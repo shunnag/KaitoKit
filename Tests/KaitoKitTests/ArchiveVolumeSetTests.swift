@@ -230,11 +230,10 @@ final class ArchiveVolumeSetTests: XCTestCase {
     }
 
     func testReopenFallbackAndStagedCpioRetainVolumeSet() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         for path in ["container/newc.cpio.b64", "pbzx/payload-raw-xz.pbzx.b64"] {
             let directory = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: directory) }
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/" + path), encoding: .utf8)
+            let text = try String(contentsOf: TestFixtures.url(path), encoding: .utf8)
             let bytes = try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))
             let urls = try numbered(bytes, below: directory)
             let reader = try ArchiveReader.open(url: urls[0])

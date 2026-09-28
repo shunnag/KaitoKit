@@ -75,8 +75,7 @@ final class StuffItXCorpusTests: XCTestCase {
                 inventory.append(item)
             }
         }
-        let output = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent(".build/" + (ProcessInfo.processInfo.environment["STUFFITX_INVENTORY"] ?? "slice3-inventory.json"))
+        let output = TestFixtures.repositoryRoot.appendingPathComponent(".build/" + (ProcessInfo.processInfo.environment["STUFFITX_INVENTORY"] ?? "slice3-inventory.json"))
         try JSONSerialization.data(withJSONObject: inventory, options: [.prettyPrinted, .sortedKeys]).write(to: output)
         try StuffItXReaderTests.archive().write(to: output.deletingLastPathComponent().appendingPathComponent("slice3-container.sitx"))
     }

@@ -89,10 +89,7 @@ final class ReleaseReviewDocumentationTests: XCTestCase {
         XCTAssertTrue(changelog.contains(path), "変更履歴から検証記録へリンクする")
     }
 
-    private var root: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-    }
+    private var root: URL { TestFixtures.repositoryRoot }
 
     func testFollowupReviewDocumentsSFXAuxiliaryAndTAZChanges() throws {
         let changelog = try String(contentsOf: root.appendingPathComponent("CHANGELOG.md"), encoding: .utf8)

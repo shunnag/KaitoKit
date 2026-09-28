@@ -21,10 +21,8 @@ final class CabLZXTests: XCTestCase {
     private struct Frame {
         let header, start, count, size, folder: Int
     }
-    private var root: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    }
-    private var fixtures: URL { root.appendingPathComponent("Tests/Fixtures/cab-lzx") }
+    private var root: URL { TestFixtures.repositoryRoot }
+    private var fixtures: URL { TestFixtures.url("cab-lzx") }
 
     private func manifest(at directory: URL) throws -> Manifest {
         try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: directory.appendingPathComponent("manifest.json")))

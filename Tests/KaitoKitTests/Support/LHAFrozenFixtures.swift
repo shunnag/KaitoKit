@@ -18,9 +18,7 @@ enum LHAFrozenFixtures {
     }
 
     static var root: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/lha-raw-layout", isDirectory: true)
+        TestFixtures.root.appendingPathComponent("lha-raw-layout", isDirectory: true)
     }
 
     static func all() throws -> [Fixture] {

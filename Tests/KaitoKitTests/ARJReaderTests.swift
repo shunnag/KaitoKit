@@ -15,10 +15,9 @@ final class ARJReaderTests: XCTestCase {
         }
     }
 
-    private static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     private struct Payload: Decodable { let size: UInt64; let sha256: String }
     private static func manifest() throws -> [String: Payload] {
-        let data = try Data(contentsOf: root.appendingPathComponent("Fixtures/arj/manifest.json"))
+        let data = try Data(contentsOf: TestFixtures.url("arj/manifest.json"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         return try JSONDecoder().decode([String: Payload].self, from: JSONSerialization.data(withJSONObject: object["payload"] as Any))
     }

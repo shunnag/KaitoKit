@@ -80,8 +80,8 @@ enum TarGoldenCorpus {
             self.sha256 = sha256; self.generator = generator
         }
     }
-    static var repository: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() }
-    static var root: URL { repository.appendingPathComponent("Tests/Fixtures/tar-golden") }
+    static var repository: URL { TestFixtures.repositoryRoot }
+    static var root: URL { TestFixtures.url("tar-golden") }
     static var modes: [(String, ReaderOptions)] {
         var unlimited = ReadLimits(); unlimited.maxEntrySize = .max; unlimited.maxTotalUncompressedSize = .max
         var disk = ReadLimits(); disk.inMemorySingleFileLimit = 0

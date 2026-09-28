@@ -13,7 +13,7 @@ final class StuffItXSlice4Tests: XCTestCase {
         let arguments: [String]?
         let model_events: [String: Int]?
     }
-    static let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/stuffit")
+    static let fixtures = TestFixtures.url("stuffit")
     static func vectors(_ method: Int) throws -> [Vector] {
         try JSONDecoder().decode([Vector].self, from: Data(contentsOf: fixtures.appendingPathComponent("slice4-vectors.json"))).filter { $0.method == method }
     }
@@ -148,7 +148,7 @@ final class StuffItXSlice4Tests: XCTestCase {
         let data = Data((words.joined(separator: "\n") + "\n").utf8)
         XCTAssertEqual(data.count, 881_863)
         XCTAssertEqual(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), StuffItXEnglishDictionary.sha256)
-        let root = Self.fixtures.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let root = TestFixtures.repositoryRoot
         let temporary = root.appendingPathComponent(".build/slice4-dictionary-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporary) }

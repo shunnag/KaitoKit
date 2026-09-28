@@ -6,17 +6,13 @@ import XCTest
 import zlib
 
 final class DMGDecmpfsTests: XCTestCase {
-    private static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     private struct Payload: Decodable { let size: UInt64; let sha256: String; let decmpfsType: UInt32; let sevenZipVerified: Bool }
     private struct Image: Decodable { let size: UInt64; let sha256: String }
     private struct Manifest: Decodable { let payload: [String: Payload]; let images: [String: Image] }
 
     private func fixture() throws -> (Data, Manifest) {
-        let directory = Self.root.appendingPathComponent("Fixtures/dmg")
-        let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: directory.appendingPathComponent("manifest-decmpfs.json")))
-        let base64 = try String(contentsOf: directory.appendingPathComponent("hfs-decmpfs.dmg.gz.b64"), encoding: .utf8)
-        let gzip = try ArchiveReader.open(data: XCTUnwrap(Data(base64Encoded: base64, options: .ignoreUnknownCharacters)))
-        return (try gzip.read(gzip.entries[0]), manifest)
+        let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: TestFixtures.url("dmg/manifest-decmpfs.json")))
+        return (try TestFixtures.gzipBase64("dmg/hfs-decmpfs.dmg"), manifest)
     }
 
     private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }

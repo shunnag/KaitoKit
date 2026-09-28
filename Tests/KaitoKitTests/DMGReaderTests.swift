@@ -89,18 +89,13 @@ final class DMGReaderTests: XCTestCase {
         }
     }
 
-    private static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     private struct Payload: Decodable { let size: UInt64?; let sha256: String?; let symlink: String?; let decmpfs: Bool? }
     private struct Image: Decodable { let size: UInt64; let sha256: String; let note: String }
     private struct Manifest: Decodable { let payload: [String: Payload]; let images: [String: Image] }
     private static func manifest() throws -> Manifest {
-        try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appendingPathComponent("Fixtures/dmg/manifest.json")))
+        try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: TestFixtures.url("dmg/manifest.json")))
     }
-    private static func fixture(_ name: String) throws -> Data {
-        let base64 = try String(contentsOf: root.appendingPathComponent("Fixtures/dmg/\(name).gz.b64"), encoding: .utf8)
-        let gzip = try ArchiveReader.open(data: XCTUnwrap(Data(base64Encoded: base64, options: .ignoreUnknownCharacters)))
-        return try gzip.read(gzip.entries[0])
-    }
+    private static func fixture(_ name: String) throws -> Data { try TestFixtures.gzipBase64("dmg/\(name)") }
     private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     func testDecmpfsAttributeErrorsAndHardLinkTarget() throws {

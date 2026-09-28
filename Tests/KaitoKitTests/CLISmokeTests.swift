@@ -87,8 +87,7 @@ final class CLISmokeTests: XCTestCase {
     }
 
     func testDetectEncodingNamesArchivesAndStrictDecode() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let fixture = root.appendingPathComponent("Fixtures/encoding/names-smoke.tsv")
+        let fixture = TestFixtures.url("encoding/names-smoke.tsv")
         let rows = try String(contentsOf: fixture, encoding: .utf8).split(separator: "\n").map {
             $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
         }
@@ -141,8 +140,7 @@ final class CLISmokeTests: XCTestCase {
     func testStuffItExtractionDefersResourcesAndPreservesParentPaths() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let fixtureRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Fixtures/stuffit")
+        let fixtureRoot = TestFixtures.url("stuffit")
         let executable = try findKaitoExecutable()
         for fixture in ["jp-sjis.sit", "jp-macjp.sit", "jp-euc.sit"] {
             let source = fixtureRoot.appendingPathComponent(fixture)
@@ -200,12 +198,11 @@ final class CLISmokeTests: XCTestCase {
     }
 
     func testXarExtractionDefersForwardLinksAndReportsTargetFailures() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }
         let executable = try findKaitoExecutable()
         for name in ["xar-plain.xar", "xar-links.xar"] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/\(name).b64"), encoding: .utf8)
+            let text = try String(contentsOf: TestFixtures.url("container/\(name).b64"), encoding: .utf8)
             let archive = temporary.appendingPathComponent(name)
             try XCTUnwrap(Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines))).write(to: archive)
             for failedTarget in (name == "xar-plain.xar" ? [false, true] : [false]) {
@@ -255,8 +252,7 @@ final class CLISmokeTests: XCTestCase {
     }
 
     func testArListAndSHA() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/lib.a.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("container/lib.a.b64"), encoding: .utf8)
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let url = temp.appendingPathComponent("lib.a")
@@ -272,7 +268,6 @@ final class CLISmokeTests: XCTestCase {
 
     /// 2026-09-20 に追加した単一 stream 形式の `detect` 名と `list` の method 名。
     func testDetectAndListNameTheNewSingleFileFormats() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let executable = try findKaitoExecutable()
@@ -281,7 +276,7 @@ final class CLISmokeTests: XCTestCase {
             ("brotli/one.br.b64", "one.br", "brotli", "Brotli"),
             ("pbzx/text.pbzx.b64", "text.pbzx", "pbzx", "XZ (pbzx)"),
         ] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/\(fixture)"), encoding: .utf8)
+            let text = try String(contentsOf: TestFixtures.url("\(fixture)"), encoding: .utf8)
             let url = temp.appendingPathComponent(name)
             try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
             XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), detected, name)
@@ -293,12 +288,11 @@ final class CLISmokeTests: XCTestCase {
 
     /// UDF 専用 image は `udf`、hybrid は `iso` と検出し、どちらも UDF の木を `UDF (stored)` で一覧する。
     func testDetectAndListUDFImages() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let executable = try findKaitoExecutable()
         for (fixture, detected) in [("udf201-512.img", "udf"), ("hybrid102.iso", "iso")] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/udf/\(fixture).gz.b64"), encoding: .utf8)
+            let text = try String(contentsOf: TestFixtures.url("udf/\(fixture).gz.b64"), encoding: .utf8)
             let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
             let url = temp.appendingPathComponent(fixture)
             try gzip.read(gzip.entries[0]).write(to: url)
@@ -316,11 +310,10 @@ final class CLISmokeTests: XCTestCase {
 
     /// WIM は `wim` と検出し、LZX resource を `WIM LZX` で一覧、SHA-1 検証付きで読む。
     func testDetectAndListWIM() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let executable = try findKaitoExecutable()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/wim/lzx.wim.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("wim/lzx.wim.b64"), encoding: .utf8)
         let url = temp.appendingPathComponent("lzx.wim")
         try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
         XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "wim")
@@ -333,14 +326,13 @@ final class CLISmokeTests: XCTestCase {
 
     /// MacBinary / AppleSingle / BinHex の単体は wrapper 名で検出し、data / resource の 2 fork を一覧する。
     func testDetectAndListMacWrappers() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let executable = try findKaitoExecutable()
         for (fixture, detected, method) in [("readme.txt.bin", "macbinary", "MacBinary (stored)"),
                                             ("readme.txt.as", "applesingle", "AppleSingle (stored)"),
                                             ("readme.txt.hqx", "binhex", "BinHex 4.0 (RLE90)")] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/macwrappers/\(fixture).b64"), encoding: .utf8)
+            let text = try String(contentsOf: TestFixtures.url("macwrappers/\(fixture).b64"), encoding: .utf8)
             let url = temp.appendingPathComponent(fixture)
             try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
             XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), detected, fixture)
@@ -352,12 +344,11 @@ final class CLISmokeTests: XCTestCase {
 
     /// PKZIP 1.x の旧 method は shrink / reduceN / implode の名前で一覧され、sha が通る。
     func testListLegacyZipMethods() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let executable = try findKaitoExecutable()
         for (fixture, method) in [("shrink.zip", "shrink"), ("reduce4.zip", "reduce4"), ("implode-8k-3trees.zip", "implode")] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/zip-legacy/\(fixture).b64"), encoding: .utf8)
+            let text = try String(contentsOf: TestFixtures.url("zip-legacy/\(fixture).b64"), encoding: .utf8)
             let url = temp.appendingPathComponent(fixture)
             try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
             let listing = try runKaito(executable, arguments: ["list", url.path])
@@ -370,16 +361,15 @@ final class CLISmokeTests: XCTestCase {
 
     /// BIN/CUE の生 sector image は `iso` と検出され、`.cue` からも同じ一覧になる。
     func testDetectAndListRawSectorImageAndCueSheet() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let executable = try findKaitoExecutable()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/bincue/mode1.bin.gz.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("bincue/mode1.bin.gz.b64"), encoding: .utf8)
         let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
         let bin = temp.appendingPathComponent("mode1.bin")
         try gzip.read(gzip.entries[0]).write(to: bin)
         let cue = temp.appendingPathComponent("mode1.cue")
-        try FileManager.default.copyItem(at: root.appendingPathComponent("Fixtures/bincue/mode1.cue"), to: cue)
+        try FileManager.default.copyItem(at: TestFixtures.url("bincue/mode1.cue"), to: cue)
         for url in [bin, cue] {
             XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "iso", url.lastPathComponent)
             let hashes = try runKaito(executable, arguments: ["sha", url.path])
@@ -390,11 +380,10 @@ final class CLISmokeTests: XCTestCase {
 
     /// compound file は `cfb` と検出し、storage を directory、stream を stored file として一覧する。
     func testDetectAndListCompoundFile() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let executable = try findKaitoExecutable()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/cfb/v4.cfb.gz.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("cfb/v4.cfb.gz.b64"), encoding: .utf8)
         let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
         let url = temp.appendingPathComponent("v4.cfb")
         try gzip.read(gzip.entries[0]).write(to: url)
@@ -409,11 +398,10 @@ final class CLISmokeTests: XCTestCase {
 
     /// CHM は `chm` と検出し、LZX section の file を `LZX`、section 0 の file を `stored` として一覧する。
     func testDetectAndListCHM() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let executable = try findKaitoExecutable()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/chm/basic.chm.gz.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("chm/basic.chm.gz.b64"), encoding: .utf8)
         let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
         let url = temp.appendingPathComponent("basic.chm")
         try gzip.read(gzip.entries[0]).write(to: url)
@@ -428,12 +416,11 @@ final class CLISmokeTests: XCTestCase {
 
     /// ARJ（素の書庫と DOS SFX）は `arj` と検出し、method 名で一覧する。
     func testDetectAndListARJ() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let executable = try findKaitoExecutable()
         for fixture in ["basic.arj", "sfx.exe"] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/arj/\(fixture).b64"), encoding: .utf8)
+            let text = try String(contentsOf: TestFixtures.url("arj/\(fixture).b64"), encoding: .utf8)
             let url = temp.appendingPathComponent(fixture)
             try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
             XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "arj", fixture)
@@ -449,11 +436,10 @@ final class CLISmokeTests: XCTestCase {
 
     /// DMG は `dmg` と検出し、HFS+ volume の file を `HFS+ (stored)`、fork と decmpfs を含めて一覧する。
     func testDetectAndListDMG() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let executable = try findKaitoExecutable()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/dmg/hfs-lzfse.dmg.gz.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("dmg/hfs-lzfse.dmg.gz.b64"), encoding: .utf8)
         let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
         let url = temp.appendingPathComponent("hfs-lzfse.dmg")
         try gzip.read(gzip.entries[0]).write(to: url)
@@ -464,12 +450,12 @@ final class CLISmokeTests: XCTestCase {
         XCTAssertTrue(listing.contains("\tsymlink\tHFS+ (stored)\tplain\tlink-to-nested"), listing)
         XCTAssertTrue(listing.contains("\t57000\tfile\tHFS+ decmpfs (LZVN)\tplain\tcompressed.txt"), listing)
         let compressedHashes = try runKaito(executable, arguments: ["sha", url.path])
-        let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("Fixtures/dmg/manifest.json"))) as? [String: Any]
+        let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: TestFixtures.url("dmg/manifest.json"))) as? [String: Any]
         let payload = manifest?["payload"] as? [String: [String: Any]]
         let compressedSHA = try XCTUnwrap(payload?["compressed.txt"]?["sha256"] as? String)
         XCTAssertTrue(compressedHashes.contains("\(compressedSHA)\tcompressed.txt"), compressedHashes)
         XCTAssertFalse(compressedHashes.contains("ERROR"), compressedHashes)
-        let rawText = try String(contentsOf: root.appendingPathComponent("Fixtures/dmg/hfs-raw.dmg.gz.b64"), encoding: .utf8)
+        let rawText = try String(contentsOf: TestFixtures.url("dmg/hfs-raw.dmg.gz.b64"), encoding: .utf8)
         let rawGzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: rawText, options: .ignoreUnknownCharacters)))
         let rawURL = temp.appendingPathComponent("hfs-raw.dmg")
         try rawGzip.read(rawGzip.entries[0]).write(to: rawURL)
@@ -479,8 +465,7 @@ final class CLISmokeTests: XCTestCase {
     }
 
     func testListCpioFixture() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/newc.cpio.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("container/newc.cpio.b64"), encoding: .utf8)
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let url = temp.appendingPathComponent("newc.cpio")
@@ -934,10 +919,7 @@ final class CLISmokeTests: XCTestCase {
             ancestor.deleteLastPathComponent()
         }
 
-        let repository = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+        let repository = TestFixtures.repositoryRoot
         candidates.append(repository.appendingPathComponent(".build/debug/kaito"))
         candidates.append(repository.appendingPathComponent(".build/out/Products/Debug/kaito"))
         for candidate in candidates where fileManager.isExecutableFile(atPath: candidate.path) {

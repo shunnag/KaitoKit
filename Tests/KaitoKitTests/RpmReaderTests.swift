@@ -29,11 +29,7 @@ final class RpmReaderTests: XCTestCase {
         ]
     }
 
-    private func fixture(_ variant: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/rpm-\(variant).rpm.b64"), encoding: .utf8)
-        return try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ variant: String) throws -> Data { try TestFixtures.base64("container/rpm-\(variant).rpm") }
 
     private func rows(_ reader: ArchiveReader) throws -> [Row] {
         try reader.entries.map { entry in
@@ -336,8 +332,7 @@ final class RpmReaderTests: XCTestCase {
 
     private func oracles() throws -> [String: Oracle] {
         struct Manifest: Decodable { let packages: [String: Oracle] }
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let bytes = try Data(contentsOf: root.appendingPathComponent("Fixtures/container/rpm-stripped-manifest.json"))
+        let bytes = try Data(contentsOf: TestFixtures.url("container/rpm-stripped-manifest.json"))
         return try JSONDecoder().decode(Manifest.self, from: bytes).packages
     }
 

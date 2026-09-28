@@ -36,8 +36,7 @@ final class StuffItSlice2CryptoTests: XCTestCase {
         let password_hex: String; let entry_key_hex: String; let mkey_hex: String; let expected_key_and_iv_hex: String
     }
     func testClassicKnownFixtureAndPasswordLengthVectors() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/stuffit/slice2-key-vectors.json")
+        let url = TestFixtures.url("stuffit/slice2-key-vectors.json")
         let vectors = try JSONDecoder().decode([KeyVector].self, from: Data(contentsOf: url))
         XCTAssertEqual(vectors.count, 14)
         for v in vectors {

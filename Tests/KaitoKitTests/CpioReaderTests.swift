@@ -5,11 +5,7 @@ import XCTest
 
 final class CpioReaderTests: XCTestCase {
     private typealias B = CpioArchiveBuilder
-    private func fixture(_ name: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/\(name).cpio.b64"), encoding: .utf8)
-        return try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("container/\(name).cpio") }
     private func direct(_ b: B, limits: ReadLimits = ReadLimits(), recover: Bool = false) throws -> CpioReader {
         try CpioReader(source: DataByteSource(data: b.data), options: ReaderOptions(limits: limits, recoverDamagedArchives: recover))
     }

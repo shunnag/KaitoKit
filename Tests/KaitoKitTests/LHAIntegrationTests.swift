@@ -654,10 +654,7 @@ final class LHAIntegrationTests: XCTestCase {
 
     func testOptionalLHAFixtureCorpusAgainstLhasa() throws {
         try requireLhasa()
-        let testDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        let fixtureDirectory = testDirectory
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/lha", isDirectory: true)
+        let fixtureDirectory = TestFixtures.root.appendingPathComponent("lha", isDirectory: true)
         let manager = FileManager.default
         guard manager.fileExists(atPath: fixtureDirectory.path) else {
             throw XCTSkip("Tests/Fixtures/lha is empty")
@@ -939,10 +936,7 @@ final class LHAIntegrationTests: XCTestCase {
             ancestor.deleteLastPathComponent()
         }
 
-        let repository = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+        let repository = TestFixtures.repositoryRoot
         candidates.append(repository.appendingPathComponent(".build/debug/kaito"))
         candidates.append(repository.appendingPathComponent(".build/out/Products/Debug/kaito"))
         for candidate in candidates where fileManager.isExecutableFile(atPath: candidate.path) {

@@ -5,7 +5,7 @@ import Foundation
 import XCTest
 
 final class StuffItXJPEGTests: XCTestCase {
-    static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    static let root = TestFixtures.repositoryRoot
     static func decode(_ data: Data, chunk: Int = 65536, limits: ReadLimits = ReadLimits()) throws -> Data {
         let decoder = try StuffItXCodec.make(method: 7, source: DataByteSource(data), size: nil, limits: limits)
         return try StuffItXCodecTests.collect(decoder, chunk: chunk)

@@ -359,9 +359,7 @@ final class SevenZipFilterTests: XCTestCase {
     }
 
     private func fixtureBytes(_ name: String) throws -> [UInt8] {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/sevenzip/\(name).b64")
+        let url = TestFixtures.url("sevenzip/\(name).b64")
         let text = try String(contentsOf: url, encoding: .utf8)
         return try base64(text.components(separatedBy: .whitespacesAndNewlines).joined())
     }

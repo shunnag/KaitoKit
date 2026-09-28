@@ -6,8 +6,7 @@ import XCTest
 final class StuffItXCodecTests: XCTestCase {
     struct Vector: Decodable { let name: String; let method: Int; let input_hex: String; let output_hex: String }
     static func vectors() throws -> [Vector] {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        return try JSONDecoder().decode([Vector].self, from: Data(contentsOf: root.appendingPathComponent("Fixtures/stuffit/slice3-vectors.json")))
+        return try JSONDecoder().decode([Vector].self, from: Data(contentsOf: TestFixtures.url("stuffit/slice3-vectors.json")))
     }
     static func decode(_ data: Data, method: UInt64?, size: Int, chunk: Int = 4096, limits: ReadLimits = ReadLimits()) throws -> Data {
         let decoder = try StuffItXCodec.make(method: method, source: DataByteSource(data), size: UInt64(size), limits: limits)

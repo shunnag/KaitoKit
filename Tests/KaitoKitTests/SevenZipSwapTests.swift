@@ -174,11 +174,7 @@ final class SevenZipSwapTests: XCTestCase {
          "second.bin": Data((0..<1027).map { UInt8(truncatingIfNeeded: $0 * 73 + 41) }), "empty": Data()]
     }
 
-    private func fixture(_ name: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let encoded = try Data(contentsOf: root.appendingPathComponent("Fixtures/sevenzip-swap/" + name + ".b64"))
-        return try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("sevenzip-swap/" + name) }
 
     private func factory(width: Int, properties: [UInt8] = [], inputs: Int = 1,
                          size: UInt64 = 5) throws -> SevenZipFolderDecoderFactory {

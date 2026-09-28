@@ -5,11 +5,8 @@ import Foundation
 import XCTest
 
 final class StuffItXFixtureTests: XCTestCase {
-    private let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("Fixtures/stuffit")
-    private func fixture(_ name: String) throws -> Data {
-        try XCTUnwrap(Data(base64Encoded: Data(contentsOf: root.appendingPathComponent(name + ".b64")), options: .ignoreUnknownCharacters))
-    }
+    private let root = TestFixtures.url("stuffit")
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("stuffit/" + name) }
     func testTenHistoricalFixturesAndCatalogs() throws {
         struct Item: Decodable { let file: String; let size: Int; let sha256: String }
         let manifest = try JSONDecoder().decode([Item].self, from: Data(contentsOf: root.appendingPathComponent("slice3-manifest.json")))

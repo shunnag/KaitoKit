@@ -17,13 +17,7 @@ final class ISOZisofsTests: XCTestCase {
         "sub/deep.txt": (15_000, "15339b7447ee0e6d76eb753ff95726e20dfff23db842f37c373048e446c11f51"),
     ]
 
-    private func fixture(_ name: String) throws -> Data {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/iso/\(name).iso.gz.b64")
-        let base64 = try String(contentsOf: url, encoding: .utf8)
-        let gzip = try ArchiveReader.open(data: XCTUnwrap(Data(base64Encoded: base64, options: .ignoreUnknownCharacters)))
-        return try gzip.read(gzip.entries[0])
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.gzipBase64("iso/\(name).iso") }
 
     private func sha(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()

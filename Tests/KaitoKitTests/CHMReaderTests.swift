@@ -25,11 +25,10 @@ final class CHMReaderTests: XCTestCase {
         }
     }
 
-    private static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     private struct Payload: Decodable { let size: UInt64; let sha256: String }
     private struct Archive: Decodable { let size: UInt64; let sha256: String; let files: [String] }
     private static func manifest() throws -> (payload: [String: Payload], archives: [String: Archive]) {
-        let data = try Data(contentsOf: root.appendingPathComponent("Fixtures/chm/manifest.json"))
+        let data = try Data(contentsOf: TestFixtures.url("chm/manifest.json"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         var payload: [String: Payload] = [:], archives: [String: Archive] = [:]
         for (key, value) in object {
@@ -39,11 +38,7 @@ final class CHMReaderTests: XCTestCase {
         }
         return (payload, archives)
     }
-    private static func fixture(_ name: String) throws -> Data {
-        let base64 = try String(contentsOf: root.appendingPathComponent("Fixtures/chm/\(name).gz.b64"), encoding: .utf8)
-        let gzip = try ArchiveReader.open(data: XCTUnwrap(Data(base64Encoded: base64, options: .ignoreUnknownCharacters)))
-        return try gzip.read(gzip.entries[0])
-    }
+    private static func fixture(_ name: String) throws -> Data { try TestFixtures.gzipBase64("chm/\(name)") }
     private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     func testFixturesMatchSevenZipAndTheManifest() throws {

@@ -46,13 +46,7 @@ final class UDFReaderTests: XCTestCase {
         ("icb-chain-4096.iso", .udf, "1.50", 2_048, false),
     ]
 
-    private static func fixture(_ name: String) throws -> Data {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/udf/\(name).gz.b64")
-        let base64 = try String(contentsOf: url, encoding: .utf8)
-        let gzip = try ArchiveReader.open(data: XCTUnwrap(Data(base64Encoded: base64, options: .ignoreUnknownCharacters)))
-        return try gzip.read(gzip.entries[0])
-    }
+    private static func fixture(_ name: String) throws -> Data { try TestFixtures.gzipBase64("udf/\(name)") }
 
     private func sha(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()

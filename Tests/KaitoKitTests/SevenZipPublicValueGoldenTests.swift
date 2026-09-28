@@ -26,8 +26,7 @@ final class SevenZipPublicValueGoldenTests: XCTestCase {
 }
 
 enum SevenZipGolden {
-    static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .deletingLastPathComponent().appendingPathComponent("Fixtures/sevenzip-edit")
+    static let root = TestFixtures.url("sevenzip-edit")
 
     static func archives() throws -> [URL] {
         try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)

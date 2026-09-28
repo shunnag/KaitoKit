@@ -367,8 +367,9 @@ enum LHAHeaderParser {
         )
         var modificationDate = try dosDate(LittleEndian.uint32(header, at: 15))
         var extended = ExtendedFields()
-        // LHa for UNIX の level 0 は CRC の後に固定長 U 拡張を置く。
-        // 全 12 byte がある version 0 だけを解釈し、他の creator の末尾は保持しない。
+        // LHa for UNIX places a fixed-length 'U' extension after the level-0
+        // data CRC. Only a complete 12-byte version-0 extension is interpreted;
+        // trailing bytes from other creators are not retained.
         if osID == 0x55, header.count - osOffset >= 12, header[osOffset + 1] == 0 {
             let timestamp = LittleEndian.uint32(header, at: osOffset + 2)
             modificationDate = Date(timeIntervalSince1970: Double(timestamp))
@@ -1102,7 +1103,8 @@ enum LHAHeaderParser {
             }
             // Decode first: in CP932/CP936, 0x5c can be the trail byte of a
             // multibyte character and must not be rewritten as a raw byte.
-            // 古い DOS writer は level 2 の filename 拡張にも区切りを含める。
+            // Old DOS writers put backslash separators even in level-2 filename
+            // extensions.
             let separatorNormalizedName = decodedName.replacingOccurrences(of: "\\", with: "/")
             let unixFileType = pending.extended.unixMode.map { $0 & 0o170000 }
             let isUnixSymbolicLink = pending.method == "-lhd-"
@@ -1365,7 +1367,8 @@ enum LHAHeaderParser {
     }
 
     private static func normalizeFilenameSeparators(_ bytes: [UInt8]) -> [UInt8] {
-        // 0xFF は CP932/EUC-JP/UTF-8 の文字バイトではなく、basic name 内でも区切りになる。
+        // 0xFF is not a character byte in CP932, EUC-JP, or UTF-8, so it is a
+        // separator inside the basic name as well.
         normalizeDirectorySeparators(bytes)
     }
 

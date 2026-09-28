@@ -111,8 +111,8 @@ final class TarReader: FormatReader {
         var longLink: [UInt8]?
         var pendingMetadataFloor: UInt64 = 0
         var foundTerminator = false
-        // Headers are separated by member bodies, which listing must not
-        // prefetch. Extension payloads use their own bounded ranged reads.
+        // header の間には member の本文があり、一覧の走査はそれを先読みしない。
+        // 拡張 header の payload は、範囲を限った読み出しで別に読む。
         var byteReader = try ByteReader(source: source, bufferCapacity: 4 * 1_024)
         var headerCount = 0
 
@@ -1151,7 +1151,7 @@ final class TarReader: FormatReader {
         return string.uppercased() == "BINARY"
     }
 
-    /// GNU 以外の sparse 表現（star の SCHILY、Solaris の SUN.holesdata）は従来どおり読まない。
+    /// GNU 以外の sparse 表現（star の SCHILY、Solaris の SUN.holesdata）は読まない。
     private static func rejectForeignSparse(_ pax: [String: [UInt8]]) throws {
         if pax.contains(where: { key, value in
             !value.isEmpty && (key == "SCHILY.realsize" || key == "SUN.holesdata")

@@ -64,6 +64,9 @@ final class LHAReader: FormatReader {
                 trailingBytes = .unchecked(count: count)
             } else {
                 let bytes: [UInt8]
+                // KaitoError passes through unchanged; any other error thrown by a
+                // ByteSource implementation is reported as EIO. The first clause is
+                // what keeps KaitoError out of the generic conversion below.
                 do {
                     bytes = try readByteRange(source: source, offset: tailOffset, count: Int(count))
                 } catch let error as KaitoError {

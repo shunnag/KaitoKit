@@ -152,13 +152,8 @@ final class SevenZipAESKeyCache {
 // そのため巨大な暗号 stream を保持せず ByteSource の random-access 契約を満たす。
 final class SevenZipAESByteSource: ByteSource {
     private static let blockSize = 16
-    private static let maximumReadSize = 256 * 1_024
 
-    private let source: any ByteSource
-    private let ciphertextOffset: UInt64
-    private let ciphertextSize: UInt64
-    private let key: Data
-    private let iv: [UInt8]
+    private let randomAccess: AESCBCRandomAccess
 
     let length: UInt64
 
@@ -181,90 +176,30 @@ final class SevenZipAESByteSource: ByteSource {
         guard ciphertextSize.isMultiple(of: UInt64(Self.blockSize)) else {
             throw KaitoError.malformed("7zAES ciphertext is not block aligned")
         }
-        let paddedPlaintext = try Self.roundedToBlock(plaintextSize)
+        let paddedPlaintext = try AESCBCRandomAccess.roundedToBlock(plaintextSize)
         guard paddedPlaintext == ciphertextSize else {
             throw KaitoError.malformed("7zAES padded size is inconsistent")
         }
 
         var iv = [UInt8](repeating: 0, count: Self.blockSize)
         for (index, byte) in initializationVector.enumerated() { iv[index] = byte }
-        self.source = source
-        self.ciphertextOffset = ciphertextOffset
-        self.ciphertextSize = ciphertextSize
         self.length = plaintextSize
-        self.key = key
-        self.iv = iv
+        self.randomAccess = AESCBCRandomAccess(
+            source: source,
+            ciphertextOffset: ciphertextOffset,
+            length: plaintextSize,
+            key: key,
+            iv: iv,
+            invalidRangeMessage: "7zAES output range is invalid",
+            decryptECB: SevenZipCommonCrypto.decryptECB
+        )
     }
 
     func read(
         into buffer: UnsafeMutableRawBufferPointer,
         at offset: UInt64
     ) throws -> Int {
-        guard !buffer.isEmpty, offset < length else { return 0 }
-        let requested = try Checked.toInt(min(
-            UInt64(buffer.count),
-            UInt64(Self.maximumReadSize),
-            length - offset
-        ))
-        let firstBlock = offset / UInt64(Self.blockSize)
-        let endOffset = try Checked.add(offset, UInt64(requested))
-        let blockEnd = try Self.roundedToBlock(endOffset) / UInt64(Self.blockSize)
-        let blockCount = try Checked.toInt(try Checked.sub(blockEnd, firstBlock))
-        let encryptedCount = try Checked.toInt(
-            try Checked.mul(UInt64(blockCount), UInt64(Self.blockSize))
-        )
-        let encryptedOffset = try Checked.add(
-            ciphertextOffset,
-            try Checked.mul(firstBlock, UInt64(Self.blockSize))
-        )
-        let ciphertext = try readByteRange(
-            source: source,
-            offset: encryptedOffset,
-            count: encryptedCount
-        )
-        let firstPrevious: [UInt8]
-        if firstBlock == 0 {
-            firstPrevious = iv
-        } else {
-            let previousOffset = try Checked.sub(encryptedOffset, UInt64(Self.blockSize))
-            firstPrevious = try readByteRange(
-                source: source,
-                offset: previousOffset,
-                count: Self.blockSize
-            )
-        }
-
-        var plaintext = try SevenZipCommonCrypto.decryptECB(blocks: ciphertext, key: key)
-        for block in 0..<blockCount {
-            let base = block * Self.blockSize
-            for index in 0..<Self.blockSize {
-                let previous = block == 0
-                    ? firstPrevious[index]
-                    : ciphertext[base - Self.blockSize + index]
-                plaintext[base + index] ^= previous
-            }
-        }
-
-        let intraBlock = try Checked.toInt(offset % UInt64(Self.blockSize))
-        guard intraBlock <= plaintext.count,
-              requested <= plaintext.count - intraBlock,
-              let destination = buffer.baseAddress else {
-            throw KaitoError.malformed("7zAES output range is invalid")
-        }
-        plaintext.withUnsafeBytes { bytes in
-            // requested は caller buffer と plaintext の検証済み範囲内。
-            destination.copyMemory(
-                from: bytes.baseAddress!.advanced(by: intraBlock),
-                byteCount: requested
-            )
-        }
-        return requested
-    }
-
-    private static func roundedToBlock(_ value: UInt64) throws -> UInt64 {
-        guard value > 0 else { return 0 }
-        let adjusted = try Checked.add(value, UInt64(blockSize - 1))
-        return adjusted & ~UInt64(blockSize - 1)
+        try randomAccess.read(into: buffer, at: offset)
     }
 }
 

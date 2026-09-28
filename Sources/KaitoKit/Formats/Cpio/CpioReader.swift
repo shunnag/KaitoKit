@@ -162,7 +162,7 @@ final class CpioReader: FormatReader {
         return try EntryStream(source: source, offset: record.offset, length: record.size, limits: limits)
     }
 
-    // nil は走査上限。probe では EOF の証明にならないため失敗、reader では読み止めとする。
+    // nil は走査上限。検出（CpioHeader.detectBinary）では EOF の証明にならないため失敗、reader では読み止めとする。
     static func skipNULRun(source: any ByteSource, from start: UInt64) throws -> UInt64? {
         var offset = start
         while offset < source.length {

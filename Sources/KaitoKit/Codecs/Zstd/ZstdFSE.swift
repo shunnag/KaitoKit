@@ -52,7 +52,8 @@ struct ZstdFSE: Sendable {
     }
 
     static func read(from reader: inout ZstdByteReader, maximumLog: Int, maximumSymbol: Int) throws -> Self {
-        // Huffman weights / テスト用 API。本番 sequence はフレーム所有の 53 要素を再利用する。
+        // Huffman 重みの表とテストが使う。本番の sequence 表は frame 所有の scratch
+        // （ZstdFrameDecoder.maximumSequenceSymbols 要素）を再利用し、readDistribution を直接呼ぶ。
         try withUnsafeTemporaryAllocation(of: Int.self, capacity: maximumSymbol + 1) { scratch in
             let description = try readDistribution(from: &reader, maximumLog: maximumLog,
                                                   maximumSymbol: maximumSymbol, into: scratch)

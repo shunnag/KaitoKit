@@ -55,14 +55,14 @@ final class ZstdDifferentialTests: XCTestCase {
         XCTAssertEqual(try decode(encoded, chunk: chunk), reference)
     }
 
-    private func blockTypes(_ encoded: Data) throws -> Set<Int> {
+    private func blockTypes(_ encoded: Data) throws -> Set<ZstdFrameHeader.BlockType> {
         let input = try ZstdInput(source: DataByteSource(encoded), offset: 4, size: UInt64(encoded.count - 4))
         let header = try ZstdFrameHeader(input: input, limits: ReadLimits())
-        var types = Set<Int>()
+        var types = Set<ZstdFrameHeader.BlockType>()
         while true {
             let block = try header.blockHeader(input)
             types.insert(block.type)
-            try input.skip(UInt64(block.type == 1 ? 1 : block.size))
+            try input.skip(UInt64(block.type == .rle ? 1 : block.size))
             if block.last { return types }
         }
     }
@@ -81,8 +81,8 @@ final class ZstdDifferentialTests: XCTestCase {
             for (index, input) in [text, runs, random].enumerated() {
                 let encoded = try compress(input, tool: tool, options: options)
                 try compare(encoded, expected: input, tool: tool)
-                if index == 1 { XCTAssertTrue(try blockTypes(encoded).contains(1)) }
-                if index == 2 { XCTAssertTrue(try blockTypes(encoded).contains(0)) }
+                if index == 1 { XCTAssertTrue(try blockTypes(encoded).contains(.rle)) }
+                if index == 2 { XCTAssertTrue(try blockTypes(encoded).contains(.raw)) }
                 if options.contains("--long=27") {
                     let input = try ZstdInput(source: DataByteSource(encoded), offset: 4, size: UInt64(encoded.count - 4))
                     XCTAssertEqual(try ZstdFrameHeader(input: input, limits: ReadLimits()).windowSize, 1 << 27)
@@ -372,8 +372,8 @@ final class ZstdDifferentialTests: XCTestCase {
             let blockHeader = Int(input.position)
             let block = try header.blockHeader(input)
             let blockStart = Int(input.position)
-            if block.type != 2 {
-                try input.skip(UInt64(block.type == 1 ? 1 : block.size))
+            if block.type != .compressed {
+                try input.skip(UInt64(block.type == .rle ? 1 : block.size))
                 if block.last { return nil }
                 continue
             }

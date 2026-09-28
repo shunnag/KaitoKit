@@ -94,7 +94,7 @@ final class ZstdDecompressor: Decompressor {
             var last = false
             while !last {
                 let block = try header.blockHeader(input)
-                try input.skip(UInt64(block.type == 1 ? 1 : block.size))
+                try input.skip(UInt64(block.type == .rle ? 1 : block.size))
                 last = block.last
             }
             if header.checksum { try input.skip(4) }

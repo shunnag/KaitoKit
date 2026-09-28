@@ -95,7 +95,7 @@ final class ZstdSequenceTable {
     }
 }
 
-// D-T: インスタンスだけに渡すテスト設定。既定の pair 閾値は V8 の sweep で校正する。
+// D-T: テストと計測から instance 単位で渡す経路選択。既定の pair 閾値 32768 は threshold sweep で選んだ値。
 struct ZstdTuning: Sendable {
     enum MatchPath: Sendable { case automatic, eightByteChunks, byteThenPeriod }
     static let defaultPairTableThreshold: Int = 32768

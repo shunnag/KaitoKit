@@ -136,7 +136,7 @@ final class ZstdHuffman {
             }
         } else {
             var section = try reader.subreader(header)
-            // D8: FSE 重みの復号は従来の検査付き実装を維持する。
+            // D8: 重みの FSE 復号は毎回境界を検査する ZstdBitReader を使う（表の構築時だけで hot path ではない）。
             let table = try ZstdFSE.read(from: &section, maximumLog: 6, maximumSymbol: 11)
             var bits = try ZstdBitReader(section.bytes, range: section.position..<section.end)
             var state1 = try bits.read(table.accuracyLog)

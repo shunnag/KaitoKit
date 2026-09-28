@@ -96,7 +96,8 @@ final class RAR29Decoder: Decompressor {
         case endFile
     }
 
-    fileprivate struct StoredFilterProgram {
+    /// One entry of the solid RARVM program table (see `RAR3FilterToken`).
+    struct StoredFilterProgram {
         let kind: RARStandardFilterKind
         var previousLength: Int
         var usageCount: UInt32
@@ -958,172 +959,51 @@ final class RAR29Decoder: Decompressor {
         flags: UInt8,
         outputPosition: UInt64
     ) throws -> ScheduledFilter {
-        var cursor = RAR3MemoryBitCursor(bytes: payload)
-        var programIndex = solidState.lastFilterProgram
-        if flags & 0x80 != 0 {
-            let storedNumber = try cursor.readRARVMNumber()
-            if storedNumber == 0 {
-                guard filterCaptureStart == nil, filteredOutput.isEmpty else {
-                    throw KaitoError.malformed(
-                        "RAR3 filter program reset interrupts an active filter"
-                    )
-                }
-                solidState.filterPrograms.removeAll(keepingCapacity: true)
-                if nextFilterIndex < scheduledFilters.count {
-                    scheduledFilters.removeSubrange(nextFilterIndex...)
-                }
-                programIndex = 0
-            } else {
-                guard let exactIndex = Int(exactly: storedNumber - 1) else {
-                    throw KaitoError.malformed("RAR3 filter program number is too large")
-                }
-                programIndex = exactIndex
-            }
-            guard programIndex <= solidState.filterPrograms.count else {
-                throw KaitoError.malformed("RAR3 filter program number is invalid")
-            }
-            solidState.lastFilterProgram = programIndex
-        } else {
-            guard programIndex <= solidState.filterPrograms.count else {
-                throw KaitoError.malformed("RAR3 previous filter program is unavailable")
-            }
-        }
-
-        let storedStart = try cursor.readRARVMNumber()
-        guard storedStart & 0x8000_0000 == 0 else {
-            throw KaitoError.malformed("RAR3 filter start is negative")
-        }
-        var relativeStart = UInt64(storedStart)
-        if flags & 0x40 != 0 {
-            relativeStart = try Checked.add(relativeStart, 258)
-        }
-        let start = try Checked.add(outputPosition, relativeStart)
-
-        let isNewProgram = programIndex == solidState.filterPrograms.count
-        let blockLength: Int
-        if flags & 0x20 != 0 {
-            let storedLength = try cursor.readRARVMNumber()
-            guard let exactLength = Int(exactly: storedLength) else {
-                throw KaitoError.malformed("RAR3 filter length is too large")
-            }
-            blockLength = exactLength
-        } else {
-            guard !isNewProgram else {
-                throw KaitoError.malformed("new RAR3 filter omits its block length")
-            }
-            blockLength = solidState.filterPrograms[programIndex].previousLength
-        }
-        guard blockLength > 0,
-              blockLength <= solidState.windowSize,
-              blockLength <= RARStandardFilters.rar3WorkAreaSize else {
-            throw KaitoError.malformed("RAR3 filter length is outside its work area")
-        }
-
-        let usageCount: UInt32
-        if isNewProgram {
-            usageCount = 0
-        } else {
-            let (incremented, overflow) = solidState.filterPrograms[programIndex]
-                .usageCount.addingReportingOverflow(1)
-            guard !overflow else {
-                throw KaitoError.limitExceeded("RAR3 filter usage count")
-            }
-            usageCount = incremented
-        }
-        var registers = [UInt32](repeating: 0, count: 8)
-        registers[3] = UInt32(RARStandardFilters.rar3WorkAreaSize)
-        registers[4] = UInt32(blockLength)
-        registers[5] = usageCount
-        registers[7] = UInt32(RARStandardFilters.rar3VirtualMemorySize)
-
-        if flags & 0x10 != 0 {
-            let mask = try cursor.read(7)
-            for register in 0..<7 where mask & UInt32(1 << register) != 0 {
-                registers[register] = try cursor.readRARVMNumber()
-            }
-        }
-
-        let kind: RARStandardFilterKind
-        if isNewProgram {
-            let storedBytecodeLength = try cursor.readRARVMNumber()
-            guard let bytecodeLength = Int(exactly: storedBytecodeLength),
-                  (1...65_536).contains(bytecodeLength),
-                  bytecodeLength <= cursor.remainingByteCapacity else {
-                throw KaitoError.malformed("RAR3 VM bytecode length is invalid")
-            }
-            var bytecode = [UInt8]()
-            bytecode.reserveCapacity(bytecodeLength)
-            for _ in 0..<bytecodeLength {
-                bytecode.append(UInt8(truncatingIfNeeded: try cursor.read(8)))
-            }
-            guard let checksum = bytecode.first,
-                  bytecode.dropFirst().reduce(UInt8(0), ^) == checksum else {
-                throw KaitoError.malformed("RAR3 VM bytecode checksum mismatch")
-            }
-            kind = try RARStandardFilters.requireRAR3Program(bytecode)
-            guard solidState.filterPrograms.count < maximumFilterCount else {
-                throw KaitoError.limitExceeded("RAR3 filter program count")
-            }
-            solidState.filterPrograms.append(StoredFilterProgram(
-                kind: kind,
-                previousLength: blockLength,
-                usageCount: usageCount
-            ))
-        } else {
-            kind = solidState.filterPrograms[programIndex].kind
-            solidState.filterPrograms[programIndex].previousLength = blockLength
-            solidState.filterPrograms[programIndex].usageCount = usageCount
-        }
-
-        if flags & 0x08 != 0 {
-            let storedGlobalLength = try cursor.readRARVMNumber()
-            guard let globalLength = Int(exactly: storedGlobalLength),
-                  globalLength <= 0x1FC0,
-                  globalLength <= cursor.remainingByteCapacity else {
-                throw KaitoError.malformed("RAR3 filter global data is invalid")
-            }
-            for _ in 0..<globalLength {
-                _ = try cursor.read(8)
-            }
-        }
-
-        // Native standard filters are size preserving. R3/R4/R5/R6 are VM
-        // execution state supplied by the decoder; accepting altered values
-        // would silently change a recognized program's semantics.
-        guard registers[3] == UInt32(RARStandardFilters.rar3WorkAreaSize),
-              registers[4] == UInt32(blockLength),
-              registers[5] == usageCount,
-              registers[6] == 0 else {
-            throw KaitoError.unsupportedMethod("RAR3 custom VM filter registers")
-        }
-
-        switch kind {
-        case .delta, .rgb, .audio:
-            guard blockLength <= RARStandardFilters.rar3WorkAreaSize / 2 else {
-                throw KaitoError.malformed("RAR3 filter output exceeds its work area")
-            }
-        case .e8, .e8e9:
-            guard blockLength > 4 else {
-                throw KaitoError.malformed("RAR3 x86 filter block is too short")
-            }
-        case .itanium:
-            break
-        case .arm:
-            throw KaitoError.unsupportedMethod("RAR3 ARM filter")
-        }
-
-        let end = try Checked.add(start, UInt64(blockLength))
-        guard end <= expectedSize else {
-            throw KaitoError.malformed("RAR3 filter range exceeds output")
-        }
-        return ScheduledFilter(
-            start: start,
-            length: blockLength,
-            kind: kind,
-            registers: registers
+        let token = try RAR3FilterToken.parse(
+            payload,
+            flags: flags,
+            context: RAR3FilterToken.Context(
+                outputPosition: outputPosition,
+                expectedSize: expectedSize,
+                windowSize: solidState.windowSize,
+                programs: solidState.filterPrograms,
+                lastProgram: solidState.lastFilterProgram,
+                maximumProgramCount: maximumFilterCount,
+                canResetPrograms: filterCaptureStart == nil && filteredOutput.isEmpty
+            )
         )
+        return resolveFilter(token)
     }
 
+    /// Applies a fully validated descriptor to the solid program table and
+    /// the pending filter schedule. Nothing here can fail: a descriptor that
+    /// throws while parsing leaves this state untouched, and every such error
+    /// is terminal for the decoder (a solid coordinator then drops the state).
+    private func resolveFilter(_ token: RAR3FilterToken) -> ScheduledFilter {
+        if token.resetsPrograms {
+            solidState.filterPrograms.removeAll(keepingCapacity: true)
+            if nextFilterIndex < scheduledFilters.count {
+                scheduledFilters.removeSubrange(nextFilterIndex...)
+            }
+        }
+        solidState.lastFilterProgram = token.programIndex
+        if token.isNewProgram {
+            solidState.filterPrograms.append(StoredFilterProgram(
+                kind: token.kind,
+                previousLength: token.blockLength,
+                usageCount: token.usageCount
+            ))
+        } else {
+            solidState.filterPrograms[token.programIndex].previousLength = token.blockLength
+            solidState.filterPrograms[token.programIndex].usageCount = token.usageCount
+        }
+        return ScheduledFilter(
+            start: token.start,
+            length: token.blockLength,
+            kind: token.kind,
+            registers: token.registers
+        )
+    }
     private func schedule(filter: ScheduledFilter) throws {
         if let previous = scheduledFilters.last {
             if filter.start == previous.start {
@@ -1381,49 +1261,6 @@ final class RAR29Decoder: Decompressor {
             .unsupportedMethod(reason)
         case let .limitExceeded(reason):
             .limitExceeded(reason)
-        }
-    }
-}
-
-/// MSB-first bit cursor for the byte-bounded payload embedded in a RAR3
-/// filter token. Unlike the sentinel-backed LZ cursor, every read is checked
-/// against the descriptor's declared byte length.
-private struct RAR3MemoryBitCursor {
-    let bytes: [UInt8]
-    private(set) var bitOffset = 0
-
-    var remainingByteCapacity: Int {
-        max(0, (bytes.count * 8 - bitOffset) / 8)
-    }
-
-    mutating func read(_ count: Int) throws -> UInt32 {
-        guard (0...32).contains(count),
-              bitOffset <= bytes.count * 8,
-              count <= bytes.count * 8 - bitOffset else {
-            throw KaitoError.malformed("RAR3 filter payload is truncated")
-        }
-        var value: UInt32 = 0
-        for _ in 0..<count {
-            let byte = bytes[bitOffset >> 3]
-            let shift = 7 - (bitOffset & 7)
-            value = value << 1 | UInt32(byte >> shift & 1)
-            bitOffset += 1
-        }
-        return value
-    }
-
-    mutating func readRARVMNumber() throws -> UInt32 {
-        switch try read(2) {
-        case 0:
-            return try read(4)
-        case 1:
-            let value = try read(8)
-            if value >= 16 { return value }
-            return 0xFFFF_FF00 | value << 4 | (try read(4))
-        case 2:
-            return try read(16)
-        default:
-            return try read(32)
         }
     }
 }

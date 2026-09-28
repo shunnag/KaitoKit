@@ -11,9 +11,13 @@ FUNCTIONS = {
         ('symbolScore', 'static func symbolScore('), ('scalarScore', 'static func scalarScore('),
         ('repeatedMask', 'private static func repeatedMask<'),
         ('excessiveLetters', 'static func excessiveLetters('),
+    ],
+    'NameOrthography.swift': [
         ('additionalOrthography', 'static func additionalOrthography('),
-        ('westernEvidence', 'private static func westernEvidence('),
+        ('westernEvidence', 'static func westernEvidence('),
         ('vietnameseOrthography', 'static func vietnameseOrthography('),
+    ],
+    'LetterRules.swift': [
         ('letterRules', 'static func letterRules('),
         ('LetterRuleState.append', 'struct LetterRuleState', 'mutating func append('),
         ('LetterRuleState.finish', 'struct LetterRuleState', 'mutating func finish('),
@@ -29,7 +33,8 @@ def main():
     args.out_dir.mkdir(parents=True, exist_ok=True)
     labels = [f[0] for funcs in FUNCTIONS.values() for f in funcs]
     sources = []
-    for filename in ['EncodingPolicy.swift', 'EncodingDetector.swift', 'NameEncodingCandidates.swift', 'NameEncodingScorer.swift', 'LanguageExemplars.swift']:
+    for filename in ['EncodingPolicy.swift', 'EncodingDetector.swift', 'JapaneseNameEncodingResolver.swift', 'NameEncodingCandidates.swift',
+                     'NameEncodingScorer.swift', 'LetterRules.swift', 'NameOrthography.swift', 'LanguageExemplars.swift']:
         original = ROOT / 'Sources/KaitoKit/Text' / filename
         if filename not in FUNCTIONS:
             sources.append(str(original)); continue

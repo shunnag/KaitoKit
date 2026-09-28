@@ -34,11 +34,11 @@ enum LZMA2ChunkHeader {
     /// 非圧縮 chunk の大きさの上限。
     static let maximumRawChunkSize: UInt64 = 64 * 1_024
 
-    static let endControl: UInt8 = 0x00
+    private static let endControl: UInt8 = 0x00
     /// dictionary を reset する非圧縮 chunk。
     static let rawDictionaryResetControl: UInt8 = 0x01
     /// dictionary を保つ非圧縮 chunk。
-    static let rawControl: UInt8 = 0x02
+    private static let rawControl: UInt8 = 0x02
     private static let firstCompressedControl: UInt8 = 0x80
     private static let stateResetControl: UInt8 = 0xA0
     private static let propertiesResetControl: UInt8 = 0xC0
@@ -53,7 +53,8 @@ enum LZMA2ChunkHeader {
     /// `controlOffset` の control byte `control` を読んだ直後の `reader` から残りの header を
     /// 読み、`resets` を更新する。
     ///
-    /// 検査順は size、dictionary reset、property byte、coding state の順で、どの失敗が
+    /// 検査順は、非圧縮 chunk が control の妥当性、dictionary reset、size、LZMA chunk が size、
+    /// dictionary reset、property byte、coding state の順で、どの失敗が
     /// 先に報告されるかは両方の呼出元で同じになる。
     init(
         control: UInt8,

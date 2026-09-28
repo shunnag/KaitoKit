@@ -2,7 +2,8 @@ import Foundation
 
 // 参照仕様: 公開ドメインの LZMA SDK `C/Ppmd7.c`、`C/Ppmd7.h`、
 // `C/Ppmd7Dec.c` と Dmitry Shkarin の PPMd var.H model description。
-// 7z 固有の carryless range coder と 5-byte properties を境界検査付きで再実装する。
+// 7z 固有の carryless range coder と 5-byte properties を境界検査付きで再実装する
+// （range coder は SevenZipPPMdRangeDecoder.swift）。
 
 // 7z が使用する PPMd7（variant H）のストリーミング decoder。
 // 失敗は latch しない。throw した時点で model と range coder は途中まで進んでいるので、instance を破棄する。

@@ -9,7 +9,7 @@ import Foundation
 //
 // Bit readers
 // - LSBFirstBitReader (public): LSB first; [UInt8]; missing bits read as zero and
-//   set a sticky `overrun`; API clients.
+//   set a sticky `overrun`; public API, no user inside KaitoKit.
 // - MSBFirstBitReader (public): MSB first; [UInt8] or a borrowed pointer; missing
 //   bits read as zero and set a sticky `overrun`; LZHUFDecoder, LArcDecoder.
 // - LHAStaticBitCursor: MSB first; pointer plus 8 sentinel bytes; sticky `overrun`
@@ -49,7 +49,7 @@ import Foundation
 // - PPMdVarIRangeDecoder: Shkarin's carry-less coder with `low` and `scale`;
 //   ByteSource through a 64 KiB buffer; throws; PPMdVarIDecoder (ZIP method 98).
 // - StuffItArsenicArithmetic: StuffIt Arsenic arithmetic coder; StuffItPackedInput;
-//   StuffIt Arsenic.
+//   errors surface through StuffItPackedInput; StuffIt Arsenic.
 // - StuffItXRangeDecoder: StuffIt X range coder; StuffItXBitReader; throws;
 //   StuffIt X.
 

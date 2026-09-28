@@ -42,14 +42,6 @@ final class JPEGHuffman {
             code <<= 1
         }
     }
-    func read(_ bit: () throws -> Int) throws -> Int {
-        var code = 0
-        for length in 1...16 {
-            code = try code*2+bit()
-            for symbol in 0..<256 where codes.p[256+symbol] == length && codes.p[symbol] == code { return symbol }
-        }
-        throw jpegMalformed("unknown Huffman code")
-    }
     @inline(__always) func write(_ bits: JPEGEntropyWriter, _ symbol: Int) throws {
         guard symbol >= 0, symbol < 256, codes.p[256+symbol] != 0 else { throw jpegMalformed("missing Huffman symbol") }
         try bits.put(codes.p[symbol],codes.p[256+symbol])

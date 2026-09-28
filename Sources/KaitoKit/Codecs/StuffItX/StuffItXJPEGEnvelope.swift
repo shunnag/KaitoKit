@@ -39,12 +39,6 @@ final class StuffItXJPEGInput {
         }
         throw jpegMalformed("unterminated WZ integer")
     }
-    static func writeWZ(_ value: UInt64) -> [UInt8] {
-        var value = value, result = [UInt8(value & 127)]
-        value >>= 7
-        while value != 0 { result.append(128 | UInt8(value & 127)); value >>= 7 }
-        return result.reversed()
-    }
 }
 
 final class StuffItXJPEGRange {
@@ -261,5 +255,7 @@ final class JPEGOutput {
         if cursor == count { count = 0; cursor = 0 }
         return n
     }
+    /// テスト専用: 最後に全量を読み出した後に蓄積した出力の複製。本番経路では呼ばれない。
+    /// private な storage を読むので、テスト target の extension へは移せない。
     var bytes: [UInt8] { Array(UnsafeBufferPointer(start: storage, count: count)) }
 }

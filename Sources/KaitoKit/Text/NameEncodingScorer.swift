@@ -460,7 +460,7 @@ enum NameEncodingScorer {
         var hanOnly = true
         var sawHan = false
         let halfWidth = candidate.isJapanese && properties.contains { (0xFF61...0xFF9F).contains($0.scalar) }
-            && EncodingDetector.nameIsLikelyHalfWidth(text)
+            && JapaneseNameEncodingResolver.isLikelyHalfWidthName(text)
         let scores: [ScalarScore]
         if single, !singleScalar {
             scores = Array(bytes.prefix(Tuning.scoringScalarLimit).flatMap { byteScores[candidateIndex][Int($0)] ?? [] }

@@ -62,8 +62,8 @@ enum NameEncodingCandidates {
         }
 
         func structurallyValid(_ bytes: [UInt8]) -> Bool {
-            if form == .cp932 { return EncodingDetector.nameIsStructurallyJapanese(bytes, euc: false) }
-            if form == .eucJP { return EncodingDetector.nameIsStructurallyJapanese(bytes, euc: true) }
+            if form == .cp932 { return JapaneseNameEncodingResolver.isStructurallyCP932(bytes) }
+            if form == .eucJP { return JapaneseNameEncodingResolver.isStructurallyEUCJP(bytes) }
             if form == .single { return bytes.allSatisfy { singleByteTable[Int($0)] != nil } }
             var index = 0
             while index < bytes.count {

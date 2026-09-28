@@ -296,8 +296,8 @@ final class NameEncodingScorerTests: XCTestCase {
         XCTAssertEqual(try score("cp932", [0x81, 0x5B]), 0)
         XCTAssertEqual(try score("cp932", [0x95, 0x5C, 0x8E, 0x86]), 2)
         XCTAssertEqual(try score("euc-jp", [0xC9, 0xBD, 0xBB, 0xE6]), 2)
-        XCTAssertFalse(EncodingDetector.nameIsLikelyHalfWidth("ｱｲｳ"))
-        XCTAssertTrue(EncodingDetector.nameIsLikelyHalfWidth("ﾃｽﾄ"))
+        XCTAssertFalse(JapaneseNameEncodingResolver.isLikelyHalfWidthName("ｱｲｳ"))
+        XCTAssertTrue(JapaneseNameEncodingResolver.isLikelyHalfWidthName("ﾃｽﾄ"))
     }
 
     func testArchiveAppliesPriorOnlyOnceForRepeatedShortNames() {

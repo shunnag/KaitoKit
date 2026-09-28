@@ -1,6 +1,6 @@
 // inbox/zstd/xxhash_spec.md の XXH64 algorithm description から実装。
 // 32 バイト未満の端数だけを保持し、フレーム全体を確保しない。
-struct ZstdXXH64 {
+struct XXH64 {
     private static let p1: UInt64 = 0x9e3779b185ebca87
     private static let p2: UInt64 = 0xc2b2ae3d27d4eb4f
     private static let p3: UInt64 = 0x165667b19e3779f9

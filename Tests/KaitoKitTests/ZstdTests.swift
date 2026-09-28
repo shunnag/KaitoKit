@@ -567,12 +567,12 @@ final class ZstdTests: XCTestCase {
     }
 
     func testXXH64IncrementalAcrossEveryStripeBoundary() throws {
-        XCTAssertEqual(ZstdXXH64().value, 0xef46db3751d8e999)
+        XCTAssertEqual(XXH64().value, 0xef46db3751d8e999)
         let input = [UInt8](0...255) + [UInt8](0...100)
-        var full = ZstdXXH64()
+        var full = XXH64()
         full.update(input[...])
         for chunk in 1...65 {
-            var partial = ZstdXXH64()
+            var partial = XXH64()
             for offset in stride(from: 0, to: input.count, by: chunk) {
                 partial.update(input[offset..<min(input.count, offset + chunk)])
             }
@@ -580,7 +580,7 @@ final class ZstdTests: XCTestCase {
         }
         let encoded = try fixture("text-l3.zst")
         let plain = try decode(encoded)
-        var hash = ZstdXXH64()
+        var hash = XXH64()
         hash.update(Array(plain)[...])
         let stored = encoded.suffix(4).enumerated().reduce(UInt64(0)) { $0 | UInt64($1.element) << ($1.offset * 8) }
         XCTAssertEqual(UInt64(UInt32(truncatingIfNeeded: hash.value)), stored)
@@ -588,13 +588,13 @@ final class ZstdTests: XCTestCase {
 
     func testStage3XXH64RawViewsAndUnalignedChunks() {
         let input = [UInt8](0...255) + [UInt8](0...100)
-        var expected = ZstdXXH64()
+        var expected = XXH64()
         expected.update(input[...])
         for start in 0...7 {
             let storage = [UInt8](repeating: 0xa5, count: start) + input + [UInt8](repeating: 0x5a, count: 32)
             storage.withUnsafeBytes { bytes in
                 for chunk in 1...65 {
-                    var hash = ZstdXXH64()
+                    var hash = XXH64()
                     hash.update(UnsafeRawBufferPointer(start: nil, count: 0))
                     for offset in stride(from: 0, to: input.count, by: chunk) {
                         let end = min(input.count, offset + chunk)
@@ -638,12 +638,12 @@ final class ZstdTests: XCTestCase {
             + block([0x51], type: 1, last: false, size: 65)
             + block(rleSequence(literals: [0x7a], ll: 1)), contentSize: UInt64(plain.count))
         encoded[4] |= 4
-        var hash = ZstdXXH64()
+        var hash = XXH64()
         hash.update(plain[...])
         encoded.append(contentsOf: little(hash.value, 4))
         let input = try ZstdInput(source: DataByteSource(encoded), offset: 4, size: UInt64(encoded.count - 4))
         let frameDecoder = try ZstdFrameDecoder(header: ZstdFrameHeader(input: input, limits: ReadLimits()))
-        var viewHash = ZstdXXH64(), previousAllocation = 0
+        var viewHash = XXH64(), previousAllocation = 0
         for (index, expected) in blocks.enumerated() {
             let view = try frameDecoder.nextBlock(input)
             XCTAssertEqual(view.count, expected.count)
@@ -968,7 +968,7 @@ final class ZstdTests: XCTestCase {
                 let output = try decoder.nextBlock(input)
                 XCTAssertEqual(output.count, literalCount + matchCount)
                 XCTAssertEqual(Array(output), expected)
-                var actualHash = ZstdXXH64(), expectedHash = ZstdXXH64()
+                var actualHash = XXH64(), expectedHash = XXH64()
                 actualHash.update(output); expectedHash.update(expected[...])
                 XCTAssertEqual(actualHash.value, expectedHash.value)
             } else {

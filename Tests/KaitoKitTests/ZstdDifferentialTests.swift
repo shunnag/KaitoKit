@@ -346,7 +346,7 @@ final class ZstdDifferentialTests: XCTestCase {
                 decoded.append(contentsOf: buffer.prefix(count))
             }
             XCTAssertEqual(decoded, expected)
-            var actual = ZstdXXH64(), reference = ZstdXXH64()
+            var actual = XXH64(), reference = XXH64()
             actual.update([UInt8](decoded)[...]); reference.update([UInt8](expected)[...])
             XCTAssertEqual(actual.value, reference.value)
         }

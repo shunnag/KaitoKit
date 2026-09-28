@@ -1,6 +1,6 @@
 // XXH32, seed 0, from the public xxhash_spec.md (version 0.2.0).
 // Retains at most the final 15 bytes; the input is never collected as a whole.
-struct LZ4XXH32 {
+struct XXH32 {
     private static let p1: UInt32 = 0x9e3779b1
     private static let p2: UInt32 = 0x85ebca77
     private static let p3: UInt32 = 0xc2b2ae3d

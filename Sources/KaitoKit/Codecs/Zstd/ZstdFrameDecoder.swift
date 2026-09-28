@@ -72,7 +72,7 @@ final class ZstdFrameDecoder {
     private var writePosition = 0
     private var historyCount = 0
     private var produced: UInt64 = 0
-    private var checksum = ZstdXXH64()
+    private var checksum = XXH64()
     private var huffman: ZstdHuffman?
     private let literalTable = ZstdSequenceTable(maximumLog: 9)
     private let offsetTable = ZstdSequenceTable(maximumLog: 8)

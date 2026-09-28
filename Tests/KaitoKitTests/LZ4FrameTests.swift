@@ -46,7 +46,7 @@ final class LZ4FrameTests: XCTestCase {
             let input = (0..<vector.length).map { UInt8(($0 * 73 + 19) & 255) }
             let expected = try XCTUnwrap(UInt32(vector.xxh32, radix: 16))
             for chunk in [1, 3, 15, 16, 17, 31, 32, 4093, 65539] {
-                var checksum = LZ4XXH32()
+                var checksum = XXH32()
                 for start in stride(from: 0, to: input.count, by: chunk) {
                     checksum.update(input[start..<min(start + chunk, input.count)])
                     let snapshot = checksum.value
@@ -277,7 +277,7 @@ final class LZ4FrameTests: XCTestCase {
     }
     private func frame(flags: UInt8, blockDescriptor: UInt8, optional: Data = Data(), blocks: Data = Data()) -> Data {
         let descriptor = [flags, blockDescriptor] + Array(optional)
-        let check = UInt8(truncatingIfNeeded: LZ4XXH32.digest(descriptor) >> 8)
+        let check = UInt8(truncatingIfNeeded: XXH32.digest(descriptor) >> 8)
         return word(0x184d2204) + Data(descriptor) + Data([check]) + blocks + word(0)
     }
 }

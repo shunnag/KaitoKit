@@ -17,7 +17,7 @@ final class LZ4FrameDecompressor: Decompressor {
     private var blockCount = 0
     private var produced: UInt64 = 0
     private var frameProduced: UInt64 = 0
-    private var checksum = LZ4XXH32()
+    private var checksum = XXH32()
     private var history: [UInt8] = []
     private var pending: [UInt8] = []
     private var pendingOffset = 0
@@ -78,7 +78,7 @@ final class LZ4FrameDecompressor: Decompressor {
                     try Self.charge(&blockCount, limits: limits)
                     let count = try header.blockSize(word)
                     let encoded = try input.read(count)
-                    if header.blockChecksum, try input.integer(4) != UInt64(LZ4XXH32.digest(encoded)) {
+                    if header.blockChecksum, try input.integer(4) != UInt64(XXH32.digest(encoded)) {
                         throw KaitoError.checksumMismatch(entry: 0)
                     }
                     let remaining = limits.maxEntrySize - produced
@@ -142,7 +142,7 @@ final class LZ4FrameDecompressor: Decompressor {
                     }
                     header = next
                     frameProduced = 0
-                    checksum = LZ4XXH32()
+                    checksum = XXH32()
                     history.removeAll(keepingCapacity: false)
                 }
             }
@@ -240,7 +240,7 @@ private struct LZ4FrameHeader {
             dictionary = bytes.enumerated().reduce(UInt64(0)) { $0 | UInt64($1.element) << (8 * $1.offset) }
         } else { dictionary = nil }
         let check = try input.integer(1)
-        guard check == UInt64((LZ4XXH32.digest(descriptor) >> 8) & 255) else {
+        guard check == UInt64((XXH32.digest(descriptor) >> 8) & 255) else {
             throw KaitoError.checksumMismatch(entry: 0)
         }
         if let dictionary {

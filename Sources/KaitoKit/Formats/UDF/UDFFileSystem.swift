@@ -2,7 +2,7 @@ import Foundation
 
 /// file の本文を構成する区間。未記録・未割当の extent は #00（4/12）。
 enum UDFDataExtent {
-    case recorded(ISOSection)
+    case recorded(ByteRange)
     case zero(UInt64)
     case inline([UInt8])
 

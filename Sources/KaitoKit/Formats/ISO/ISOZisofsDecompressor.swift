@@ -23,7 +23,7 @@ struct ISOZisofsInfo: Equatable {
 /// zisofs の block 列を展開後の byte 列として順に返す。
 final class ISOZisofsDecompressor: Decompressor {
     private let source: any ByteSource
-    private let section: ISOSection
+    private let section: ByteRange
     private let info: ISOZisofsInfo
     private var pointers: [UInt32] = []
     private var blockIndex: UInt64 = 0
@@ -35,7 +35,7 @@ final class ISOZisofsDecompressor: Decompressor {
     private var terminalError: (any Error)?
     private(set) var isFinished = false
 
-    init(source: any ByteSource, section: ISOSection, info: ISOZisofsInfo, limits: ReadLimits) throws {
+    init(source: any ByteSource, section: ByteRange, info: ISOZisofsInfo, limits: ReadLimits) throws {
         self.source = source
         self.section = section
         self.info = info

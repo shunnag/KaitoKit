@@ -101,10 +101,10 @@ struct ISOVolume {
             || [120, 124, 128].contains { ISOBytes.mismatch(b, $0, width: 2) } || root.mismatch
     }
 
-    func range(lba: UInt32, ea: UInt8 = 0, length: UInt64) throws -> ISOSection {
+    func range(lba: UInt32, ea: UInt8 = 0, length: UInt64) throws -> ByteRange {
         guard lba < blocks else { throw KaitoError.truncated }
         let offset = try Checked.mul(try Checked.add(UInt64(lba), UInt64(ea)), blockSize)
         guard try Checked.add(offset, length) <= limit else { throw KaitoError.truncated }
-        return ISOSection(offset: offset, length: length)
+        return ByteRange(offset: offset, length: length)
     }
 }

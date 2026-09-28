@@ -442,7 +442,7 @@ final class UDFVolume {
     }
 
     /// partition 内の連続 block 範囲を、物理的に連続する byte 範囲の列に分ける（metadata 空間は run 境界で切る）。
-    func physicalRanges(partition reference: Int, block: UInt32, length: UInt64) throws -> [ISOSection] {
+    func physicalRanges(partition reference: Int, block: UInt32, length: UInt64) throws -> [ByteRange] {
         guard length > 0 else { return [] }
         guard partitions.indices.contains(reference) else { throw KaitoError.malformed("udf partition reference \(reference)") }
         let partition = partitions[reference]
@@ -454,9 +454,9 @@ final class UDFVolume {
                 throw KaitoError.malformed("udf extent outside partition \(reference)")
             }
             let offset = try Checked.mul(UInt64(partition.start) + UInt64(block), blockSize64)
-            return [ISOSection(offset: offset, length: length)]
+            return [ByteRange(offset: offset, length: length)]
         case .metadata, .sparable, .virtual:
-            var sections: [ISOSection] = []
+            var sections: [ByteRange] = []
             var current = block
             var remaining = length
             while remaining > 0 {
@@ -469,7 +469,7 @@ final class UDFVolume {
                     contiguous += 1
                 }
                 let bytes = min(remaining, contiguous * blockSize64)
-                sections.append(ISOSection(offset: try Checked.mul(sector, blockSize64), length: bytes))
+                sections.append(ByteRange(offset: try Checked.mul(sector, blockSize64), length: bytes))
                 remaining -= bytes
                 current = try UInt32(Checked.add(UInt64(current), contiguous))
             }

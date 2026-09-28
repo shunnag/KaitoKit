@@ -4,7 +4,7 @@ import Foundation
 // 公開仕様だけを参照したクリーンルーム実装。
 final class ISOReader: FormatReader {
     private struct Record {
-        var sections: [ISOSection]
+        var sections: [ByteRange]
         var totalLength: UInt64
         var unsupported: String?
         var zisofs: ISOZisofsInfo? = nil
@@ -264,14 +264,14 @@ final class ISOReader: FormatReader {
                 let rrName = !joliet && rr.name != nil
                 specific["nameSource"] = joliet ? "joliet" : (rrName ? "rockRidge" : "iso9660")
                 let name = rrName ? rr.name! : first.identifier
-                var ranges: [ISOSection] = []
+                var ranges: [ByteRange] = []
                 var total: UInt64 = 0
                 if kind == .file {
                     for section in sections {
                         total = try Checked.add(total, UInt64(section.length))
                         // 長さ 0 の extent は block を持たない。libarchive は空 file の LBA に
                         // 0xFFFFFFF0 を書くため、位置は検証せず空 section にする。
-                        if section.length == 0 { ranges.append(ISOSection(offset: 0, length: 0)) }
+                        if section.length == 0 { ranges.append(ByteRange(offset: 0, length: 0)) }
                         else if !foreign { ranges.append(try volume.range(lba: section.lba, ea: section.ea, length: UInt64(section.length))) }
                     }
                     try Checked.size(total, limit: budget.limits.maxEntrySize)
@@ -281,7 +281,7 @@ final class ISOReader: FormatReader {
                     // symlink も不正な extent を許さない (通常 dataLength は 0 で、その場合は位置を見ない)。
                     _ = try volume.range(lba: first.lba, ea: first.ea, length: UInt64(first.length))
                 }
-                if kind != .file { ranges = [ISOSection(offset: 0, length: 0)] }
+                if kind != .file { ranges = [ByteRange(offset: 0, length: 0)] }
                 let index = result.count
                 guard index < budget.limits.maxEntryCount else { throw KaitoError.limitExceeded("iso entry count") }
                 var descent: Node?

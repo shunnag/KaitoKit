@@ -1,18 +1,16 @@
 import Foundation
 
-struct ISOSection {
-    let offset: UInt64
-    let length: UInt64
-}
+// 旧名。UDFReaderTests が参照する。
+typealias ISOSection = ByteRange
 
 // ECMA-119 §6.5: section の実 byte 長だけを順に返し、block padding を混ぜない。
 final class ISOSectionDecompressor: Decompressor {
     private let source: any ByteSource
-    private let sections: [ISOSection]
+    private let sections: [ByteRange]
     private var index = 0
     private var current: CopyDecompressor?
 
-    init(source: any ByteSource, sections: [ISOSection]) {
+    init(source: any ByteSource, sections: [ByteRange]) {
         self.source = source
         self.sections = sections.filter { $0.length > 0 }
     }

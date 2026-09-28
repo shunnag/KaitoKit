@@ -1684,9 +1684,9 @@ final class RAR4Reader: FormatReader {
         // FHD_SOLID marks a file as continuing the dictionary of the previous
         // compressed file. Consequently a group becomes observable only at
         // the first continuation: its independent predecessor is then the
-        // group leader. Directories and method 0x30 never join or break the run.
-        // The batch-13 RAR 6.24 black-box vectors establish that stored members
-        // leave all solid state untouched, regardless of flags or unpack version.
+        // group leader. Directories and method 0x30 never join or break the run:
+        // stored members leave all solid state untouched regardless of flags or
+        // unpack version (RAR 6.24 behaviour).
         var solidGroups = [Int](repeating: -1, count: pendingEntries.count)
         var previousFileIndex: Int?
         for index in pendingEntries.indices {
@@ -1812,8 +1812,9 @@ final class RAR4Reader: FormatReader {
             count: 8
         )
         let ciphertextOffset = try Checked.add(offset, 8)
-        // 暗号化 header は writer の OS 自体が暗号文にある。BMP 外の文字がある場合だけ
-        // 二通りを試し、header CRC で確定する。候補数は常に最大 2。
+        // The writer's OS, which decides the password encoding, is itself inside
+        // the encrypted header. Only a password with non-BMP characters has two
+        // candidate encodings; the header CRC selects one. At most two are tried.
         let encodings = passwordEncodings.unixScalars.map { [$0] }
             ?? (password.unicodeScalars.contains { $0.value > 0xFFFF } ? [false, true] : [false])
         var firstError: (any Error)?

@@ -96,9 +96,9 @@ enum RAR3KeyDerivation {
         )
     }
 
-    // RAR3 の長い password は通常の SHA-1 KDF と異なる。直接処理した入力 block の
-    // 最後の 16 schedule word が同じ password buffer に残り、次の round の入力になる。
-    // 供給された互換性所見から導出し、RAR 6.24 の -p/-hp 実書庫で検証する。
+    // A long RAR3 password does not follow the plain SHA-1 KDF: for every input
+    // block SHA-1 processes directly, the last 16 message-schedule words are
+    // written back into the password buffer and become the next round's input.
     private static func deriveLegacyLongPassword(base: inout [UInt8]) -> RAR3DerivedKey {
         var context = CC_SHA1_CTX()
         CC_SHA1_Init(&context)
@@ -110,7 +110,8 @@ enum RAR3KeyDerivation {
             words.withUnsafeMutableBufferPointer { schedule in
                 for round in 0..<rounds {
                     CC_SHA1_Update(&context, bytes.baseAddress, CC_LONG(bytes.count))
-                    // 先頭の部分 block は内部 buffer にコピーされる。直接の block だけが変わる。
+                    // A leading partial block is copied into SHA-1's internal
+                    // buffer; only directly processed blocks are rewritten.
                     var start = 64 - pending
                     while start <= bytes.count - 64 {
                         for index in 0..<16 {
@@ -156,8 +157,9 @@ enum RAR3KeyDerivation {
     }
 
     static func unixPasswordBytes(_ password: String) -> Data {
-        // Unix RAR の 32-bit wchar_t は RAR3 KDF へ渡す際に下位 16 bit へ縮む。
-        // Windows の UTF-16 surrogate pair は passwordBytes に残し、writer に応じて選ぶ。
+        // Unix RAR truncates its 32-bit wchar_t to the low 16 bits for the RAR3
+        // KDF. Windows writers use UTF-16 surrogate pairs (`passwordBytes`); the
+        // reader selects whichever matches the writer.
         var bytes = [UInt8]()
         bytes.reserveCapacity(min(password.utf16.count, 127) * 2)
         for scalar in password.unicodeScalars.prefix(127) {
@@ -663,7 +665,8 @@ final class RARAESCBCByteSource: ByteSource {
     }
 }
 
-// CommonCrypto の呼出しは Core/CommonCryptoPrimitives。ここは RAR の AES 入力検査と error 文言。
+// The CommonCrypto call is in Core/CommonCryptoPrimitives; this adds RAR's AES
+// input checks and error text.
 private enum RARCommonCrypto {
     static func decryptECB(blocks: [UInt8], key: Data) throws -> [UInt8] {
         guard !blocks.isEmpty,

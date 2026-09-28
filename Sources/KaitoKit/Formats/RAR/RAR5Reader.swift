@@ -109,8 +109,8 @@ final class RAR5Reader: FormatReader {
         private(set) var used: UInt64 = 0
         private var contexts: Set<RAR5KeyCacheKey> = []
 
-        // private な格納プロパティがあると暗黙のメンバワイズ init も private になり、
-        // Swift 6.3.3 では外側の型からも呼べないため明示する
+        // Explicit because the private stored properties make the implicit
+        // memberwise initializer private as well.
         init(limit: UInt64) {
             self.limit = limit
         }
@@ -531,7 +531,8 @@ final class RAR5Reader: FormatReader {
             try Checked.size(unpackedSize, limit: limits.maxEntrySize)
         }
 
-        // 切れた solid member は列挙だけ許し、連続する復号状態には渡さない。
+        // A truncated solid member is listable only; it never feeds the
+        // continuing decoder state.
         if options.recoverDamagedArchives, entry.isIncomplete, entry.solidGroup >= 0 {
             throw KaitoError.truncated
         }
@@ -540,8 +541,9 @@ final class RAR5Reader: FormatReader {
            let targetText = entry.formatSpecific["fileCopyTargetIndex"],
            let targetIndex = Int(targetText),
            entries.indices.contains(targetIndex) {
-            // file copy（`rar -oi`）は本文を持たず、同一内容の先行 entry を指す。宣言サイズは
-            // 列挙時に参照先と照合済みなので、参照先の stream をそのまま返す（CRC も参照先のもの）。
+            // A file copy (`rar -oi`) has no body and names an earlier entry with
+            // the same content. Its declared size was matched against that target
+            // while listing, so the target's stream (and CRC) is returned as is.
             return try stream(for: entries[targetIndex], limits: limits)
         }
         if RAR5RedirectionType.isZeroBody(record.redirectionType) {
@@ -625,7 +627,7 @@ final class RAR5Reader: FormatReader {
                 guard options.recoverDamagedArchives, entry.isIncomplete else {
                     throw KaitoError.truncated
                 }
-                // 最初の圧縮 block すら揃わない場合、復号できた出力は 0 byte。
+                // Without even the first compressed block, zero bytes are recoverable.
                 decompressor = try CopyDecompressor(
                     source: prepared.source,
                     offset: prepared.offset,
@@ -766,8 +768,8 @@ final class RAR5Reader: FormatReader {
         _ entries: [ArchiveEntry]
     ) -> [Int: [Int]] {
         var result: [Int: [Int]] = [:]
-        // file copy の参照は参照先の solid group を名乗るが本文を持たず、復号の連鎖には
-        // 加わらない（読み取りは参照先の stream に委ねる）。
+        // A file copy reports its target's solid group but has no body, so it
+        // never joins the decoding chain; reads go to the target's stream.
         for index in entries.indices
         where entries[index].solidGroup >= 0
             && entries[index].formatSpecific["fileCopyTargetIndex"] == nil {
@@ -1193,7 +1195,8 @@ final class RAR5Reader: FormatReader {
             )
         }
 
-        // 多巻の欠損を単一書庫の切断と混同せず、分割 entry の救済を禁止する。
+        // A missing volume is not a truncated single archive: split entries are
+        // never recovered.
         if options.recoverDamagedArchives,
            !first.sawEndHeader, first.archiveFlags.contains(RAR5ArchiveFlags.volume) {
             throw KaitoError.truncated
@@ -1265,8 +1268,6 @@ final class RAR5Reader: FormatReader {
                     "RAR5 volume number \(next.volumeNumber) does not match expected \(nextNumber)"
                 )
             }
-            // Swift 6.3.3 は暗黙メンバ `.solid` の文脈型を推論できない箇所があるため
-            // 型名で修飾する(6.4 では推論できる)
             let nextIsSolid = next.archiveFlags.contains(RAR5ArchiveFlags.solid)
             let firstIsSolid = first.archiveFlags.contains(RAR5ArchiveFlags.solid)
             guard nextIsSolid == firstIsSolid else {
@@ -1334,16 +1335,16 @@ final class RAR5Reader: FormatReader {
         expectedHeaderEncryption: Bool?,
         headerKDFBudget: inout HeaderKDFWorkBudget
     ) throws -> ParseState {
-        // 後続巻では救済を有効にせず、従来どおり切断を通知する。
+        // Recovery applies to the first volume only; a later volume that ends
+        // early reports truncation.
         let recoverDamagedArchives = options.recoverDamagedArchives && volumeNumber == 0
         var state = ParseState()
         var offset = UInt64(signature.count)
         var archiveEncryption: ArchiveEncryptionContext?
         var headerBodyWasVerified = false
-        // Allocation profiling found a 256 KiB allocation and zero fill in
-        // every readBlock. Keep one bounded cursor per volume and seek across
-        // payloads, retaining read-ahead when the next header is still cached.
-        // The capacity depends only on caller limits, never header sizes.
+        // One bounded ByteReader per volume seeks across payloads and keeps its
+        // read-ahead when the next header is still cached. Its capacity depends
+        // only on caller limits, never on header sizes.
         var headerReader = try ByteReader(
             source: source,
             bufferCapacity: Int(min(16 * 1_024, options.limits.maxMetadataSize))
@@ -1411,8 +1412,8 @@ final class RAR5Reader: FormatReader {
                    !state.sawMainHeader {
                     throw KaitoError.wrongPassword
                 }
-                // header 自体が EOF で切れた場合だけ、既読 entry を残す。
-                // CRC 検証後の共通 header の自己矛盾も救済しない。
+                // Keep the entries read so far only when the header itself is cut
+                // by EOF. A CRC-verified but inconsistent header is not recovered.
                 if recoverDamagedArchives,
                    state.sawMainHeader,
                    !headerBodyWasVerified,
@@ -1734,7 +1735,7 @@ final class RAR5Reader: FormatReader {
             isDataTruncated = false
             nextOffset = declaredEnd
         } else {
-            // 宣言値は保持し、救済時だけ EOF までを読み取り範囲にする。
+            // Keep the declared size; only recovery limits the readable range to EOF.
             guard recoverDamagedArchives else { throw KaitoError.truncated }
             availableDataSize = try Checked.sub(sourceLength, dataOffset)
             isDataTruncated = true
@@ -2368,9 +2369,9 @@ final class RAR5Reader: FormatReader {
             let zeroBodyRedirection = RAR5RedirectionType.isZeroBody(
                 item.extras.redirection?.type
             )
-            // file copy（type 5）は参照先が先行する通常 file として解決できたときだけ、
-            // その内容と同じ大きさの `.file` として公開する。解決できなければ従来どおり
-            // 本文 0 の `.other` に留める。
+            // A file copy (type 5) is published as a `.file` of its target's size
+            // only when the target resolves to an earlier regular file; otherwise
+            // it stays a zero-body `.other`.
             var fileCopyTarget: (index: Int, entry: ArchiveEntry)?
             if let redirection = item.extras.redirection, redirection.type == RAR5RedirectionType.fileCopy,
                let normalizedTarget = normalizedExtractionPath(redirection.target),
@@ -2462,7 +2463,8 @@ final class RAR5Reader: FormatReader {
                 compressedSize: publishedPackedSize,
                 modificationDate: item.modificationDate,
                 posixPermissions: item.permissions,
-                // 参照は参照先の本文を読むので、暗号化と solid group も参照先に従う。
+                // A file copy reads its target's body, so encryption and solid
+                // group follow the target.
                 isEncrypted: fileCopyTarget?.entry.isEncrypted
                     ?? (!zeroBodyRedirection && item.extras.encryption != nil),
                 solidGroup: fileCopyTarget?.entry.solidGroup ?? solidGroups[index],

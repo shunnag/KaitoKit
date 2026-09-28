@@ -5,7 +5,8 @@ import Foundation
 //   volume numbers, signature, main-header layout and CRC32 coverage).
 // - bitplane/rar-research's unofficial clean-room RAR 1.5-4.x notes
 //   (old .rar/.r00 naming and new .partN.rar naming).
-// - KaitoKit M3 requirements for same-directory lookup and Data-backed errors.
+// - Task safety requirements: only deterministic sibling names below the first
+//   volume's directory are opened, and Data-backed sources reject continuations.
 // No unrar, 7-Zip Rar29, XADMaster, The Unarchiver, or RAR5 decoder source was
 // consulted.
 
@@ -100,7 +101,8 @@ final class RARVolumeLocator {
             throw KaitoError.malformed("RAR first volume anchor is incomplete")
         }
         guard let handle else {
-            // 親を開けない fallback は匿名 origin とし、後続巻は既存の unsupportedMethod で拒否する。
+            // Without a parent-directory anchor the origin is anonymous, so a
+            // continuation volume fails with unsupportedMethod as for Data input.
             self.naming = naming
             self.origin = .anonymous
             self.maxMetadataSize = maxMetadataSize

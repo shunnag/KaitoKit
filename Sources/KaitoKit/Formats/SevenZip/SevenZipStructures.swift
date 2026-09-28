@@ -49,7 +49,20 @@ struct SevenZipCoder: Sendable, Equatable {
     let properties: [UInt8]
     let firstInput: Int
     let firstOutput: Int
+    /// coder record 先頭 byte の生値。bit の意味は `SevenZipCoderFlag`。
     var flags: UInt8 = 0
+}
+
+/// coder record 先頭 byte の bit 配置（7zFormat.txt の Coder flags）。
+enum SevenZipCoderFlag {
+    /// bit 6 は予約、bit 7 は廃止された alternative methods。どちらも 0 でなければならない。
+    static let reservedMask: UInt8 = 0xC0
+    /// method ID の byte 数（1…8）。
+    static let idSizeMask: UInt8 = 0x0F
+    /// 入力数・出力数を明示する複合 coder。立っていなければ 1 入力 1 出力。
+    static let complex: UInt8 = 0x10
+    /// properties の長さと本体が続く。
+    static let hasProperties: UInt8 = 0x20
 }
 
 struct SevenZipBindPair: Sendable, Equatable {
@@ -512,10 +525,10 @@ enum SevenZipStreamsParser {
         var totalOutputs = 0
         for _ in 0..<coderCount {
             let flags = try cursor.readUInt8()
-            guard flags & 0xC0 == 0 else {
+            guard flags & SevenZipCoderFlag.reservedMask == 0 else {
                 throw KaitoError.malformed("reserved 7z coder flags are set")
             }
-            let idSize = Int(flags & 0x0F)
+            let idSize = Int(flags & SevenZipCoderFlag.idSizeMask)
             guard (1...8).contains(idSize), idSize <= cursor.remaining else {
                 throw KaitoError.malformed("invalid 7z coder method-id size")
             }
@@ -526,7 +539,7 @@ enum SevenZipStreamsParser {
             let method = try cursor.readBytes(idSize)
             let inputCount: Int
             let outputCount: Int
-            if flags & 0x10 != 0 {
+            if flags & SevenZipCoderFlag.complex != 0 {
                 inputCount = try boundedCount(
                     try cursor.readNumber(),
                     remaining: cursor.remaining,
@@ -555,7 +568,7 @@ enum SevenZipStreamsParser {
             )
 
             let properties: [UInt8]
-            if flags & 0x20 != 0 {
+            if flags & SevenZipCoderFlag.hasProperties != 0 {
                 let propertySize64 = try cursor.readNumber()
                 try Checked.size(propertySize64, limit: limits.maxMetadataSize)
                 try budget.reserve(

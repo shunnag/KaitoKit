@@ -52,8 +52,8 @@ struct SevenZipEditState: Sendable {
             defer { packIndex = packEnd }
             return SevenZipEditFolder(coders: folder.coders.map {
                 SevenZipEditCoder(methodID: $0.methodID, inputCount: $0.inputCount,
-                    outputCount: $0.outputCount, isComplex: $0.flags & 0x10 != 0,
-                    properties: $0.flags & 0x20 != 0 ? $0.properties : nil)
+                    outputCount: $0.outputCount, isComplex: $0.flags & SevenZipCoderFlag.complex != 0,
+                    properties: $0.flags & SevenZipCoderFlag.hasProperties != 0 ? $0.properties : nil)
             }, bindPairs: folder.bindPairs.map { SevenZipEditBindPair(input: $0.input, output: $0.output) },
             packedInputs: folder.packedIndices, unpackSizes: folder.unpackSizes,
             finalOutput: folder.finalOutputIndex, crc32: folder.digest.value,

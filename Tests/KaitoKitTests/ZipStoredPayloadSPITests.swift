@@ -44,10 +44,10 @@ final class ZipStoredPayloadSPITests: XCTestCase {
         let directory = try ZipTestSupport.temporaryDirectory(label: "stored-modern-spi")
         defer { try? FileManager.default.removeItem(at: directory) }
         for name in ["xz-aes.zip", "xz-zipcrypto.zip", "zstd-aes20.zip", "zstd-aes93.zip"] {
-            let bytes = try ModernZIPFixtures.data(name)
+            let bytes = try ZipModernFixtures.data(name)
             // 展開なら辞書上限に掛かる。保存 stream では codec を作らない。
             let reader = try ArchiveReader.open(data: bytes, options: ReaderOptions(
-                limits: ReadLimits(maxDictionarySize: 1), password: ModernZIPFixtures.password))
+                limits: ReadLimits(maxDictionarySize: 1), password: ZipModernFixtures.password))
             let stored = try reader.zipStoredPayloadStream(at: 0).readAll()
             if name.hasPrefix("xz") {
                 XCTAssertEqual(stored.prefix(6), Data([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0]))
@@ -57,12 +57,12 @@ final class ZipStoredPayloadSPITests: XCTestCase {
             try requireTool(ZipTestSupport.sevenZipPath)
             let decoded = try ZipTestSupport.checkedRun(ZipTestSupport.sevenZipPath,
                 arguments: ["x", "-so", packed.path]).standardOutput
-            XCTAssertEqual(decoded, ModernZIPFixtures.payload, name)
-            let ordinary = try ArchiveReader.open(data: bytes, options: ReaderOptions(password: ModernZIPFixtures.password))
+            XCTAssertEqual(decoded, ZipModernFixtures.payload, name)
+            let ordinary = try ArchiveReader.open(data: bytes, options: ReaderOptions(password: ZipModernFixtures.password))
             XCTAssertEqual(try ordinary.stream(ordinary.entries[0]).readAll(), decoded)
             let layout = try XCTUnwrap(reader.zipRawRecordLayout(at: 0))
             if case .winZipAES = layout.encryption {
-                let material = try key(for: bytes, layout: layout, password: ModernZIPFixtures.password)
+                let material = try key(for: bytes, layout: layout, password: ZipModernFixtures.password)
                 XCTAssertEqual(try reader.zipStoredPayloadStream(at: 0, aesKey: material).readAll(), stored)
                 XCTAssertEqual(try ordinary.zipStream(at: 0, aesKey: material).readAll(), decoded)
                 XCTAssertThrowsError(try reader.zipStream(at: 0, aesKey: material).readAll()) {
@@ -70,7 +70,7 @@ final class ZipStoredPayloadSPITests: XCTestCase {
                 }
                 var damaged = bytes
                 damaged[Int(layout.payloadRange.upperBound) - 1] ^= 1
-                let corrupt = try ArchiveReader.open(data: damaged, options: ReaderOptions(password: ModernZIPFixtures.password))
+                let corrupt = try ArchiveReader.open(data: damaged, options: ReaderOptions(password: ZipModernFixtures.password))
                 for supplied in [false, true] {
                     let stream = try corrupt.zipStoredPayloadStream(at: 0, aesKey: supplied ? material : nil)
                     var first: UInt8 = 0

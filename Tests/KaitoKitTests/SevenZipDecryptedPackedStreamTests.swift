@@ -17,7 +17,7 @@ final class SevenZipDecryptedPackedStreamTests: XCTestCase {
 
     func testAllFrozenMainAESOutputsWithRecordingOffAndOn() throws {
         let expected = try JSONDecoder().decode(Corpus.self,
-            from: Data(contentsOf: SevenZipGolden.root.appendingPathComponent("expected-decrypted.json")))
+            from: Data(contentsOf: SevenZipGoldenCorpus.root.appendingPathComponent("expected-decrypted.json")))
         var checked = 0
         for (name, folders) in expected.archives.sorted(by: { $0.key < $1.key }) {
             for recording in [false, true] {
@@ -25,7 +25,7 @@ final class SevenZipDecryptedPackedStreamTests: XCTestCase {
                 options.recordsSevenZipEditLayout = recording
                 let main = folders.filter { $0.scope == "main" }
                 guard !main.isEmpty else { continue }
-                let reader = try ArchiveReader.open(url: SevenZipGolden.root.appendingPathComponent(name), options: options)
+                let reader = try ArchiveReader.open(url: SevenZipGoldenCorpus.root.appendingPathComponent(name), options: options)
                 for folder in main {
                     reader.password = folder.password
                     let stream = try reader.sevenZipDecryptedPackedStream(folder: folder.folderIndex, packedInput: 0)
@@ -51,7 +51,7 @@ final class SevenZipDecryptedPackedStreamTests: XCTestCase {
 
     func testErrorsProviderAndCurrentPassword() throws {
         let provider = SevenZipEditPasswordProvider()
-        let reader = try ArchiveReader.open(url: SevenZipGolden.root.appendingPathComponent("copyaes.7z"),
+        let reader = try ArchiveReader.open(url: SevenZipGoldenCorpus.root.appendingPathComponent("copyaes.7z"),
             options: ReaderOptions(passwordProvider: provider))
         XCTAssertThrowsError(try reader.sevenZipDecryptedPackedStream(folder: 0, packedInput: 0)) {
             XCTAssertEqual($0 as? KaitoError, .passwordRequired)
@@ -75,11 +75,11 @@ final class SevenZipDecryptedPackedStreamTests: XCTestCase {
         XCTAssertNotEqual(correct, wrong)
         reader.password = "secret"
         XCTAssertEqual(try reader.sevenZipDecryptedPackedStream(folder: 0, packedInput: 0).readAll(), correct)
-        let plain = try ArchiveReader.open(url: SevenZipGolden.root.appendingPathComponent("g_plain.7z"))
+        let plain = try ArchiveReader.open(url: SevenZipGoldenCorpus.root.appendingPathComponent("g_plain.7z"))
         XCTAssertThrowsError(try plain.sevenZipDecryptedPackedStream(folder: 0, packedInput: 0)) {
             XCTAssertEqual($0 as? KaitoError, .malformed("7z packed input is not read by AES"))
         }
-        let limited = try ArchiveReader.open(url: SevenZipGolden.root.appendingPathComponent("g_aes.7z"),
+        let limited = try ArchiveReader.open(url: SevenZipGoldenCorpus.root.appendingPathComponent("g_aes.7z"),
             options: ReaderOptions(password: "secret", maxSevenZipAESCyclesPower: 0))
         XCTAssertThrowsError(try limited.sevenZipDecryptedPackedStream(folder: 0, packedInput: 0)) {
             XCTAssertEqual($0 as? KaitoError, .limitExceeded("7zAES cycle power 19"))
@@ -90,7 +90,7 @@ final class SevenZipDecryptedPackedStreamTests: XCTestCase {
         for name in ["g_aes.7z", "g_aesh.7z", "z_aes.7z", "z_aesh.7z"] {
             let derivations = Mutex(0)
             try SevenZipAESKeyCache.$didDeriveKey.withValue({ derivations.withLock { $0 += 1 } }) {
-                let reader = try ArchiveReader.open(url: SevenZipGolden.root.appendingPathComponent(name),
+                let reader = try ArchiveReader.open(url: SevenZipGoldenCorpus.root.appendingPathComponent(name),
                     options: ReaderOptions(password: "secret"))
                 _ = try reader.sevenZipDecryptedPackedStream(folder: 0, packedInput: 0).readAll()
                 XCTAssertEqual(derivations.withLock { $0 }, 1, name)

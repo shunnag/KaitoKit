@@ -20,7 +20,7 @@ final class SevenZipZstdTests: XCTestCase {
 
     func testPropertiesLengthArityAndSizeAreValidated() throws {
         // `printf 'kaito-' | zstd --no-check` の 1 frame。
-        let frame = try hex("28b52ffd00583100006b6169746f2d")
+        let frame = try Hex.bytes("28b52ffd00583100006b6169746f2d")
         let expected = Data("kaito-".utf8)
         for properties: [UInt8] in [[1, 5, 3], [1, 5, 3, 0, 0]] {
             XCTAssertEqual(try factory(packed: frame, properties: properties, size: 6).decodeAll(limit: 6), expected)
@@ -40,7 +40,7 @@ final class SevenZipZstdTests: XCTestCase {
     func testSkippableAndConcatenatedFramesDecodeAsOneFolderStream() throws {
         // zstdmt 系の writer は skippable frame で区切った複数 frame を書く。RFC 8878 §3.1.2 の
         // skippable frame（magic 50 2A 4D 18、3 byte の payload）を 2 frame の間に置く。
-        let packed = try hex(
+        let packed = try Hex.bytes(
             "28b52ffd00583100006b6169746f2d"      // "kaito-"（checksum なし）
                 + "502a4d1803000000616263"           // skippable
                 + "28b52ffd04582100007a737464452fa41d" // "zstd"（XXH64 付き）
@@ -48,7 +48,7 @@ final class SevenZipZstdTests: XCTestCase {
         XCTAssertEqual(try factory(packed: packed, size: 10).decodeAll(limit: 10), Data("kaito-zstd".utf8))
         // 末尾が skippable frame だけでも終端として扱う。
         XCTAssertEqual(
-            try factory(packed: packed + hex("502a4d1800000000"), size: 10).decodeAll(limit: 10),
+            try factory(packed: packed + Hex.bytes("502a4d1800000000"), size: 10).decodeAll(limit: 10),
             Data("kaito-zstd".utf8)
         )
         // 途中で切れた frame は truncated / malformed で止まり、宣言サイズを満たさない。
@@ -62,7 +62,7 @@ final class SevenZipZstdTests: XCTestCase {
             guard case .unsupportedMethod = $0 as? KaitoError else { return XCTFail("Unexpected error: \($0)") }
         }
         // XXH64 付き frame の checksum を壊すと typed error になる。
-        var frame = try hex("28b52ffd04582100007a737464452fa41d")
+        var frame = try Hex.bytes("28b52ffd04582100007a737464452fa41d")
         frame[frame.count - 1] ^= 0x01
         XCTAssertThrowsError(try factory(packed: frame, size: 4).decodeAll(limit: 4)) {
             switch $0 as? KaitoError {
@@ -119,7 +119,7 @@ final class SevenZipZstdTests: XCTestCase {
 
     func testFrameWindowIsCheckedAgainstDictionaryLimitNotFolderSize() throws {
         // `printf 'kaito-' | zstd -19 --no-content-size --no-check`: window descriptor は 8 MiB を宣言する。
-        let frame = try hex("28b52ffd00683100006b6169746f2d")
+        let frame = try Hex.bytes("28b52ffd00683100006b6169746f2d")
         XCTAssertEqual(try factory(packed: frame, size: 6).decodeAll(limit: 6), Data("kaito-".utf8))
         XCTAssertThrowsError(
             try factory(packed: frame, size: 6, limits: ReadLimits(maxDictionarySize: 4_096)).decodeAll(limit: 6)
@@ -162,20 +162,5 @@ final class SevenZipZstdTests: XCTestCase {
             output.append(contentsOf: buffer.prefix(count))
         }
         return output
-    }
-
-    private func hex(_ string: String) throws -> [UInt8] {
-        guard string.count.isMultiple(of: 2) else { throw KaitoError.malformed("odd test hex") }
-        var result = [UInt8]()
-        var index = string.startIndex
-        while index < string.endIndex {
-            let end = string.index(index, offsetBy: 2)
-            guard let byte = UInt8(string[index..<end], radix: 16) else {
-                throw KaitoError.malformed("invalid test hex")
-            }
-            result.append(byte)
-            index = end
-        }
-        return result
     }
 }

@@ -76,7 +76,7 @@ final class ZipEncryptionPrimitiveTests: XCTestCase {
             var material = keys.encryptionKey
             material.append(keys.authenticationKey)
             material.append(keys.passwordVerifier)
-            XCTAssertEqual(material, try decodeHex(expectedHex), "strength: \(strength)")
+            XCTAssertEqual(material, try Hex.data(expectedHex), "strength: \(strength)")
         }
     }
 
@@ -90,7 +90,7 @@ final class ZipEncryptionPrimitiveTests: XCTestCase {
         // with `/usr/bin/openssl enc -aes-128-ecb -nopad`, then XOR bytes 0...48.
         XCTAssertEqual(
             whole,
-            try decodeHex(
+            try Hex.data(
                 "47701a15ed1869f751b2b520f98301dc" +
                 "ace064b4feb89692f3b5f02d387fbc9e" +
                 "6fdd4b540af08511dc48716e2fee663b8a"
@@ -766,25 +766,6 @@ final class ZipEncryptionPrimitiveTests: XCTestCase {
                 throw KaitoError.truncated
             }
             result.append(contentsOf: buffer.prefix(actual))
-        }
-        return result
-    }
-
-    private func decodeHex(_ text: String) throws -> Data {
-        guard text.utf8.count.isMultiple(of: 2) else {
-            throw KaitoError.malformed("invalid test hex")
-        }
-
-        var result = Data()
-        result.reserveCapacity(text.utf8.count / 2)
-        var index = text.startIndex
-        while index < text.endIndex {
-            guard let next = text.index(index, offsetBy: 2, limitedBy: text.endIndex),
-                  let byte = UInt8(text[index..<next], radix: 16) else {
-                throw KaitoError.malformed("invalid test hex")
-            }
-            result.append(byte)
-            index = next
         }
         return result
     }

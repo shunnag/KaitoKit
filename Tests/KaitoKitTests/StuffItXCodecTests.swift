@@ -25,10 +25,10 @@ final class StuffItXCodecTests: XCTestCase {
         let vectors = try Self.vectors()
         XCTAssertEqual(vectors.count, 10)
         for vector in vectors where vector.method != 104 {
-            var data = StuffItCodecTests.hex(vector.input_hex)
+            var data = StuffItTestSupport.hex(vector.input_hex)
             if vector.method == 102 { data.insert(20, at: 0) }
             if vector.method == 103 { data.insert(15, at: 0) }
-            let expected = StuffItCodecTests.hex(vector.output_hex)
+            let expected = StuffItTestSupport.hex(vector.output_hex)
             for chunk in [1, 7, 4096] {
                 XCTAssertEqual(try Self.decode(data, method: UInt64(vector.method - 100), size: expected.count, chunk: chunk), expected, vector.name)
             }
@@ -36,15 +36,15 @@ final class StuffItXCodecTests: XCTestCase {
     }
     func testBlendAllFourSubmethods() throws {
         let vector = try XCTUnwrap(Self.vectors().first { $0.method == 104 })
-        let expected = StuffItCodecTests.hex(vector.output_hex)
+        let expected = StuffItTestSupport.hex(vector.output_hex)
         for chunk in [1, 7, 4096] {
-            XCTAssertEqual(try Self.decode(StuffItCodecTests.hex(vector.input_hex), method: 4, size: expected.count, chunk: chunk), expected)
+            XCTAssertEqual(try Self.decode(StuffItTestSupport.hex(vector.input_hex), method: 4, size: expected.count, chunk: chunk), expected)
         }
     }
     func testCyanideAcceptsAllTailCounts() throws {
         // 初期 ternary model の rank 0 区間から一文字だけ復号する独立標本。
         for n in UInt8.min...UInt8.max {
-            var data = StuffItCodecTests.hex("0077000000010000000000c0000000ff"); data[10] = n
+            var data = StuffItTestSupport.hex("0077000000010000000000c0000000ff"); data[10] = n
             XCTAssertEqual(try Self.decode(data, method: 1, size: 1, chunk: 1), Data([0]), "n=\(n)")
         }
     }
@@ -52,18 +52,18 @@ final class StuffItXCodecTests: XCTestCase {
         // Ch.07 の初期等頻度区間の中点を使用。n=254/255 の最終群は 128/129 個。
         // rank 255 は list の最終 byte、256/257 は list を拡張せず拒否する。
         for hex in ["00770000000100000000fe001fffff00ff", "00770000000100000000ff0034eb7d00ff"] {
-            XCTAssertEqual(try Self.decode(StuffItCodecTests.hex(hex), method: 1, size: 1, chunk: 1), Data([255]))
+            XCTAssertEqual(try Self.decode(StuffItTestSupport.hex(hex), method: 1, size: 1, chunk: 1), Data([255]))
         }
         for hex in ["00770000000100000000fe000aaaaa00ff", "00770000000100000000ff001fc07e00ff",
                     "00770000000100000000ff000a957f00ff"] {
-            XCTAssertThrowsError(try Self.decode(StuffItCodecTests.hex(hex), method: 1, size: 1, chunk: 1)) {
+            XCTAssertThrowsError(try Self.decode(StuffItTestSupport.hex(hex), method: 1, size: 1, chunk: 1)) {
                 XCTAssertEqual($0 as? KaitoError, .malformed("StuffIt X Cyanide rank"))
             }
         }
     }
     func testCyanideMemoryLimit() throws {
         let vector = try XCTUnwrap(Self.vectors().first { $0.name == "cyanide-small-alphabet" })
-        XCTAssertThrowsError(try Self.decode(StuffItCodecTests.hex(vector.input_hex), method: 1, size: 400,
+        XCTAssertThrowsError(try Self.decode(StuffItTestSupport.hex(vector.input_hex), method: 1, size: 400,
                                               limits: ReadLimits(maxDictionarySize: 2399))) {
             guard case KaitoError.limitExceeded = $0 else { return XCTFail("\($0)") }
         }
@@ -112,12 +112,12 @@ final class StuffItXCodecTests: XCTestCase {
             }
         }
         for vector in try Self.vectors() where vector.method != 104 {
-            var data = StuffItCodecTests.hex(vector.input_hex)
+            var data = StuffItTestSupport.hex(vector.input_hex)
             if vector.method == 102 { data.insert(20,at:0) }
             if vector.method == 103 { data.insert(15,at:0) }
             let source = OneByteSource(data)
             let framed = try StuffItXFramedInput(source: source, ranges: (0..<source.length).map { $0..<($0 + 1) })
-            let expected = StuffItCodecTests.hex(vector.output_hex)
+            let expected = StuffItTestSupport.hex(vector.output_hex)
             let decoder = try StuffItXCodec.make(method: UInt64(vector.method - 100), source: framed,
                                                  size: UInt64(expected.count), limits: ReadLimits())
             XCTAssertEqual(try Self.collect(decoder, chunk: 3), expected, vector.name)

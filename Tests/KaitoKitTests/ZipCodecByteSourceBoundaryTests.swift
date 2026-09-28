@@ -120,7 +120,7 @@ final class ZipCodecByteSourceBoundaryTests: XCTestCase {
 
     func testLZMAKeepsBufferedShortReadsInsideCompressedRange() throws {
         // "abcabcabcabcabcabc" の EOS marker 無し raw LZMA1。
-        let compressed = try decodeHex("00309888aa02a643ebffffb580")
+        let compressed = try Hex.data("00309888aa02a643ebffffb580")
         let source = try RangeCheckingShortByteSource(
             prefix: Data(repeating: 0xC3, count: 11),
             compressed: compressed,
@@ -212,23 +212,6 @@ final class ZipCodecByteSourceBoundaryTests: XCTestCase {
                 throw KaitoError.malformed("codec test decoder made no progress")
             }
             result.append(contentsOf: buffer.prefix(count))
-        }
-        return result
-    }
-
-    private func decodeHex(_ text: String) throws -> Data {
-        guard text.utf8.count.isMultiple(of: 2) else {
-            throw KaitoError.malformed("odd test hex length")
-        }
-        var result = Data()
-        var index = text.startIndex
-        while index < text.endIndex {
-            guard let next = text.index(index, offsetBy: 2, limitedBy: text.endIndex),
-                  let byte = UInt8(text[index..<next], radix: 16) else {
-                throw KaitoError.malformed("invalid test hex")
-            }
-            result.append(byte)
-            index = next
         }
         return result
     }

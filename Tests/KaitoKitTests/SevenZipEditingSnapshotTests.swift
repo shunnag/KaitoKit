@@ -307,9 +307,10 @@ private struct SevenZipExpectedStreams: Decodable {
 
 enum SevenZipEditTestBytes {
     static func hex(_ string: String) -> [UInt8] {
-        let bytes = Array(string.utf8)
-        return stride(from: 0, to: bytes.count, by: 2).map {
-            UInt8(String(decoding: bytes[$0..<$0 + 2], as: UTF8.self), radix: 16)!
+        do {
+            return try Hex.bytes(string)
+        } catch {
+            preconditionFailure("invalid 7z test hex: \(error)")
         }
     }
     static func little<T: FixedWidthInteger>(_ value: T) -> [UInt8] {

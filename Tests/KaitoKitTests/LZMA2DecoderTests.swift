@@ -4,14 +4,13 @@ import XCTest
 
 final class LZMA2DecoderTests: XCTestCase {
     private enum TestError: Error {
-        case invalidHex
         case noProgress
     }
 
     func testCompressedChunkWithTinyReads() throws {
         // xz 5.8.3: `xz --format=raw --lzma2=dict=64KiB` が
         // `abcabcabcabcabcabc` に生成した complete raw stream。
-        let stream = try decodeHex("e0001100085d00309888aa0207d00000")
+        let stream = try Hex.data("e0001100085d00309888aa0207d00000")
         let expected = Data("abcabcabcabcabcabc".utf8)
         let decoder = try makeDecoder(stream, expectedSize: UInt64(expected.count))
 
@@ -20,7 +19,7 @@ final class LZMA2DecoderTests: XCTestCase {
     }
 
     func testUncompressedChunks() throws {
-        let stream = try decodeHex(
+        let stream = try Hex.data(
             "010002616263" + // dictionary reset: abc
             "020002646566" + // dictionary retained: def
             "00"
@@ -31,7 +30,7 @@ final class LZMA2DecoderTests: XCTestCase {
     }
 
     func testStateResetWithoutDictionaryReset() throws {
-        var first = Array(try decodeHex("e00011000800003099abddc0cb070000"))
+        var first = Array(try Hex.data("e00011000800003099abddc0cb070000"))
         first.removeLast() // end control
 
         var second = first
@@ -98,7 +97,7 @@ final class LZMA2DecoderTests: XCTestCase {
     }
 
     func testCompressedChunkRequiresTerminalRangeStateAndExactPackedUse() throws {
-        let valid = Array(try decodeHex("e0001100085d00309888aa0207d00000"))
+        let valid = Array(try Hex.data("e0001100085d00309888aa0207d00000"))
 
         var nonzeroTerminalCode = valid
         nonzeroTerminalCode[14] = 1
@@ -129,11 +128,11 @@ final class LZMA2DecoderTests: XCTestCase {
     }
 
     func testPropertiesResetAfterUncompressedChunk() throws {
-        var compressed = Array(try decodeHex("e00011000800003099abddc0cb070000"))
+        var compressed = Array(try Hex.data("e00011000800003099abddc0cb070000"))
         compressed.removeLast()
         compressed[0] = 0xC0 // state/properties reset, dictionary retained
 
-        let raw = Array(try decodeHex("01000278797a"))
+        let raw = Array(try Hex.data("01000278797a"))
         let stream = Data(raw + compressed + [0])
         let decoder = try makeDecoder(stream, expectedSize: 21)
 
@@ -168,7 +167,7 @@ final class LZMA2DecoderTests: XCTestCase {
     }
 
     func testDictionaryResetIndexUsesAbsoluteCompressedOffsets() throws {
-        var chunk = Array(try decodeHex("e0001100085d00309888aa0207d00000"))
+        var chunk = Array(try Hex.data("e0001100085d00309888aa0207d00000"))
         chunk.removeLast()
         let stream = Data(chunk + chunk + [0])
         let prefix = Data(repeating: 0xCC, count: 7)
@@ -214,12 +213,12 @@ final class LZMA2DecoderTests: XCTestCase {
     }
 
     func testRestartAtRawDictionaryResetPreloadsEarlierProperties() throws {
-        var compressed = Array(try decodeHex("e00011000800003099abddc0cb070000"))
+        var compressed = Array(try Hex.data("e00011000800003099abddc0cb070000"))
         compressed.removeLast()
         var continued = compressed
         continued[0] = 0xA0
         continued.remove(at: 5)
-        let rawReset = Array(try decodeHex("01000278797a"))
+        let rawReset = Array(try Hex.data("01000278797a"))
         let stream = Data(compressed + rawReset + continued + [0])
         let source = DataByteSource(stream)
         let points = try LZMA2Decoder.makeDictionaryResetIndex(
@@ -280,7 +279,7 @@ final class LZMA2DecoderTests: XCTestCase {
             Data([0x02, 0, 0, 0]),
             Data([0x00, 0xFF]),
             // lc=4, lp=1 violates the LZMA2 lc+lp <= 4 rule.
-            try decodeHex("e0000000040d000000000000"),
+            try Hex.data("e0000000040d000000000000"),
         ]
         for stream in invalidStreams {
             let decoder = try makeDecoder(stream, expectedSize: nil)
@@ -294,9 +293,9 @@ final class LZMA2DecoderTests: XCTestCase {
     }
 
     func testRawDictionaryResetBeforeNoStateResetChunkIsIndexedButNotRestarted() throws {
-        var first = Array(try decodeHex("e0001100085d00309888aa0207d00000"))
+        var first = Array(try Hex.data("e0001100085d00309888aa0207d00000"))
         first.removeLast()
-        let rawReset = Array(try decodeHex("01000078"))
+        let rawReset = Array(try Hex.data("01000078"))
         var continuation = first
         continuation[0] = 0x80
         continuation.remove(at: 5)
@@ -388,13 +387,13 @@ final class LZMA2DecoderTests: XCTestCase {
     }
 
     func testRejectsTruncationAndExpectedSizeMismatch() throws {
-        let truncated = try decodeHex("e0001100085d00309888")
+        let truncated = try Hex.data("e0001100085d00309888")
         let truncatedDecoder = try makeDecoder(truncated, expectedSize: 18)
         XCTAssertThrowsError(try drain(truncatedDecoder, bufferSize: 8)) { error in
             XCTAssertEqual(error as? KaitoError, .truncated)
         }
 
-        let raw = try decodeHex("0100006100")
+        let raw = try Hex.data("0100006100")
         let mismatchDecoder = try makeDecoder(raw, expectedSize: 2)
         XCTAssertThrowsError(try drain(mismatchDecoder, bufferSize: 8)) { error in
             guard case .malformed = error as? KaitoError else {
@@ -404,7 +403,7 @@ final class LZMA2DecoderTests: XCTestCase {
     }
 
     func testThreeHundredTwentyDeterministicMutantsDoNotHangOrCrash() throws {
-        let seed = Array(try decodeHex("e0001100085d00309888aa0207d00000"))
+        let seed = Array(try Hex.data("e0001100085d00309888aa0207d00000"))
         var completed = 0
         for mutation in 0..<320 {
             var bytes = seed
@@ -513,23 +512,6 @@ final class LZMA2DecoderTests: XCTestCase {
             guard iterations < 1_000_000 else {
                 throw TestError.noProgress
             }
-        }
-        return result
-    }
-
-    private func decodeHex(_ text: String) throws -> Data {
-        guard text.utf8.count.isMultiple(of: 2) else {
-            throw TestError.invalidHex
-        }
-        var result = Data()
-        var index = text.startIndex
-        while index < text.endIndex {
-            guard let next = text.index(index, offsetBy: 2, limitedBy: text.endIndex),
-                  let byte = UInt8(text[index..<next], radix: 16) else {
-                throw TestError.invalidHex
-            }
-            result.append(byte)
-            index = next
         }
         return result
     }

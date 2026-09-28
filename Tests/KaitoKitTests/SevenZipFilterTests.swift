@@ -9,7 +9,7 @@ final class SevenZipFilterTests: XCTestCase {
         let distance = 5
         // Packed bytes captured from 7zz 26.03 with
         // `-t7z -m0=Delta:5 -m1=Copy -mhc=off` for the expected text.
-        let encoded = try hex(
+        let encoded = try Hex.bytes(
             "64656c7461c901fdf813380cc4f8f1070234c901fdf813380c"
         )
 
@@ -22,10 +22,10 @@ final class SevenZipFilterTests: XCTestCase {
     }
 
     func testX86BCJMatches7ZipEncodedBytesAcrossEveryBoundary() throws {
-        let original = try hex(
+        let original = try Hex.bytes(
             "58e80000000059e9fbffffff5a0f853412000057e800000000"
         )
-        let encoded = try hex(
+        let encoded = try Hex.bytes(
             "58e80600000059e9070000005a0f853412000057e819000000"
         )
 
@@ -44,20 +44,20 @@ final class SevenZipFilterTests: XCTestCase {
     }
 
     func testARMFilterMatches7ZipEncodedBytes() throws {
-        let original = try hex(
+        let original = try Hex.bytes(
             "000000eb010000ebffffffeb000000ea000000eb"
         )
-        let encoded = try hex(
+        let encoded = try Hex.bytes(
             "020000eb040000eb030000eb000000ea060000eb"
         )
         try assertBranchDecode(encoded: encoded, expected: original, filter: .arm)
     }
 
     func testARMThumbFilterMatches7ZipEncodedBytes() throws {
-        let original = try hex(
+        let original = try Hex.bytes(
             "00f000f801f001f8fff7ffff00e000bf00f000f8"
         )
-        let encoded = try hex(
+        let encoded = try Hex.bytes(
             "00f002f801f005f800f005f800e000bf00f00af8"
         )
         try assertBranchDecode(encoded: encoded, expected: original, filter: .armThumb)
@@ -87,10 +87,10 @@ final class SevenZipFilterTests: XCTestCase {
     }
 
     func testPowerPCFilterMatches7ZipEncodedBytes() throws {
-        let original = try hex(
+        let original = try Hex.bytes(
             "48000001480000054bfffffd480000004800000348000001"
         )
-        let encoded = try hex(
+        let encoded = try Hex.bytes(
             "480000014800000948000005480000004800000348000015"
         )
         try assertBranchDecode(encoded: encoded, expected: original, filter: .powerPC)
@@ -418,23 +418,6 @@ final class SevenZipFilterTests: XCTestCase {
             guard iterations < 1_000_000 else {
                 throw KaitoError.malformed("test decoder did not terminate")
             }
-        }
-        return result
-    }
-
-    private func hex(_ string: String) throws -> [UInt8] {
-        guard string.count.isMultiple(of: 2) else {
-            throw KaitoError.malformed("odd test hex")
-        }
-        var result = [UInt8]()
-        var index = string.startIndex
-        while index < string.endIndex {
-            let end = string.index(index, offsetBy: 2)
-            guard let byte = UInt8(string[index..<end], radix: 16) else {
-                throw KaitoError.malformed("invalid test hex")
-            }
-            result.append(byte)
-            index = end
         }
         return result
     }

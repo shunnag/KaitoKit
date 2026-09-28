@@ -5,29 +5,10 @@ import Foundation
 import XCTest
 
 final class StuffItCodecTests: XCTestCase {
-    static func hex(_ text: String) -> Data {
-        let bytes = Array(text.utf8)
-        func digit(_ x: UInt8) -> UInt8 { x <= 57 ? x - 48 : x - 87 }
-        return Data(stride(from: 0, to: bytes.count, by: 2).map { digit(bytes[$0]) << 4 | digit(bytes[$0 + 1]) })
-    }
-    static func decode(_ input: Data, method: Int, size: Int, chunk: Int = 7, limits: ReadLimits = ReadLimits()) throws -> Data {
-        let decoder = try StuffItCodec.make(method: method, source: DataByteSource(data: input), offset: 0,
-                                            stored: UInt64(input.count), size: UInt64(size), limits: limits)
-        var output = Data()
-        var buffer = [UInt8](repeating: 0, count: chunk)
-        while true {
-            let count = try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }
-            if count == 0 { break }
-            output.append(contentsOf: buffer[..<count])
-            if output.count > size { XCTFail("出力長の超過"); break }
-        }
-        XCTAssertTrue(decoder.isFinished)
-        return output
-    }
     private func vector(method: Int, input: String, expected: String) throws {
-        let packed = Self.hex(input), plain = Self.hex(expected)
+        let packed = StuffItTestSupport.hex(input), plain = StuffItTestSupport.hex(expected)
         for chunk in [1, 7, 4096] {
-            XCTAssertEqual(try Self.decode(packed, method: method, size: plain.count, chunk: chunk), plain)
+            XCTAssertEqual(try StuffItTestSupport.decode(packed, method: method, size: plain.count, chunk: chunk), plain)
         }
     }
     func test_rle90_literal_escape_and_run() throws {

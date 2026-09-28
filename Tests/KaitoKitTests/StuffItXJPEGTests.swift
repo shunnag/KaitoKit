@@ -11,15 +11,15 @@ final class StuffItXJPEGTests: XCTestCase {
         return try StuffItXCodecTests.collect(decoder, chunk: chunk)
     }
     func testStoredAndWZ() throws {
-        let wire = StuffItCodecTests.hex("0006ffd8ffd96162")
-        for n in [1,7,65536] { XCTAssertEqual(try Self.decode(wire,chunk:n), StuffItCodecTests.hex("ffd8ffd96162")) }
+        let wire = StuffItTestSupport.hex("0006ffd8ffd96162")
+        for n in [1,7,65536] { XCTAssertEqual(try Self.decode(wire,chunk:n), StuffItTestSupport.hex("ffd8ffd96162")) }
         for (value, hex) in [(UInt64(0),"00"),(127,"7f"),(128,"8100"),(16383,"ff7f"),(16384,"818000"),(UInt64.max,"81ffffffffffffffff7f")] {
-            let bytes = StuffItCodecTests.hex(hex)
+            let bytes = StuffItTestSupport.hex(hex)
             XCTAssertEqual(StuffItXJPEGInput.writeWZ(value),Array(bytes))
             let input = try StuffItXJPEGInput(DataByteSource(bytes),limits:ReadLimits())
             XCTAssertEqual(try input.wz(),value)
         }
-        for hex in ["0002ff","0000ff","03ff","ffffffffffffffffffff00"] { XCTAssertThrowsError(try Self.decode(StuffItCodecTests.hex(hex))) }
+        for hex in ["0002ff","0000ff","03ff","ffffffffffffffffffff00"] { XCTAssertThrowsError(try Self.decode(StuffItTestSupport.hex(hex))) }
         XCTAssertThrowsError(try Self.decode(wire,limits:ReadLimits(maxEntrySize:7))) {
             guard case KaitoError.limitExceeded = $0 else { return XCTFail("\($0)") }
         }
@@ -47,18 +47,18 @@ final class StuffItXJPEGTests: XCTestCase {
             }
         }
         for hex in ["","00","80","020000000000"] {
-            expect(.truncated) { try Self.decode(StuffItCodecTests.hex(hex)) }
+            expect(.truncated) { try Self.decode(StuffItTestSupport.hex(hex)) }
         }
         for hex in ["0002ff","0000ff"] {
-            expect(.malformed("StuffIt X JPEG raw JPEG extent mismatch")) { try Self.decode(StuffItCodecTests.hex(hex)) }
+            expect(.malformed("StuffIt X JPEG raw JPEG extent mismatch")) { try Self.decode(StuffItTestSupport.hex(hex)) }
         }
         expect(.unsupportedMethod("StuffIt X JPEG unsupported jcodec mode")) { try Self.decode(Data([3])) }
         expect(.malformed("StuffIt X JPEG WZ integer overflow")) { try Self.decode(Data(repeating:255,count:10)) }
         expect(.malformed("StuffIt X JPEG unterminated WZ integer")) { try Self.decode(Data(repeating:128,count:10)) }
         expect(.malformed("StuffIt X JPEG output extent mismatch")) {
-            try StuffItXJPEGDecoder(source:DataByteSource(StuffItCodecTests.hex("0001ff")),size:2,limits:ReadLimits())
+            try StuffItXJPEGDecoder(source:DataByteSource(StuffItTestSupport.hex("0001ff")),size:2,limits:ReadLimits())
         }
-        let first = try Self.vectors()["cases"] as! [[String:Any]], wire = StuffItCodecTests.hex(first[0]["input"] as! String)
+        let first = try Self.vectors()["cases"] as! [[String:Any]], wire = StuffItTestSupport.hex(first[0]["input"] as! String)
         // 初期化後の係数・tail 読み取りで起きる入力不足も、そのまま伝播させる。
         let short = try StuffItXJPEGDecoder(source:DataByteSource(wire.dropLast()),size:nil,limits:ReadLimits())
         expect(.truncated) { try StuffItXCodecTests.collect(short,chunk:7) }
@@ -110,7 +110,7 @@ final class StuffItXJPEGTests: XCTestCase {
     }
     func testBlockTrace() throws {
         let json = try Self.vectors()["blocks"] as! [String:Any]
-        let input = try StuffItXJPEGInput(DataByteSource(StuffItCodecTests.hex(json["input"] as! String)),limits:ReadLimits())
+        let input = try StuffItXJPEGInput(DataByteSource(StuffItTestSupport.hex(json["input"] as! String)),limits:ReadLimits())
         _ = try input.wz(); _ = try input.wz()
         let range = try StuffItXJPEGRange(input), header = StuffItXJPEGHeaderModel()
         let prefix = try StuffItXJPEGEnvelope.firstScan(limit:1<<24) { try header.byte(range) }
@@ -121,7 +121,7 @@ final class StuffItXJPEGTests: XCTestCase {
             let q = try tables.scaled(geometry.components[c].quantization)
             let co = try q.withUnsafeBufferPointer { try blocks.block(c,row,col,$0.baseAddress!,rec["hint"] as! Int,rec["profile"] as! Int) }
             let bytes = Data(bytes:co,count:64*4)
-            if bytes != StuffItCodecTests.hex(rec["co"] as! String) || UInt64(range.code) != (rec["code"] as! NSNumber).uint64Value {
+            if bytes != StuffItTestSupport.hex(rec["co"] as! String) || UInt64(range.code) != (rec["code"] as! NSNumber).uint64Value {
                 XCTFail("block c=\(c) row=\(row) col=\(col) code=\(range.code)/\(rec["code"]!) range=\(range.range)/\(rec["range"]!) actual=\(bytes.map {String(format:"%02x",$0)}.joined()) expected=\(rec["co"]!)")
                 return
             }
@@ -131,7 +131,7 @@ final class StuffItXJPEGTests: XCTestCase {
         try JSONSerialization.jsonObject(with:Data(contentsOf:root.appendingPathComponent("Tests/Fixtures/stuffit/slice7-jpeg-vectors.json"))) as! [String:Any]
     }
     static func integers(_ hex: String) -> [Int] {
-        let bytes = StuffItCodecTests.hex(hex)
+        let bytes = StuffItTestSupport.hex(hex)
         return bytes.withUnsafeBytes { p in stride(from:0,to:p.count,by:4).map { Int(Int32(littleEndian:p.loadUnaligned(fromByteOffset:$0,as:Int32.self))) } }
     }
     static func storage<T>(_ values: [T]) -> JPEGStorage<T> {
@@ -140,11 +140,11 @@ final class StuffItXJPEGTests: XCTestCase {
     }
     func testHeaderAndRangeFixedValues() throws {
         let v = try Self.vectors()["header"] as! [String:Any]
-        let source = try StuffItXJPEGInput(DataByteSource(StuffItCodecTests.hex(v["input"] as! String)),limits:ReadLimits())
+        let source = try StuffItXJPEGInput(DataByteSource(StuffItTestSupport.hex(v["input"] as! String)),limits:ReadLimits())
         let r = try StuffItXJPEGRange(source), m = StuffItXJPEGHeaderModel()
         var actual = Data()
         for _ in 0..<1000 { actual.append(UInt8(try m.byte(r))) }
-        XCTAssertEqual(actual,StuffItCodecTests.hex(v["output"] as! String))
+        XCTAssertEqual(actual,StuffItTestSupport.hex(v["output"] as! String))
         XCTAssertEqual(UInt64(r.code),(v["code"] as! NSNumber).uint64Value)
         XCTAssertEqual(UInt64(r.range),(v["range"] as! NSNumber).uint64Value)
         XCTAssertEqual(m.rescales,v["rescales"] as! Int)
@@ -155,7 +155,7 @@ final class StuffItXJPEGTests: XCTestCase {
         func ints(_ key: String) -> [Int] { Self.integers(v[key] as! String) }
         let co = Self.storage(ints("co").map(Int32.init)), ln = Self.storage(ints("ln").map(Int32.init))
         let un = Self.storage(ints("un").map(Int32.init)), urn = Self.storage(ints("urn").map(Int32.init))
-        let dqBytes = StuffItCodecTests.hex(v["dq"] as! String)
+        let dqBytes = StuffItTestSupport.hex(v["dq"] as! String)
         let dqValues = dqBytes.withUnsafeBytes { p in stride(from:0,to:p.count,by:2).map { Int16(littleEndian:p.loadUnaligned(fromByteOffset:$0,as:Int16.self)) } }
         let dq = Self.storage(dqValues), q = Self.storage(ints("q")), up = Self.storage(ints("up")), left = Self.storage(ints("left")), sizes = Self.storage(ints("sizes"))
         let zx = Self.storage(Array(0..<8)), zy = Self.storage(Array((0..<8).reversed()))
@@ -197,7 +197,7 @@ final class StuffItXJPEGTests: XCTestCase {
     }
     func testCompleteFixedStreamsAndLimits() throws {
         for v in try Self.vectors()["cases"] as! [[String:Any]] {
-            let data = StuffItCodecTests.hex(v["input"] as! String), expected = StuffItCodecTests.hex(v["output"] as! String), name = v["name"] as! String
+            let data = StuffItTestSupport.hex(v["input"] as! String), expected = StuffItTestSupport.hex(v["output"] as! String), name = v["name"] as! String
             for chunk in [1,7,65536] { XCTAssertEqual(try Self.decode(data,chunk:chunk),expected,name) }
             for end in 0..<data.count { XCTAssertThrowsError(try Self.decode(data.prefix(end)),"\(name): \(end)") }
             XCTAssertThrowsError(try Self.decode(data+Data([0])),name)
@@ -229,14 +229,14 @@ final class StuffItXJPEGTests: XCTestCase {
     }
     func testMode1BlockFixedValues() throws {
         let v = try Self.vectors()["mode1blocks"] as! [String:Any]
-        let input = try StuffItXJPEGInput(DataByteSource(StuffItCodecTests.hex(v["input"] as! String)),limits:ReadLimits())
+        let input = try StuffItXJPEGInput(DataByteSource(StuffItTestSupport.hex(v["input"] as! String)),limits:ReadLimits())
         _ = try input.wz(); _ = try input.wz()
         let range = try StuffItXJPEGRange(input), header = StuffItXJPEGHeaderModel()
         let prefix = try StuffItXJPEGEnvelope.firstScan(limit:1<<24) { try header.byte(range) }
         let blocks = StuffItXJPEGMode1Blocks(range,try JPEGGeometry(prefix.frame!,limits:ReadLimits()))
         for rec in v["records"] as! [[String:Any]] {
             let result = try blocks.block(rec["c"] as! Int,rec["row"] as! Int,rec["col"] as! Int,rec["override"] as? Int)
-            XCTAssertEqual(Data(bytes:result.0,count:256),StuffItCodecTests.hex(rec["co"] as! String))
+            XCTAssertEqual(Data(bytes:result.0,count:256),StuffItTestSupport.hex(rec["co"] as! String))
             XCTAssertEqual(result.1,rec["old"] as! Int)
             XCTAssertEqual(UInt64(range.code),(rec["code"] as! NSNumber).uint64Value)
             XCTAssertEqual(UInt64(range.range),(rec["range"] as! NSNumber).uint64Value)
@@ -245,7 +245,7 @@ final class StuffItXJPEGTests: XCTestCase {
     }
     func testMode1FunctionVectors() throws {
         let v = try Self.vectors()["mode1"] as! [String:Any]
-        let input = try StuffItXJPEGInput(DataByteSource(StuffItCodecTests.hex(v["input"] as! String)),limits:ReadLimits()), range = try StuffItXJPEGRange(input)
+        let input = try StuffItXJPEGInput(DataByteSource(StuffItTestSupport.hex(v["input"] as! String)),limits:ReadLimits()), range = try StuffItXJPEGRange(input)
         let frame = JPEGFrame(marker:192,width:8,height:8,components:[JPEGComponent(id:1),JPEGComponent(id:2),JPEGComponent(id:3)])
         let m = StuffItXJPEGMode1Blocks(range,try JPEGGeometry(frame,limits:ReadLimits()))
         for op in v["operations"] as! [[String:Any]] {
@@ -271,7 +271,7 @@ final class StuffItXJPEGTests: XCTestCase {
     }
     func testProgressiveEmissionBoundaries() throws {
         let vectors = try Self.vectors(), first = (vectors["cases"] as! [[String:Any]])[0]
-        let input = try StuffItXJPEGInput(DataByteSource(StuffItCodecTests.hex(first["input"] as! String)),limits:ReadLimits())
+        let input = try StuffItXJPEGInput(DataByteSource(StuffItTestSupport.hex(first["input"] as! String)),limits:ReadLimits())
         _ = try input.wz(); _ = try input.wz()
         let r = try StuffItXJPEGRange(input), model = StuffItXJPEGHeaderModel()
         let prefix = try StuffItXJPEGEnvelope.firstScan(limit:1<<24) { try model.byte(r) }, tables = try JPEGTableSet(prefix)
@@ -282,7 +282,7 @@ final class StuffItXJPEGTests: XCTestCase {
             let e = JPEGScanEncoder(scan,tables,output)
             for _ in 0..<(v["repeat"] as! Int) { try e.block(co.p,0,0) }
             try e.finish(255)
-            XCTAssertEqual(Data(output.bytes),StuffItCodecTests.hex(v["output"] as! String),v["name"] as! String)
+            XCTAssertEqual(Data(output.bytes),StuffItTestSupport.hex(v["output"] as! String),v["name"] as! String)
             XCTAssertEqual(e.eobRuns,events["eob_runs"] as! Int); XCTAssertEqual(e.zrls,events["zrls"] as! Int)
             XCTAssertEqual(e.correctionBits,events["correction_bits"] as! Int); XCTAssertEqual(e.correctionFlushes,events["correction_buffer_flushes"] as! Int)
             XCTAssertEqual(e.newRefinements,events["new_refinements"] as! Int); XCTAssertEqual(e.bits.total,events["total_bits"] as! Int)
@@ -308,7 +308,7 @@ final class StuffItXJPEGTests: XCTestCase {
     }
     func testCipherCompositionAndChecksumScope() throws {
         let v = try Self.vectors()["cases"] as! [[String:Any]]
-        let encoded = StuffItCodecTests.hex(v[0]["input"] as! String), expected = StuffItCodecTests.hex(v[0]["output"] as! String)
+        let encoded = StuffItTestSupport.hex(v[0]["input"] as! String), expected = StuffItTestSupport.hex(v[0]["output"] as! String)
         for cipher: [(UInt64,UInt64)] in [[],[(0,16)],[(1,16)],[(2,8)],[(3,8)]] {
             for digest: UInt64 in [0,1] {
                 let payload = cipher.isEmpty ? encoded : Data(try StuffItXCryptoTests.seal(Array(encoded),ciphers:cipher))
@@ -421,7 +421,7 @@ final class StuffItXJPEGTests: XCTestCase {
         let environment = ProcessInfo.processInfo.environment
         guard environment["STUFFITX_JPEG_MUTATE"] == "1" else { throw XCTSkip("敵対的 JPEG 入力は明示実行") }
         let settings = try Self.adversarialSettings(environment)
-        var seeds = try (Self.vectors()["cases"] as! [[String:Any]]).map { StuffItCodecTests.hex($0["input"] as! String) }
+        var seeds = try (Self.vectors()["cases"] as! [[String:Any]]).map { StuffItTestSupport.hex($0["input"] as! String) }
         let folder = Self.root.appendingPathComponent("inbox/stuffit-corpus/jpeg")
         for name in ["IMG_0243-240-b420q75.p00.jc","IMG_0243-240-b420q75.p10.jc","IMG_0243-240-b420q75.p20.jc","IMG_0243-240-b444q95.p20.jc","IMG_0243-240-gray.p20.jc","IMG_0243-240-prog.p20.jc","IMG_0243-240-restart.p20.jc"] { seeds.append(try Data(contentsOf:folder.appendingPathComponent(name))) }
         var counts: [String:Int] = [:], state = settings.seed

@@ -70,21 +70,21 @@ final class StuffItHardeningTests: XCTestCase {
     }
     func testCodecErrorsAreBoundedAndTyped() throws {
         for packed in [Data([0x90]), Data()] {
-            XCTAssertThrowsError(try StuffItCodecTests.decode(packed, method: 1, size: 2)) { XCTAssertEqual($0 as? KaitoError, .truncated) }
+            XCTAssertThrowsError(try StuffItTestSupport.decode(packed, method: 1, size: 2)) { XCTAssertEqual($0 as? KaitoError, .truncated) }
         }
-        XCTAssertThrowsError(try StuffItCodecTests.decode(Data([0x90, 1]), method: 1, size: 1)) {
+        XCTAssertThrowsError(try StuffItTestSupport.decode(Data([0x90, 1]), method: 1, size: 1)) {
             guard case KaitoError.malformed = $0 else { return XCTFail("\($0)") }
         }
-        XCTAssertEqual(try StuffItCodecTests.decode(Data([0x90, 3]), method: 1, size: 2), Data([0, 0]))
+        XCTAssertEqual(try StuffItTestSupport.decode(Data([0x90, 3]), method: 1, size: 2), Data([0, 0]))
         for method in [2, 3, 13, 15] {
-            XCTAssertThrowsError(try StuffItCodecTests.decode(Data(), method: method, size: 1))
-            XCTAssertThrowsError(try StuffItCodecTests.decode(Data(repeating: 0, count: 1000), method: method, size: 10,
+            XCTAssertThrowsError(try StuffItTestSupport.decode(Data(), method: method, size: 1))
+            XCTAssertThrowsError(try StuffItTestSupport.decode(Data(repeating: 0, count: 1000), method: method, size: 10,
                                                              limits: ReadLimits(maxDictionarySize: 1)))
         }
-        XCTAssertThrowsError(try StuffItCodecTests.decode(Data(repeating: 0, count: 2000), method: 3, size: 1))
-        XCTAssertThrowsError(try StuffItCodecTests.decode(Data([0x60]), method: 13, size: 1))
-        let short = StuffItCodecTests.hex("4184041c08")
-        XCTAssertThrowsError(try StuffItCodecTests.decode(short, method: 2, size: 8)) { XCTAssertEqual($0 as? KaitoError, .truncated) }
+        XCTAssertThrowsError(try StuffItTestSupport.decode(Data(repeating: 0, count: 2000), method: 3, size: 1))
+        XCTAssertThrowsError(try StuffItTestSupport.decode(Data([0x60]), method: 13, size: 1))
+        let short = StuffItTestSupport.hex("4184041c08")
+        XCTAssertThrowsError(try StuffItTestSupport.decode(short, method: 2, size: 8)) { XCTAssertEqual($0 as? KaitoError, .truncated) }
     }
     private func packedLSB(_ codes: [(Int, Int)]) -> Data {
         var result = Data(), bits = 0, value: UInt64 = 0
@@ -97,21 +97,21 @@ final class StuffItHardeningTests: XCTestCase {
     }
     func testLZWClearSlotsWidthChangesAndFullDictionary() throws {
         let clear = packedLSB([(65, 9), (256, 9)] + Array(repeating: (511, 9), count: 6) + [(66, 9)])
-        XCTAssertEqual(try StuffItCodecTests.decode(clear, method: 2, size: 2), Data([65, 66]))
+        XCTAssertEqual(try StuffItTestSupport.decode(clear, method: 2, size: 2), Data([65, 66]))
         var codes: [(Int, Int)] = []
         var width = 9
         for i in 0..<20_000 {
             codes.append((i & 255, width))
             if i > 0 && i + 257 == 1 << width && width < 14 { width += 1 }
         }
-        XCTAssertEqual(try StuffItCodecTests.decode(packedLSB(codes), method: 2, size: 20_000, chunk: 313),
+        XCTAssertEqual(try StuffItTestSupport.decode(packedLSB(codes), method: 2, size: 20_000, chunk: 313),
                        Data((0..<20_000).map { UInt8($0 & 255) }))
     }
     func testMethod13RejectsInvalidLengthGrammar() throws {
         func meta(_ symbol: Int) -> (Int, Int) { (StuffItTables.metaCodes[symbol], StuffItTables.metaLengths[symbol]) }
         let crossing = [(8, 8), meta(31)] + Array(repeating: [meta(36), (63, 6)], count: 5).flatMap { $0 }
         for packed in [packedLSB(crossing), packedLSB([(8, 8), meta(31), meta(33)])] {
-            XCTAssertThrowsError(try StuffItCodecTests.decode(packed, method: 13, size: 1)) {
+            XCTAssertThrowsError(try StuffItTestSupport.decode(packed, method: 13, size: 1)) {
                 guard case KaitoError.malformed = $0 else { return XCTFail("\($0)") }
             }
         }
@@ -140,7 +140,7 @@ final class StuffItHardeningTests: XCTestCase {
             for i in 0..<8 { byte = byte << 1 | UInt8(start + i < bits.count ? bits[start + i] : 0) }
             packed.append(byte)
         }
-        XCTAssertEqual(try StuffItCodecTests.decode(packed, method: 3, size: 1), Data([0]))
+        XCTAssertEqual(try StuffItTestSupport.decode(packed, method: 3, size: 1), Data([0]))
     }
 
     func testShortByteSourceAndChunkIndependence() throws {

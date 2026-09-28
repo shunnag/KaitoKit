@@ -91,7 +91,7 @@ final class BrotliDecompressor: Decompressor {
 
     /// 検出用の試し復号。header の WBITS が有効で、先頭 64 KiB（またはそれ未満の全体）を
     /// Apple Compression が error なく消費できれば true。magic の無い形式を名前だけで受理しない。
-    static func isPlausibleStream(source: any ByteSource, limits: ReadLimits) -> Bool {
+    static func detect(source: any ByteSource, limits: ReadLimits) -> Bool {
         guard source.length > 0,
               let prefix = try? readByteRange(source: source, offset: 0, count: Int(min(4, source.length))),
               let header = try? BrotliStreamHeader(prefix: prefix) else { return false }
@@ -260,5 +260,14 @@ final class BrotliDecompressor: Decompressor {
         sourceOffset = try Checked.add(sourceOffset, UInt64(count))
         inputOffset = 0
         inputCount = count
+    }
+}
+
+// MARK: - 旧名
+
+extension BrotliDecompressor {
+    /// 旧名。FormatDetector の caller が新しい名前へ移るまでの転送（k2reader の follow-up で削除する）。
+    static func isPlausibleStream(source: any ByteSource, limits: ReadLimits) -> Bool {
+        detect(source: source, limits: limits)
     }
 }

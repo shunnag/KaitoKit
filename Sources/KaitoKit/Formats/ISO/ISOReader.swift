@@ -63,7 +63,7 @@ final class ISOReader: FormatReader {
         // hybrid: CD001 の集合の後ろに ECMA-167 の認識列があれば UDF の木を優先する（長い名前、symlink、
         // 権限を持ち、DVD-Video などでは UDF 側が正）。UDF 側の構造が読めなければ ISO 9660 の木を使う。
         // 上限超過は利用者の設定なので握りつぶさない。
-        if try UDFVolume.hasRecognitionSequence(source: source, pureOnly: false) {
+        if try UDFVolume.detectRecognitionSequence(source: source, pureOnly: false) {
             do {
                 let fileSystem = try UDFFileSystem(source: source, options: options)
                 udf = fileSystem

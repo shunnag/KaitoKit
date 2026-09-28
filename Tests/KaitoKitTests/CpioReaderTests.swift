@@ -226,7 +226,7 @@ final class CpioReaderTests: XCTestCase {
         XCTAssertEqual(try FormatDetector.detect(data: b.data), .cpio)
         for variant in [B.Variant.binLittle, .binBig] {
             b = B(); b.record(variant: variant); b.bytes += [42, 42, 42, 42, 42, 42]
-            XCTAssertFalse(CpioHeader.probeBinary(source: DataByteSource(data: b.data)))
+            XCTAssertFalse(CpioHeader.detectBinary(source: DataByteSource(data: b.data)))
             assertError("format") { _ = try FormatDetector.detect(data: b.data) }
             b = B(); b.record(payload: Array(repeating: 1, count: 5000), variant: variant); b.trailer(variant)
             XCTAssertEqual(try FormatDetector.detect(data: b.data), .cpio)
@@ -258,7 +258,7 @@ final class CpioReaderTests: XCTestCase {
                 // Missing header/name/data/padding bytes, but at least the binary magic must remain.
                 for cut in tail + 2..<intact.count {
                     b.bytes = Array(intact.prefix(cut))
-                    XCTAssertFalse(CpioHeader.probeBinary(source: DataByteSource(data: b.data)))
+                    XCTAssertFalse(CpioHeader.detectBinary(source: DataByteSource(data: b.data)))
                     if completeCount < 2 {
                         assertError("format") { _ = try ArchiveReader.open(data: b.data, options: options) }
                     } else {

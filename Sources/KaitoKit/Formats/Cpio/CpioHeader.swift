@@ -118,12 +118,14 @@ struct CpioHeader {
         return (header, name, layout.next)
     }
 
-    static func probe(_ prefix: [UInt8], source: any ByteSource) -> CpioVariant? {
+    /// ASCII 系 cpio（odc / newc / crc）の先頭 record を source から読んで検証し、その variant を返す。
+    static func detectVariant(_ prefix: [UInt8], source: any ByteSource) -> CpioVariant? {
         guard let variant = variant(prefix), !variant.isBinary else { return nil }
         return (try? plausible(source: source, at: 0))?.0.variant
     }
 
-    static func probeBinary(source: any ByteSource, recoverDamagedArchives: Bool = false) -> Bool {
+    /// binary cpio の先頭から最大 4 record を source から読んで検証する。
+    static func detectBinary(source: any ByteSource, recoverDamagedArchives: Bool = false) -> Bool {
         do {
             var offset: UInt64 = 0
             for index in 0..<4 {
@@ -174,4 +176,18 @@ struct CpioHeader {
         return true
     }
 
+}
+
+// MARK: - 旧名
+
+extension CpioHeader {
+    /// 旧名。FormatDetector / ArchiveReader の caller が新しい名前へ移るまでの転送（k2reader の follow-up で削除する）。
+    static func probe(_ prefix: [UInt8], source: any ByteSource) -> CpioVariant? {
+        detectVariant(prefix, source: source)
+    }
+
+    /// 旧名。FormatDetector の caller が新しい名前へ移るまでの転送（k2reader の follow-up で削除する）。
+    static func probeBinary(source: any ByteSource, recoverDamagedArchives: Bool = false) -> Bool {
+        detectBinary(source: source, recoverDamagedArchives: recoverDamagedArchives)
+    }
 }

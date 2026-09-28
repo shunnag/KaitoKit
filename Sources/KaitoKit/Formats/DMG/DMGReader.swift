@@ -107,7 +107,7 @@ final class DMGReader: FormatReader {
                 entries = inner.entries
                 return
             }
-            if try UDFVolume.hasRecognitionSequence(source: volumeSource, pureOnly: true) {
+            if try UDFVolume.detectRecognitionSequence(source: volumeSource, pureOnly: true) {
                 let inner = try UDFReader(source: volumeSource, options: options)
                 body = .inner(inner)
                 entries = inner.entries

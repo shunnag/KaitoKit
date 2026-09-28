@@ -51,7 +51,7 @@ final class UDFVolume {
     /// 2/8.3.1: byte 32768 から 2048 byte ごとの volume structure descriptor 列。CD001 の集合（ECMA-119）を
     /// 読み飛ばし、BEA01 … NSR02|NSR03 … TEA01 の拡張領域を確認する。`pureOnly` は CD001 を持たない
     /// image（UDF 専用）にだけ true を返す。
-    static func hasRecognitionSequence(source: any ByteSource, pureOnly: Bool) throws -> Bool {
+    static func detectRecognitionSequence(source: any ByteSource, pureOnly: Bool) throws -> Bool {
         var offset = recognitionOffset
         var sawBeginning = false
         var sawNSR = false
@@ -79,7 +79,7 @@ final class UDFVolume {
     init(source: any ByteSource, limits: ReadLimits) throws {
         self.source = source
         self.budget = MetadataBudget(limits)
-        guard try Self.hasRecognitionSequence(source: source, pureOnly: false) else {
+        guard try Self.detectRecognitionSequence(source: source, pureOnly: false) else {
             throw KaitoError.unsupportedFormat
         }
         // 3/8.4.2.1 と UDF §2.2.3: anchor は sector 256、N − 256、N のうち 2 つ以上。block size は
@@ -511,5 +511,14 @@ final class UDFVolume {
             guard length <= blockSize - 24 else { throw KaitoError.malformed("udf allocation extent descriptor length") }
             bytes = Array(block[24..<(24 + length)])
         }
+    }
+}
+
+// MARK: - 旧名
+
+extension UDFVolume {
+    /// 旧名。FormatDetector の caller が新しい名前へ移るまでの転送（k2reader の follow-up で削除する）。
+    static func hasRecognitionSequence(source: any ByteSource, pureOnly: Bool) throws -> Bool {
+        try detectRecognitionSequence(source: source, pureOnly: pureOnly)
     }
 }

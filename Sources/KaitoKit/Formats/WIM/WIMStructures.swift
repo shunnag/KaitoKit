@@ -233,25 +233,3 @@ final class WIMResourceDecompressor: Decompressor {
         nextChunk += 1
     }
 }
-
-/// 出力の SHA-1 を数え、完了時に lookup table の hash と照合する。
-final class WIMHashingDecompressor: Decompressor {
-    private let inner: any Decompressor
-    private var hasher = Insecure.SHA1()
-    private(set) var digest: [UInt8]?
-
-    init(_ inner: any Decompressor) { self.inner = inner }
-    var isFinished: Bool { inner.isFinished }
-
-    func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
-        let count = try inner.read(into: buffer)
-        if count > 0 { hasher.update(bufferPointer: UnsafeRawBufferPointer(rebasing: buffer[..<count])) }
-        if inner.isFinished, digest == nil { digest = Array(hasher.finalize()) }
-        return count
-    }
-
-    func verify(expected: [UInt8], entryIndex: Int) throws {
-        if digest == nil { digest = Array(hasher.finalize()) }
-        guard digest == expected else { throw KaitoError.checksumMismatch(entry: entryIndex) }
-    }
-}

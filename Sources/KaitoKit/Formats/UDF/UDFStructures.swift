@@ -9,16 +9,7 @@ enum UDFBytes {
     static func u64(_ b: [UInt8], _ o: Int) -> UInt64 { LittleEndian.uint64(b, at: o) }
 
     /// 3/7.2.6: CRC-ITU-T（x^16 + x^12 + x^5 + 1）、初期値 0、反転なし。仕様の例: 70 6A 77 → 3299。
-    static func crc16(_ bytes: ArraySlice<UInt8>) -> UInt16 {
-        var crc: UInt16 = 0
-        for byte in bytes {
-            crc ^= UInt16(byte) << 8
-            for _ in 0..<8 {
-                crc = crc & 0x8000 != 0 ? (crc << 1) ^ 0x1021 : crc << 1
-            }
-        }
-        return crc
-    }
+    static func crc16(_ bytes: ArraySlice<UInt8>) -> UInt16 { CRC16XModem.checksum(bytes) }
 
     /// 1/7.4 regid の Identifier（byte 1〜23、末尾の #00 を除く）。
     static func identifier(_ b: [UInt8], _ o: Int) -> [UInt8] {

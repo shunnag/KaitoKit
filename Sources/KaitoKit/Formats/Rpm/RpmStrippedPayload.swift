@@ -116,10 +116,11 @@ struct RpmStrippedPayload {
         let record = records[index]
         if fileList.digestAlgorithm == 8, record.dataLength > 0,
            let digest = fileList.files[record.fileIndex].digest {
-            let hash = try RpmSHA256Decompressor(source: source, offset: record.dataOffset, length: record.dataLength)
+            let copy = try CopyDecompressor(source: source, offset: record.dataOffset, compressedSize: record.dataLength)
+            let hash = HashingDecompressor<SHA256>(copy)
             return try EntryStream(decompressor: hash, length: record.dataLength, expectedCRC32: nil,
                 entryIndex: index, limits: limits, completionCheck: {
-                    guard hash.digest == digest.lowercased() else { throw KaitoError.checksumMismatch(entry: index) }
+                    guard hash.hexDigest == digest.lowercased() else { throw KaitoError.checksumMismatch(entry: index) }
                 })
         }
         return try EntryStream(source: source, offset: record.dataOffset, length: record.dataLength, limits: limits)
@@ -128,21 +129,5 @@ struct RpmStrippedPayload {
     private static func requireNUL(source: any ByteSource, offset: UInt64, count: UInt64) throws {
         let bytes = try readByteRange(source: source, offset: offset, count: Checked.toInt(count))
         guard bytes.allSatisfy({ $0 == 0 }) else { throw KaitoError.malformed("rpm stripped padding") }
-    }
-}
-
-// staging 済み本文を読みながら更新し、完全読取の終端でだけ照合する。
-private final class RpmSHA256Decompressor: Decompressor {
-    private let copy: CopyDecompressor
-    private var hash = SHA256()
-    init(source: any ByteSource, offset: UInt64, length: UInt64) throws {
-        copy = try CopyDecompressor(source: source, offset: offset, compressedSize: length)
-    }
-    var isFinished: Bool { copy.isFinished }
-    var digest: String { hash.finalize().map { String(format: "%02x", $0) }.joined() }
-    func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
-        let count = try copy.read(into: buffer)
-        hash.update(bufferPointer: UnsafeRawBufferPointer(rebasing: buffer[..<count]))
-        return count
     }
 }

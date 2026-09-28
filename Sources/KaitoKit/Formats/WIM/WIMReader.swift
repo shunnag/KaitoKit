@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Windows Imaging（WIM）の reader。lookup table の SHA-1 で resource を引き、metadata resource の
@@ -369,10 +370,13 @@ final class WIMReader: FormatReader {
             guard resource.header.packedSize == resource.header.originalSize else { throw KaitoError.malformed("wim stored resource size") }
             inner = try CopyDecompressor(source: source, offset: resource.header.offset, compressedSize: resource.header.originalSize)
         }
-        let hashing = WIMHashingDecompressor(inner)
+        let hashing = HashingDecompressor<Insecure.SHA1>(inner)
         let expected = resource.hash
         let index = entry.index
         return try EntryStream(decompressor: hashing, length: resource.header.originalSize, expectedCRC32: nil, entryIndex: index,
-                               limits: limits, completionCheck: { try hashing.verify(expected: expected, entryIndex: index) })
+                               limits: limits, completionCheck: {
+                                   // 完了時に lookup table の SHA-1 と照合する。
+                                   guard hashing.digest == expected else { throw KaitoError.checksumMismatch(entry: index) }
+                               })
     }
 }

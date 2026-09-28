@@ -241,36 +241,18 @@ final class XarReader: FormatReader {
             let hash = Self.hashing(decoder, style: style)
             return try EntryStream(decompressor: hash, length: data.size, expectedCRC32: nil, entryIndex: entry.index,
                 limits: limits, completionCheck: {
-                    let digest = hash.digest.map { String(format: "%02x", $0) }.joined()
-                    guard digest == text.lowercased() else { throw KaitoError.malformed("xar checksum mismatch") }
+                    guard hash.hexDigest == text.lowercased() else { throw KaitoError.malformed("xar checksum mismatch") }
                 })
         }
         return try EntryStream(decompressor: decoder, length: data.size, expectedCRC32: nil, entryIndex: entry.index, limits: limits)
     }
 
-    private static func hashing(_ decoder: any Decompressor, style: XarChecksumStyle) -> any XarDigestDecompressor {
+    private static func hashing(_ decoder: any Decompressor, style: XarChecksumStyle) -> any DigestDecompressor {
         switch style {
-        case .sha1: XarHashDecompressor<Insecure.SHA1>(decoder)
-        case .md5: XarHashDecompressor<Insecure.MD5>(decoder)
-        case .sha256: XarHashDecompressor<SHA256>(decoder)
-        case .sha512: XarHashDecompressor<SHA512>(decoder)
+        case .sha1: HashingDecompressor<Insecure.SHA1>(decoder)
+        case .md5: HashingDecompressor<Insecure.MD5>(decoder)
+        case .sha256: HashingDecompressor<SHA256>(decoder)
+        case .sha512: HashingDecompressor<SHA512>(decoder)
         }
-    }
-}
-
-private protocol XarDigestDecompressor: Decompressor { var digest: [UInt8] { get } }
-
-// 展開時の同一 pass で digest を更新し、出力全体の保持や圧縮 data の再読込を避ける。
-private final class XarHashDecompressor<H: HashFunction>: XarDigestDecompressor {
-    private let decoder: any Decompressor
-    private var hash = H()
-    init(_ decoder: any Decompressor) { self.decoder = decoder }
-    var isFinished: Bool { decoder.isFinished }
-    var digest: [UInt8] { Array(hash.finalize()) }
-    func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
-        let count = try decoder.read(into: buffer)
-        guard count >= 0, count <= buffer.count else { throw KaitoError.malformed("xar decoder byte count") }
-        hash.update(bufferPointer: UnsafeRawBufferPointer(rebasing: buffer[..<count]))
-        return count
     }
 }

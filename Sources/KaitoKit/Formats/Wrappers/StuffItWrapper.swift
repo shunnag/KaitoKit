@@ -35,14 +35,8 @@ func macEpochDate(_ seconds: UInt64) -> Date? {
 }
 
 enum StuffItWrapper {
-    static func xmodem(_ bytes: some Sequence<UInt8>) -> UInt16 {
-        var crc: UInt16 = 0
-        for byte in bytes {
-            crc ^= UInt16(byte) << 8
-            for _ in 0..<8 { crc = (crc & 0x8000 == 0) ? crc << 1 : (crc << 1) ^ 0x1021 }
-        }
-        return crc
-    }
+    /// MacBinary / BinHex の header と fork の CRC。
+    static func xmodem(_ bytes: some Sequence<UInt8>) -> UInt16 { CRC16XModem.checksum(bytes) }
     static func region(_ source: any ByteSource, offset: UInt64, length: UInt64) throws -> any ByteSource {
         // RebasedByteSource の原点を data fork に合わせ、末尾の resource/padding も不可視にする。
         let rebased = try RebasedByteSource(source: source, baseOffset: offset)

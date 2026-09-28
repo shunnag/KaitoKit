@@ -5,12 +5,6 @@ import Foundation
 final class ZipReader: FormatReader {
     private static let maximumEndRecordCandidateAttempts = 8_192
 
-    private enum Encryption: Sendable {
-        case none
-        case traditional
-        case aes(WinZipAESMetadata)
-    }
-
     // ZipCrypto の 1 byte 検査値を誤通過した password は、復号後の破損と区別できない。
     // そのため展開中の構造的な失敗（malformed・truncated・checksumMismatch）を wrongPassword として返す。
     private final class ZipPasswordAmbiguousDecompressor: Decompressor {
@@ -58,47 +52,12 @@ final class ZipReader: FormatReader {
         }
     }
 
-    private struct Record: Sendable {
-        let localHeaderOffset: UInt64
-        let compressedSize: UInt64
-        let uncompressedSize: UInt64
-        let crc32: UInt32?
-        let storedCRC32: UInt32
-        let flags: UInt16
-        let method: UInt16
-        let headerMethod: UInt16
-        let encryption: Encryption
-        let usesZIP64: Bool
-        var availableCompressedSize: UInt64? = nil
-        var hasKnownCompressedSize = true
-    }
-
     private struct LocalRecord {
         let dataOffset: UInt64
         let usesDataDescriptor: Bool
         let dosTime: UInt16
         let usesZIP64: Bool
         var rawRecordEnd: UInt64? = nil
-    }
-
-    private struct DirectoryLocation {
-        let archiveBase: UInt64
-        let offset: UInt64
-        let size: UInt64
-        let entryCount: Int
-        var diskLayout: ZipDiskLayout? = nil
-    }
-
-    private struct ArchiveNames {
-        let encoding: String.Encoding?
-        let decoded: [String?]
-    }
-
-    private struct ParsedDirectory {
-        let location: DirectoryLocation
-        let entries: [ArchiveEntry]
-        let records: [Record]
-        let nameEncoding: String.Encoding?
     }
 
     private typealias EndRecord = ZipEndRecords.EndRecord
@@ -138,19 +97,13 @@ final class ZipReader: FormatReader {
         }
     }
 
-    private enum ExtraFieldTailPolicy {
-        case strict
-        case zeroPadding
-        case ignoreUnparsableTail
-    }
-
     let format: ArchiveFormat = .zip
     let entries: [ArchiveEntry]
     let nameEncoding: String.Encoding?
 
     private let source: any ByteSource
     private let centralDirectoryOffset: UInt64
-    private let records: [Record]
+    private let records: [ZipEntryRecord]
     private let localHeaderOrder: [Int]
     private let localHeaderOrderPositions: [Int]
     private var localRecords: [LocalRecord?] = []
@@ -167,7 +120,7 @@ final class ZipReader: FormatReader {
         self.password = options.password
         self.localReadAhead = ZipLocalReadAhead(policy: readAhead)
 
-        let parsedDirectory: ParsedDirectory
+        let parsedDirectory: ZipParsedDirectory
         // 巻の欠落を部分成功で隠さず、先頭の spanning 署名を descriptor と誤認しない。
         if diskLayout == nil, options.recoverDamagedArchives,
            try source.length < UInt64(ZipEndRecords.endMinimumSize)
@@ -176,7 +129,7 @@ final class ZipReader: FormatReader {
                     maximumSearchSize: ZipEndRecords.endMinimumSize + ZipEndRecords.maximumCommentSize
                         + ZipEndRecords.maximumTrailingDataSize
                 )).isEmpty {
-            parsedDirectory = try Self.recoverLocalHeaders(
+            parsedDirectory = try ZipLocalHeaderRecovery.recover(
                 source: source, policy: options.encodingPolicy, limits: options.limits
             )
         } else {
@@ -218,7 +171,7 @@ final class ZipReader: FormatReader {
     }
 
     private init(source: any ByteSource, options: ReaderOptions,
-                 centralDirectoryOffset: UInt64, records: [Record],
+                 centralDirectoryOffset: UInt64, records: [ZipEntryRecord],
                  localHeaderOrder: [Int], localHeaderOrderPositions: [Int],
                  entries: [ArchiveEntry], nameEncoding: String.Encoding?,
                  readAhead: ZipLocalReadAheadPolicy = .standard) {
@@ -269,7 +222,7 @@ final class ZipReader: FormatReader {
                               aesKey: aesKey, storedOnly: storedOnly)
     }
 
-    private func makeStream(record: Record, entry: ArchiveEntry, local: LocalRecord, limits: ReadLimits,
+    private func makeStream(record: ZipEntryRecord, entry: ArchiveEntry, local: LocalRecord, limits: ReadLimits,
                             aesKey: ZipAESKeyMaterial?, storedOnly: Bool) throws -> EntryStream {
         if aesKey != nil {
             guard case .aes = record.encryption else {
@@ -379,7 +332,7 @@ final class ZipReader: FormatReader {
         )
     }
 
-    private func validatedRawRecord(at index: Int, limits: ReadLimits) throws -> (Record, LocalRecord, end: UInt64) {
+    private func validatedRawRecord(at index: Int, limits: ReadLimits) throws -> (ZipEntryRecord, LocalRecord, end: UInt64) {
         try validateEntryRanges(
             through: localHeaderOrderPositions[index],
             limits: limits,
@@ -459,14 +412,14 @@ final class ZipReader: FormatReader {
                 count: try Checked.toInt(extraLength), position: localHeaderOrderPositions[index],
                 sequential: false, limits: limits
             )
-            let fields = try Self.parseExtraFields(
+            let fields = try ZipExtraFields.parse(
                 extra,
                 recordLimit: limits.maxMetadataRecordCount,
                 tailPolicy: .zeroPadding
             )
             usesZIP64 = fields.contains { $0.identifier == ZipExtraFieldID.zip64 }
             if localCompressed32 == UInt32.max || localUncompressed32 == UInt32.max {
-                guard let zip64 = Self.uniqueExtra(ZipExtraFieldID.zip64, in: fields) else {
+                guard let zip64 = ZipExtraFields.unique(ZipExtraFieldID.zip64, in: fields) else {
                     throw KaitoError.malformed("ZIP64 local sizes are missing")
                 }
                 var zip64Cursor = ZipByteCursor(zip64)
@@ -550,7 +503,7 @@ final class ZipReader: FormatReader {
     }
 
     private func rawRecordEnd(
-        record: Record,
+        record: ZipEntryRecord,
         local: LocalRecord,
         payloadEnd: UInt64,
         upperBound: UInt64,
@@ -617,7 +570,7 @@ final class ZipReader: FormatReader {
     }
 
     private func payloadSource(
-        record: Record,
+        record: ZipEntryRecord,
         local: LocalRecord,
         limits: ReadLimits,
         isIncomplete: Bool,
@@ -825,202 +778,12 @@ final class ZipReader: FormatReader {
         }
     }
 
-    private struct RecoveryExtent {
-        let headerOffset: UInt64
-        let availableSize: UInt64
-        let unknownSize: Bool
-        let isIncomplete: Bool
-    }
-
-    private static func recoverLocalHeaders(
-        source: any ByteSource,
-        policy: EncodingPolicy,
-        limits: ReadLimits
-    ) throws -> ParsedDirectory {
-        var offset: UInt64 = 0
-        var scanned: UInt64 = 0
-        var metadata: [UInt8] = []
-        var recovery: [RecoveryExtent] = []
-        while offset < source.length {
-            try checkCancellation(every: recovery.count)
-            offset = try nextRecoveryMarker(
-                source: source, from: offset, scanned: &scanned, limits: limits
-            )
-            guard source.length - offset >= 4 else { break }
-            let signature = try readByteRange(source: source, offset: offset, count: 4)
-            guard LittleEndian.uint32(signature, at: 0) == ZipSignature.localHeader else { break }
-            guard source.length - offset >= UInt64(ZipRecordSize.localHeader) else { break }
-            guard recovery.count < limits.maxEntryCount else {
-                throw KaitoError.limitExceeded("archive entry count")
-            }
-            try Checked.size(
-                Checked.mul(UInt64(recovery.count + 1), 256),
-                limit: limits.maxTotalMetadataSize
-            )
-            let header = try readByteRange(source: source, offset: offset, count: ZipRecordSize.localHeader)
-            let flags = LittleEndian.uint16(header, at: 6)
-            let nameSize = Int(LittleEndian.uint16(header, at: 26))
-            let extraSize = Int(LittleEndian.uint16(header, at: 28))
-            let variableSize = nameSize + extraSize
-            try Checked.size(UInt64(ZipRecordSize.localHeader + variableSize), limit: limits.maxMetadataSize)
-            let dataOffset = try Checked.add(offset, UInt64(ZipRecordSize.localHeader + variableSize))
-            guard dataOffset <= source.length else { break }
-            let variable = try readByteRange(
-                source: source, offset: offset + UInt64(ZipRecordSize.localHeader), count: variableSize
-            )
-            let fields = try parseExtraFields(
-                Array(variable.dropFirst(nameSize)),
-                recordLimit: limits.maxMetadataRecordCount,
-                tailPolicy: .zeroPadding
-            )
-            let sizes = try resolveZIP64Values(
-                compressed32: LittleEndian.uint32(header, at: 18),
-                uncompressed32: LittleEndian.uint32(header, at: 22),
-                localOffset32: 0, diskStart16: 0, fields: fields
-            )
-            var compressed = sizes.compressedSize
-            var uncompressed = sizes.uncompressedSize
-            var crc = LittleEndian.uint32(header, at: 14)
-            try Checked.size(compressed, limit: limits.maxEntrySize)
-            try Checked.size(uncompressed, limit: limits.maxEntrySize)
-            var unknownSize = false
-            var nextOffset: UInt64
-            if flags & ZipGeneralPurposeFlag.dataDescriptor != 0, compressed == 0 {
-                nextOffset = try nextRecoveryMarker(
-                    source: source, from: dataOffset, scanned: &scanned, limits: limits
-                )
-                compressed = nextOffset - dataOffset
-                unknownSize = true
-                // descriptor の署名あり・なし、ZIP32・ZIP64 の終端候補を範囲内で検査する。
-                for descriptorSize in [16, 24, 12, 20] {
-                    guard UInt64(descriptorSize) <= compressed else { continue }
-                    let descriptor = try readByteRange(
-                        source: source, offset: nextOffset - UInt64(descriptorSize),
-                        count: descriptorSize
-                    )
-                    let signed = descriptorSize == 16 || descriptorSize == 24
-                    if signed, LittleEndian.uint32(descriptor, at: 0) != ZipSignature.dataDescriptor { continue }
-                    let base = signed ? 4 : 0
-                    let wide = descriptorSize == 24 || descriptorSize == 20
-                    let packed = wide ? LittleEndian.uint64(descriptor, at: base + 4)
-                        : UInt64(LittleEndian.uint32(descriptor, at: base + 4))
-                    guard packed == compressed - UInt64(descriptorSize) else { continue }
-                    compressed = packed
-                    uncompressed = wide ? LittleEndian.uint64(descriptor, at: base + 12)
-                        : UInt64(LittleEndian.uint32(descriptor, at: base + 8))
-                    crc = LittleEndian.uint32(descriptor, at: base)
-                    unknownSize = false
-                    break
-                }
-            } else {
-                nextOffset = try Checked.add(dataOffset, compressed)
-            }
-            try Checked.size(compressed, limit: limits.maxEntrySize)
-            try Checked.size(uncompressed, limit: limits.maxEntrySize)
-            let available = min(compressed, source.length - dataOffset)
-            // ローカル情報を既存の中央 entry 検証へ渡し、名前・暗号・上限の検証を共用する。
-            var extra: [UInt8] = []
-            for field in fields where field.identifier != ZipExtraFieldID.zip64 {
-                appendRecoveryInteger(UInt64(field.identifier), width: 2, to: &extra)
-                appendRecoveryInteger(UInt64(field.data.count), width: 2, to: &extra)
-                extra += field.data
-            }
-            if compressed >= UInt64(UInt32.max) || uncompressed >= UInt64(UInt32.max) {
-                var wide: [UInt8] = []
-                if uncompressed >= UInt64(UInt32.max) {
-                    appendRecoveryInteger(uncompressed, width: 8, to: &wide)
-                }
-                if compressed >= UInt64(UInt32.max) {
-                    appendRecoveryInteger(compressed, width: 8, to: &wide)
-                }
-                appendRecoveryInteger(UInt64(ZipExtraFieldID.zip64), width: 2, to: &extra)
-                appendRecoveryInteger(UInt64(wide.count), width: 2, to: &extra)
-                extra += wide
-            }
-            guard extra.count <= Int(UInt16.max) else {
-                throw KaitoError.limitExceeded("ZIP recovery extra size")
-            }
-            let nextMetadataSize = try Checked.add(
-                UInt64(metadata.count), UInt64(ZipRecordSize.centralHeader + nameSize + extra.count)
-            )
-            try Checked.size(nextMetadataSize, limit: limits.maxMetadataSize)
-            try Checked.size(nextMetadataSize, limit: limits.maxTotalMetadataSize)
-            appendRecoveryInteger(UInt64(ZipSignature.centralHeader), width: 4, to: &metadata)
-            appendRecoveryInteger(20, width: 2, to: &metadata) // 作成元バージョン 2.0
-            metadata += header[4..<14]
-            appendRecoveryInteger(UInt64(crc), width: 4, to: &metadata)
-            appendRecoveryInteger(min(compressed, UInt64(UInt32.max)), width: 4, to: &metadata)
-            appendRecoveryInteger(min(uncompressed, UInt64(UInt32.max)), width: 4, to: &metadata)
-            appendRecoveryInteger(UInt64(nameSize), width: 2, to: &metadata)
-            appendRecoveryInteger(UInt64(extra.count), width: 2, to: &metadata)
-            metadata += [UInt8](repeating: 0, count: 14)
-            metadata += variable.prefix(nameSize)
-            metadata += extra
-            recovery.append(RecoveryExtent(
-                headerOffset: offset, availableSize: available, unknownSize: unknownSize,
-                isIncomplete: unknownSize || available < compressed
-            ))
-            offset = nextOffset
-        }
-        let location = DirectoryLocation(
-            archiveBase: 0, offset: source.length, size: UInt64(metadata.count),
-            entryCount: recovery.count
-        )
-        let parsed = try parseCentralDirectory(
-            source: source, location: location, policy: policy, limits: limits,
-            recoveredBytes: metadata, recovery: recovery
-        )
-        return ParsedDirectory(
-            location: location, entries: parsed.entries, records: parsed.records,
-            nameEncoding: parsed.nameEncoding
-        )
-    }
-
-    private static func appendRecoveryInteger(
-        _ value: UInt64, width: Int, to bytes: inout [UInt8]
-    ) {
-        for index in 0..<width {
-            bytes.append(UInt8(truncatingIfNeeded: value >> (8 * index)))
-        }
-    }
-
-    private static func nextRecoveryMarker(
-        source: any ByteSource,
-        from start: UInt64,
-        scanned: inout UInt64,
-        limits: ReadLimits
-    ) throws -> UInt64 {
-        var offset = start
-        while source.length - offset >= 4 {
-            guard scanned < limits.maxTotalMetadataSize, limits.maxMetadataSize >= 4 else {
-                throw KaitoError.limitExceeded("ZIP recovery scan bytes")
-            }
-            let budget = limits.maxTotalMetadataSize - scanned
-            let count = min(source.length - offset, 65_536, limits.maxMetadataSize, budget)
-            guard count >= 4 else { throw KaitoError.limitExceeded("ZIP recovery scan bytes") }
-            let bytes = try readByteRange(source: source, offset: offset, count: Int(count))
-            for index in 0...(bytes.count - 4) {
-                try checkCancellation(every: index)
-                let signature = LittleEndian.uint32(bytes, at: index)
-                if signature == ZipSignature.localHeader || signature == ZipSignature.centralHeader
-                    || signature == ZipSignature.endOfCentralDirectory || signature == ZipSignature.zip64End {
-                    scanned = try Checked.add(scanned, UInt64(index + 4))
-                    return offset + UInt64(index)
-                }
-            }
-            let advance = count - 3
-            scanned = try Checked.add(scanned, advance)
-            offset += advance
-        }
-        return source.length
-    }
-
     private static func locateAndParseCentralDirectory(
         source: any ByteSource,
         diskLayout: ZipDiskLayout? = nil,
         policy: EncodingPolicy,
         limits: ReadLimits
-    ) throws -> ParsedDirectory {
+    ) throws -> ZipParsedDirectory {
         // 二つの探索窓と包含候補の再試行で共有する。兄弟探索の予算は免除しない。
         var budget = EndRecordParseBudget(limits: limits, exemptsFirstAttempt: true)
         var attemptedEndRecordOffsets: Set<UInt64> = []
@@ -1089,7 +852,7 @@ final class ZipReader: FormatReader {
         limits: ReadLimits,
         budget: inout EndRecordParseBudget,
         attemptedOffsets: inout Set<UInt64>
-    ) throws -> (directory: ParsedDirectory?, end: EndRecord?, error: Error?) {
+    ) throws -> (directory: ZipParsedDirectory?, end: EndRecord?, error: Error?) {
         var candidateError: Error?
 
         for (candidateIndex, end) in candidates.enumerated() {
@@ -1232,7 +995,7 @@ final class ZipReader: FormatReader {
             claimLimits.maxEntryCount = Int.max
             claimLimits.maxMetadataSize = UInt64.max
             claimLimits.maxTotalMetadataSize = UInt64.max
-            let location: DirectoryLocation
+            let location: ZipDirectoryLocation
             if try end.diskNumber == UInt16.max || end.centralDirectoryDisk == UInt16.max
                 || end.entriesOnDisk == UInt16.max || end.totalEntries == UInt16.max
                 || end.centralDirectorySize == UInt32.max || end.centralDirectoryOffset == UInt32.max
@@ -1515,12 +1278,12 @@ final class ZipReader: FormatReader {
                 )
                 let fields: [ZipExtraField]
                 do {
-                    fields = try parseExtraFields(
+                    fields = try ZipExtraFields.parse(
                         extra,
                         recordLimit: extra.count / 4 + 1,
                         tailPolicy: .ignoreUnparsableTail
                     )
-                    let values = try resolveZIP64Values(
+                    let values = try ZipExtraFields.resolveZIP64Values(
                         compressed32: LittleEndian.uint32(fixed, at: 20),
                         uncompressed32: LittleEndian.uint32(fixed, at: 24),
                         localOffset32: localOffset32,
@@ -1566,7 +1329,7 @@ final class ZipReader: FormatReader {
         policy: EncodingPolicy,
         limits: ReadLimits,
         budget: inout EndRecordParseBudget
-    ) throws -> ParsedDirectory {
+    ) throws -> ZipParsedDirectory {
         try budget.chargeAttempt()
         let usesZIP64 = end.diskNumber == UInt16.max
             || end.centralDirectoryDisk == UInt16.max
@@ -1654,23 +1417,17 @@ final class ZipReader: FormatReader {
 
     private static func parseDirectory(
         source: any ByteSource,
-        location: DirectoryLocation,
+        location: ZipDirectoryLocation,
         policy: EncodingPolicy,
         limits: ReadLimits,
         budget: inout EndRecordParseBudget
-    ) throws -> ParsedDirectory {
+    ) throws -> ZipParsedDirectory {
         try budget.chargeMetadataBytes(location.size)
-        let parsed = try parseCentralDirectory(
+        return try ZipCentralDirectoryParser.parse(
             source: source,
             location: location,
             policy: policy,
             limits: limits
-        )
-        return ParsedDirectory(
-            location: location,
-            entries: parsed.entries,
-            records: parsed.records,
-            nameEncoding: parsed.nameEncoding
         )
     }
 
@@ -1692,7 +1449,7 @@ final class ZipReader: FormatReader {
         diskLayout: ZipDiskLayout? = nil,
         end: EndRecord,
         limits: ReadLimits
-    ) throws -> DirectoryLocation {
+    ) throws -> ZipDirectoryLocation {
         if let diskLayout {
             try diskLayout.validate(end: end)
             guard end.entriesOnDisk <= end.totalEntries else {
@@ -1723,7 +1480,7 @@ final class ZipReader: FormatReader {
         guard directoryEnd == end.offset, directoryEnd <= source.length else {
             throw KaitoError.malformed("ZIP central directory lies outside the file")
         }
-        return DirectoryLocation(
+        return ZipDirectoryLocation(
             archiveBase: archiveBase,
             offset: absoluteOffset,
             size: size,
@@ -1738,7 +1495,7 @@ final class ZipReader: FormatReader {
         end: EndRecord,
         limits: ReadLimits,
         budget: inout EndRecordParseBudget
-    ) throws -> DirectoryLocation {
+    ) throws -> ZipDirectoryLocation {
         if let diskLayout {
             try diskLayout.validate(end: end)
         } else {
@@ -1837,7 +1594,7 @@ final class ZipReader: FormatReader {
         guard directoryEnd <= recordOffset, directoryEnd <= source.length else {
             throw KaitoError.malformed("ZIP64 central directory lies outside the file")
         }
-        return DirectoryLocation(
+        return ZipDirectoryLocation(
             archiveBase: archiveBase,
             offset: absoluteDirectoryOffset,
             size: directorySize,
@@ -1880,712 +1637,13 @@ final class ZipReader: FormatReader {
         throw KaitoError.malformed("ZIP64 end record was not found")
     }
 
-    private static func parseCentralDirectory(
-        source: any ByteSource,
-        location: DirectoryLocation,
-        policy: EncodingPolicy,
-        limits: ReadLimits,
-        recoveredBytes: [UInt8]? = nil,
-        recovery: [RecoveryExtent] = []
-    ) throws -> (
-        entries: [ArchiveEntry],
-        records: [Record],
-        nameEncoding: String.Encoding?
-    ) {
-        let bytes = try recoveredBytes ?? readByteRange(
-            source: source,
-            offset: location.offset,
-            count: try Checked.toInt(location.size)
-        )
-        // 固定部だけでも一件 46 バイト必要。偽の巨大 count で reserveCapacity を
-        // 先に膨らませず、中央ディレクトリとの整合性を確保してから配列を予約する。
-        guard location.entryCount <= bytes.count / ZipRecordSize.centralHeader else {
-            throw KaitoError.malformed(
-                "ZIP central-directory entry count exceeds its data"
-            )
-        }
-        let minimumRetainedMetadata = try Checked.mul(
-            UInt64(location.entryCount),
-            256
-        )
-        try Checked.size(
-            minimumRetainedMetadata,
-            limit: limits.maxTotalMetadataSize
-        )
-        let archiveNames = try archiveNames(
-            in: bytes,
-            entryCount: location.entryCount,
-            policy: policy,
-            recordLimit: limits.maxMetadataRecordCount
-        )
-        var cursor = ZipByteCursor(bytes)
-        var entries: [ArchiveEntry] = []
-        var records: [Record] = []
-        entries.reserveCapacity(location.entryCount)
-        records.reserveCapacity(location.entryCount)
-        var retainedMetadataSize: UInt64 = 0
-        var archiveNameIndex = 0
-        var dosTimestampDecoder = DOSTimestampDecoder()
-        var pathSplitter = PathComponentSplitter()
-        var specificCache: [(key: UInt64, value: [String: String])] = []
-        specificCache.reserveCapacity(8)
-        var specificReplacement = 0
-
-        for index in 0..<location.entryCount {
-            try checkCancellation(every: index)
-            guard cursor.remaining >= ZipRecordSize.centralHeader else {
-                throw KaitoError.malformed("ZIP central-directory entry count exceeds its data")
-            }
-            guard try cursor.readUInt32LE() == ZipSignature.centralHeader else {
-                throw KaitoError.malformed("invalid ZIP central-header signature")
-            }
-            let versionMadeBy = try cursor.readUInt16LE()
-            _ = try cursor.readUInt16LE() // 展開に必要なバージョン
-            let flags = try cursor.readUInt16LE()
-            let headerMethod = try cursor.readUInt16LE()
-            let dosTime = try cursor.readUInt16LE()
-            let dosDate = try cursor.readUInt16LE()
-            let storedCRC = try cursor.readUInt32LE()
-            let compressed32 = try cursor.readUInt32LE()
-            let uncompressed32 = try cursor.readUInt32LE()
-            let nameLength = Int(try cursor.readUInt16LE())
-            let extraLength = Int(try cursor.readUInt16LE())
-            let commentLength = Int(try cursor.readUInt16LE())
-            let diskStart16 = try cursor.readUInt16LE()
-            _ = try cursor.readUInt16LE() // 内部属性
-            let externalAttributes = try cursor.readUInt32LE()
-            let localOffset32 = try cursor.readUInt32LE()
-
-            guard nameLength > 0 else {
-                throw KaitoError.malformed("ZIP entry has an empty name")
-            }
-            let variableLength = try Checked.add(UInt64(nameLength), UInt64(extraLength))
-            let fullVariableLength = try Checked.add(variableLength, UInt64(commentLength))
-            guard fullVariableLength <= UInt64(cursor.remaining) else {
-                throw KaitoError.malformed("ZIP central variable fields overrun the directory")
-            }
-            let rawName = try cursor.readBytes(nameLength)
-            let extra = try cursor.readBytes(extraLength)
-            try cursor.skip(commentLength)
-            guard !rawName.contains(0) else {
-                throw KaitoError.malformed("ZIP entry name contains NUL")
-            }
-
-            let extraFields = try parseExtraFields(
-                extra,
-                recordLimit: limits.maxMetadataRecordCount,
-                tailPolicy: .ignoreUnparsableTail
-            )
-            let zip64 = try resolveZIP64Values(
-                compressed32: compressed32,
-                uncompressed32: uncompressed32,
-                localOffset32: localOffset32,
-                diskStart16: diskStart16,
-                fields: extraFields
-            )
-            guard location.diskLayout != nil || zip64.diskStart == 0 else {
-                throw KaitoError.unsupportedMethod("spanned")
-            }
-            try Checked.size(zip64.compressedSize, limit: limits.maxEntrySize)
-            try Checked.size(zip64.uncompressedSize, limit: limits.maxEntrySize)
-
-            let extent = recovery.isEmpty ? nil : recovery[index]
-            // 並べ替えと非重複検証にも同じ絶対位置を使うため、索引作成時に解決する。
-            let absoluteLocalOffset = try extent?.headerOffset
-                ?? location.diskLayout?.absoluteOffset(disk: UInt64(zip64.diskStart), relative: zip64.localHeaderOffset)
-                ?? Checked.add(location.archiveBase, zip64.localHeaderOffset)
-            guard absoluteLocalOffset < location.offset else {
-                throw KaitoError.malformed("ZIP local header overlaps the central directory")
-            }
-
-            let aes = try parseAESExtra(fields: extraFields, headerMethod: headerMethod)
-            let encryption: Encryption
-            let method: UInt16
-            let expectedCRC: UInt32?
-            guard flags & ZipGeneralPurposeFlag.strongEncryption == 0 else {
-                throw KaitoError.unsupportedMethod("strong ZIP encryption")
-            }
-            if let aes {
-                guard flags & ZipGeneralPurposeFlag.encrypted != 0 else {
-                    throw KaitoError.malformed("WinZip AES entry lacks the encryption flag")
-                }
-                if aes.vendorVersion == .ae2, storedCRC != 0 {
-                    throw KaitoError.malformed("WinZip AE-2 entry has a nonzero CRC")
-                }
-                encryption = .aes(aes)
-                method = aes.compressionMethod
-                expectedCRC = aes.vendorVersion == .ae2 ? nil : storedCRC
-            } else if flags & ZipGeneralPurposeFlag.encrypted != 0 {
-                encryption = .traditional
-                method = headerMethod
-                expectedCRC = storedCRC
-            } else {
-                encryption = .none
-                method = headerMethod
-                expectedCRC = storedCRC
-            }
-
-            let hostOS = UInt8(truncatingIfNeeded: versionMadeBy >> 8)
-            let unicodeName = unicodePath(from: extraFields, rawName: rawName)
-            let hasUTF8Flag = flags & ZipGeneralPurposeFlag.utf8Names != 0
-            let declaredEncoding: String.Encoding? = hasUTF8Flag ? .utf8 : nil
-            let name: String
-            if hasUTF8Flag,
-               let decoded = EncodingDetector.decode(bytes: rawName, as: .utf8) {
-                name = decoded
-            } else if let unicodeName {
-                name = unicodeName
-            } else {
-                let archiveDecodedName: String?
-                if !hasUTF8Flag,
-                   participatesInArchiveDetection(rawName, policy: policy) {
-                    guard archiveNameIndex < archiveNames.decoded.count else {
-                        throw KaitoError.malformed("ZIP archive-name index is inconsistent")
-                    }
-                    archiveDecodedName = archiveNames.decoded[archiveNameIndex]
-                    archiveNameIndex += 1
-                } else {
-                    archiveDecodedName = nil
-                }
-                name = archiveDecodedName ??
-                    EncodingDetector.resolveUndeclaredName(
-                        bytes: rawName,
-                        policy: policy,
-                        archiveEncoding: archiveNames.encoding,
-                        fromWindows: hostOS == 0
-                    ).string
-            }
-            guard !name.isEmpty, !name.utf8.contains(0) else {
-                throw KaitoError.malformed("ZIP entry name cannot be decoded safely")
-            }
-            let pathComponents = pathSplitter.split(name)
-            guard pathComponents.count <= limits.maxPathComponentCount else {
-                throw KaitoError.limitExceeded("ZIP path component count")
-            }
-
-            let unixMode = UInt16(truncatingIfNeeded: externalAttributes >> 16)
-            let isSymbolicLink = unixMode & 0o170000 == 0o120000
-            let dosDirectory = externalAttributes & 0x10 != 0 && zip64.uncompressedSize == 0
-            let kind: EntryKind
-            if isSymbolicLink {
-                kind = .symlink
-            } else if name.hasSuffix("/") || dosDirectory {
-                kind = .directory
-            } else {
-                kind = .file
-            }
-            let permissions: UInt16? = unixMode == 0 ? nil : unixMode & 0o7777
-            let modificationDate = try? modificationDate(
-                fields: extraFields,
-                dosDate: dosDate,
-                dosTime: dosTime,
-                dosTimestampDecoder: &dosTimestampDecoder
-            )
-            let encryptionKey: UInt64
-            switch encryption {
-            case .none: encryptionKey = 0
-            case .traditional: encryptionKey = 1 << 48
-            case let .aes(metadata):
-                encryptionKey = (2 << 48) | (UInt64(metadata.strength.rawValue) << 50)
-            }
-            let methodName = methodDescription(method)
-            let specificKey = UInt64(method) | UInt64(versionMadeBy) << 16 | UInt64(flags) << 32
-                | encryptionKey | (isSymbolicLink ? UInt64(1) << 58 : 0)
-            let specific: [String: String]
-            if let cached = specificCache.first(where: { $0.key == specificKey }) {
-                specific = cached.value
-            } else {
-                let encryptionDescription: String
-                switch encryption {
-                case .none: encryptionDescription = "none"
-                case .traditional: encryptionDescription = "ZipCrypto"
-                case let .aes(metadata):
-                    encryptionDescription = "AES-\(metadata.strength.keyLength * 8)"
-                }
-                var value: [String: String] = [
-                    "method": String(method),
-                    "versionMadeBy": String(versionMadeBy),
-                    "flags": flagsDescription(flags),
-                    "hostOS": String(hostOS),
-                    "encryption": encryptionDescription,
-                ]
-                if isSymbolicLink {
-                    value["linkTargetStoredAsData"] = "true"
-                }
-                if specificCache.count < 8 {
-                    specificCache.append((specificKey, value))
-                } else {
-                    specificCache[specificReplacement] = (specificKey, value)
-                    specificReplacement = (specificReplacement + 1) % 8
-                }
-                specific = value
-            }
-
-            let metadataCost = try retainedMetadataCost(
-                rawName: rawName,
-                name: name,
-                components: pathComponents,
-                specific: specific
-            )
-            retainedMetadataSize = try Checked.add(retainedMetadataSize, metadataCost)
-            try Checked.size(retainedMetadataSize, limit: limits.maxTotalMetadataSize)
-
-            let entry = ArchiveEntry(
-                index: index,
-                rawName: RawName(
-                    bytes: rawName,
-                    declaredEncoding: declaredEncoding,
-                    isDirectoryHint: kind == .directory
-                ),
-                name: name,
-                pathComponents: pathComponents,
-                kind: kind,
-                uncompressedSize: extent?.unknownSize == true ? nil : zip64.uncompressedSize,
-                compressedSize: extent?.unknownSize == true ? nil : zip64.compressedSize,
-                modificationDate: modificationDate,
-                posixPermissions: permissions,
-                isEncrypted: flags & ZipGeneralPurposeFlag.encrypted != 0,
-                solidGroup: -1,
-                crc32: expectedCRC,
-                methodDescription: methodName,
-                formatSpecific: specific,
-                isIncomplete: extent?.isIncomplete ?? false
-            )
-            entries.append(entry)
-            records.append(Record(
-                localHeaderOffset: absoluteLocalOffset,
-                compressedSize: zip64.compressedSize,
-                uncompressedSize: zip64.uncompressedSize,
-                crc32: expectedCRC,
-                storedCRC32: storedCRC,
-                flags: flags,
-                method: method,
-                headerMethod: headerMethod,
-                encryption: encryption,
-                usesZIP64: extraFields.contains { $0.identifier == ZipExtraFieldID.zip64 },
-                availableCompressedSize: extent?.availableSize,
-                hasKnownCompressedSize: extent?.unknownSize != true
-            ))
-        }
-
-        guard cursor.remaining == 0 else {
-            throw KaitoError.malformed("ZIP central-directory count does not match its data")
-        }
-        guard archiveNameIndex == archiveNames.decoded.count else {
-            throw KaitoError.malformed("ZIP archive-name count is inconsistent")
-        }
-        return (entries, records, archiveNames.encoding)
-    }
-
-    private static func archiveNames(
-        in bytes: [UInt8],
-        entryCount: Int,
-        policy: EncodingPolicy,
-        recordLimit: Int
-    ) throws -> ArchiveNames {
-        var cursor = ZipByteCursor(bytes)
-        var undecoratedNames: [[UInt8]] = []
-        undecoratedNames.reserveCapacity(entryCount)
-        var windowsNameCount = 0
-
-        for index in 0..<entryCount {
-            try checkCancellation(every: index)
-            guard cursor.remaining >= ZipRecordSize.centralHeader,
-                  try cursor.readUInt32LE() == ZipSignature.centralHeader else {
-                throw KaitoError.malformed("invalid ZIP central-header signature")
-            }
-            let versionMadeBy = try cursor.readUInt16LE()
-            try cursor.skip(2) // 展開に必要なバージョン
-            let flags = try cursor.readUInt16LE()
-            try cursor.skip(18) // method から uncompressed size まで
-            let nameLength = Int(try cursor.readUInt16LE())
-            let extraLength = Int(try cursor.readUInt16LE())
-            let commentLength = Int(try cursor.readUInt16LE())
-            try cursor.skip(12) // disk number から local-header offset まで
-
-            guard nameLength > 0 else {
-                throw KaitoError.malformed("ZIP entry has an empty name")
-            }
-            let variableLength = try Checked.add(UInt64(nameLength), UInt64(extraLength))
-            let fullVariableLength = try Checked.add(variableLength, UInt64(commentLength))
-            guard fullVariableLength <= UInt64(cursor.remaining) else {
-                throw KaitoError.malformed("ZIP central variable fields overrun the directory")
-            }
-            let rawName = try cursor.readBytes(nameLength)
-            let extra = try cursor.readBytes(extraLength)
-            try cursor.skip(commentLength)
-            guard !rawName.contains(0) else {
-                throw KaitoError.malformed("ZIP entry name contains NUL")
-            }
-
-            guard flags & ZipGeneralPurposeFlag.utf8Names == 0 else { continue }
-            let extraFields = try parseExtraFields(
-                extra,
-                recordLimit: recordLimit,
-                tailPolicy: .ignoreUnparsableTail
-            )
-            guard unicodePath(from: extraFields, rawName: rawName) == nil else { continue }
-            guard participatesInArchiveDetection(rawName, policy: policy) else { continue }
-            undecoratedNames.append(rawName)
-            if UInt8(truncatingIfNeeded: versionMadeBy >> 8) == 0 {
-                windowsNameCount += 1
-            }
-        }
-
-        guard cursor.remaining == 0 else {
-            throw KaitoError.malformed("ZIP central-directory count does not match its data")
-        }
-        let fromWindows = windowsNameCount >= undecoratedNames.count - windowsNameCount
-        let encoding = EncodingDetector.detectArchiveEncoding(
-            names: undecoratedNames,
-            policy: policy,
-            fromWindows: fromWindows
-        )
-        guard let encoding else {
-            return ArchiveNames(encoding: nil, decoded: [])
-        }
-        let decodedNames = EncodingDetector.decodeArchiveNames(
-            undecoratedNames,
-            as: encoding
-        )
-        return ArchiveNames(encoding: encoding, decoded: decodedNames)
-    }
-
-    private static func participatesInArchiveDetection(
-        _ rawName: [UInt8],
-        policy: EncodingPolicy
-    ) -> Bool {
-        switch policy {
-        case .fixed:
-            return true
-        case .automatic, .utf8Only:
-            return !EncodingDetector.isStrictUTF8(rawName)
-        }
-    }
-
-    private struct ZIP64Values {
-        let compressedSize: UInt64
-        let uncompressedSize: UInt64
-        let localHeaderOffset: UInt64
-        let diskStart: UInt32
-    }
-
-    private static func resolveZIP64Values(
-        compressed32: UInt32,
-        uncompressed32: UInt32,
-        localOffset32: UInt32,
-        diskStart16: UInt16,
-        fields: [ZipExtraField]
-    ) throws -> ZIP64Values {
-        let needsZIP64 = compressed32 == UInt32.max
-            || uncompressed32 == UInt32.max
-            || localOffset32 == UInt32.max
-            || diskStart16 == UInt16.max
-        guard needsZIP64 else {
-            return ZIP64Values(
-                compressedSize: UInt64(compressed32),
-                uncompressedSize: UInt64(uncompressed32),
-                localHeaderOffset: UInt64(localOffset32),
-                diskStart: UInt32(diskStart16)
-            )
-        }
-        guard let data = uniqueExtra(ZipExtraFieldID.zip64, in: fields) else {
-            throw KaitoError.malformed("ZIP64 central values are missing")
-        }
-        var cursor = ZipByteCursor(data)
-        let uncompressed = uncompressed32 == UInt32.max
-            ? try cursor.readUInt64LE() : UInt64(uncompressed32)
-        let compressed = compressed32 == UInt32.max
-            ? try cursor.readUInt64LE() : UInt64(compressed32)
-        let local = localOffset32 == UInt32.max
-            ? try cursor.readUInt64LE() : UInt64(localOffset32)
-        let disk = diskStart16 == UInt16.max
-            ? try cursor.readUInt32LE() : UInt32(diskStart16)
-        return ZIP64Values(
-            compressedSize: compressed,
-            uncompressedSize: uncompressed,
-            localHeaderOffset: local,
-            diskStart: disk
-        )
-    }
-
-    private static func parseAESExtra(
-        fields: [ZipExtraField],
-        headerMethod: UInt16
-    ) throws -> WinZipAESMetadata? {
-        var data: [UInt8]?
-        for field in fields where field.identifier == ZipExtraFieldID.winZipAES {
-            guard data == nil, headerMethod == ZipMethod.winZipAES else {
-                throw KaitoError.malformed("ambiguous WinZip AES metadata")
-            }
-            data = field.data
-        }
-        guard let data else {
-            if headerMethod == ZipMethod.winZipAES {
-                throw KaitoError.malformed("WinZip AES extra field is missing")
-            }
-            return nil
-        }
-        guard data.count == 7 else {
-            throw KaitoError.malformed("invalid WinZip AES extra-field length")
-        }
-        var cursor = ZipByteCursor(data)
-        let version = try cursor.readUInt16LE()
-        let vendor0 = try cursor.readUInt8()
-        let vendor1 = try cursor.readUInt8()
-        let strength = try cursor.readUInt8()
-        let method = try cursor.readUInt16LE()
-        // WinZipAESMetadata(extraFieldPayload:) は同じ欠陥の一部を unsupportedMethod とする。
-        // 中央ディレクトリでは malformed に揃え、EOCD 候補の再試行判定へ同じ分類で渡す。
-        guard let vendorVersion = WinZipAESVendorVersion(rawValue: version),
-              vendor0 == 0x41, vendor1 == 0x45,
-              let keyStrength = WinZipAESStrength(rawValue: strength),
-              method != ZipMethod.winZipAES else {
-            throw KaitoError.malformed("invalid WinZip AES metadata")
-        }
-        return WinZipAESMetadata(vendorVersion: vendorVersion, strength: keyStrength, compressionMethod: method)
-    }
-
-    private static func unicodePath(
-        from fields: [ZipExtraField],
-        rawName: [UInt8]
-    ) -> String? {
-        for field in fields where field.identifier == ZipExtraFieldID.unicodePath {
-            guard field.data.count >= 5, field.data[0] == 1 else { continue }
-            let expected = LittleEndian.uint32(field.data, at: 1)
-            guard CRC32.checksum(rawName) == expected else { continue }
-            let nameBytes = Array(field.data.dropFirst(5))
-            guard let decoded = EncodingDetector.decode(bytes: nameBytes, as: .utf8),
-                  !decoded.isEmpty else { continue }
-            return decoded
-        }
-        return nil
-    }
-
-    private static func modificationDate(
-        fields: [ZipExtraField],
-        dosDate: UInt16,
-        dosTime: UInt16,
-        dosTimestampDecoder: inout DOSTimestampDecoder
-    ) throws -> Date? {
-        var unixDate: Date?
-        if let timestamp = fields.first(where: { $0.identifier == ZipExtraFieldID.extendedTimestamp })?.data,
-           timestamp.count >= 5,
-           timestamp[0] & 0x01 != 0 {
-            let seconds = Int32(bitPattern: LittleEndian.uint32(timestamp, at: 1))
-            unixDate = Date(timeIntervalSince1970: TimeInterval(seconds))
-        }
-
-        var ntfsDate: Date?
-        if let ntfs = fields.first(where: { $0.identifier == ZipExtraFieldID.ntfs })?.data,
-           ntfs.count >= 4 {
-            var cursor = ZipByteCursor(ntfs)
-            try cursor.skip(4)
-            while cursor.remaining > 0 {
-                guard cursor.remaining >= 4 else {
-                    throw KaitoError.malformed("truncated ZIP NTFS extra field")
-                }
-                let tag = try cursor.readUInt16LE()
-                let length = Int(try cursor.readUInt16LE())
-                guard length <= cursor.remaining else {
-                    throw KaitoError.malformed("ZIP NTFS attribute overruns its extra field")
-                }
-                if tag == 1, length >= 8 {
-                    let ticks = try cursor.readUInt64LE()
-                    let interval = WindowsFileTime.secondsSince1970(ticks: ticks)
-                    guard interval.isFinite else {
-                        throw KaitoError.malformed("ZIP NTFS timestamp is out of range")
-                    }
-                    ntfsDate = Date(timeIntervalSince1970: interval)
-                    break
-                }
-                try cursor.skip(length)
-            }
-        }
-        if let ntfsDate { return ntfsDate }
-        if let unixDate { return unixDate }
-        return try dosTimestampDecoder.modificationDate(date: dosDate, time: dosTime)
-    }
-
+    /// formatSpecific の "flags" の表記（`0x` と小文字 4 桁）。
     static func flagsDescription(_ flags: UInt16) -> String {
-        String(unsafeUninitializedCapacity: 6) { buffer in
-            buffer[0] = 0x30
-            buffer[1] = 0x78
-            for index in 0..<4 {
-                let digit = UInt8((flags >> (12 - index * 4)) & 0x0f)
-                buffer[index + 2] = digit < 10 ? digit + 0x30 : digit + 0x57
-            }
-            return 6
-        }
+        ZipCentralDirectoryParser.flagsDescription(flags)
     }
 
+    /// formatSpecific の "crc32" の表記（`0x` と小文字 8 桁）。
     static func crc32Description(_ crc: UInt32) -> String {
-        String(unsafeUninitializedCapacity: 10) { buffer in
-            buffer[0] = 0x30
-            buffer[1] = 0x78
-            for index in 0..<8 {
-                let digit = UInt8((crc >> (28 - index * 4)) & 0x0f)
-                buffer[index + 2] = digit < 10 ? digit + 0x30 : digit + 0x57
-            }
-            return 10
-        }
-    }
-
-    private static func methodDescription(_ method: UInt16) -> String {
-        switch method {
-        case ZipMethod.stored: "stored"
-        case ZipMethod.shrink: "shrink"
-        case ZipMethod.reduce1...ZipMethod.reduce4: "reduce\(method - 1)"
-        case ZipMethod.implode: "implode"
-        case ZipMethod.deflate: "deflate"
-        case ZipMethod.deflate64: "deflate64"
-        case ZipMethod.bzip2: "bzip2"
-        case ZipMethod.lzma: "lzma"
-        case ZipMethod.zstdDeprecated, ZipMethod.zstd: "zstd"
-        case ZipMethod.xz: "xz"
-        case ZipMethod.jpeg: "jpeg"
-        case ZipMethod.ppmd: "ppmd"
-        default: "method \(method)"
-        }
-    }
-
-    private static func retainedMetadataCost(
-        rawName: [UInt8],
-        name: String,
-        components: [String],
-        specific: [String: String]
-    ) throws -> UInt64 {
-        var size: UInt64 = 256
-        size = try Checked.add(size, UInt64(rawName.count))
-        size = try Checked.add(size, UInt64(name.utf8.count))
-        size = try Checked.add(
-            size,
-            try Checked.mul(
-                UInt64(components.count),
-                UInt64(MemoryLayout<String>.stride)
-            )
-        )
-        for component in components {
-            size = try Checked.add(size, UInt64(component.utf8.count))
-        }
-        for (key, value) in specific {
-            size = try Checked.add(size, UInt64(key.utf8.count))
-            size = try Checked.add(size, UInt64(value.utf8.count))
-        }
-        return size
-    }
-
-    private static func parseExtraFields(
-        _ bytes: [UInt8],
-        recordLimit: Int,
-        tailPolicy: ExtraFieldTailPolicy = .strict
-    ) throws -> [ZipExtraField] {
-        guard recordLimit >= 0 else {
-            throw KaitoError.limitExceeded("ZIP extra-field record count")
-        }
-        var cursor = ZipByteCursor(bytes)
-        var fields: [ZipExtraField] = []
-        while cursor.remaining > 0 {
-            guard cursor.remaining >= 4 else {
-                switch tailPolicy {
-                case .ignoreUnparsableTail:
-                    return fields
-                case .zeroPadding:
-                    let tail = try cursor.readBytes(cursor.remaining)
-                    guard tail.allSatisfy({ $0 == 0 }) else {
-                        throw KaitoError.malformed("truncated ZIP extra-field header")
-                    }
-                    return fields
-                case .strict:
-                    break
-                }
-                throw KaitoError.malformed("truncated ZIP extra-field header")
-            }
-            guard fields.count < recordLimit else {
-                throw KaitoError.limitExceeded("ZIP extra-field record count")
-            }
-            let identifier = try cursor.readUInt16LE()
-            let length = Int(try cursor.readUInt16LE())
-            guard length <= cursor.remaining else {
-                if tailPolicy == .ignoreUnparsableTail {
-                    return fields
-                }
-                throw KaitoError.malformed("ZIP extra field overruns its containing header")
-            }
-            fields.append(ZipExtraField(
-                identifier: identifier,
-                data: try cursor.readBytes(length)
-            ))
-        }
-        return fields
-    }
-
-    private static func uniqueExtra(
-        _ identifier: UInt16,
-        in fields: [ZipExtraField]
-    ) -> [UInt8]? {
-        var result: [UInt8]?
-        for field in fields where field.identifier == identifier {
-            guard result == nil else { return nil }
-            result = field.data
-        }
-        return result
-    }
-}
-
-private struct ZipExtraField {
-    let identifier: UInt16
-    let data: [UInt8]
-}
-
-private struct ZipByteCursor {
-    private let bytes: [UInt8]
-    private(set) var offset: Int = 0
-
-    init(_ bytes: [UInt8]) {
-        self.bytes = bytes
-    }
-
-    var remaining: Int {
-        bytes.count - offset
-    }
-
-    mutating func readUInt8() throws -> UInt8 {
-        guard remaining >= 1 else { throw KaitoError.truncated }
-        defer { offset += 1 }
-        return bytes[offset]
-    }
-
-    mutating func readUInt16LE() throws -> UInt16 {
-        let low = UInt16(try readUInt8())
-        return low | UInt16(try readUInt8()) << 8
-    }
-
-    mutating func readUInt32LE() throws -> UInt32 {
-        var result: UInt32 = 0
-        for shift in stride(from: 0, to: 32, by: 8) {
-            result |= UInt32(try readUInt8()) << shift
-        }
-        return result
-    }
-
-    mutating func readUInt64LE() throws -> UInt64 {
-        var result: UInt64 = 0
-        for shift in stride(from: 0, to: 64, by: 8) {
-            result |= UInt64(try readUInt8()) << shift
-        }
-        return result
-    }
-
-    mutating func readBytes(_ count: Int) throws -> [UInt8] {
-        guard count >= 0, count <= remaining else { throw KaitoError.truncated }
-        let end = offset + count
-        defer { offset = end }
-        return Array(bytes[offset..<end])
-    }
-
-    mutating func skip(_ count: Int) throws {
-        guard count >= 0, count <= remaining else { throw KaitoError.truncated }
-        offset += count
+        ZipCentralDirectoryParser.crc32Description(crc)
     }
 }

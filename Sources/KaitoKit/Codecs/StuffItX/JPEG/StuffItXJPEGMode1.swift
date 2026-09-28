@@ -1,4 +1,5 @@
-// stuffitx_jpeg_mode1.py の色 baseline、整数分布、二行キャッシュを移植。
+// mode-1 JPEG の復元: 3 成分 baseline の係数を整数分布の model と二行 cache で復号し、baseline の Huffman 符号で出力する。
+// 出典: stuffitx_jpeg_mode1.py の色 baseline、整数分布、二行キャッシュを移植。
 import Foundation
 
 @inline(__always) func jpegCat3(_ n: Int) -> Int { let a = abs(n); return a < 2 ? 0 : a < 6 ? 1 : 2 }

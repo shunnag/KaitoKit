@@ -1,4 +1,5 @@
-// stuffitx_jpeg_restore.py の dispatch と厳密な member 終端を Decompressor へ接続。
+// StuffIt X compression 7（JPEG）の Decompressor: jcodec mode 0 / 1 / 2 の dispatch、scan 後の marker と tail、
+// 厳密な member 終端。出典: stuffitx_jpeg_restore.py の dispatch を Decompressor へ接続。
 import Foundation
 
 final class StuffItXJPEGDecoder: Decompressor {

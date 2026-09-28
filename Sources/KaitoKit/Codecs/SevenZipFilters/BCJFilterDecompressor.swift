@@ -17,6 +17,7 @@ enum SevenZipBranchFilter: Sendable, Equatable {
 }
 
 /// 7z branch filter を固定長の出力ストリームとして逆変換する。
+/// 失敗は latch しない。`read(into:)` が throw した後の状態は未規定なので、instance を破棄する。
 final class BCJFilterDecompressor: Decompressor {
     private static let inputChunkSize = 256 * 1_024
 

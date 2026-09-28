@@ -17,6 +17,7 @@ protocol PPMd7RangeDecoding: AnyObject {
 // 7z 固有の carryless range coder と 5-byte properties を境界検査付きで再実装する。
 
 // 7z が使用する PPMd7（variant H）のストリーミング decoder。
+// 失敗は latch しない。throw した時点で model と range coder は途中まで進んでいるので、instance を破棄する。
 final class PPMd7Decoder: Decompressor {
     private static let outputChunkSize = 256 * 1_024
 
@@ -87,6 +88,8 @@ final class PPMd7Decoder: Decompressor {
 }
 
 // 7z の PPMd7z range coder。入力範囲を越える normalize は必ず truncated。
+// 兄弟: RARPPMdRangeDecoder（RAR、marker なし・`low` あり）と PPMdVarIRangeDecoder
+// （ZIP method 98、`low` と `scale`）。一覧: Core/BitReader.swift の先頭。
 final class PPMd7RangeDecoder: PPMd7RangeDecoding {
     private static let topValue: UInt32 = 1 << 24
     private static let bufferSize = 64 * 1_024

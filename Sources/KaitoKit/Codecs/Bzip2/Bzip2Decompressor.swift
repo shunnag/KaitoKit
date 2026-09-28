@@ -4,6 +4,9 @@ import Foundation
 // 参照仕様: bzip2 公式マニュアルの high-level streaming API。
 
 /// A streaming bzip2 decompressor backed by the system libbz2.
+///
+/// Failures are not latched: after `read(into:)` throws, the state is
+/// unspecified and the instance must be discarded.
 public final class Bzip2Decompressor: Decompressor {
     private static let chunkSize = 256 * 1024
 

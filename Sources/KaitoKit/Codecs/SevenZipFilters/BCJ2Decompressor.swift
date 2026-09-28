@@ -4,6 +4,9 @@ import Foundation
 // main stream の opcode と 3 本の side stream を逐次的に結合する。
 
 /// A bounded streaming decoder for the four-input 7z BCJ2 filter.
+///
+/// Failures are not latched: after `read(into:)` throws, the state is
+/// unspecified and the instance must be discarded.
 final class BCJ2Decompressor: Decompressor {
     private static let outputChunkSize = 256 * 1_024
     private static let probabilityTotal: UInt32 = 1 << 11
@@ -177,6 +180,7 @@ final class BCJ2Decompressor: Decompressor {
         rangeInitialized = true
     }
 
+    // LZMA と同じ二値 range coder（LZMAHotRangeState）を一 bit ずつ throw 付きで回す。
     private func decodeDecision(_ probabilityIndex: Int) throws -> Bool {
         guard probabilities.indices.contains(probabilityIndex) else {
             throw KaitoError.malformed("BCJ2 probability index is out of range")

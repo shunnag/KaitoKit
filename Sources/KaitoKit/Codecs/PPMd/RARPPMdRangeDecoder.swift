@@ -11,6 +11,9 @@ import Foundation
 /// Unlike the 7z range coder, the RAR stream has no leading marker byte and
 /// keeps a wrapping `low` register.  `remove` and `decodeBinary` only narrow
 /// the interval; `PPMd7Model` invokes `normalize` at the model-defined points.
+/// Siblings: the 7z coder `PPMd7RangeDecoder` (zero marker, no `low`) and
+/// `PPMdVarIRangeDecoder` (ZIP method 98, `low` plus `scale`); the full list is at
+/// the top of Core/BitReader.swift.
 final class RARPPMdRangeDecoder: PPMd7RangeDecoding {
     private static let topValue: UInt32 = 1 << 24
     private static let bottomValue: UInt32 = 1 << 15

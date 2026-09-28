@@ -36,6 +36,9 @@ struct LZMA2ResetPoint: Sendable, Equatable {
 /// The single property byte describes the dictionary size. Compressed and
 /// uncompressed chunks are decoded incrementally without retaining the whole
 /// output.
+///
+/// Failures are not latched: after `read(into:)` throws, the state is
+/// unspecified and the instance must be discarded.
 public final class LZMA2Decoder: Decompressor {
     private static let outputChunkSize = 256 * 1_024
     private static let maximumUnpackedChunkSize: UInt64 = 2 * 1_024 * 1_024

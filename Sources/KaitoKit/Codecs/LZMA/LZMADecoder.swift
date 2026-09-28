@@ -9,6 +9,10 @@ import Foundation
 /// The five property bytes contain `lc`, `lp`, `pb`, and the little-endian
 /// dictionary size. The compressed range starts with the standard five-byte
 /// LZMA range-coder initialization sequence.
+///
+/// Failures are not latched. A throwing `read(into:)` does not commit the
+/// scalar coder state, but the dictionary and probability models may already
+/// hold partial updates, so the instance must be discarded.
 public final class LZMADecoder: Decompressor {
     private static let outputChunkSize = 256 * 1_024
     private static let inputBufferSize = 256 * 1_024
@@ -899,6 +903,9 @@ private struct LZMAProperties {
     }
 }
 
+// LZMA の二値 range coder の入力と range/code。hot loop は LZMAHotRangeState に写して使い、
+// 入力末尾の読み越しは zero sentinel で遅延検出する。同じ coder を BCJ2Decompressor が
+// inline で持つ（一覧: Core/BitReader.swift の先頭）。
 private struct LZMARangeDecoder {
     private let source: any ByteSource
     private let endOffset: UInt64

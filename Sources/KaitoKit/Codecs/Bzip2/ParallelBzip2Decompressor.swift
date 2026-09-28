@@ -9,6 +9,7 @@ import Foundation
 /// 区間が stream 終端でちょうど終わらない場合（偽の候補、展開上限の超過）や、圧縮上限内に
 /// 次の候補がない場合は、その区間の先頭から直列の `Bzip2Decompressor` へ切り替える。
 /// 保持量は worker 数、区間の圧縮上限と展開上限で抑える。
+/// 失敗は latch しない。`read(into:)` は throw する時点で worker を放棄するので、instance を破棄する。
 final class ParallelBzip2Decompressor: Decompressor {
     /// 同時に復号する worker 数の上限。
     private static let maximumWorkerCount = 8

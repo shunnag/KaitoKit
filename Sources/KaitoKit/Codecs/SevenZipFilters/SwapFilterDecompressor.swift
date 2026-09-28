@@ -3,6 +3,8 @@ import Foundation
 // IDs: 7-Zip DOC/Methods.txt, 02 03 02 / 02 03 04.
 // Complete 2/4-byte units reverse byte order; a final partial unit is copied.
 // The tail rule is independently checked against 7zz 26.03 fixtures.
+// Failures are not latched: after `read(into:)` throws, the state is unspecified
+// and the instance must be discarded.
 final class SwapFilterDecompressor: Decompressor {
     private static let chunkSize = 256 * 1_024
     private let input: any Decompressor

@@ -1024,7 +1024,7 @@ final class RAR4Reader: FormatReader {
             let header = parsedHeader.bytes
             let common = header
             let typeByte = common[2]
-            let flags = littleUInt16(common, at: 3)
+            let flags = LittleEndian.uint16(common, at: 3)
             let headerEnd = parsedHeader.physicalEnd
 
             var dataSize: UInt64 = 0
@@ -1034,7 +1034,7 @@ final class RAR4Reader: FormatReader {
                         "RAR4 ADD_SIZE flag is set in a short header"
                     )
                 }
-                dataSize = UInt64(littleUInt32(header, at: 7))
+                dataSize = UInt64(LittleEndian.uint32(header, at: 7))
             }
 
             guard let type = HeaderType(rawValue: typeByte) else {
@@ -1120,8 +1120,8 @@ final class RAR4Reader: FormatReader {
                             "short large RAR4 new-subblock header"
                         )
                     }
-                    dataSize = UInt64(littleUInt32(header, at: 7))
-                        | UInt64(littleUInt32(header, at: 32)) << 32
+                    dataSize = UInt64(LittleEndian.uint32(header, at: 7))
+                        | UInt64(LittleEndian.uint32(header, at: 32)) << 32
                 }
 
             case .end:
@@ -1184,20 +1184,20 @@ final class RAR4Reader: FormatReader {
         guard header.count >= 32 else {
             throw KaitoError.malformed("short RAR4 file header")
         }
-        let flags = littleUInt16(header, at: 3)
+        let flags = LittleEndian.uint16(header, at: 3)
         guard flags & FileFlag.additionalSize != 0 else {
             throw KaitoError.malformed("RAR4 file header lacks ADD_SIZE")
         }
 
-        let packedLow = littleUInt32(header, at: 7)
-        let unpackedLow = littleUInt32(header, at: 11)
+        let packedLow = LittleEndian.uint32(header, at: 7)
+        let unpackedLow = LittleEndian.uint32(header, at: 11)
         let hostOS = header[15]
-        let fileCRC = littleUInt32(header, at: 16)
-        let dosTime = littleUInt32(header, at: 20)
+        let fileCRC = LittleEndian.uint32(header, at: 16)
+        let dosTime = LittleEndian.uint32(header, at: 20)
         let unpackVersion = header[24]
         let method = header[25]
-        let nameSize = Int(littleUInt16(header, at: 26))
-        let attributes = littleUInt32(header, at: 28)
+        let nameSize = Int(LittleEndian.uint16(header, at: 26))
+        let attributes = LittleEndian.uint32(header, at: 28)
 
         var cursor = 32
         let packedSize: UInt64
@@ -1206,8 +1206,8 @@ final class RAR4Reader: FormatReader {
             guard header.count - cursor >= 8 else {
                 throw KaitoError.malformed("short large RAR4 file header")
             }
-            let packedHigh = littleUInt32(header, at: cursor)
-            let unpackedHigh = littleUInt32(header, at: cursor + 4)
+            let packedHigh = LittleEndian.uint32(header, at: cursor)
+            let unpackedHigh = LittleEndian.uint32(header, at: cursor + 4)
             cursor += 8
             packedSize = UInt64(packedLow) | UInt64(packedHigh) << 32
             unpackedSize = UInt64(unpackedLow) | UInt64(unpackedHigh) << 32
@@ -1539,7 +1539,7 @@ final class RAR4Reader: FormatReader {
                 offset: offset,
                 count: 7
             )
-            let headerSize = UInt64(littleUInt16(common, at: 5))
+            let headerSize = UInt64(LittleEndian.uint16(common, at: 5))
             guard headerSize >= 7 else {
                 throw KaitoError.malformed("RAR4 header size is smaller than 7")
             }
@@ -1599,7 +1599,7 @@ final class RAR4Reader: FormatReader {
             initializationVector: derived.initializationVector
         )
         let common = try readByteRange(source: commonSource, offset: 0, count: 7)
-        let headerSize = UInt64(littleUInt16(common, at: 5))
+        let headerSize = UInt64(LittleEndian.uint16(common, at: 5))
         guard headerSize >= 7 else {
             throw KaitoError.malformed("RAR4 header size is smaller than 7")
         }
@@ -1631,7 +1631,7 @@ final class RAR4Reader: FormatReader {
         guard header.count >= 7 else {
             throw KaitoError.malformed("short RAR4 common header")
         }
-        let expected = littleUInt16(header, at: 0)
+        let expected = LittleEndian.uint16(header, at: 0)
         let actual = UInt16(truncatingIfNeeded: CRC32.checksum(Array(header.dropFirst(2))))
         guard actual == expected else {
             throw KaitoError.malformed(
@@ -1766,7 +1766,7 @@ final class RAR4Reader: FormatReader {
         guard header.count - cursor >= 2 else {
             throw KaitoError.malformed("truncated RAR4 extended-time flags")
         }
-        let flags = littleUInt16(header, at: cursor)
+        let flags = LittleEndian.uint16(header, at: cursor)
         cursor += 2
         var modificationDate = baseModificationDate
 
@@ -1782,7 +1782,7 @@ final class RAR4Reader: FormatReader {
                 guard header.count - cursor >= 4 else {
                     throw KaitoError.malformed("truncated RAR4 extended timestamp")
                 }
-                date = try dosDate(littleUInt32(header, at: cursor), decoder: &timestamps)
+                date = try dosDate(LittleEndian.uint32(header, at: cursor), decoder: &timestamps)
                 cursor += 4
             }
 
@@ -1859,16 +1859,5 @@ final class RAR4Reader: FormatReader {
         case RAR4HostOS.winCE: "WinCE"
         default: "unknown \(host)"
         }
-    }
-
-    private static func littleUInt16(_ bytes: [UInt8], at offset: Int) -> UInt16 {
-        UInt16(bytes[offset]) | UInt16(bytes[offset + 1]) << 8
-    }
-
-    private static func littleUInt32(_ bytes: [UInt8], at offset: Int) -> UInt32 {
-        UInt32(bytes[offset])
-            | UInt32(bytes[offset + 1]) << 8
-            | UInt32(bytes[offset + 2]) << 16
-            | UInt32(bytes[offset + 3]) << 24
     }
 }

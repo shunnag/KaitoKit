@@ -1406,10 +1406,7 @@ final class RAR5Reader: FormatReader {
         )
         let logicalCount = try Checked.toInt(logicalSize)
 
-        let recordedCRC = UInt32(plaintext[0])
-            | UInt32(plaintext[1]) << 8
-            | UInt32(plaintext[2]) << 16
-            | UInt32(plaintext[3]) << 24
+        let recordedCRC = LittleEndian.uint32(plaintext, at: 0)
         let bodyStart = 4 + headerSize.bytes.count
         let body = Array(plaintext[bodyStart..<logicalCount])
         var crc = CRC32()
@@ -1850,9 +1847,7 @@ final class RAR5Reader: FormatReader {
         if unix {
             return Date(timeIntervalSince1970: TimeInterval(try cursor.readUInt32LE()))
         }
-        let fileTime = try cursor.readUInt64LE()
-        let seconds = TimeInterval(fileTime) / 10_000_000 - 11_644_473_600
-        return Date(timeIntervalSince1970: seconds)
+        return WindowsFileTime.date(ticks: try cursor.readUInt64LE())
     }
 
     private static func addNanoseconds(

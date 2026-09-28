@@ -1745,25 +1745,3 @@ private func copyLZMAMatch(
     outputPosition &+= UInt64(amount)
     return amount
 }
-
-// LZMA2 の外側の ByteReader も folder の検証済み packed 範囲だけを読む。
-struct LZMABoundedByteSource: ByteSource {
-    let source: any ByteSource
-    let length: UInt64
-
-    init(source: any ByteSource, endOffset: UInt64) {
-        self.source = source
-        self.length = endOffset
-    }
-
-    func read(
-        into buffer: UnsafeMutableRawBufferPointer,
-        at offset: UInt64
-    ) throws -> Int {
-        guard !buffer.isEmpty, offset < length else { return 0 }
-        let remaining = try Checked.sub(length, offset)
-        let count = try Checked.toInt(min(UInt64(buffer.count), remaining))
-        let destination = UnsafeMutableRawBufferPointer(rebasing: buffer[..<count])
-        return try source.read(into: destination, at: offset)
-    }
-}

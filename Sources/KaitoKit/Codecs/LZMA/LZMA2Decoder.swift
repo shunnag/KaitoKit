@@ -91,8 +91,9 @@ public final class LZMA2Decoder: Decompressor {
         self.source = source
         self.endOffset = endOffset
         self.expectedSize = expectedSize
+        // 外側の ByteReader も folder の検証済み packed 範囲だけを読み、後続 member を消費しない。
         self.reader = try ByteReader(
-            source: LZMABoundedByteSource(source: source, endOffset: endOffset),
+            source: BoundedByteSource(source: source, baseOffset: 0, length: endOffset),
             offset: offset
         )
         self.lzma = try LZMADecoder(
@@ -252,7 +253,7 @@ public final class LZMA2Decoder: Decompressor {
         guard compressedSize > 0 else { throw KaitoError.truncated }
 
         var reader = try ByteReader(
-            source: LZMABoundedByteSource(source: source, endOffset: endOffset),
+            source: BoundedByteSource(source: source, baseOffset: 0, length: endOffset),
             offset: offset
         )
         var outputOffset: UInt64 = 0

@@ -626,47 +626,6 @@ public enum EncodingDetector {
         return hash
     }
 
-    // 呼出側の byte 上限内で代表入力を作る。構造投票はすべての名前を
-    // 検査済みで、この sample は書庫で一度だけの Foundation hint に使う。
-    static func boundedArchiveNameSample(
-        _ names: [[UInt8]],
-        separator: UInt8,
-        maximumByteCount: Int
-    ) -> [UInt8] {
-        let limit = max(0, maximumByteCount)
-        guard limit > 0 else { return [] }
-
-        var byteCount = 0
-        var includedNameCount = 0
-        for name in names {
-            let separatorCount = includedNameCount == 0 ? 0 : 1
-            let remaining = limit - byteCount
-            guard separatorCount <= remaining,
-                  name.count <= remaining - separatorCount else {
-                continue
-            }
-            byteCount += separatorCount + name.count
-            includedNameCount += 1
-        }
-
-        var combined: [UInt8] = []
-        combined.reserveCapacity(byteCount)
-        var remainingByteCount = byteCount
-        var appendedNameCount = 0
-        for name in names where remainingByteCount > 0 {
-            let separatorCount = appendedNameCount == 0 ? 0 : 1
-            guard separatorCount <= remainingByteCount,
-                  name.count <= remainingByteCount - separatorCount else {
-                continue
-            }
-            if separatorCount == 1 { combined.append(separator) }
-            combined.append(contentsOf: name)
-            remainingByteCount -= separatorCount + name.count
-            appendedNameCount += 1
-        }
-        return combined
-    }
-
     private static func concatenate(
         _ names: [[UInt8]],
         range: Range<Int>,

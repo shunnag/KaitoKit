@@ -93,16 +93,13 @@ enum NameEncodingCandidates {
             return true
         }
 
-        // ASCII の綴りに lead/trail が食い込む交差復号を byte 境界で検出する（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
-        func latinIntrusions(_ bytes: [UInt8]) -> [Double] { zones(bytes).map(\.latinIntrusion) }
-
         // 設計書「採点 2」: 区点配置だけを使い、記事名由来の統計は持たない。
         struct Zone {
             let score: Double
             let vendorIdeograph: Bool
+            // ASCII の綴りに lead/trail が食い込む交差復号を byte 境界で検出した減点（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
             var latinIntrusion: Double = 0
         }
-        func zoneScores(_ bytes: [UInt8]) -> [Double] { zones(bytes).map(\.score) }
         func zones(_ bytes: [UInt8]) -> [Zone] {
             var result: [Zone] = []
             var index = 0

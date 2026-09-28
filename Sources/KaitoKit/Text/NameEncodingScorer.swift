@@ -808,8 +808,7 @@ enum NameEncodingScorer {
 
     // イタリア語の語末強勢の grave と、仏・葡語で後舌母音前の ç は位置を伴う綴りの証拠。
     // 借用語に別の綴りもあるため、欠如は罰せず適合だけを加点する。
-    static func westernOrthographicEvidence(_ properties: [Traits]) -> Double { westernEvidence(properties).sum() }
-    private static func westernEvidence(_ properties: [Traits]) -> SIMD2<Double> {
+    static func westernEvidence(_ properties: [Traits]) -> SIMD2<Double> {
         guard properties.contains(where: { [UInt32(0xE0), 0xE8, 0xEC, 0xF2, 0xF9, 0xC0, 0xC8, 0xCC, 0xD2, 0xD9, 0xE7, 0xC7].contains($0.scalar) }) else { return .zero }
         var score = SIMD2<Double>.zero
         var italianWord = true
@@ -837,10 +836,7 @@ enum NameEncodingScorer {
     // 西・葡語の acute は母音の強勢を表し、独語の ß は長母音・二重母音の後に置く。
     // 綴りの欠如や借用語を禁止せず、位置が確認できる正の証拠だけを加える。
     static let acuteVowels = Set("áéíóúÁÉÍÓÚ".unicodeScalars.map(\.value))
-    static func latinStressEvidence(_ properties: [Traits]) -> Double {
-        properties.indices.reduce(0) { $0 + latinStressEvidence(properties, at: $1) }
-    }
-    private static func latinStressEvidence(_ properties: [Traits], at i: Int) -> Double {
+    static func latinStressEvidence(_ properties: [Traits], at i: Int) -> Double {
         let p = properties[i]
         if p.acute {
             let left = i > 0 ? properties[i - 1] : nil

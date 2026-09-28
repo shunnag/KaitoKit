@@ -1278,11 +1278,13 @@ final class RAR4Reader: FormatReader {
             permissions = nil
         }
 
-        guard method == RAR4Method.stored || RAR4Method.compressed.contains(method) else {
-            // Unknown methods remain listable, and fail explicitly when read.
-            // This is intentionally not a parse failure.
-            return makePendingAndRecord(
-                source: source,
+        // Unknown methods remain listable, and fail explicitly when read.
+        // This is intentionally not a parse failure.
+        return makePendingAndRecord(
+            RAR4FileHeaderFields(
+                headerOffset: headerOffset,
+                dataOffset: dataOffset,
+                flags: flags,
                 rawName: rawName,
                 decodedName: decodedName,
                 kind: kind,
@@ -1292,115 +1294,76 @@ final class RAR4Reader: FormatReader {
                 permissions: permissions,
                 hostOS: hostOS,
                 attributes: attributes,
-                flags: flags,
                 unpackVersion: unpackVersion,
                 method: method,
                 dictionarySize: dictionarySize,
                 salt: salt,
-                fileCRC: fileCRC,
-                dataOffset: dataOffset,
-                headerOffset: headerOffset,
-                mainHeader: mainHeader
-            )
-        }
-
-        return makePendingAndRecord(
+                fileCRC: fileCRC
+            ),
             source: source,
-            rawName: rawName,
-            decodedName: decodedName,
-            kind: kind,
-            packedSize: packedSize,
-            unpackedSize: unpackedSize,
-            modificationDate: modificationDate,
-            permissions: permissions,
-            hostOS: hostOS,
-            attributes: attributes,
-            flags: flags,
-            unpackVersion: unpackVersion,
-            method: method,
-            dictionarySize: dictionarySize,
-            salt: salt,
-            fileCRC: fileCRC,
-            dataOffset: dataOffset,
-            headerOffset: headerOffset,
             mainHeader: mainHeader
         )
     }
 
     private static func makePendingAndRecord(
+        _ fields: RAR4FileHeaderFields,
         source: any ByteSource,
-        rawName: [UInt8],
-        decodedName: (fallback: [UInt8], unicode: String?, declared: String.Encoding?),
-        kind: EntryKind,
-        packedSize: UInt64,
-        unpackedSize: UInt64,
-        modificationDate: Date?,
-        permissions: UInt16?,
-        hostOS: UInt8,
-        attributes: UInt32,
-        flags: UInt16,
-        unpackVersion: UInt8,
-        method: UInt8,
-        dictionarySize: UInt64,
-        salt: [UInt8]?,
-        fileCRC: UInt32,
-        dataOffset: UInt64,
-        headerOffset: UInt64,
         mainHeader: MainHeader
     ) -> (entry: PendingEntry, record: Record) {
-        let methodName = methodDescription(method)
+        let flags = fields.flags
+        let methodName = methodDescription(fields.method)
         var specific: [String: String] = [
-            "attributes": String(format: "0x%08x", attributes),
-            "dictionarySize": String(dictionarySize),
+            "attributes": String(format: "0x%08x", fields.attributes),
+            "dictionarySize": String(fields.dictionarySize),
             "flags": String(format: "0x%04x", flags),
-            "headerOffset": String(headerOffset),
-            "hostOS": hostDescription(hostOS),
+            "headerOffset": String(fields.headerOffset),
+            "hostOS": hostDescription(fields.hostOS),
             "mainSolid": mainHeader.isSolid ? "true" : "false",
-            "method": String(format: "0x%02x", method),
+            "method": String(format: "0x%02x", fields.method),
             "newVolumeNumbering": mainHeader.flags & MainFlag.newNumbering != 0
                 ? "true" : "false",
             "splitAfter": flags & FileFlag.splitAfter != 0 ? "true" : "false",
             "splitBefore": flags & FileFlag.splitBefore != 0 ? "true" : "false",
-            "unpackVersion": String(unpackVersion),
+            "unpackVersion": String(fields.unpackVersion),
             "volume": mainHeader.isVolume ? "true" : "false",
             "firstVolume": mainHeader.flags & MainFlag.firstVolume != 0
                 ? "true" : "false",
             "versionedName": flags & FileFlag.version != 0 ? "true" : "false",
         ]
-        if kind == .symlink {
+        if fields.kind == .symlink {
             specific["linkTargetStoredAsData"] = "true"
         }
         let pending = PendingEntry(
-            rawName: rawName,
-            fallbackName: decodedName.fallback,
-            decodedUnicodeName: decodedName.unicode,
-            declaredEncoding: decodedName.declared,
-            kind: kind,
-            unpackedSize: unpackedSize,
-            packedSize: packedSize,
-            modificationDate: modificationDate,
-            permissions: permissions,
+            rawName: fields.rawName,
+            fallbackName: fields.decodedName.fallback,
+            decodedUnicodeName: fields.decodedName.unicode,
+            declaredEncoding: fields.decodedName.declared,
+            kind: fields.kind,
+            unpackedSize: fields.unpackedSize,
+            packedSize: fields.packedSize,
+            modificationDate: fields.modificationDate,
+            permissions: fields.permissions,
             isEncrypted: flags & FileFlag.encrypted != 0,
-            crc32: fileCRC,
+            crc32: fields.fileCRC,
             methodDescription: methodName,
             formatSpecific: specific
         )
         let record = Record(
             packedSegments: [SourceSegment(
                 source: source,
-                offset: dataOffset,
-                length: packedSize
+                offset: fields.dataOffset,
+                length: fields.packedSize
             )],
-            packedPartCRC32: [flags & FileFlag.splitAfter != 0 ? fileCRC : nil],
-            packedSize: packedSize,
-            unpackedSize: unpackedSize,
-            crc32: fileCRC,
+            packedPartCRC32: [flags & FileFlag.splitAfter != 0 ? fields.fileCRC : nil],
+            packedSize: fields.packedSize,
+            unpackedSize: fields.unpackedSize,
+            crc32: fields.fileCRC,
             firstFlags: flags,
             lastFlags: flags,
-            unpackVersion: unpackVersion,
-            method: method,
-            dictionarySize: dictionarySize,
-            salt: salt
+            unpackVersion: fields.unpackVersion,
+            method: fields.method,
+            dictionarySize: fields.dictionarySize,
+            salt: fields.salt
         )
         return (pending, record)
     }

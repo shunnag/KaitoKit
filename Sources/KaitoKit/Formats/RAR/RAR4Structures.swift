@@ -40,3 +40,25 @@ enum RAR4Method {
 
     static let compressed: ClosedRange<UInt8> = fastest...best
 }
+
+/// The fields of one FILE_HEAD header after bounds, name and timestamp
+/// decoding, together with where the header and its data sit.
+struct RAR4FileHeaderFields {
+    let headerOffset: UInt64
+    let dataOffset: UInt64
+    let flags: UInt16
+    let rawName: [UInt8]
+    let decodedName: (fallback: [UInt8], unicode: String?, declared: String.Encoding?)
+    let kind: EntryKind
+    let packedSize: UInt64
+    let unpackedSize: UInt64
+    let modificationDate: Date?
+    let permissions: UInt16?
+    let hostOS: UInt8
+    let attributes: UInt32
+    let unpackVersion: UInt8
+    let method: UInt8
+    let dictionarySize: UInt64
+    let salt: [UInt8]?
+    let fileCRC: UInt32
+}

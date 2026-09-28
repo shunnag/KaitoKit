@@ -3,7 +3,7 @@ import Foundation
 // [MS-CFB] Compound File Binary File Format v20240423（Microsoft Open Specification）の公開仕様に基づく
 // クリーンルーム実装。storage を directory、stream を file として公開する。Windows Installer（MSI）が stream 名に
 // 使う詰め込み表記（U+3800〜U+4840 の UTF-16 unit）には公開仕様が無く、7-Zip 26.03 の一覧（実物の MSI 23 名と
-// 自作 file の探り）から黒箱で写像を確定した（2026-09-21 の検証記録）。7-Zip と同じく root の CLSID に関わらず
+// 自作 file の探り）から黒箱で写像を確定した（Documentation/verification/2026-09-21-cfb.md）。7-Zip と同じく root の CLSID に関わらず
 // unit ごとに戻す。
 
 /// storage / stream の木を読み、stream を file として公開する。

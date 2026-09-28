@@ -154,6 +154,7 @@ final class WIMReader: FormatReader {
         guard let name = utf16(m[(offset + 102)..<(offset + 102 + nameLength)]) else {
             throw KaitoError.malformed("wim directory entry name")
         }
+        // DIRENTRY は reparse point なら reparse tag、そうでなければ hard-link group を同じ 8 byte（@84）に置く（union）。
         return DirectoryEntry(length: length, attributes: WIMBytes.u32(m, offset + 8), subdirectoryOffset: WIMBytes.u64(m, offset + 16),
                               writeTime: WIMBytes.u64(m, offset + 56), hash: Array(m[(offset + 64)..<(offset + 84)]),
                               reparseTag: WIMBytes.u32(m, offset + 84), hardLink: WIMBytes.u64(m, offset + 84),

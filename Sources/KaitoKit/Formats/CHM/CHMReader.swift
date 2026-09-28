@@ -5,7 +5,7 @@ import Foundation
 // "Unofficial (Preliminary) HTML Help Specification"（GNU GPL v2+ の文書。`inbox/chm/chmspec/`）の散文。
 // LZX 本体は既存の [MS-PATCH] 由来 `LZXDecoder`（CAB と同じ bitstream）で、CHM 固有の点（reset interval ごとの
 // 全状態 reset、0x8000 byte block ごとの 16 bit 境界、末尾の 0x8000 への padding）は Russotto の記述と
-// 利用者所有の実物 2 本の黒箱で確定した。2026-09-21 の検証記録を参照。
+// 利用者所有の実物 2 本の黒箱で確定した。検証記録は Documentation/verification/2026-09-21-chm.md。
 
 final class CHMReader: FormatReader {
     private enum Location {

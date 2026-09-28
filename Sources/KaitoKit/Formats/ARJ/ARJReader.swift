@@ -4,7 +4,8 @@ import Foundation
 // 末尾の find_header() の C 抜粋は読まずに切除した `inbox/arj/technote-2012-prose.txt`）と、CC0 の Archive Team
 // wiki（fileformats.archiveteam.org/wiki/ARJ）の散文である。圧縮 method 1〜3 は同 wiki の「LHA の lh6 と本質的に同じで
 // 窓を 26 KB に限る」に従い、既存の LHA static-Huffman decoder を lh6 の parameter で使う（利用者所有の実物で
-// 7-Zip / deark / unar と黒箱照合）。method 4 の bitstream には公開の記述が無く非対応。2026-09-21 の検証記録を参照。
+// 7-Zip / deark / unar と黒箱照合）。method 4 の bitstream には公開の記述が無く非対応。
+// 検証記録は Documentation/verification/2026-09-21-arj.md。
 
 final class ARJReader: FormatReader {
     private struct Record {

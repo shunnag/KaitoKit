@@ -112,7 +112,7 @@ enum XZResourceValidator {
             } else {
                 // RISC-V は native decoder に渡す前に名前付きで拒否する。
                 if id == 0x0B { throw KaitoError.unsupportedMethod("XZ RISC-V filter") }
-                // 他の未知 filter の判定は従来どおり native decoder に任せる。
+                // 他の未知 filter の判定は native decoder に任せる。
                 guard id != 0x21, id < (UInt64(1) << 62) else {
                     throw KaitoError.malformed("invalid XZ filter chain")
                 }

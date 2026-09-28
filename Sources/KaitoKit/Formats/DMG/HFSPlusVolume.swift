@@ -3,7 +3,7 @@ import Foundation
 // HFS Plus / HFSX の読み取り。実装入力は Apple Technote TN1150 "HFS Plus Volume Format"（`inbox/dmg/tn1150.html`）の
 // 構造体と散文（volume header、fork data、B-tree node / header record、catalog key と folder / file / thread record、
 // extents overflow key、BSD info、hard link と symbolic link の表現）。UF_COMPRESSED（ownerFlags 0x20）は
-// chflags(2) の man page による。2026-09-22 の検証記録を参照。
+// chflags(2) の man page による。検証記録は Documentation/verification/2026-09-22-dmg.md。
 
 enum HFSBytes {
     static func u16(_ b: [UInt8], _ o: Int) -> UInt16 { BigEndian.uint16(b, at: o) }

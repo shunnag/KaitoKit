@@ -2,10 +2,14 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
+/// RAR5 の LZ decoder（RAR5Decoder）に、このファイルの bit writer で組んだ block・Huffman 表・filter と `rar` の出力
+/// （無ければ skip）を与え、小さい読み出し・solid の状態の引き継ぎ・filter の再開・壊れた入力と source の失敗を検査する。
 final class RAR5DecoderTests: XCTestCase {
     fileprivate enum SyntheticReadError: Error {
         case failed
     }
+
+    // MARK: - 読み出しと solid の状態
 
     func testDeferredFailuresKeepExactErrorsAcrossRepeatedReads() throws {
         let literal = makeLiteralBlock(
@@ -266,6 +270,8 @@ final class RAR5DecoderTests: XCTestCase {
         }
     }
 
+    // MARK: - 壊れた block・表・filter
+
     func testSourceFailuresAndInvalidCountsAreThrownWithoutAborting() throws {
         let compressed = makeLiteralBlock(
             byte: 0x58,
@@ -457,6 +463,8 @@ final class RAR5DecoderTests: XCTestCase {
         )
     }
 
+    // MARK: - filter の出力の再開と mutant
+
     func testDeltaFilterOutputResumesAcrossArbitraryBufferSizes() throws {
         let filteredLength = 200_123
         let compressed = makeRepeatingLiteralFilterBlock(
@@ -582,6 +590,8 @@ final class RAR5DecoderTests: XCTestCase {
             XCTFail(description)
         }
     }
+
+    // MARK: - Helpers
 
     private func makeDecoder(
         source: any ByteSource,

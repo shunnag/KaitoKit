@@ -3,7 +3,11 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
+/// LHA の reader を header level 0〜3・拡張 header・code page・CRC-16・method の別名にわたって、LHATestSupport（HandLHAEntry）で
+/// 組んだ書庫、checked-in の fixture、lhasa と外部の fixture（無ければ skip）で検査する。
 final class LHAIntegrationTests: XCTestCase {
+    // MARK: - header level・名前・code page
+
     func testCRC16ANSIIBMVector() {
         XCTAssertEqual(CRC16.checksum(Array("123456789".utf8)), 0xBB3D)
     }
@@ -253,6 +257,8 @@ final class LHAIntegrationTests: XCTestCase {
         let reader = try ArchiveReader.open(data: archive)
         XCTAssertEqual(reader.entries.first?.name, "chapter/page.txt")
     }
+
+    // MARK: - 拡張 header・時刻・header の CRC
 
     func testExtendedMetadataAnd64BitSizeRecord() throws {
         var sizePayload: [UInt8] = []
@@ -535,6 +541,8 @@ final class LHAIntegrationTests: XCTestCase {
         XCTAssertEqual(entry.uncompressedSize, UInt64(original.count))
     }
 
+    // MARK: - payload の CRC と method の別名
+
     func testPayloadCRC16MismatchIsReportedForMember() throws {
         let archive = try LHATestSupport.makeArchive(entries: [
             HandLHAEntry(
@@ -618,6 +626,8 @@ final class LHAIntegrationTests: XCTestCase {
             XCTAssertEqual(error as? KaitoError, .unsupportedMethod("-pm2-"))
         }
     }
+
+    // MARK: - lhasa・checked-in の fixture・mutant・CLI
 
     func testCooViewerBookFixtureMatchesLhasaMemberDigests() throws {
         guard let fixturePath = ProcessInfo.processInfo.environment["KAITOKIT_BOOK_LHA"],
@@ -849,6 +859,8 @@ final class LHAIntegrationTests: XCTestCase {
             ["0", "4", "file", "-lh0-", "plain", "page.txt", "level=2"]
         )
     }
+
+    // MARK: - Helpers
 
     private func requireLhasa() throws {
         guard LHATestSupport.lhasaExecutableURL != nil else {

@@ -3,7 +3,11 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
+/// RAR 2.9 / 4 の reader と RAR29 decoder（LZ・PPMd・filter）を、手組みの header、checked-in の fixture（Tests/Fixtures/rar4）、
+/// 外部の corpus（KAITOKIT_RAR4_*、無ければ skip）と決定的な mutant で検査する。
 final class RAR4ReaderTests: XCTestCase {
+    // MARK: - RAR29 decoder（LZ・PPMd・solid）
+
     func testRAR29EmptySubordinateTablesAreAllowed() throws {
         for symbolCount in [60, 17, 28] {
             let table = RAR29HuffmanTable()
@@ -335,6 +339,8 @@ final class RAR4ReaderTests: XCTestCase {
         }
     }
 
+    // MARK: - header の解釈・名前・CRC
+
     func testStoredFileListsAndStreamsWithCRC() throws {
         let contents = Data("stored RAR4 payload".utf8)
         let archive = makeArchive(files: [
@@ -596,6 +602,8 @@ final class RAR4ReaderTests: XCTestCase {
         }
     }
 
+    // MARK: - solid の group・実書庫との照合・mutant
+
     func testSolidGroupsFollowFileContinuationsAndExcludeDirectories() throws {
         let archive = makeArchive(
             files: [
@@ -845,6 +853,8 @@ final class RAR4ReaderTests: XCTestCase {
         XCTAssertEqual(executed, 128)
     }
 
+    // MARK: - Helpers
+
     private struct FileFixture {
         let name: [UInt8]
         let contents: Data
@@ -922,6 +932,8 @@ final class RAR4ReaderTests: XCTestCase {
             Data(base64Encoded: encoded, options: .ignoreUnknownCharacters)
         )
     }
+
+    // MARK: - RAR3 の audio filter（checked-in の fixture）
 
     // 旧名: RealToolRegressionTests
     func testRealRAR3AudioFilterMatchesDeterministicPCM() throws {

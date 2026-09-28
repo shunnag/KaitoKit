@@ -3,7 +3,11 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
+/// ZIP の暗号の部品: WinZip AES（metadata・PBKDF2・CTR・認証）と ZipCrypto の ByteSource を、公開の test vector、
+/// このファイルの参照実装（ZipCryptoReferenceCipher）、/usr/bin/zip と 7zz が作る書庫（無ければ skip）で検査する。
 final class ZipEncryptionPrimitiveTests: XCTestCase {
+    // MARK: - WinZip AES の metadata・鍵・CTR
+
     func testWinZipAESMetadataParsesAE1AndAE2() throws {
         let ae1 = try WinZipAESMetadata(
             extraFieldPayload: Data([0x01, 0x00, 0x41, 0x45, 0x01, 0x08, 0x00])
@@ -126,6 +130,8 @@ final class ZipEncryptionPrimitiveTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - ByteSource の読み出しと認証
 
     func testWinZipAESByteSourceHandlesShortSequentialReads() throws {
         let key = Data((0..<32).map { UInt8(truncatingIfNeeded: $0 &* 17 &+ 3) })
@@ -321,6 +327,8 @@ final class ZipEncryptionPrimitiveTests: XCTestCase {
         XCTAssertEqual(eofCount, 0)
     }
 
+    // MARK: - 上限を超える stream
+
     func testZipCryptoArchiveStreamsPastInMemoryLimit() throws {
         let fixture = try makeFixtureDirectory(label: "zipcrypto-streaming")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -426,6 +434,8 @@ final class ZipEncryptionPrimitiveTests: XCTestCase {
             XCTAssertEqual(error as? KaitoError, .wrongPassword)
         }
     }
+
+    // MARK: - Info-ZIP と 7zz との照合
 
     func testTraditionalZipCryptoAgainstInfoZIP() throws {
         let zip = URL(fileURLWithPath: "/usr/bin/zip")
@@ -578,6 +588,8 @@ final class ZipEncryptionPrimitiveTests: XCTestCase {
             XCTAssertEqual(error as? KaitoError, .wrongPassword)
         }
     }
+
+    // MARK: - Helpers
 
     private struct FixturePaths {
         let directory: URL

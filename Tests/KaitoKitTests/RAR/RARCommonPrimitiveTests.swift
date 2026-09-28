@@ -3,7 +3,11 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
+/// RAR 共通の部品（BLAKE2s / BLAKE2sp・RAR3 と RAR5 の鍵導出・AES-CBC の ByteSource・標準 filter・巻の連結と探索）を、
+/// RFC 7693・NIST などの公開 vector と rar 7.23 の書庫から取った値で検査する。
 final class RARCommonPrimitiveTests: XCTestCase {
+    // MARK: - hash・鍵導出・AES
+
     func testBlake2sRFC7693VectorsAndIncrementalUpdates() throws {
         XCTAssertEqual(
             Blake2s.checksum(Data()),
@@ -259,6 +263,8 @@ final class RARCommonPrimitiveTests: XCTestCase {
         )
     }
 
+    // MARK: - 標準 filter と巻の連結
+
     func testRARStandardFiltersKnownTransformsAndErrors() throws {
         var delta: [UInt8] = [255, 254, 253, 246, 253, 252]
         try RARStandardFilters.delta(&delta, channels: 2)
@@ -449,6 +455,8 @@ final class RARCommonPrimitiveTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - 巻の探索
 
     func testRARVolumeLocatorNamesAndValidatesRAR5Numbers() throws {
         let directory = try TestFixtures.makeTemporaryDirectory(label: "RARVolume")
@@ -681,6 +689,8 @@ final class RARCommonPrimitiveTests: XCTestCase {
         let located = try locator.locate(volumeNumber: 1)
         XCTAssertEqual(located.number, 1)
     }
+
+    // MARK: - Helpers
 
     private func rar5Volume(number: UInt8) -> Data {
         let body: [UInt8] = number == 0 ? [1, 0, 1] : [1, 0, 3, number]

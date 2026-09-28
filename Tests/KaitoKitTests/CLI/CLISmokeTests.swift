@@ -4,7 +4,11 @@ import Foundation
 import KaitoKit
 import XCTest
 
+/// kaito CLI（detect-encoding・detect・list・sha・extract・bench）の出力と終了コードを、build した実行ファイル（Support/KaitoCLI）
+/// と checked-in の fixture で検査する。
 final class CLISmokeTests: XCTestCase {
+    // MARK: - detect-encoding
+
     func testDetectEncodingIANARoundTripsForAllCorpusEncodings() throws {
         let samples = [
             ("windows-1250", "a3f3649f", "Łódź"),
@@ -134,6 +138,8 @@ final class CLISmokeTests: XCTestCase {
         let decoded = try KaitoCLI.run(["detect-encoding", "--decode", "utf-8", edge.path])
         XCTAssertEqual(decoded, "ok\tOK\ta\nmismatch\tMISMATCH\ta\nfail\tFAIL\t\nescape\tMISMATCH\ta\\\\\\|\\t\\n\\r\ncanonical\tMISMATCH\te\u{0301}\n")
     }
+
+    // MARK: - 形式ごとの detect・list・sha・extract
 
     func testStuffItExtractionDefersResourcesAndPreservesParentPaths() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
@@ -460,6 +466,8 @@ final class CLISmokeTests: XCTestCase {
         XCTAssertTrue(output.contains("cpio (stored)\tplain\t./a.txt"))
     }
 
+    // MARK: - list と sha の出力
+
     func testListShowsMethodEncryptionAndOptionalRawName() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }
@@ -549,6 +557,8 @@ final class CLISmokeTests: XCTestCase {
             .joined()
         XCTAssertEqual(lines[0], "0\t\(contents.count)\t\(digest)\tlarge.bin")
     }
+
+    // MARK: - bench
 
     func testBenchSupportsMappedDataAndLegacyArgumentOrder() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
@@ -699,6 +709,8 @@ final class CLISmokeTests: XCTestCase {
         XCTAssertEqual(benchmark[0], "reps\t1")
         XCTAssertEqual(benchmark[3], "bytes\t\(contents.count)")
     }
+
+    // MARK: - 展開の順序・制御文字・entry ごとの失敗
 
     func testExtractDefersRestrictiveDirectoryMetadataUntilAfterChildren() throws {
         let temporary = try TarTestSupport.temporaryDirectory()

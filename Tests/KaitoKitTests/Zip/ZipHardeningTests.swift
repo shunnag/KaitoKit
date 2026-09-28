@@ -12,7 +12,11 @@ private struct ZipFixedPasswordProvider: PasswordProvider {
     }
 }
 
+/// ZIP の壊れた・敵対的な入力: 復旧読み・central directory と local header の食い違い・ZIP64・暗号化の flag・上限・
+/// 展開先を汚さない失敗を、ZipTestSupport（HandZipEntry）で組んだ書庫で検査する。
 final class ZipHardeningTests: XCTestCase {
+    // MARK: - 復旧読み（recoverDamagedArchives）
+
     func testIncompleteUnencryptedStoredEntryMatchesOriginalPrefix() throws {
         let original = Data((0..<(2 * 1_024 * 1_024)).map {
             UInt8(truncatingIfNeeded: $0 ^ ($0 >> 8) ^ ($0 >> 16))
@@ -206,6 +210,8 @@ final class ZipHardeningTests: XCTestCase {
         }
     }
 
+    // MARK: - central directory・ZIP64 の値
+
     func testAggregateMetadataBudgetIsPreflightedBeforeEntryParsing() throws {
         var archive = try ZipTestSupport.makeArchive(entries: [
             HandZipEntry(name: "first.txt"),
@@ -355,6 +361,8 @@ final class ZipHardeningTests: XCTestCase {
         XCTAssertEqual(try reader.read(reader.entries[0]), payload)
     }
 
+    // MARK: - 暗号化の flag
+
     func testStrongEncryptionBitIsRejectedInCentralAndDeferredLocalHeaders() throws {
         let centralStrong = try ZipTestSupport.makeArchive(entries: [
             HandZipEntry(name: "central-strong.bin", flags: 0x0841),
@@ -436,6 +444,8 @@ final class ZipHardeningTests: XCTestCase {
         ])
         assertMalformed { try ArchiveReader.open(data: archive) }
     }
+
+    // MARK: - end record・重複名・上限
 
     func testMultiDiskMetadataIsRejectedForZIP32AndZIP64() throws {
         var zip32 = try ZipTestSupport.makeArchive(entries: [HandZipEntry(name: "one.txt")])
@@ -532,6 +542,8 @@ final class ZipHardeningTests: XCTestCase {
             try ArchiveReader.open(data: archive, options: ReaderOptions(limits: limits))
         }
     }
+
+    // MARK: - local header の重なり・別名と遅延の検査
 
     func testCentralDirectoryOverlapIsDeferredInLazyModeAndRejectedEagerly() throws {
         let payload = Data("overlap".utf8)
@@ -742,6 +754,8 @@ final class ZipHardeningTests: XCTestCase {
         }
     }
 
+    // MARK: - 読み出しの失敗と未対応の method
+
     func testTruncatedDeflateAndBadCRCFailAtEndOfRead() throws {
         let plaintext = Data(
             "hello KaitoKit\nhello KaitoKit\nhello KaitoKit\n".utf8
@@ -789,6 +803,8 @@ final class ZipHardeningTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - password（ZipCrypto・WinZip AES）
 
     func testZipCryptoRequiresPasswordRejectsWrongPasswordAndUsesProvider() throws {
         let temporary = try ZipTestSupport.temporaryDirectory(label: "zipcrypto-reader")
@@ -1029,6 +1045,8 @@ final class ZipHardeningTests: XCTestCase {
         XCTAssertEqual(try correct.read(correct.entries[0]), payload)
     }
 
+    // MARK: - 失敗した展開は展開先を変えない
+
     func testBadCRCExtractionDoesNotPublishOrReplaceDestination() throws {
         let payload = Data(repeating: 0x4B, count: 600 * 1_024)
         let archive = try ZipTestSupport.makeArchive(entries: [
@@ -1189,6 +1207,8 @@ final class ZipHardeningTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: damagedOutput.path))
     }
+
+    // MARK: - Helpers
 
     private func assertFailedExtractionDoesNotPublish(
         reader: ArchiveReader,

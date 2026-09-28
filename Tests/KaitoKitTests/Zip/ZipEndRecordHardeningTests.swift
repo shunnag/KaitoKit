@@ -2,8 +2,13 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
+/// ZIP の end record（EOCD・ZIP64 の locator と EOCD）の探索と候補の選び方: 注釈・前置き・末尾のデータに似た byte があっても
+/// 本物の directory を隠さず、探索の費用が有界であることを、ZipTestSupport で組んだ書庫と、その場で bsdtar / Info-ZIP が作る書庫で検査する。
 final class ZipEndRecordHardeningTests: XCTestCase {
     // 旧名: ZipCompatibilityRobustnessTests
+
+    // MARK: - ZIP64 の end record
+
     func testNewestEmptyArchiveAtEOFWinsBeyondStandardSearchWindow() throws {
         let older = try ZipTestSupport.makeArchive(entries: [
             HandZipEntry(
@@ -281,6 +286,8 @@ final class ZipEndRecordHardeningTests: XCTestCase {
         }
     }
 
+    // MARK: - 実ツールの書庫
+
     func testBSDTarZip64AndInfoZIPStdinFixturesOpenAndRead() throws {
         try ZipTestSupport.requireExecutable(ZipTestSupport.bsdTarPath)
         try ZipTestSupport.requireExecutable(ZipTestSupport.infoZipPath)
@@ -342,6 +349,8 @@ final class ZipEndRecordHardeningTests: XCTestCase {
             XCTAssertEqual(try reader.read(reader.entries[0]), payload)
         }
     }
+
+    // MARK: - EOCD に似た byte と候補の選択
 
     func testEOCDTrailingDataWithinBoundIsAcceptedForSFXZIP() throws {
         let payload = Data("streamed bsdtar payload\n".utf8)
@@ -566,6 +575,8 @@ final class ZipEndRecordHardeningTests: XCTestCase {
         }
     }
 
+    // MARK: - 探索と再試行の費用
+
     func testManyEOCDCandidatesHaveLinearBoundedOpenCost() throws {
         var emptyEndRecord = Data([0x50, 0x4B, 0x05, 0x06])
         emptyEndRecord.append(Data(repeating: 0, count: 18))
@@ -645,6 +656,8 @@ final class ZipEndRecordHardeningTests: XCTestCase {
         XCTAssertEqual(reader.entries.map(\.name), ["visible.txt"])
         XCTAssertEqual(try reader.read(reader.entries[0]), payload)
     }
+
+    // MARK: - local extra と entry ごとの変わった値
 
     func testLocalExtraZeroPaddingIsAcceptedLazilyAndEagerly() throws {
         let payload = Data("zipalign-style padding\n".utf8)
@@ -814,6 +827,8 @@ final class ZipEndRecordHardeningTests: XCTestCase {
             .shiftJIS
         )
     }
+
+    // MARK: - Helpers
 
     private func assertLargeFirstCandidateOpens(
         forceZIP64End: Bool,

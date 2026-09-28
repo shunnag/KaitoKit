@@ -3,7 +3,11 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
+/// 7z の reader の coder の連鎖（Copy・LZMA・LZMA2・Deflate・BZip2・PPMd・BCJ / BCJ2・ARM64・Delta・AES）を、checked-in の
+/// fixture と 7zz で作った書庫（無ければ skip）の SHA-256 で照合する。
 final class SevenZipIntegrationTests: XCTestCase {
+    // MARK: - coder の連鎖と 7zz との照合
+
     func testStreamingCoderChainCheckedInFixture() throws {
         let archive = try ZipTestSupport.checkedInFixture(
             "sevenzip/chain-lzma-lzma-lzma2-bcj2.7z"
@@ -397,6 +401,8 @@ final class SevenZipIntegrationTests: XCTestCase {
         }
     }
 
+    // MARK: - coordinator と memory
+
     func testNonsolidCompressedEntryStreamsHaveIndependentCoordinators() throws {
         try SevenZipTestSupport.requireSevenZip()
         let temporary = try SevenZipTestSupport.temporaryDirectory(label: "7z-nonsolid-streams")
@@ -471,6 +477,8 @@ final class SevenZipIntegrationTests: XCTestCase {
             "2,000 completed folders must not retain every decoder"
         )
     }
+
+    // MARK: - 暗号化と実書庫
 
     func testHeaderKDFDefaultBudgetOpensAndExtractsEncryptedFixture() throws {
         let fixture = try makeEncryptedFixture(headerEncryption: true)
@@ -604,6 +612,8 @@ final class SevenZipIntegrationTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Helpers
 
     private struct EncryptedFixture {
         let temporary: URL

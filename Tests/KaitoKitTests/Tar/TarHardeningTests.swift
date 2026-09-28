@@ -2,7 +2,11 @@ import Foundation
 import KaitoKit
 import XCTest
 
+/// tar の壊れた・敵対的な入力: 復旧読み・hard link と symlink の展開の安全性・header の数値と checksum・PAX / GNU の
+/// 拡張 header・メタデータの上限を、TarTestSupport（HandTarEntry）で組んだ書庫で検査する。
 final class TarHardeningTests: XCTestCase {
+    // MARK: - 一覧・復旧読み・偽の entry
+
     func testListingLargeMembersReadsOnlySmallHeaderWindows() throws {
         let payload = Data(repeating: 0x61, count: 1_024 * 1_024)
         let tar = try TarTestSupport.makeTar(entries: (0..<64).map {
@@ -120,6 +124,8 @@ final class TarHardeningTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
     }
+
+    // MARK: - hard link と symlink の展開の安全性
 
     func testHardLinkTargetCannotTraversePreexistingSymlinkPivot() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
@@ -663,6 +669,8 @@ final class TarHardeningTests: XCTestCase {
         )
     }
 
+    // MARK: - header の数値・checksum・検出
+
     func testOldGNUHeaderDoesNotInterpretSparseAreaAsUstarPrefix() throws {
         let originalName = "payload.txt"
         let archive = try TarTestSupport.makeTar(entries: [
@@ -745,6 +753,8 @@ final class TarHardeningTests: XCTestCase {
             XCTAssertEqual(try FormatDetector.detect(data: collision), .tar)
         }
     }
+
+    // MARK: - PAX・GNU の拡張 header
 
     func testNoBodyMemberSizeHintDoesNotHideFollowingHeader() throws {
         for type in [UInt8(0x31), 0x32, 0x33, 0x34, 0x35, 0x36] {
@@ -880,6 +890,8 @@ final class TarHardeningTests: XCTestCase {
         XCTAssertEqual(try reader.read(XCTUnwrap(reader.entries.first)), Data("value".utf8))
     }
 
+    // MARK: - base-256 の数値と符号付きの checksum
+
     func testPositiveBase256SizeAndNegativeBase256ModificationTime() throws {
         let payload = Data([0x01, 0x02, 0x03])
         let archive = try TarTestSupport.makeTar(entries: [
@@ -929,6 +941,8 @@ final class TarHardeningTests: XCTestCase {
         XCTAssertEqual(entry.name, "signed.txt")
         XCTAssertEqual(try reader.read(entry), payload)
     }
+
+    // MARK: - メタデータの上限
 
     func testPAXMetadataRecordLimitAppliesAcrossGlobalAndLocalHeaders() throws {
         let firstGlobal = try paxPayload([
@@ -1081,6 +1095,8 @@ final class TarHardeningTests: XCTestCase {
             self.assertLimitExceeded(error)
         }
     }
+
+    // MARK: - Helpers
 
     private func assertNotFound(
         _ error: Error,

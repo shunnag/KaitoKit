@@ -2,7 +2,11 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
+/// RAR5 の reader: `rar` で作った書庫（無ければ skip）と RAR5TestSupport で手組みした header で、名前・リンク・solid・
+/// 暗号化・大きさの分からない entry・header の解釈と上限・決定的な mutant を検査する。
 final class RAR5ReaderTests: XCTestCase {
+    // MARK: - rar で作った書庫: 名前・リンク・圧縮・quick open
+
     func testGeneratedStoredJapaneseNamesDirectoriesAndEmptyFiles() throws {
         try RAR5TestSupport.requireRAR()
         let temporary = try ZipTestSupport.temporaryDirectory(label: "rar5-stored")
@@ -344,6 +348,8 @@ final class RAR5ReaderTests: XCTestCase {
         XCTAssertEqual(reader.entries.map(\.name), ["quick-open.bin"])
         XCTAssertEqual(try reader.read(try XCTUnwrap(reader.entries.first)), payload)
     }
+
+    // MARK: - solid の group
 
     func testGeneratedSolidGroupSupportsForwardBackwardRandomAndOverlappingAccess() throws {
         try RAR5TestSupport.requireRAR()
@@ -709,6 +715,8 @@ final class RAR5ReaderTests: XCTestCase {
         XCTAssertEqual(try crcReader.read(crcReader.entries[2]), payloads[2])
     }
 
+    // MARK: - 分割 entry と辞書の上限
+
     func testGeneratedSplitEntryFromDataReportsMultiVolumeRequirement() throws {
         try RAR5TestSupport.requireRAR()
         let temporary = try ZipTestSupport.temporaryDirectory(label: "rar5-volume")
@@ -787,6 +795,8 @@ final class RAR5ReaderTests: XCTestCase {
             XCTAssertTrue(reason.contains("exceeds limit"), reason)
         }
     }
+
+    // MARK: - 暗号化（file・header）
 
     func testGeneratedEncryptedStoredBlake2ArchiveChecksPasswordAndPayload() throws {
         try RAR5TestSupport.requireRAR()
@@ -1104,6 +1114,8 @@ final class RAR5ReaderTests: XCTestCase {
         XCTAssertEqual(try reader.reopen().read(entry), payload)
     }
 
+    // MARK: - 大きさの分からない entry と上限
+
     func testStoredEntryWithUnknownUnpackedSizeStreamsToItsPhysicalEnd() throws {
         let payload = Data("unknown RAR5 stored size\n".utf8)
         let archive = RAR5TestSupport.archive(blocks: [
@@ -1179,6 +1191,8 @@ final class RAR5ReaderTests: XCTestCase {
         XCTAssertNotEqual(entry.formatSpecific["method"], "0")
         XCTAssertEqual(try reader.read(entry), payload)
     }
+
+    // MARK: - header の数値・CRC・辞書・版の解釈
 
     func testVIntAcceptsPaddingAndRetainsOnlyLowSixtyFourBits() throws {
         var padded = RAR5ByteCursor([0x80, 0x80, 0x80, 0x00])
@@ -1331,6 +1345,8 @@ final class RAR5ReaderTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - file copy・hard link・symlink の redirection
 
     func testFileCopyRedirectionResolvesToTargetContentsOrStaysZeroBody() throws {
         let target = "original.txt"
@@ -1509,6 +1525,8 @@ final class RAR5ReaderTests: XCTestCase {
             target
         )
     }
+
+    // MARK: - 変わった値・壊れた extra record・未知の header
 
     func testUnusualPerFileCompatibilityValuesFailOnlyWhenThatEntryStreams() throws {
         func encryptionExtra(version: UInt64, kdfCount: UInt8) -> [UInt8] {
@@ -1751,6 +1769,8 @@ final class RAR5ReaderTests: XCTestCase {
         XCTAssertNil(unsafe.formatSpecific["hardLinkTargetIndex"])
     }
 
+    // MARK: - 決定的な mutant
+
     func testFourHundredSixteenDeterministicContainerMutantsDoNotCrashOrHang() throws {
         let seed = [UInt8](RAR5TestSupport.archive(blocks: [
             RAR5TestSupport.storedFile(
@@ -1800,6 +1820,8 @@ final class RAR5ReaderTests: XCTestCase {
         }
         XCTAssertEqual(completed, 416)
     }
+
+    // MARK: - Helpers
 
     private func exerciseMutant(_ data: Data, options: ReaderOptions) {
         guard let reader = try? ArchiveReader.open(data: data, options: options) else { return }

@@ -2,7 +2,11 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
+/// RAR5 の header 暗号化（-hp）: `rar` で作った書庫（無ければ skip）と RAR5HPTestParser で書き換えた envelope で、password を
+/// 求める時機・巻をまたぐ一貫性・鍵導出の上限・暗号化した header の CRC と長さを検査する。
 final class RAR5HeaderEncryptionTests: XCTestCase {
+    // MARK: - password と巻
+
     func testPasswordProviderIsResolvedDuringOpenAndRetainedByReopen() throws {
         try RAR5TestSupport.requireRAR()
         let temporary = try ZipTestSupport.temporaryDirectory(label: "rar5-hp-provider")
@@ -424,6 +428,8 @@ final class RAR5HeaderEncryptionTests: XCTestCase {
         )
     }
 
+    // MARK: - envelope・header の CRC と長さ・検証値
+
     func testArchiveEncryptionEnvelopeVersionKDFAndMetadataLimitsAreStrict() throws {
         let fixture = try makeFixture(label: "rar5-hp-limits")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -624,6 +630,8 @@ final class RAR5HeaderEncryptionTests: XCTestCase {
         )
         XCTAssertEqual(try reader.read(try XCTUnwrap(reader.entries.first)), fixture.payload)
     }
+
+    // MARK: - Helpers
 
     private func makeFixture(
         label: String

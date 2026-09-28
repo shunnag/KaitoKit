@@ -4,6 +4,8 @@ import Foundation
 import XCTest
 
 // 許可資料は RFC 8878 と xxhash_spec.md。CLI は入出力の照合にだけ用いる。
+/// Zstandard の decoder を、checked-in の fixture（Tests/Fixtures/zstd）、zstd と 7zz の出力（無ければ skip）、手組みの frame と
+/// block で検査する（window の確保・entropy・sequence・XXH64・直接読み・短い読み出し）。
 final class ZstdTests: XCTestCase {
     private struct Row: Decodable {
         let name: String
@@ -48,6 +50,8 @@ final class ZstdTests: XCTestCase {
         return try EntryStream(decompressor: decoder, length: nil, expectedCRC32: nil,
                                entryIndex: 0, limits: limits).readAll()
     }
+
+    // MARK: - fixture と CLI との照合
 
     func testEveryFixedFixtureListingSHAReopenAndSmallChunks() throws {
         let directory = try TestFixtures.makeTemporaryDirectory(label: "zstd")
@@ -125,6 +129,8 @@ final class ZstdTests: XCTestCase {
         }
     }
 
+    // MARK: - 切り詰め・bit の変異
+
     private func assertKaitoError(_ body: () throws -> Void, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertThrowsError(try body(), file: file, line: line) { error in
             XCTAssertTrue(error is KaitoError, "\(error)", file: file, line: line)
@@ -157,6 +163,8 @@ final class ZstdTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - 手組みの frame と window の確保
 
     private func little(_ value: UInt64, _ count: Int) -> [UInt8] {
         (0..<count).map { UInt8(truncatingIfNeeded: value >> (8 * $0)) }
@@ -394,6 +402,8 @@ final class ZstdTests: XCTestCase {
         }
     }
 
+    // MARK: - header・entropy・sequence・上限
+
     func testReservedFieldsBlockBoundsSizesChecksumAndDictionary() throws {
         let raw = block(Array("abc".utf8), type: 0)
         var reserved = frame(raw)
@@ -547,6 +557,8 @@ final class ZstdTests: XCTestCase {
         assertKaitoError { _ = try decode(valid + repeated) }
     }
 
+    // MARK: - XXH64 と block の view
+
     func testXXH64IncrementalAcrossEveryStripeBoundary() throws {
         XCTAssertEqual(XXH64().value, 0xef46db3751d8e999)
         let input = [UInt8](0...255) + [UInt8](0...100)
@@ -666,6 +678,8 @@ final class ZstdTests: XCTestCase {
         }
     }
 
+    // MARK: - 直接読みと短い読み出し
+
     private final class CountingSource: ByteSource, @unchecked Sendable {
         private let source: DataByteSource
         // 読取りの記録は同じロックで保護する。
@@ -778,6 +792,8 @@ final class ZstdTests: XCTestCase {
         let rawStream = try EntryStream(decompressor: raw, length: nil, expectedCRC32: nil, entryIndex: 0, limits: ReadLimits())
         XCTAssertEqual(try rawStream.readAll(), Data(repeating: 65, count: 131072))
     }
+
+    // MARK: - match の経路と Huffman の境界
 
     func testStage1FixedStreamsWithEveryMatchPath() throws {
         for item in try fixtures() where !item.unsupported {

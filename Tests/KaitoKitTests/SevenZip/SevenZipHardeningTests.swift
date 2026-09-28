@@ -3,8 +3,12 @@ import Synchronization
 @testable import KaitoKit
 import XCTest
 
+/// 7z の壊れた・敵対的な header と上限（鍵導出の回数・件数・coder の構成・辞書）を、このファイルの makeArchive などで
+/// 組んだ header と決定的な mutant で検査する。
 final class SevenZipHardeningTests: XCTestCase {
     private static let signature: [UInt8] = [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]
+
+    // MARK: - solid の decoder の失敗
 
     func testSolidDecoderErrorDropsStateAndRejectsForwardEntryWithoutCRCs() throws {
         let reader = try SevenZipReader(source: DataByteSource(makeCorruptSolidArchive()), options: ReaderOptions())
@@ -52,6 +56,8 @@ final class SevenZipHardeningTests: XCTestCase {
         ]
         return makeArchive(packedData: packed, nextHeader: header)
     }
+
+    // MARK: - header の鍵導出の上限
 
     func testHeaderKDFWorkStopsBeforeFifthDistinctDerivation() throws {
         let archive = makeAESFoldersArchive()
@@ -172,6 +178,8 @@ final class SevenZipHardeningTests: XCTestCase {
         header.append(SevenZipNID.end.rawValue)
         return makeArchive(packedData: [UInt8](repeating: 0, count: 6 * 16), nextHeader: header)
     }
+
+    // MARK: - header の切り詰め・CRC・packed stream
 
     func testTruncatedFixedAndNextHeadersAreRejected() throws {
         let valid = makeArchive(nextHeader: [SevenZipNID.header.rawValue, SevenZipNID.end.rawValue])
@@ -332,6 +340,8 @@ final class SevenZipHardeningTests: XCTestCase {
             XCTAssertEqual(error as? KaitoError, .wrongPassword)
         }
     }
+
+    // MARK: - property の解釈
 
     func testEmptyPackInfoMayOmitOptionalSizeProperty() throws {
         let header: [UInt8] = [
@@ -511,6 +521,8 @@ final class SevenZipHardeningTests: XCTestCase {
         XCTAssertEqual(streams.substreams.first?.size, 1)
     }
 
+    // MARK: - 件数とメタデータの上限
+
     func testAbsurdFileAndFolderCountsFailBeforeAllocation() throws {
         let hugeNumber = [UInt8(0xFF)] + [UInt8](repeating: 0xFF, count: 8)
         let fileHeader = [
@@ -615,6 +627,8 @@ final class SevenZipHardeningTests: XCTestCase {
             options: ReaderOptions(limits: limits)
         )
     }
+
+    // MARK: - coder の構成と folder の coordinator
 
     func testCyclicCoderBindGraphIsRejected() throws {
         // 3 個の 1-in/1-out Copy coder。0 -> 1 と 1 -> 0 の bind で閉路を作る。
@@ -871,6 +885,8 @@ final class SevenZipHardeningTests: XCTestCase {
         }
     }
 
+    // MARK: - 辞書の上限と決定的な mutant
+
     func testFourGiBLZMA2DictionaryFailsViaConfiguredLimit() throws {
         let source = DataByteSource(Data([0]))
         let coder = SevenZipCoder(
@@ -978,6 +994,8 @@ final class SevenZipHardeningTests: XCTestCase {
         }
         XCTAssertEqual(completed, 384)
     }
+
+    // MARK: - Helpers
 
     private func makeArchive(
         packedData: [UInt8] = [],

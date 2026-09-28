@@ -3,7 +3,11 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
+/// LHA の静的 Huffman decoder（-lh4-〜-lh7-・LHArk・LHX）: このファイルの bit writer で組んだ block で表の構築・match・
+/// 境界と壊れた表を検査し、lhasa（無ければ skip）の出力と照合する。
 final class LHAStaticHuffmanDecoderTests: XCTestCase {
+    // MARK: - block と match
+
     func testConstantLiteralBlocksDecodeForEveryMethodAndTinyReads() throws {
         for method in ["-lh4-", "-lh5-", "-lh6-", "-lh7-", "-lhx-"] {
             var writer = StaticLHABitWriter()
@@ -60,6 +64,8 @@ final class LHAStaticHuffmanDecoderTests: XCTestCase {
             Data("ABCDEFGHABCDEFGH".utf8)
         )
     }
+
+    // MARK: - LHArk と LHX の位置の表
 
     func testLHArkSixBitPositionTreeAndExtendedLengthCodes() throws {
         var writer = StaticLHABitWriter()
@@ -231,6 +237,8 @@ final class LHAStaticHuffmanDecoderTests: XCTestCase {
         }
     }
 
+    // MARK: - 初期辞書と canonical な表
+
     func testInitialDictionaryContainsSpaces() throws {
         var writer = StaticLHABitWriter()
         appendConstantBlock(
@@ -373,6 +381,8 @@ final class LHAStaticHuffmanDecoderTests: XCTestCase {
         }
     }
 
+    // MARK: - lhasa との照合
+
     func testLiteralMatchAndPresetWindowVectorsMatchLhasaOracleWhenAvailable() throws {
         guard let executable = LHATestSupport.lhasaExecutableURL else {
             throw XCTSkip("set KAITOKIT_LHA_EXECUTABLE or install lhasa")
@@ -493,6 +503,8 @@ final class LHAStaticHuffmanDecoderTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - 壊れた表と上限
 
     func testRejectsCommandZeroRunBeyondDeclaredTableCountAndStaysTerminal() throws {
         var writer = StaticLHABitWriter()
@@ -679,6 +691,8 @@ final class LHAStaticHuffmanDecoderTests: XCTestCase {
             Data("fghfghfghfghfghfghfg".utf8)
         )
     }
+
+    // MARK: - Helpers
 
     private func makeDecoder(
         method: String,

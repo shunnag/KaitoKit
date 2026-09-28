@@ -25,53 +25,6 @@ usage:
   kaito bench [--data] [--random] <archive> [reps] [-p <password>]
 """
 
-private func formatName(_ format: ArchiveFormat) -> String {
-    switch format {
-    case .zip: return "zip"
-    case .rar: return "rar"
-    case .sevenZip: return "7z"
-    case .lha: return "lha"
-    case .stuffIt: return "sit"
-    case .stuffItX: return "sitx"
-    case .tar: return "tar"
-    case .iso: return "iso"
-    case .udf: return "udf"
-    case .wim: return "wim"
-    case .compoundFile: return "cfb"
-    case .chm: return "chm"
-    case .arj: return "arj"
-    case .dmg: return "dmg"
-    case .macBinary: return "macbinary"
-    case .appleSingle: return "applesingle"
-    case .binHex: return "binhex"
-    case .xar: return "xar"
-    case .cab: return "cab"
-    case .rpm: return "rpm"
-    case .ar: return "ar"
-    case .cpio: return "cpio"
-    case .gzip: return "gzip"
-    case .bzip2: return "bzip2"
-    case .xz: return "xz"
-    case .zstd: return "zstd"
-    case .lz4: return "lz4"
-    case .lzma: return "lzma"
-    case .lzip: return "lzip"
-    case .brotli: return "brotli"
-    case .pbzx: return "pbzx"
-    case .compress: return "compress"
-    }
-}
-
-private func kindName(_ kind: EntryKind) -> String {
-    switch kind {
-    case .file: return "file"
-    case .directory: return "directory"
-    case .symlink: return "symlink"
-    case .hardlink: return "hardlink"
-    case .other: return "other"
-    }
-}
-
 private func hexadecimal<S: Sequence>(_ bytes: S) -> String where S.Element == UInt8 {
     bytes.map { String(format: "%02x", $0) }.joined()
 }
@@ -113,7 +66,7 @@ private func runDetect(_ arguments: [String]) throws {
     guard arguments.count == 1, let path = arguments.first else {
         throw CLIError.usage(usage)
     }
-    print(formatName(try FormatDetector.detect(url: URL(fileURLWithPath: path))))
+    print(try FormatDetector.detect(url: URL(fileURLWithPath: path)).rawValue)
 }
 
 private func runList(_ arguments: [String]) throws {
@@ -151,7 +104,7 @@ private func runList(_ arguments: [String]) throws {
         var fields = [
             String(entry.index),
             size,
-            kindName(entry.kind),
+            entry.kind.rawValue,
             oneLine(entry.methodDescription),
             oneLine(encryption),
             oneLine(entry.name),

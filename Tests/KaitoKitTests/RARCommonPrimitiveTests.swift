@@ -451,9 +451,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
     }
 
     func testRARVolumeLocatorNamesAndValidatesRAR5Numbers() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-RARVolume-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "RARVolume")
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let rar4Signature = Data([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00])
@@ -503,14 +501,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
     }
 
     func testRARVolumeLocatorPreservesPartMarkerAndExtensionSpelling() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKit-RARVolumeCase-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "RARVolumeCase")
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let rar4Signature = Data([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00])
@@ -549,9 +540,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
     }
 
     func testRAR5VolumeLocatorBoundsMainHeaderBeforeAllocating() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-RARVolumeHeader-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "RARVolumeHeader")
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let ordinary = directory.appendingPathComponent("ordinary.part1.rar")
@@ -593,9 +582,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
     }
 
     func testRARVolumeLocatorRejectsFIFOAndSymlinkSiblings() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-RARVolumeKinds-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "RARVolumeKinds")
         defer { try? FileManager.default.removeItem(at: directory) }
         let first = directory.appendingPathComponent("kind.part1.rar")
         let second = directory.appendingPathComponent("kind.part2.rar")
@@ -646,8 +633,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
     }
 
     func testRARVolumeLocatorUsesDirectoryCapturedBeforeFirstSourceOpen() throws {
-        let parent = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-RARVolumeSwap-\(UUID().uuidString)")
+        let parent = try TestFixtures.makeTemporaryDirectory(label: "RARVolumeSwap")
         let active = parent.appendingPathComponent("active", isDirectory: true)
         let moved = parent.appendingPathComponent("moved", isDirectory: true)
         try FileManager.default.createDirectory(at: active, withIntermediateDirectories: true)
@@ -677,8 +663,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
     }
 
     func testRARVolumeLocatorRetainsItsOpenedDirectory() throws {
-        let parent = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-RARVolumeAnchor-\(UUID().uuidString)")
+        let parent = try TestFixtures.makeTemporaryDirectory(label: "RARVolumeAnchor")
         let active = parent.appendingPathComponent("active", isDirectory: true)
         let moved = parent.appendingPathComponent("moved", isDirectory: true)
         try FileManager.default.createDirectory(at: active, withIntermediateDirectories: true)

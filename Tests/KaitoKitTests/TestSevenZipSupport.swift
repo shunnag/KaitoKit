@@ -12,7 +12,7 @@ enum SevenZipTestSupport {
     }
 
     static func temporaryDirectory(label: String = "sevenzip") throws -> URL {
-        try ZipTestSupport.temporaryDirectory(label: label)
+        try TestFixtures.makeTemporaryDirectory(label: label)
     }
 
     @discardableResult

@@ -595,12 +595,7 @@ final class ZipEncryptionPrimitiveTests: XCTestCase {
     }
 
     private func makeFixtureDirectory(label: String) throws -> FixturePaths {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-\(label)-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
+        let directory = try TestFixtures.makeTemporaryDirectory(label: label)
         return FixturePaths(
             directory: directory,
             input: directory.appendingPathComponent("payload.txt"),

@@ -11,7 +11,7 @@ final class ArchiveVolumeSetTests: XCTestCase {
     }
 
     private func temporaryDirectory() throws -> URL {
-        try ZipTestSupport.temporaryDirectory(label: "volume-set")
+        try TestFixtures.makeTemporaryDirectory(label: "volume-set")
     }
 
     private func numbered(_ bytes: Data, below directory: URL, width: Int = 3) throws -> [URL] {

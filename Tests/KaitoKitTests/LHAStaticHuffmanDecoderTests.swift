@@ -444,12 +444,7 @@ final class LHAStaticHuffmanDecoderTests: XCTestCase {
             )
         ])
 
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-LH5-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true
-        )
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "LH5")
         defer { try? FileManager.default.removeItem(at: directory) }
         let archiveURL = directory.appendingPathComponent("vectors.lzh")
         try archive.write(to: archiveURL, options: Data.WritingOptions.atomic)

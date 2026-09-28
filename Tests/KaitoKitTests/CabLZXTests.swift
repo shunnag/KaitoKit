@@ -86,12 +86,6 @@ final class CabLZXTests: XCTestCase {
         throw XCTSkip("\(name) is unavailable")
     }
 
-    private func temporaryDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("kaito-lzx-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
     private func run(_ executable: URL, _ arguments: [String], log: URL) throws {
         _ = FileManager.default.createFile(atPath: log.path, contents: nil)
         let handle = try FileHandle(forWritingTo: log)
@@ -134,7 +128,7 @@ final class CabLZXTests: XCTestCase {
 
     func testTwentyGeneratedArchivesAgainstCabextract() throws {
         let python = try executable("python3"), oracle = try executable("cabextract")
-        let directory = try temporaryDirectory()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "lzx")
         defer { try? FileManager.default.removeItem(at: directory) }
         let log = directory.appendingPathComponent("generator.log")
         try run(python, [root.appendingPathComponent("Scripts/fixtures/make-cab-lzx.py").path,
@@ -159,7 +153,7 @@ final class CabLZXTests: XCTestCase {
         let archives = contents.compactMap { $0 as? URL }.filter { $0.pathExtension.lowercased() == "cab" }
             .sorted { $0.path < $1.path }
         guard !archives.isEmpty else { throw XCTSkip("No CAB archives in KAITOKIT_CAB_CORPUS") }
-        let directory = try temporaryDirectory()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "lzx")
         defer { try? FileManager.default.removeItem(at: directory) }
         for cab in archives {
             let count = try compareOracle(cab, oracle: oracle, directory: directory)
@@ -228,7 +222,7 @@ final class CabLZXTests: XCTestCase {
 
     func testContinuedFolderContainedFilesAgainstCabextract() throws {
         let oracle = try executable("cabextract"), python = try executable("python3")
-        let directory = try temporaryDirectory()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "lzx")
         defer { try? FileManager.default.removeItem(at: directory) }
         // 小型標本では cabextract 1.11 が末尾 split の次巻不足で先頭側も失敗する。
         // 元の先頭三ファイルを保ち、continued file に一 frame を足した literal 版も照合する。

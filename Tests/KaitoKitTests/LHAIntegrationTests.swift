@@ -113,7 +113,7 @@ final class LHAIntegrationTests: XCTestCase {
         XCTAssertEqual(reader.entries.map(\.kind), [.symlink, .file])
         XCTAssertEqual(reader.entries[0].formatSpecific["linkPath"], "target.txt")
 
-        let output = try temporaryDirectory(label: "symlink")
+        let output = try TestFixtures.makeTemporaryDirectory(label: "symlink")
         defer { try? FileManager.default.removeItem(at: output) }
         let implicitParent = output.appendingPathComponent("links", isDirectory: true)
         let link = implicitParent.appendingPathComponent("shortcut")
@@ -156,7 +156,7 @@ final class LHAIntegrationTests: XCTestCase {
         XCTAssertEqual(reader.entries[0].kind, .symlink)
         XCTAssertEqual(reader.entries[0].formatSpecific["linkPath"], "../outside.txt")
 
-        let output = try temporaryDirectory(label: "parent-link")
+        let output = try TestFixtures.makeTemporaryDirectory(label: "parent-link")
         defer { try? FileManager.default.removeItem(at: output) }
         XCTAssertThrowsError(try reader.extract(reader.entries[0], to: output)) { error in
             guard case KaitoError.malformed = error else {
@@ -628,7 +628,7 @@ final class LHAIntegrationTests: XCTestCase {
         guard FileManager.default.fileExists(atPath: fixture.path) else {
             throw XCTSkip("KAITOKIT_BOOK_LHA is not readable")
         }
-        let temporary = try temporaryDirectory(label: "book")
+        let temporary = try TestFixtures.makeTemporaryDirectory(label: "book")
         defer { try? FileManager.default.removeItem(at: temporary) }
         let archive = temporary.appendingPathComponent("book.lzh")
         try FileManager.default.copyItem(at: fixture, to: archive)
@@ -830,7 +830,7 @@ final class LHAIntegrationTests: XCTestCase {
     }
 
     func testCLIListIncludesLHAHeaderLevel() throws {
-        let temporary = try temporaryDirectory(label: "cli")
+        let temporary = try TestFixtures.makeTemporaryDirectory(label: "cli")
         defer { try? FileManager.default.removeItem(at: temporary) }
         let archive = temporary.appendingPathComponent("cli.lzh")
         try LHATestSupport.makeArchive(entries: [
@@ -879,17 +879,5 @@ final class LHAIntegrationTests: XCTestCase {
             return Data()
         }
         return data
-    }
-
-    private func temporaryDirectory(label: String) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKit-LHA-\(label)-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
-        return directory
     }
 }

@@ -178,7 +178,7 @@ private final class ZipDiscoveryCountingSource: ByteSource {
 
 final class ZipSplitVolumeTests: XCTestCase {
     private func temporaryDirectory() throws -> URL {
-        try ZipTestSupport.temporaryDirectory(label: "zip-split")
+        try TestFixtures.makeTemporaryDirectory(label: "zip-split")
     }
 
     private func archive() throws -> Data {

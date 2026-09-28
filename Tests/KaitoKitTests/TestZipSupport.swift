@@ -227,15 +227,7 @@ enum ZipTestSupport {
     }
 
     static func temporaryDirectory(label: String = "zip") throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKitTests-\(label)-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
-        return directory
+        try TestFixtures.makeTemporaryDirectory(label: label)
     }
 
     @discardableResult

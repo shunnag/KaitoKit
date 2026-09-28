@@ -104,14 +104,7 @@ final class LHLegacyDecoderTests: XCTestCase {
             ),
         ])
 
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKit-LHA-legacy-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "LHA-legacy")
         defer { try? FileManager.default.removeItem(at: directory) }
         let archiveURL = directory.appendingPathComponent("legacy.lzh")
         try archiveData.write(to: archiveURL)

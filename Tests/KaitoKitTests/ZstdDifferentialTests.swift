@@ -303,8 +303,7 @@ final class ZstdDifferentialTests: XCTestCase {
 
     func testStage1FiveHundredIndependentFramesAllocateByNeed() throws {
         let tool = try tool()
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("p11-frames-\(UUID())")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "zstd-frames")
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appendingPathComponent("input")
         let words = wordText(4_096), random = randomBytes(4_096)

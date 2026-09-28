@@ -41,4 +41,14 @@ enum TestFixtures {
     static func text(_ relativePath: String) throws -> String {
         try String(contentsOf: url(relativePath), encoding: .utf8)
     }
+
+    /// `KaitoKitTests-<label>-<UUID>` という一時ディレクトリを新しく作って返す。消すのは呼び出し側。
+    static func makeTemporaryDirectory(label: String = "test") throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "KaitoKitTests-\(label)-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        return directory
+    }
 }

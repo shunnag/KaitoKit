@@ -449,7 +449,7 @@ final class SplitVolumeTests: XCTestCase {
     }
 
     private func temporaryDirectory() throws -> URL {
-        try ZipTestSupport.temporaryDirectory(label: "split-volumes")
+        try TestFixtures.makeTemporaryDirectory(label: "split-volumes")
     }
 
     private func writeVolumes(_ pieces: [Data], stem: String = "sample.7z", below directory: URL) throws -> [URL] {

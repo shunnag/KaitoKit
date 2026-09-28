@@ -40,12 +40,6 @@ final class ZstdTests: XCTestCase {
         return try XCTUnwrap(Data(base64Encoded: bytes, options: .ignoreUnknownCharacters))
     }
 
-    private func temporary() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("kaitokit-zstd-\(UUID())")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
 
     private func decode(_ data: Data, limits: ReadLimits = ReadLimits(), expectedSize: UInt64? = nil,
                         tuning: ZstdTuning = .default) throws -> Data {
@@ -66,7 +60,7 @@ final class ZstdTests: XCTestCase {
     }
 
     func testEveryFixedFixtureListingSHAReopenAndSmallChunks() throws {
-        let directory = try temporary()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "zstd")
         defer { try? FileManager.default.removeItem(at: directory) }
         let fixtures = try fixtures()
         XCTAssertEqual(fixtures.count, 46)
@@ -101,7 +95,7 @@ final class ZstdTests: XCTestCase {
 
     func testCLIGeneratedMatrix() throws {
         try ZipTestSupport.requireExecutable(zstd, reason: "zstd CLI がありません")
-        let directory = try temporary()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "zstd")
         defer { try? FileManager.default.removeItem(at: directory) }
         let started = Date()
         let script = TestFixtures.repositoryRoot.appendingPathComponent("Scripts/fixtures/make-zstd.py")
@@ -125,7 +119,7 @@ final class ZstdTests: XCTestCase {
 
     func testSevenZipSecondOracleForAllFixedStreamsAndZIP93() throws {
         try ZipTestSupport.requireExecutable(sevenZip, reason: "7zz がありません")
-        let directory = try temporary()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "zstd")
         defer { try? FileManager.default.removeItem(at: directory) }
         for item in try fixtures() where !item.unsupported && (item.file.hasSuffix(".zst") || item.format == "zip") {
             let data = try fixture(item.file)
@@ -530,7 +524,7 @@ final class ZstdTests: XCTestCase {
                 guard case .limitExceeded = error as? KaitoError else { return XCTFail("\(error)") }
             }
         }
-        let directory = try temporary()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "zstd")
         defer { try? FileManager.default.removeItem(at: directory) }
         for suffix in [".tar.zst", ".tzst"] {
             let url = directory.appendingPathComponent("bundle" + suffix)

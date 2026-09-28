@@ -111,14 +111,7 @@ final class CoreInfrastructureTests: XCTestCase {
     }
 
     func testFileByteSourceUsesBoundedPositionalReads() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKit-FileByteSource-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "FileByteSource")
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let url = directory.appendingPathComponent("bytes.bin")
@@ -143,14 +136,7 @@ final class CoreInfrastructureTests: XCTestCase {
     }
 
     func testFileByteSourceURLStillFollowsAnExplicitLeafSymlink() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKit-FileByteSource-Symlink-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "FileByteSource-Symlink")
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let target = directory.appendingPathComponent("target.bin")

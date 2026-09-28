@@ -10,13 +10,8 @@ private import zlib
 public final class DeflateDecompressor: Decompressor {
     private static let chunkSize = 256 * 1024
 
-    private let source: any ByteSource
-    private let compressedEnd: UInt64
     private let streamDescription: String
-    private var sourceOffset: UInt64
-    private var input = [UInt8](repeating: 0, count: chunkSize)
-    private var inputOffset = 0
-    private var inputCount = 0
+    private var input: ChunkedSourceInput
     private var stream = z_stream()
     private var streamWasInitialized = false
     private var finished = false
@@ -30,9 +25,9 @@ public final class DeflateDecompressor: Decompressor {
         }
 
         self.streamDescription = zlibWrapped ? "zlib" : "raw DEFLATE"
-        self.source = source
-        self.sourceOffset = offset
-        self.compressedEnd = compressedEnd
+        self.input = ChunkedSourceInput(
+            source: source, offset: offset, endOffset: compressedEnd, chunkSize: Self.chunkSize
+        )
 
         let status = inflateInit2_(
             &stream,
@@ -68,27 +63,27 @@ public final class DeflateDecompressor: Decompressor {
         var totalProduced = 0
 
         while totalProduced < outputCapacity {
-            if inputOffset == inputCount {
-                try refillInput()
+            if input.availableCount == 0 {
+                try input.refill()
             }
 
-            let availableInput = inputCount - inputOffset
+            let availableInput = input.availableCount
             guard availableInput > 0 else {
                 throw KaitoError.truncated
             }
 
             let availableOutput = outputCapacity - totalProduced
-            let status: Int32 = try input.withUnsafeMutableBytes { inputBytes in
+            let status: Int32 = try input.withUnsafeBytes { inputBytes in
                 guard let inputBase = inputBytes.baseAddress,
                       let outputBase = buffer.baseAddress else {
                     throw KaitoError.malformed("DEFLATE buffer has no storage")
                 }
 
-                // inputOffset/inputCount は input.count 以下、totalProduced/outputCapacity は
-                // buffer.count 以下であるため、この C API 呼び出し中のポインタ範囲は有効。
-                stream.next_in = inputBase
-                    .assumingMemoryBound(to: Bytef.self)
-                    .advanced(by: inputOffset)
+                // 入力窓と totalProduced..<outputCapacity は確保済み領域内なので、
+                // この C API 呼び出し中のポインタ範囲は有効。
+                stream.next_in = UnsafeMutablePointer(
+                    mutating: inputBase.assumingMemoryBound(to: Bytef.self)
+                )
                 stream.avail_in = uInt(availableInput)
                 stream.next_out = outputBase
                     .assumingMemoryBound(to: Bytef.self)
@@ -110,7 +105,7 @@ public final class DeflateDecompressor: Decompressor {
 
             let consumed = availableInput - remainingInput
             let produced = availableOutput - remainingOutput
-            inputOffset += consumed
+            input.consume(consumed)
             totalProduced += produced
 
             if status == Z_STREAM_END {
@@ -130,31 +125,5 @@ public final class DeflateDecompressor: Decompressor {
         }
 
         return totalProduced
-    }
-
-    private func refillInput() throws {
-        guard sourceOffset < compressedEnd else {
-            inputOffset = 0
-            inputCount = 0
-            return
-        }
-
-        let remaining = try Checked.sub(compressedEnd, sourceOffset)
-        let requested = try Checked.toInt(min(UInt64(Self.chunkSize), remaining))
-        let count = try input.withUnsafeMutableBytes { bytes -> Int in
-            // requested <= input.count なので、ByteSource が書き込める範囲だけを公開する。
-            let destination = UnsafeMutableRawBufferPointer(rebasing: bytes[..<requested])
-            return try source.read(into: destination, at: sourceOffset)
-        }
-        guard count >= 0, count <= requested else {
-            throw KaitoError.malformed("ByteSource returned an invalid byte count")
-        }
-        guard count != 0 else {
-            throw KaitoError.truncated
-        }
-
-        sourceOffset = try Checked.add(sourceOffset, UInt64(count))
-        inputOffset = 0
-        inputCount = count
     }
 }

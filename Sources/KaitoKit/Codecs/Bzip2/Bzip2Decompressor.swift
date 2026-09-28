@@ -10,13 +10,8 @@ import Foundation
 public final class Bzip2Decompressor: Decompressor {
     private static let chunkSize = 256 * 1024
 
-    private let source: any ByteSource
-    private let compressedEnd: UInt64
     private let acceptsConcatenatedStreams: Bool
-    private var sourceOffset: UInt64
-    private var input = [UInt8](repeating: 0, count: chunkSize)
-    private var inputOffset = 0
-    private var inputCount = 0
+    private var input: ChunkedSourceInput
     private var stream = bz_stream()
     private var streamWasInitialized = false
     private var finished = false
@@ -40,9 +35,9 @@ public final class Bzip2Decompressor: Decompressor {
             throw KaitoError.truncated
         }
 
-        self.source = source
-        self.sourceOffset = offset
-        self.compressedEnd = compressedEnd
+        self.input = ChunkedSourceInput(
+            source: source, offset: offset, endOffset: compressedEnd, chunkSize: Self.chunkSize
+        )
         self.acceptsConcatenatedStreams = concatenatedStreams
 
         let status = BZ2_bzDecompressInit(&stream, 0, 0)
@@ -74,27 +69,27 @@ public final class Bzip2Decompressor: Decompressor {
         var totalProduced = 0
 
         while totalProduced < outputCapacity {
-            if inputOffset == inputCount {
-                try refillInput()
+            if input.availableCount == 0 {
+                try input.refill()
             }
 
-            let availableInput = inputCount - inputOffset
+            let availableInput = input.availableCount
             guard availableInput > 0 else {
                 throw KaitoError.truncated
             }
 
             let availableOutput = outputCapacity - totalProduced
-            let status: Int32 = try input.withUnsafeMutableBytes { inputBytes in
+            let status: Int32 = try input.withUnsafeBytes { inputBytes in
                 guard let inputBase = inputBytes.baseAddress,
                       let outputBase = buffer.baseAddress else {
                     throw KaitoError.malformed("bzip2 buffer has no storage")
                 }
 
-                // inputOffset/inputCount は input.count 以下、totalProduced/outputCapacity は
-                // buffer.count 以下であるため、この C API 呼び出し中のポインタ範囲は有効。
-                stream.next_in = inputBase
-                    .assumingMemoryBound(to: CChar.self)
-                    .advanced(by: inputOffset)
+                // 入力窓と totalProduced..<outputCapacity は確保済み領域内なので、
+                // この C API 呼び出し中のポインタ範囲は有効。
+                stream.next_in = UnsafeMutablePointer(
+                    mutating: inputBase.assumingMemoryBound(to: CChar.self)
+                )
                 stream.avail_in = UInt32(availableInput)
                 stream.next_out = outputBase
                     .assumingMemoryBound(to: CChar.self)
@@ -119,11 +114,11 @@ public final class Bzip2Decompressor: Decompressor {
             if let recorder, recorder.isRecording {
                 let start = try currentCompressedOffset()
                 input.withUnsafeBytes {
-                    recorder.consumeBzip2(UnsafeRawBufferPointer(rebasing: $0[inputOffset..<(inputOffset + consumed)]),
+                    recorder.consumeBzip2(UnsafeRawBufferPointer(rebasing: $0[..<consumed]),
                                           start: start, produced: produced, streamEnd: status == BZ_STREAM_END)
                 }
             }
-            inputOffset += consumed
+            input.consume(consumed)
             totalProduced += produced
 
             if status == BZ_STREAM_END {
@@ -132,7 +127,7 @@ public final class Bzip2Decompressor: Decompressor {
                     return totalProduced
                 }
                 let nextOffset = try currentCompressedOffset()
-                if nextOffset == compressedEnd {
+                if nextOffset == input.endOffset {
                     finished = true
                     return totalProduced
                 }
@@ -158,14 +153,14 @@ public final class Bzip2Decompressor: Decompressor {
     }
 
     private func currentCompressedOffset() throws -> UInt64 {
-        try Checked.sub(sourceOffset, UInt64(inputCount - inputOffset))
+        try input.consumedSourceOffset
     }
 
     private func hasStreamHeader(at offset: UInt64) throws -> Bool {
-        let remaining = try Checked.sub(compressedEnd, offset)
+        let remaining = try Checked.sub(input.endOffset, offset)
         let headerLength = Bzip2StreamLayout.streamHeaderLength
         guard remaining >= UInt64(headerLength) else { return false }
-        let header = try readByteRange(source: source, offset: offset, count: headerLength)
+        let header = try readByteRange(source: input.source, offset: offset, count: headerLength)
         return header.withUnsafeBytes { Bzip2StreamLayout.isStreamHeader($0, at: 0) }
     }
 
@@ -184,31 +179,5 @@ public final class Bzip2Decompressor: Decompressor {
             throw KaitoError.malformed("libbz2 initialization failed (\(initStatus))")
         }
         streamWasInitialized = true
-    }
-
-    private func refillInput() throws {
-        guard sourceOffset < compressedEnd else {
-            inputOffset = 0
-            inputCount = 0
-            return
-        }
-
-        let remaining = try Checked.sub(compressedEnd, sourceOffset)
-        let requested = try Checked.toInt(min(UInt64(Self.chunkSize), remaining))
-        let count = try input.withUnsafeMutableBytes { bytes -> Int in
-            // requested <= input.count なので、ByteSource が書き込める範囲だけを公開する。
-            let destination = UnsafeMutableRawBufferPointer(rebasing: bytes[..<requested])
-            return try source.read(into: destination, at: sourceOffset)
-        }
-        guard count >= 0, count <= requested else {
-            throw KaitoError.malformed("ByteSource returned an invalid byte count")
-        }
-        guard count != 0 else {
-            throw KaitoError.truncated
-        }
-
-        sourceOffset = try Checked.add(sourceOffset, UInt64(count))
-        inputOffset = 0
-        inputCount = count
     }
 }

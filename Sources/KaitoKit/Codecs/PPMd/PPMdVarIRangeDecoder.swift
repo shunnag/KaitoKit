@@ -72,6 +72,7 @@ final class PPMdVarIRangeDecoder {
     }
 
     private func readByte() throws -> UInt8 {
+        // SevenZipPPMdRangeDecoder の補充処理は兄弟コピーで、両方ともバイト単位の経路にあるためインラインに保つ。
         if byteOffset == byteCount {
             guard sourceOffset < endOffset else { throw KaitoError.truncated }
             let requested = Int(min(UInt64(bytes.count), endOffset - sourceOffset))

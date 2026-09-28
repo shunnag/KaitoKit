@@ -9,12 +9,7 @@ final class XZDecompressor: Decompressor {
     private static let chunkSize = 256 * 1_024
     private static let signature: [UInt8] = [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]
 
-    private let source: any ByteSource
-    private let compressedEnd: UInt64
-    private var sourceOffset: UInt64
-    private var input = [UInt8](repeating: 0, count: chunkSize)
-    private var inputOffset = 0
-    private var inputCount = 0
+    private var input: ChunkedSourceInput
     private var stream = compression_stream(
         dst_ptr: UnsafeMutablePointer<UInt8>(bitPattern: 1)!,
         dst_size: 0,
@@ -37,9 +32,9 @@ final class XZDecompressor: Decompressor {
         }
         let end = try Checked.add(offset, size)
         guard end <= source.length else { throw KaitoError.truncated }
-        self.source = source
-        self.compressedEnd = end
-        self.sourceOffset = offset
+        self.input = ChunkedSourceInput(
+            source: source, offset: offset, endOffset: end, chunkSize: Self.chunkSize
+        )
         let window = try BoundedByteSource(source: source, baseOffset: offset, length: size)
         try XZResourceValidator.validate(source: window, dictionaryLimit: limits.maxDictionarySize, recorder: recorder)
         try initializeStream()
@@ -59,26 +54,22 @@ final class XZDecompressor: Decompressor {
         var totalProduced = 0
 
         while totalProduced < outputCapacity {
-            if inputOffset == inputCount {
-                try refillInput()
+            if input.availableCount == 0 {
+                try input.refill()
             }
-            let availableInput = inputCount - inputOffset
+            let availableInput = input.availableCount
             guard availableInput > 0 else { throw KaitoError.truncated }
             let availableOutput = outputCapacity - totalProduced
-            let flags = sourceOffset == compressedEnd
+            let flags = input.isSourceExhausted
                 ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue)
                 : 0
 
-            let status: compression_status = try input.withUnsafeMutableBytes { inputBytes in
+            let status: compression_status = try input.withUnsafeBytes { inputBytes in
                 guard let inputBase = inputBytes.baseAddress,
                       let outputBase = buffer.baseAddress else {
                     throw KaitoError.malformed("XZ buffer has no storage")
                 }
-                stream.src_ptr = UnsafePointer(
-                    inputBase
-                        .assumingMemoryBound(to: UInt8.self)
-                        .advanced(by: inputOffset)
-                )
+                stream.src_ptr = inputBase.assumingMemoryBound(to: UInt8.self)
                 stream.src_size = availableInput
                 stream.dst_ptr = outputBase
                     .assumingMemoryBound(to: UInt8.self)
@@ -100,10 +91,10 @@ final class XZDecompressor: Decompressor {
             if let recorder, recorder.isRecording {
                 let offset = try currentCompressedOffset()
                 input.withUnsafeBytes {
-                    recorder.consumeXZ(UnsafeRawBufferPointer(rebasing: $0[inputOffset..<(inputOffset + consumed)]), at: offset)
+                    recorder.consumeXZ(UnsafeRawBufferPointer(rebasing: $0[..<consumed]), at: offset)
                 }
             }
-            inputOffset += consumed
+            input.consume(consumed)
             totalProduced += produced
 
             switch status {
@@ -156,28 +147,26 @@ final class XZDecompressor: Decompressor {
             src_size: 0,
             state: nil
         )
-        sourceOffset = offset
-        inputOffset = 0
-        inputCount = 0
+        input.reset(to: offset)
         try initializeStream()
     }
 
     private func currentCompressedOffset() throws -> UInt64 {
-        try Checked.sub(sourceOffset, UInt64(inputCount - inputOffset))
+        try input.consumedSourceOffset
     }
 
     /// Returns the next concatenated stream offset, or nil when only valid XZ
     /// stream padding remains. XZ padding is zero-filled and four-byte aligned.
     private func nextStreamOffset(after offset: UInt64) throws -> UInt64? {
-        guard offset <= compressedEnd else {
+        guard offset <= input.endOffset else {
             throw KaitoError.malformed("XZ decoder consumed beyond its source range")
         }
         var cursor = offset
         var paddingCount: UInt64 = 0
-        while cursor < compressedEnd {
-            let remaining = try Checked.sub(compressedEnd, cursor)
+        while cursor < input.endOffset {
+            let remaining = try Checked.sub(input.endOffset, cursor)
             let count = try Checked.toInt(min(UInt64(Self.chunkSize), remaining))
-            let bytes = try readByteRange(source: source, offset: cursor, count: count)
+            let bytes = try readByteRange(source: input.source, offset: cursor, count: count)
             if let firstNonzero = bytes.firstIndex(where: { $0 != 0 }) {
                 paddingCount = try Checked.add(paddingCount, UInt64(firstNonzero))
                 cursor = try Checked.add(cursor, UInt64(firstNonzero))
@@ -189,36 +178,16 @@ final class XZDecompressor: Decompressor {
         guard paddingCount % 4 == 0 else {
             throw KaitoError.malformed("XZ stream padding is not four-byte aligned")
         }
-        guard cursor < compressedEnd else { return nil }
-        let remaining = try Checked.sub(compressedEnd, cursor)
+        guard cursor < input.endOffset else { return nil }
+        let remaining = try Checked.sub(input.endOffset, cursor)
         guard remaining >= UInt64(Self.signature.count),
               try readByteRange(
-                source: source,
+                source: input.source,
                 offset: cursor,
                 count: Self.signature.count
               ) == Self.signature else {
             throw KaitoError.malformed("XZ stream has trailing bytes")
         }
         return cursor
-    }
-
-    private func refillInput() throws {
-        guard sourceOffset < compressedEnd else {
-            inputOffset = 0
-            inputCount = 0
-            return
-        }
-        let remaining = try Checked.sub(compressedEnd, sourceOffset)
-        let requested = try Checked.toInt(min(UInt64(Self.chunkSize), remaining))
-        let count = try input.withUnsafeMutableBytes { storage in
-            try source.read(
-                into: UnsafeMutableRawBufferPointer(rebasing: storage[..<requested]),
-                at: sourceOffset
-            )
-        }
-        guard count > 0, count <= requested else { throw KaitoError.truncated }
-        sourceOffset = try Checked.add(sourceOffset, UInt64(count))
-        inputOffset = 0
-        inputCount = count
     }
 }

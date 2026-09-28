@@ -86,6 +86,22 @@ final class StreamingDecompressorTests: XCTestCase {
         }
     }
 
+    func testCLibraryDecompressorsRejectInvalidByteSourceCountsAsTruncated() throws {
+        let sourceLength: UInt64 = 1
+        for reportedCount in [-1, 0, Int(sourceLength) + 1] {
+            let source = InvalidCountByteSource(length: sourceLength, reportedCount: reportedCount)
+            let decoders: [any Decompressor] = [
+                try DeflateDecompressor(source: source, offset: 0, compressedSize: sourceLength),
+                try Bzip2Decompressor(source: source, offset: 0, compressedSize: sourceLength),
+            ]
+            for decoder in decoders {
+                XCTAssertThrowsError(try drain(decoder, bufferSize: 1)) { error in
+                    XCTAssertEqual(error as? KaitoError, .truncated)
+                }
+            }
+        }
+    }
+
     private func codecFixture() throws -> (
         plaintext: Data,
         deflate: Data,
@@ -141,5 +157,14 @@ final class StreamingDecompressorTests: XCTestCase {
         }
         XCTAssertEqual(finalCount, 0)
         return result
+    }
+}
+
+private struct InvalidCountByteSource: ByteSource {
+    let length: UInt64
+    let reportedCount: Int
+
+    func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
+        reportedCount
     }
 }

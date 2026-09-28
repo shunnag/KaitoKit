@@ -67,7 +67,6 @@ final class CLISmokeTests: XCTestCase {
         ]
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let executable = try findKaitoExecutable()
         for (iana, hex, text) in samples {
             let file = temporary.appendingPathComponent("\(iana).tsv")
             try "sample\tfixture\t\(iana)\t\(hex)\t\(text)\n"
@@ -80,25 +79,23 @@ final class CLISmokeTests: XCTestCase {
             )) as String
             // 指定名と CoreFoundation が返す名前の両方で、同じ厳密復号結果になることを確かめる。
             for name in Set([iana, canonical]) {
-                let output = try runKaito(executable, arguments: ["detect-encoding", "--decode", name, file.path])
+                let output = try KaitoCLI.run(["detect-encoding", "--decode", name, file.path])
                 XCTAssertEqual(output, "sample\tOK\t\(text)\n", "\(iana) / \(name)")
             }
         }
     }
 
     func testDetectEncodingNamesArchivesAndStrictDecode() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let fixture = root.appendingPathComponent("Fixtures/encoding/names-smoke.tsv")
+        let fixture = TestFixtures.url("encoding/names-smoke.tsv")
         let rows = try String(contentsOf: fixture, encoding: .utf8).split(separator: "\n").map {
             $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
         }
         XCTAssertEqual(rows.count, 41)
         XCTAssertEqual(Set(rows.map { $0[1] }).count, 39)
-        let executable = try findKaitoExecutable()
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }
         for options in [[], ["--language", "ja"], ["--no-language", "--from-windows"]] {
-            let output = try runKaito(executable, arguments: ["detect-encoding"] + options + [fixture.path])
+            let output = try KaitoCLI.run(["detect-encoding"] + options + [fixture.path])
             let detected = output.split(separator: "\n").map { $0.split(separator: "\t", omittingEmptySubsequences: false) }
             XCTAssertEqual(detected.count, rows.count)
             for (row, result) in zip(rows, detected) {
@@ -119,7 +116,7 @@ final class CLISmokeTests: XCTestCase {
             let file = temporary.appendingPathComponent("decode.tsv")
             try (group.map { $0.joined(separator: "\t") }.joined(separator: "\n") + "\n")
                 .write(to: file, atomically: true, encoding: .utf8)
-            let decoded = try runKaito(executable, arguments: ["detect-encoding", "--decode", encoding, file.path])
+            let decoded = try KaitoCLI.run(["detect-encoding", "--decode", encoding, file.path])
             XCTAssertEqual(decoded, group.map { "\($0[0])\tOK\t\($0[4])\n" }.joined())
         }
         let archive = temporary.appendingPathComponent("archives.tsv")
@@ -127,30 +124,28 @@ final class CLISmokeTests: XCTestCase {
         try "group\tlang\ttruth_iana\tk\thex1,hex2,...\ng1\tja\tcp932\t1\t\(rows[0][3]),\(ascii)\ng2\tja\teuc-jp\t1\t\(rows[1][3])\ng3\ten\tutf-8\t1\t\(ascii)\n"
             .write(to: archive, atomically: true, encoding: .utf8)
         for options in [["--language", "ja"], ["--no-language"]] {
-            let output = try runKaito(executable, arguments: ["detect-encoding", "--archive"] + options + [archive.path])
+            let output = try KaitoCLI.run(["detect-encoding", "--archive"] + options + [archive.path])
             XCTAssertEqual(output, "g1\tcp932\t0\t日本語の本|cover.jpg\ng2\teuc-jp\t0\tひらがな\ng3\tutf-8\t0\tcover.jpg\n")
         }
         // 誤った正解欄、厳密復号の失敗、制御文字・区切り・正準等価の扱いを確かめる。
         let edge = temporary.appendingPathComponent("edge.tsv")
         try "ok\ten\tutf-8\t61\ta\nmismatch\ten\tutf-8\t61\tb\nfail\ten\tutf-8\tff\tx\nescape\ten\tutf-8\t615c7c090a0d\tx\ncanonical\ten\tutf-8\t65cc81\té\n"
             .write(to: edge, atomically: true, encoding: .utf8)
-        let decoded = try runKaito(executable, arguments: ["detect-encoding", "--decode", "utf-8", edge.path])
+        let decoded = try KaitoCLI.run(["detect-encoding", "--decode", "utf-8", edge.path])
         XCTAssertEqual(decoded, "ok\tOK\ta\nmismatch\tMISMATCH\ta\nfail\tFAIL\t\nescape\tMISMATCH\ta\\\\\\|\\t\\n\\r\ncanonical\tMISMATCH\te\u{0301}\n")
     }
 
     func testStuffItExtractionDefersResourcesAndPreservesParentPaths() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let fixtureRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Fixtures/stuffit")
-        let executable = try findKaitoExecutable()
+        let fixtureRoot = TestFixtures.url("stuffit")
         for fixture in ["jp-sjis.sit", "jp-macjp.sit", "jp-euc.sit"] {
             let source = fixtureRoot.appendingPathComponent(fixture)
             let reader = try ArchiveReader.open(url: source)
-            let listing = try runKaito(executable, arguments: ["list", source.path])
+            let listing = try KaitoCLI.run(["list", source.path])
             XCTAssertTrue(listing.contains("\t第１巻/ページ０１.jpg\t"), listing)
             let output = temporary.appendingPathComponent(fixture)
-            _ = try runKaito(executable, arguments: ["extract", source.path, "-o", output.path])
+            _ = try KaitoCLI.run(["extract", source.path, "-o", output.path])
             for entry in reader.entries where entry.kind == .file {
                 let path = output.appendingPathComponent(entry.pathComponents.joined(separator: "/"))
                 XCTAssertEqual(try Data(contentsOf: path), try reader.read(entry), entry.name)
@@ -173,7 +168,7 @@ final class CLISmokeTests: XCTestCase {
             HandTarEntry(name: "folder/image", contents: Data([1, 2])),
             HandTarEntry(name: "folder/alias", type: 0x31, linkName: "folder/image"),
         ]).write(to: archive)
-        _ = try runKaito(findKaitoExecutable(), arguments: ["extract", archive.path, "-o", output.path])
+        _ = try KaitoCLI.run(["extract", archive.path, "-o", output.path])
         for name in ["image", "alias"] {
             let file = folder.appendingPathComponent(name)
             XCTAssertEqual(try Data(contentsOf: file), Data([1, 2]))
@@ -192,20 +187,18 @@ final class CLISmokeTests: XCTestCase {
         // 署名自体が巻をまたぐケースを CLI の detect / list / sha まで通す。
         let first = try ZipTestSupport.write(Data(bytes.prefix(5)), relativePath: "split.7z.001", below: directory)
         try ZipTestSupport.write(Data(bytes.dropFirst(5)), relativePath: "split.7z.002", below: directory)
-        let executable = try findKaitoExecutable()
         for command in ["detect", "list", "sha"] {
-            XCTAssertEqual(try runKaito(executable, arguments: [command, first.path]),
-                           try runKaito(executable, arguments: [command, whole.path]))
+            XCTAssertEqual(try KaitoCLI.run([command, first.path]),
+                           try KaitoCLI.run([command, whole.path]))
         }
     }
 
     func testXarExtractionDefersForwardLinksAndReportsTargetFailures() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let executable = try findKaitoExecutable()
+        let executable = try KaitoCLI.executableURL()
         for name in ["xar-plain.xar", "xar-links.xar"] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/\(name).b64"), encoding: .utf8)
+            let text = try String(contentsOf: TestFixtures.url("container/\(name).b64"), encoding: .utf8)
             let archive = temporary.appendingPathComponent(name)
             try XCTUnwrap(Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines))).write(to: archive)
             for failedTarget in (name == "xar-plain.xar" ? [false, true] : [false]) {
@@ -246,7 +239,7 @@ final class CLISmokeTests: XCTestCase {
                 for member in members {
                     let url = output.appendingPathComponent(member)
                     let data = try Data(contentsOf: url)
-                    XCTAssertEqual(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), expected)
+                    XCTAssertEqual(data.sha256Hex, expected)
                     let actual = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? NSNumber)
                     if let inode { XCTAssertEqual(actual, inode) } else { inode = actual }
                 }
@@ -255,37 +248,33 @@ final class CLISmokeTests: XCTestCase {
     }
 
     func testArListAndSHA() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/lib.a.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("container/lib.a.b64"), encoding: .utf8)
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let url = temp.appendingPathComponent("lib.a")
         try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
-        let executable = try findKaitoExecutable()
-        let output = try runKaito(executable, arguments: ["list", url.path])
+        let output = try KaitoCLI.run(["list", url.path])
         XCTAssertEqual(output.split(separator: "\n").count, 2)
         XCTAssertTrue(output.contains("ar (stored)\tplain\ta.txt"))
-        let hashes = try runKaito(executable, arguments: ["sha", url.path])
+        let hashes = try KaitoCLI.run(["sha", url.path])
         XCTAssertTrue(hashes.contains("70bf6ca40d63eeb669f684aafbf02a896c396de1b3aab3b0efe107d66279c202"))
         XCTAssertTrue(hashes.contains("e05455bcbbec58463277e8874036e57bdcf8c49c792a23ce03d6baba0765271c"))
     }
 
     /// 2026-09-20 に追加した単一 stream 形式の `detect` 名と `list` の method 名。
     func testDetectAndListNameTheNewSingleFileFormats() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
-        let executable = try findKaitoExecutable()
         for (fixture, name, detected, method) in [
             ("lzip/one.lz.b64", "one.lz", "lzip", "LZMA (lzip)"),
             ("brotli/one.br.b64", "one.br", "brotli", "Brotli"),
             ("pbzx/text.pbzx.b64", "text.pbzx", "pbzx", "XZ (pbzx)"),
         ] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/\(fixture)"), encoding: .utf8)
+            let text = try String(contentsOf: TestFixtures.url("\(fixture)"), encoding: .utf8)
             let url = temp.appendingPathComponent(name)
             try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
-            XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), detected, name)
-            let listing = try runKaito(executable, arguments: ["list", url.path])
+            XCTAssertEqual(try KaitoCLI.run(["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), detected, name)
+            let listing = try KaitoCLI.run(["list", url.path])
             XCTAssertEqual(listing.split(separator: "\n").count, 1, name)
             XCTAssertTrue(listing.contains("\t\(method)\tplain\t"), "\(name): \(listing)")
         }
@@ -293,58 +282,52 @@ final class CLISmokeTests: XCTestCase {
 
     /// UDF 専用 image は `udf`、hybrid は `iso` と検出し、どちらも UDF の木を `UDF (stored)` で一覧する。
     func testDetectAndListUDFImages() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
-        let executable = try findKaitoExecutable()
         for (fixture, detected) in [("udf201-512.img", "udf"), ("hybrid102.iso", "iso")] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/udf/\(fixture).gz.b64"), encoding: .utf8)
+            let text = try String(contentsOf: TestFixtures.url("udf/\(fixture).gz.b64"), encoding: .utf8)
             let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
             let url = temp.appendingPathComponent(fixture)
             try gzip.read(gzip.entries[0]).write(to: url)
-            XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), detected, fixture)
-            let listing = try runKaito(executable, arguments: ["list", url.path])
+            XCTAssertEqual(try KaitoCLI.run(["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), detected, fixture)
+            let listing = try KaitoCLI.run(["list", url.path])
             XCTAssertTrue(listing.contains("\t2880\tfile\tUDF (stored)\tplain\treadme.txt"), "\(fixture): \(listing)")
             XCTAssertTrue(listing.contains("\tsymlink\tUDF (stored)\tplain\tlink-to-readme"), fixture)
             if fixture == "udf201-512.img" {
                 XCTAssertTrue(listing.contains("\tforked.txt/..namedfork/rsrc\tfork=resource"), listing)
             }
-            let hashes = try runKaito(executable, arguments: ["sha", url.path])
+            let hashes = try KaitoCLI.run(["sha", url.path])
             XCTAssertTrue(hashes.contains("efe110a6cc29d1711091a93ff160466004e53f7a835209094e1131983276f25e\treadme.txt"), fixture)
         }
     }
 
     /// WIM は `wim` と検出し、LZX resource を `WIM LZX` で一覧、SHA-1 検証付きで読む。
     func testDetectAndListWIM() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
-        let executable = try findKaitoExecutable()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/wim/lzx.wim.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("wim/lzx.wim.b64"), encoding: .utf8)
         let url = temp.appendingPathComponent("lzx.wim")
         try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
-        XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "wim")
-        let listing = try runKaito(executable, arguments: ["list", url.path])
+        XCTAssertEqual(try KaitoCLI.run(["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "wim")
+        let listing = try KaitoCLI.run(["list", url.path])
         XCTAssertTrue(listing.contains("\t56270\tfile\tWIM LZX\tplain\ttext.txt"), listing)
-        let hashes = try runKaito(executable, arguments: ["sha", url.path])
+        let hashes = try KaitoCLI.run(["sha", url.path])
         XCTAssertTrue(hashes.contains("\ttext.txt"), hashes)
         XCTAssertFalse(hashes.contains("ERROR"), hashes)
     }
 
     /// MacBinary / AppleSingle / BinHex の単体は wrapper 名で検出し、data / resource の 2 fork を一覧する。
     func testDetectAndListMacWrappers() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
-        let executable = try findKaitoExecutable()
         for (fixture, detected, method) in [("readme.txt.bin", "macbinary", "MacBinary (stored)"),
                                             ("readme.txt.as", "applesingle", "AppleSingle (stored)"),
                                             ("readme.txt.hqx", "binhex", "BinHex 4.0 (RLE90)")] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/macwrappers/\(fixture).b64"), encoding: .utf8)
+            let text = try String(contentsOf: TestFixtures.url("macwrappers/\(fixture).b64"), encoding: .utf8)
             let url = temp.appendingPathComponent(fixture)
             try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
-            XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), detected, fixture)
-            let listing = try runKaito(executable, arguments: ["list", url.path])
+            XCTAssertEqual(try KaitoCLI.run(["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), detected, fixture)
+            let listing = try KaitoCLI.run(["list", url.path])
             XCTAssertTrue(listing.contains("\t823\tfile\t\(method)\tplain\treadme.txt\tfork=data"), "\(fixture): \(listing)")
             XCTAssertTrue(listing.contains("\t416\tfile\t\(method)\tplain\treadme.txt/..namedfork/rsrc\tfork=resource"), fixture)
         }
@@ -352,17 +335,15 @@ final class CLISmokeTests: XCTestCase {
 
     /// PKZIP 1.x の旧 method は shrink / reduceN / implode の名前で一覧され、sha が通る。
     func testListLegacyZipMethods() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
-        let executable = try findKaitoExecutable()
         for (fixture, method) in [("shrink.zip", "shrink"), ("reduce4.zip", "reduce4"), ("implode-8k-3trees.zip", "implode")] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/zip-legacy/\(fixture).b64"), encoding: .utf8)
+            let text = try String(contentsOf: TestFixtures.url("zip-legacy/\(fixture).b64"), encoding: .utf8)
             let url = temp.appendingPathComponent(fixture)
             try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
-            let listing = try runKaito(executable, arguments: ["list", url.path])
+            let listing = try KaitoCLI.run(["list", url.path])
             XCTAssertTrue(listing.contains("\t31680\tfile\t\(method)\tplain\ttext.txt"), "\(fixture): \(listing)")
-            let hashes = try runKaito(executable, arguments: ["sha", url.path])
+            let hashes = try KaitoCLI.run(["sha", url.path])
             XCTAssertTrue(hashes.contains("5a3bb49b57d40193fbe5ad5869b029c01f2bdfe046f8a4368438178b923f1c10\ttext.txt"), "\(fixture): \(hashes)")
             XCTAssertFalse(hashes.contains("ERROR"), hashes)
         }
@@ -370,19 +351,17 @@ final class CLISmokeTests: XCTestCase {
 
     /// BIN/CUE の生 sector image は `iso` と検出され、`.cue` からも同じ一覧になる。
     func testDetectAndListRawSectorImageAndCueSheet() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
-        let executable = try findKaitoExecutable()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/bincue/mode1.bin.gz.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("bincue/mode1.bin.gz.b64"), encoding: .utf8)
         let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
         let bin = temp.appendingPathComponent("mode1.bin")
         try gzip.read(gzip.entries[0]).write(to: bin)
         let cue = temp.appendingPathComponent("mode1.cue")
-        try FileManager.default.copyItem(at: root.appendingPathComponent("Fixtures/bincue/mode1.cue"), to: cue)
+        try FileManager.default.copyItem(at: TestFixtures.url("bincue/mode1.cue"), to: cue)
         for url in [bin, cue] {
-            XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "iso", url.lastPathComponent)
-            let hashes = try runKaito(executable, arguments: ["sha", url.path])
+            XCTAssertEqual(try KaitoCLI.run(["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "iso", url.lastPathComponent)
+            let hashes = try KaitoCLI.run(["sha", url.path])
             XCTAssertTrue(hashes.contains("e05455bcbbec58463277e8874036e57bdcf8c49c792a23ce03d6baba0765271c\tdata.bin"), "\(url.lastPathComponent): \(hashes)")
             XCTAssertFalse(hashes.contains("ERROR"), hashes)
         }
@@ -390,58 +369,52 @@ final class CLISmokeTests: XCTestCase {
 
     /// compound file は `cfb` と検出し、storage を directory、stream を stored file として一覧する。
     func testDetectAndListCompoundFile() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
-        let executable = try findKaitoExecutable()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/cfb/v4.cfb.gz.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("cfb/v4.cfb.gz.b64"), encoding: .utf8)
         let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
         let url = temp.appendingPathComponent("v4.cfb")
         try gzip.read(gzip.entries[0]).write(to: url)
-        XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "cfb")
-        let listing = try runKaito(executable, arguments: ["list", url.path])
+        XCTAssertEqual(try KaitoCLI.run(["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "cfb")
+        let listing = try KaitoCLI.run(["list", url.path])
         XCTAssertTrue(listing.contains("\t0\tdirectory\tstored\tplain\tStorage One/Deeper"), listing)
         XCTAssertTrue(listing.contains("\t20000\tfile\tstored\tplain\tlarge-a.bin"), listing)
         XCTAssertTrue(listing.contains("\t100\tfile\tstored\tplain\t[5]SummaryInformation"), listing)
-        let hashes = try runKaito(executable, arguments: ["sha", url.path])
+        let hashes = try KaitoCLI.run(["sha", url.path])
         XCTAssertFalse(hashes.contains("ERROR"), hashes)
     }
 
     /// CHM は `chm` と検出し、LZX section の file を `LZX`、section 0 の file を `stored` として一覧する。
     func testDetectAndListCHM() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
-        let executable = try findKaitoExecutable()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/chm/basic.chm.gz.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("chm/basic.chm.gz.b64"), encoding: .utf8)
         let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
         let url = temp.appendingPathComponent("basic.chm")
         try gzip.read(gzip.entries[0]).write(to: url)
-        XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "chm")
-        let listing = try runKaito(executable, arguments: ["list", url.path])
+        XCTAssertEqual(try KaitoCLI.run(["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "chm")
+        let listing = try KaitoCLI.run(["list", url.path])
         XCTAssertTrue(listing.contains("\t70000\tfile\tLZX\tplain\timages/logo.bin"), listing)
         XCTAssertTrue(listing.contains("\t68\tfile\tstored\tplain\t#SYSTEM"), listing)
         XCTAssertTrue(listing.contains("\t0\tdirectory\tstored\tplain\ttopics/sub"), listing)
-        let hashes = try runKaito(executable, arguments: ["sha", url.path])
+        let hashes = try KaitoCLI.run(["sha", url.path])
         XCTAssertFalse(hashes.contains("ERROR"), hashes)
     }
 
     /// ARJ（素の書庫と DOS SFX）は `arj` と検出し、method 名で一覧する。
     func testDetectAndListARJ() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
-        let executable = try findKaitoExecutable()
         for fixture in ["basic.arj", "sfx.exe"] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/arj/\(fixture).b64"), encoding: .utf8)
+            let text = try String(contentsOf: TestFixtures.url("arj/\(fixture).b64"), encoding: .utf8)
             let url = temp.appendingPathComponent(fixture)
             try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
-            XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "arj", fixture)
-            let listing = try runKaito(executable, arguments: ["list", url.path])
+            XCTAssertEqual(try KaitoCLI.run(["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "arj", fixture)
+            let listing = try KaitoCLI.run(["list", url.path])
             XCTAssertTrue(listing.contains("\t26400\tfile\tcompressed most\tplain\tREADME.TXT"), "\(fixture): \(listing)")
             XCTAssertTrue(listing.contains("\t768\tfile\tstored\tplain\tSTORED.BIN"), fixture)
             XCTAssertTrue(listing.contains("\t1400\tfile\tcompressed most\tplain\t日本語.TXT"), fixture)
-            let hashes = try runKaito(executable, arguments: ["sha", url.path])
+            let hashes = try KaitoCLI.run(["sha", url.path])
             XCTAssertTrue(hashes.contains("8d1126c536d13946d9fd277a295e1fe7ff3941edb04f94b99c2b3fb5999a029a\tREADME.TXT"), "\(fixture): \(hashes)")
             XCTAssertFalse(hashes.contains("ERROR"), hashes)
         }
@@ -449,43 +422,40 @@ final class CLISmokeTests: XCTestCase {
 
     /// DMG は `dmg` と検出し、HFS+ volume の file を `HFS+ (stored)`、fork と decmpfs を含めて一覧する。
     func testDetectAndListDMG() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
-        let executable = try findKaitoExecutable()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/dmg/hfs-lzfse.dmg.gz.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("dmg/hfs-lzfse.dmg.gz.b64"), encoding: .utf8)
         let gzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)))
         let url = temp.appendingPathComponent("hfs-lzfse.dmg")
         try gzip.read(gzip.entries[0]).write(to: url)
-        XCTAssertEqual(try runKaito(executable, arguments: ["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "dmg")
-        let listing = try runKaito(executable, arguments: ["list", url.path])
+        XCTAssertEqual(try KaitoCLI.run(["detect", url.path]).trimmingCharacters(in: .whitespacesAndNewlines), "dmg")
+        let listing = try KaitoCLI.run(["list", url.path])
         XCTAssertTrue(listing.contains("\t200000\tfile\tHFS+ (stored)\tplain\tfragmented.bin"), listing)
         XCTAssertTrue(listing.contains("\t20\tfile\tHFS+ (stored)\tplain\treadme.txt/..namedfork/rsrc\tfork=resource"), listing)
         XCTAssertTrue(listing.contains("\tsymlink\tHFS+ (stored)\tplain\tlink-to-nested"), listing)
         XCTAssertTrue(listing.contains("\t57000\tfile\tHFS+ decmpfs (LZVN)\tplain\tcompressed.txt"), listing)
-        let compressedHashes = try runKaito(executable, arguments: ["sha", url.path])
-        let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("Fixtures/dmg/manifest.json"))) as? [String: Any]
+        let compressedHashes = try KaitoCLI.run(["sha", url.path])
+        let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: TestFixtures.url("dmg/manifest.json"))) as? [String: Any]
         let payload = manifest?["payload"] as? [String: [String: Any]]
         let compressedSHA = try XCTUnwrap(payload?["compressed.txt"]?["sha256"] as? String)
         XCTAssertTrue(compressedHashes.contains("\(compressedSHA)\tcompressed.txt"), compressedHashes)
         XCTAssertFalse(compressedHashes.contains("ERROR"), compressedHashes)
-        let rawText = try String(contentsOf: root.appendingPathComponent("Fixtures/dmg/hfs-raw.dmg.gz.b64"), encoding: .utf8)
+        let rawText = try String(contentsOf: TestFixtures.url("dmg/hfs-raw.dmg.gz.b64"), encoding: .utf8)
         let rawGzip = try ArchiveReader.open(data: try XCTUnwrap(Data(base64Encoded: rawText, options: .ignoreUnknownCharacters)))
         let rawURL = temp.appendingPathComponent("hfs-raw.dmg")
         try rawGzip.read(rawGzip.entries[0]).write(to: rawURL)
-        let hashes = try runKaito(executable, arguments: ["sha", rawURL.path])
+        let hashes = try KaitoCLI.run(["sha", rawURL.path])
         XCTAssertTrue(hashes.contains("c6ced9f772ab08b591a1d3a1057bf4fd267ab64b1536d170f61722afb16677de\treadme.txt"), hashes)
         XCTAssertFalse(hashes.contains("ERROR"), hashes)
     }
 
     func testListCpioFixture() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/newc.cpio.b64"), encoding: .utf8)
+        let text = try String(contentsOf: TestFixtures.url("container/newc.cpio.b64"), encoding: .utf8)
         let temp = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
         let url = temp.appendingPathComponent("newc.cpio")
         try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters)).write(to: url)
-        let output = try runKaito(findKaitoExecutable(), arguments: ["list", url.path])
+        let output = try KaitoCLI.run(["list", url.path])
         XCTAssertEqual(output.split(separator: "\n").count, 5)
         XCTAssertTrue(output.contains("cpio (stored)\tplain\t./a.txt"))
     }
@@ -499,9 +469,8 @@ final class CLISmokeTests: XCTestCase {
             HandTarEntry(name: name, contents: Data("payload".utf8)),
         ]).write(to: archive)
 
-        let executable = try findKaitoExecutable()
-        let ordinary = try runKaito(executable, arguments: ["list", archive.path])
-        let raw = try runKaito(executable, arguments: ["list", archive.path, "--raw"])
+        let ordinary = try KaitoCLI.run(["list", archive.path])
+        let raw = try KaitoCLI.run(["list", archive.path, "--raw"])
         let expectedRawName = name.utf8.map { String(format: "%02x", $0) }.joined()
 
         XCTAssertEqual(
@@ -532,9 +501,8 @@ final class CLISmokeTests: XCTestCase {
             options: ["-0", "-e", "-P", "fixed-password"]
         )
 
-        let output = try runKaito(
-            findKaitoExecutable(),
-            arguments: ["list", archive.path]
+        let output = try KaitoCLI.run(
+            ["list", archive.path]
         )
         XCTAssertEqual(
             output.trimmingCharacters(in: .newlines).components(separatedBy: "\t"),
@@ -551,9 +519,8 @@ final class CLISmokeTests: XCTestCase {
             HandTarEntry(name: "日本語.txt", contents: contents),
         ]).write(to: archive)
 
-        let executable = try findKaitoExecutable()
-        let first = try runKaito(executable, arguments: ["sha", archive.path])
-        let second = try runKaito(executable, arguments: ["sha", archive.path])
+        let first = try KaitoCLI.run(["sha", archive.path])
+        let second = try KaitoCLI.run(["sha", archive.path])
         XCTAssertEqual(first, second)
 
         let lines = first.split(separator: "\n", omittingEmptySubsequences: true)
@@ -572,9 +539,8 @@ final class CLISmokeTests: XCTestCase {
             HandTarEntry(name: "large.bin", contents: contents),
         ]).write(to: archive)
 
-        let output = try runKaito(
-            findKaitoExecutable(),
-            arguments: ["sha", archive.path]
+        let output = try KaitoCLI.run(
+            ["sha", archive.path]
         )
         let lines = output.split(separator: "\n")
         XCTAssertEqual(lines.count, 2)
@@ -593,15 +559,13 @@ final class CLISmokeTests: XCTestCase {
             HandTarEntry(name: "page.txt", contents: contents),
         ]).write(to: archive)
 
-        let executable = try findKaitoExecutable()
         let outputs = try [
-            runKaito(executable, arguments: ["bench", archive.path, "1"]),
-            runKaito(executable, arguments: ["bench", "--data", archive.path, "1"]),
-            runKaito(executable, arguments: ["bench", archive.path, "1", "--data"]),
-            runKaito(executable, arguments: ["bench", "--random", archive.path, "1"]),
-            runKaito(
-                executable,
-                arguments: ["bench", archive.path, "1", "--random", "--data"]
+            KaitoCLI.run(["bench", archive.path, "1"]),
+            KaitoCLI.run(["bench", "--data", archive.path, "1"]),
+            KaitoCLI.run(["bench", archive.path, "1", "--data"]),
+            KaitoCLI.run(["bench", "--random", archive.path, "1"]),
+            KaitoCLI.run(
+                ["bench", archive.path, "1", "--random", "--data"]
             ),
         ]
 
@@ -629,11 +593,9 @@ final class CLISmokeTests: XCTestCase {
         })
         try TarTestSupport.makeTar(entries: entries).write(to: archive)
 
-        let executable = try findKaitoExecutable()
         let outputs = try (0..<2).map { _ in
-            try runKaito(
-                executable,
-                arguments: ["bench", "--random", archive.path, "1"]
+            try KaitoCLI.run(
+                ["bench", "--random", archive.path, "1"]
             )
         }
         let lines = outputs.map { $0.split(separator: "\n") }
@@ -671,24 +633,22 @@ final class CLISmokeTests: XCTestCase {
             options: ["-m0=LZMA2", "-ms=on"]
         )
 
-        let executable = try findKaitoExecutable()
         XCTAssertEqual(
-            try runKaito(executable, arguments: ["detect", archive.path])
+            try KaitoCLI.run(["detect", archive.path])
                 .trimmingCharacters(in: .whitespacesAndNewlines),
             "7z"
         )
-        let listed = try runKaito(executable, arguments: ["list", archive.path])
+        let listed = try KaitoCLI.run(["list", archive.path])
             .split(separator: "\n")
         XCTAssertEqual(listed.count, paths.count)
         XCTAssertTrue(listed.allSatisfy { $0.contains("\tLZMA2\t") })
-        let hashes = try runKaito(executable, arguments: ["sha", archive.path])
+        let hashes = try KaitoCLI.run(["sha", archive.path])
             .split(separator: "\n")
         XCTAssertEqual(hashes.count, paths.count + 1)
         XCTAssertTrue(hashes.last?.hasPrefix("total\t25\t") == true)
 
-        let output = try runKaito(
-            executable,
-            arguments: ["bench", "--random", archive.path, "1"]
+        let output = try KaitoCLI.run(
+            ["bench", "--random", archive.path, "1"]
         )
         let lines = output.split(separator: "\n")
         guard lines.count == 4 else {
@@ -716,28 +676,24 @@ final class CLISmokeTests: XCTestCase {
             options: ["-m0=Copy", "-ms=off", "-p\(password)", "-mhe=on"]
         )
 
-        let executable = try findKaitoExecutable()
-        let listed = try runKaito(
-            executable,
-            arguments: ["list", "--raw", "-p", password, archive.path]
+        let listed = try KaitoCLI.run(
+            ["list", "--raw", "-p", password, archive.path]
         ).trimmingCharacters(in: .newlines).components(separatedBy: "\t")
         XCTAssertEqual(listed.count, 7)
         XCTAssertEqual(listed[1], String(contents.count))
         XCTAssertEqual(listed[4], "7zAES-256")
         XCTAssertEqual(listed[5], name)
 
-        let hashes = try runKaito(
-            executable,
-            arguments: ["sha", archive.path, "-p", password]
+        let hashes = try KaitoCLI.run(
+            ["sha", archive.path, "-p", password]
         ).split(separator: "\n")
         XCTAssertEqual(hashes.count, 2)
         XCTAssertTrue(hashes[0].hasPrefix("0\t\(contents.count)\t"))
         XCTAssertTrue(hashes[0].hasSuffix("\t\(name)"))
         XCTAssertTrue(hashes[1].hasPrefix("total\t1\t"))
 
-        let benchmark = try runKaito(
-            executable,
-            arguments: ["bench", "-p", password, "--data", archive.path, "1"]
+        let benchmark = try KaitoCLI.run(
+            ["bench", "-p", password, "--data", archive.path, "1"]
         ).split(separator: "\n")
         XCTAssertEqual(benchmark.count, 4)
         XCTAssertEqual(benchmark[0], "reps\t1")
@@ -769,10 +725,8 @@ final class CLISmokeTests: XCTestCase {
             HandTarEntry(name: "locked/child.txt", contents: payload),
         ]).write(to: archive)
 
-        let executable = try findKaitoExecutable()
-        _ = try runKaito(
-            executable,
-            arguments: ["extract", archive.path, "-o", output.path]
+        _ = try KaitoCLI.run(
+            ["extract", archive.path, "-o", output.path]
         )
 
         XCTAssertEqual(
@@ -800,9 +754,8 @@ final class CLISmokeTests: XCTestCase {
             HandTarEntry(name: name, contents: Data("payload".utf8)),
         ]).write(to: archive)
 
-        let executable = try findKaitoExecutable()
-        let list = try runKaito(executable, arguments: ["list", archive.path])
-        let sha = try runKaito(executable, arguments: ["sha", archive.path])
+        let list = try KaitoCLI.run(["list", archive.path])
+        let sha = try KaitoCLI.run(["sha", archive.path])
         let visibleName = "safe\\u{1b}[2J\\u{7f}\\u{85}\\u{2028}spoof.txt"
 
         XCTAssertTrue(list.contains(visibleName))
@@ -831,7 +784,7 @@ final class CLISmokeTests: XCTestCase {
             let process = Process()
             let stdout = Pipe()
             let stderr = Pipe()
-            process.executableURL = try findKaitoExecutable()
+            process.executableURL = try KaitoCLI.executableURL()
             process.arguments = arguments
             process.standardOutput = stdout
             process.standardError = stderr
@@ -877,7 +830,7 @@ final class CLISmokeTests: XCTestCase {
             let process = Process()
             let stdout = Pipe()
             let stderr = Pipe()
-            process.executableURL = try findKaitoExecutable()
+            process.executableURL = try KaitoCLI.executableURL()
             process.arguments = arguments
             process.standardOutput = stdout
             process.standardError = stderr
@@ -893,68 +846,5 @@ final class CLISmokeTests: XCTestCase {
                 XCTAssertTrue(output.contains("1\tERROR\tfailed entry 1: Checksum mismatch (source member 0)\t"), output)
             }
         }
-    }
-
-    private func runKaito(_ executable: URL, arguments: [String]) throws -> String {
-        let process = Process()
-        let standardOutput = Pipe()
-        let standardError = Pipe()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.standardOutput = standardOutput
-        process.standardError = standardError
-        try process.run()
-        process.waitUntilExit()
-
-        let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
-        let errors = standardError.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationReason == .exit, process.terminationStatus == 0 else {
-            throw TarTestSupportError.commandFailed(
-                String(decoding: errors, as: UTF8.self)
-            )
-        }
-        return String(decoding: output, as: UTF8.self)
-    }
-
-    private func findKaitoExecutable() throws -> URL {
-        let fileManager = FileManager.default
-        if let override = ProcessInfo.processInfo.environment["KAITO_EXECUTABLE"] {
-            let candidate = URL(fileURLWithPath: override)
-            if fileManager.isExecutableFile(atPath: candidate.path) {
-                return candidate
-            }
-        }
-
-        var candidates: [URL] = []
-        candidates.append(Bundle.main.bundleURL.deletingLastPathComponent()
-            .appendingPathComponent("kaito"))
-        var ancestor = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
-        for _ in 0..<8 {
-            candidates.append(ancestor.appendingPathComponent("kaito"))
-            ancestor.deleteLastPathComponent()
-        }
-
-        let repository = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        candidates.append(repository.appendingPathComponent(".build/debug/kaito"))
-        candidates.append(repository.appendingPathComponent(".build/out/Products/Debug/kaito"))
-        for candidate in candidates where fileManager.isExecutableFile(atPath: candidate.path) {
-            return candidate
-        }
-
-        let buildDirectory = repository.appendingPathComponent(".build", isDirectory: true)
-        if let enumerator = fileManager.enumerator(
-            at: buildDirectory,
-            includingPropertiesForKeys: [.isRegularFileKey, .isExecutableKey]
-        ) {
-            for case let candidate as URL in enumerator where candidate.lastPathComponent == "kaito" {
-                if fileManager.isExecutableFile(atPath: candidate.path) {
-                    return candidate
-                }
-            }
-        }
-        throw TarTestSupportError.commandFailed("built kaito executable was not found")
     }
 }

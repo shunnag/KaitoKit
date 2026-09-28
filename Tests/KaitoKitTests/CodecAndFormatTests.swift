@@ -226,38 +226,19 @@ final class CodecAndFormatTests: XCTestCase {
         deflate: Data,
         bzip2: Data
     ) {
-        let plaintext = try decodeHex(
+        let plaintext = try Hex.data(
             "68656c6c6f204b6169746f4b69740a" +
             "68656c6c6f204b6169746f4b69740a" +
             "68656c6c6f204b6169746f4b69740a"
         )
-        let deflate = try decodeHex(
+        let deflate = try Hex.data(
             "cb48cdc9c957f04ecc2cc9f7ce2ce1cac0cb0500"
         )
-        let bzip2 = try decodeHex(
+        let bzip2 = try Hex.data(
             "425a6839314159265359d3182df100000a5580001040000008226484002000310" +
             "03023f5501a7a911a61b5b8cbab4a7929f177245385090d3182df10"
         )
         return (plaintext, deflate, bzip2)
-    }
-
-    private func decodeHex(_ text: String) throws -> Data {
-        guard text.utf8.count.isMultiple(of: 2) else {
-            throw FixtureError.invalidHex
-        }
-
-        var result = Data()
-        result.reserveCapacity(text.utf8.count / 2)
-        var index = text.startIndex
-        while index < text.endIndex {
-            guard let next = text.index(index, offsetBy: 2, limitedBy: text.endIndex),
-                  let byte = UInt8(text[index..<next], radix: 16) else {
-                throw FixtureError.invalidHex
-            }
-            result.append(byte)
-            index = next
-        }
-        return result
     }
 
     private func drain(

@@ -26,31 +26,20 @@ final class ZstdTests: XCTestCase {
         let size: UInt64
         let known: Bool
     }
-    private var root: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-    }
+    private var root: URL { TestFixtures.url("zstd") }
     private let zstd = ZipTestSupport.zstdPath
     private let sevenZip = ZipTestSupport.sevenZipPath
 
     private func fixtures() throws -> [Fixture] {
-        try JSONDecoder().decode([Fixture].self, from: Data(contentsOf: root.appendingPathComponent("Fixtures/zstd/manifest.json")))
+        try JSONDecoder().decode([Fixture].self, from: Data(contentsOf: root.appendingPathComponent("manifest.json")))
     }
 
     private func fixture(_ name: String) throws -> Data {
-        let bytes = try Data(contentsOf: root.appendingPathComponent("Fixtures/zstd/\(name).b64"))
+        let bytes = try Data(contentsOf: root.appendingPathComponent("\(name).b64"))
         XCTAssertLessThanOrEqual(bytes.count, 40_000, name)
         return try XCTUnwrap(Data(base64Encoded: bytes, options: .ignoreUnknownCharacters))
     }
 
-    private func temporary() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("kaitokit-zstd-\(UUID())")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
-    private func sha(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 
     private func decode(_ data: Data, limits: ReadLimits = ReadLimits(), expectedSize: UInt64? = nil,
                         tuning: ZstdTuning = .default) throws -> Data {
@@ -60,18 +49,8 @@ final class ZstdTests: XCTestCase {
                                entryIndex: 0, limits: limits).readAll()
     }
 
-    private func drain(_ stream: EntryStream, chunk: Int = 127) throws -> Data {
-        var result = Data()
-        var bytes = [UInt8](repeating: 0, count: chunk)
-        while true {
-            let count = try bytes.withUnsafeMutableBytes { try stream.read(into: $0) }
-            if count == 0 { return result }
-            result.append(contentsOf: bytes[..<count])
-        }
-    }
-
     func testEveryFixedFixtureListingSHAReopenAndSmallChunks() throws {
-        let directory = try temporary()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "zstd")
         defer { try? FileManager.default.removeItem(at: directory) }
         let fixtures = try fixtures()
         XCTAssertEqual(fixtures.count, 46)
@@ -97,19 +76,19 @@ final class ZstdTests: XCTestCase {
                 XCTAssertEqual(entry.uncompressedSize, fixture.format == "zstd" ? fixture.contentSize : row.size, fixture.file)
                 let data = try reader.read(entry)
                 XCTAssertEqual(UInt64(data.count), row.size, fixture.file)
-                XCTAssertEqual(sha(data), row.sha256, fixture.file)
+                XCTAssertEqual(data.sha256Hex, row.sha256, fixture.file)
                 XCTAssertEqual(try reopened.read(entry), data, fixture.file)
-                XCTAssertEqual(try drain(reader.stream(entry)), data, fixture.file)
+                XCTAssertEqual(try drain(reader.stream(entry), bufferSize: 127), data, fixture.file)
             }
         }
     }
 
     func testCLIGeneratedMatrix() throws {
         try ZipTestSupport.requireExecutable(zstd, reason: "zstd CLI がありません")
-        let directory = try temporary()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "zstd")
         defer { try? FileManager.default.removeItem(at: directory) }
         let started = Date()
-        let script = root.deletingLastPathComponent().appendingPathComponent("Scripts/fixtures/make-zstd.py")
+        let script = TestFixtures.repositoryRoot.appendingPathComponent("Scripts/fixtures/make-zstd.py")
         _ = try ZipTestSupport.checkedRun("/usr/bin/python3", arguments: [
             script.path, "--matrix", "--output", directory.path, "--zstd", zstd
         ])
@@ -130,7 +109,7 @@ final class ZstdTests: XCTestCase {
 
     func testSevenZipSecondOracleForAllFixedStreamsAndZIP93() throws {
         try ZipTestSupport.requireExecutable(sevenZip, reason: "7zz がありません")
-        let directory = try temporary()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "zstd")
         defer { try? FileManager.default.removeItem(at: directory) }
         for item in try fixtures() where !item.unsupported && (item.file.hasSuffix(".zst") || item.format == "zip") {
             let data = try fixture(item.file)
@@ -138,7 +117,7 @@ final class ZstdTests: XCTestCase {
             try data.write(to: url)
             let oracle = try ZipTestSupport.checkedRun(sevenZip, arguments: ["x", "-so", "-bd", url.path]).standardOutput
             XCTAssertEqual(oracle.count, item.decodedSize, item.file)
-            XCTAssertEqual(sha(oracle), item.decodedSHA256, item.file)
+            XCTAssertEqual(oracle.sha256Hex, item.decodedSHA256, item.file)
             if item.format == "zip" {
                 let reader = try ArchiveReader.open(data: data)
                 XCTAssertEqual(try reader.read(reader.entries[0]), oracle, item.file)
@@ -535,7 +514,7 @@ final class ZstdTests: XCTestCase {
                 guard case .limitExceeded = error as? KaitoError else { return XCTFail("\(error)") }
             }
         }
-        let directory = try temporary()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "zstd")
         defer { try? FileManager.default.removeItem(at: directory) }
         for suffix in [".tar.zst", ".tzst"] {
             let url = directory.appendingPathComponent("bundle" + suffix)
@@ -786,7 +765,7 @@ final class ZstdTests: XCTestCase {
         let source = ShortSource(encoded)
         let decoder = try ZstdDecompressor(source: source, offset: 17, compressedSize: UInt64(encoded.count))
         let stream = try EntryStream(decompressor: decoder, length: nil, expectedCRC32: nil, entryIndex: 0, limits: ReadLimits())
-        XCTAssertEqual(try drain(stream, chunk: 31), try decode(encoded))
+        XCTAssertEqual(try drain(stream, bufferSize: 31), try decode(encoded))
         let truncated = try ZstdDecompressor(source: source, offset: 17, compressedSize: UInt64(encoded.count - 1))
         var buffer = [UInt8](repeating: 0, count: 131072)
         assertKaitoError {
@@ -836,7 +815,7 @@ final class ZstdTests: XCTestCase {
             }
             let expected = try decode(encoded)
             XCTAssertEqual(expected.count, item.decodedSize, item.file)
-            XCTAssertEqual(sha(expected), item.decodedSHA256, item.file)
+            XCTAssertEqual(expected.sha256Hex, item.decodedSHA256, item.file)
             for path: ZstdTuning.MatchPath in [.eightByteChunks, .byteThenPeriod] {
                 XCTAssertEqual(try decode(encoded, tuning: ZstdTuning(matchPath: path)), expected, item.file)
             }

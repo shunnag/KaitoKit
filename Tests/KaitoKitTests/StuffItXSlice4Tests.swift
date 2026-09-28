@@ -13,7 +13,7 @@ final class StuffItXSlice4Tests: XCTestCase {
         let arguments: [String]?
         let model_events: [String: Int]?
     }
-    static let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/stuffit")
+    static let fixtures = TestFixtures.url("stuffit")
     static func vectors(_ method: Int) throws -> [Vector] {
         try JSONDecoder().decode([Vector].self, from: Data(contentsOf: fixtures.appendingPathComponent("slice4-vectors.json"))).filter { $0.method == method }
     }
@@ -23,8 +23,8 @@ final class StuffItXSlice4Tests: XCTestCase {
         for vector in vectors {
             let order = vector.arguments.flatMap { Int($0[0]) } ?? 4
             let memory = vector.arguments.flatMap { Int($0[1]) } ?? 1_048_576
-            let input = Data([UInt8(memory.trailingZeroBitCount), UInt8(order)]) + StuffItCodecTests.hex(vector.input_hex)
-            let expected = StuffItCodecTests.hex(vector.output_hex)
+            let input = Data([UInt8(memory.trailingZeroBitCount), UInt8(order)]) + StuffItTestSupport.hex(vector.input_hex)
+            let expected = StuffItTestSupport.hex(vector.output_hex)
             for chunk in [1, 4096] {
                 let decoder = try StuffItXBrimstoneDecoder(input: StuffItXBitReader(source: DataByteSource(input)), size: UInt64(expected.count), limits: ReadLimits())
                 do {
@@ -84,7 +84,7 @@ final class StuffItXSlice4Tests: XCTestCase {
         }
         XCTAssertThrowsError(try StuffItXCodecTests.decode(Data([12,4,0,0,0,0]), method: 0, size: 1, limits: ReadLimits(maxDictionarySize: 4095)))
         let vector = try XCTUnwrap(Self.vectors(100).first { $0.name == "brimstone-zero-history-adaptation-root-escape" })
-        let input = Data([20,4]) + StuffItCodecTests.hex(vector.input_hex)
+        let input = Data([20,4]) + StuffItTestSupport.hex(vector.input_hex)
         // order 1 の初期 root の escape 区間を独立に選ぶ。正規化用 octet も供給する。
         let code = (UInt32.max / 385) * 384
         let empty = Data([12,1]) + Data((0..<4).reversed().map { UInt8(truncatingIfNeeded: code >> ($0 * 8)) }) + Data([0])
@@ -97,13 +97,13 @@ final class StuffItXSlice4Tests: XCTestCase {
         XCTAssertEqual(legacy.count, 4)
         for vector in legacy {
             // 元の宣言上限 (16,32,64) の期待値は保存し、native と混同しない。
-            XCTAssertThrowsError(try StuffItXCodecTests.decode(StuffItCodecTests.hex(vector.input_hex), method: 6, size: vector.output_hex.count / 2), vector.name)
+            XCTAssertThrowsError(try StuffItXCodecTests.decode(StuffItTestSupport.hex(vector.input_hex), method: 6, size: vector.output_hex.count / 2), vector.name)
         }
         let vectors = try JSONDecoder().decode([Vector].self, from: Data(contentsOf: Self.fixtures.appendingPathComponent("slice4-iron-native-vectors.json")))
         XCTAssertEqual(vectors.count, 8)
         for vector in vectors {
             for chunk in [1, 7, 4096] {
-                XCTAssertEqual(try StuffItXCodecTests.decode(StuffItCodecTests.hex(vector.input_hex), method: 6, size: vector.output_hex.count / 2, chunk: chunk), StuffItCodecTests.hex(vector.output_hex), vector.name)
+                XCTAssertEqual(try StuffItXCodecTests.decode(StuffItTestSupport.hex(vector.input_hex), method: 6, size: vector.output_hex.count / 2, chunk: chunk), StuffItTestSupport.hex(vector.output_hex), vector.name)
             }
         }
     }
@@ -115,8 +115,8 @@ final class StuffItXSlice4Tests: XCTestCase {
         XCTAssertEqual(vectors.count, 5)
         for vector in vectors {
             for chunk in [1, 7, 4096] {
-                let expected = StuffItCodecTests.hex(vector.output_hex)
-                let decoder = try StuffItXEnglish(decoder: Self.copy(StuffItCodecTests.hex(vector.input_hex)), size: UInt64(expected.count))
+                let expected = StuffItTestSupport.hex(vector.output_hex)
+                let decoder = try StuffItXEnglish(decoder: Self.copy(StuffItTestSupport.hex(vector.input_hex)), size: UInt64(expected.count))
                 XCTAssertEqual(try StuffItXCodecTests.collect(decoder, chunk: chunk), expected, vector.name)
             }
         }
@@ -128,9 +128,9 @@ final class StuffItXSlice4Tests: XCTestCase {
             // Ch.38 の訂正に従い、旧五バイト末尾の期待値と native の期待値を区別する。
             let native = i == 0 ? "e806000000" : (i == 1 ? "616263e90700000058595ae8ffffffff" : vector.output_hex)
             for chunk in [1, 7, 4096] {
-                let data = StuffItCodecTests.hex(vector.input_hex)
+                let data = StuffItTestSupport.hex(vector.input_hex)
                 let decoder = try StuffItXX86(decoder: Self.copy(data), size: UInt64(data.count))
-                XCTAssertEqual(try StuffItXCodecTests.collect(decoder, chunk: chunk), StuffItCodecTests.hex(native), vector.name)
+                XCTAssertEqual(try StuffItXCodecTests.collect(decoder, chunk: chunk), StuffItTestSupport.hex(native), vector.name)
             }
         }
         for count in 0...5 {
@@ -147,8 +147,8 @@ final class StuffItXSlice4Tests: XCTestCase {
         XCTAssertEqual(Array(words.prefix(8)), ["the","and","that","was","for","you","with","have"])
         let data = Data((words.joined(separator: "\n") + "\n").utf8)
         XCTAssertEqual(data.count, 881_863)
-        XCTAssertEqual(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), StuffItXEnglishDictionary.sha256)
-        let root = Self.fixtures.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        XCTAssertEqual(data.sha256Hex, StuffItXEnglishDictionary.sha256)
+        let root = TestFixtures.repositoryRoot
         let temporary = root.appendingPathComponent(".build/slice4-dictionary-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporary) }

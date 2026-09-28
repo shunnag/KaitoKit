@@ -25,9 +25,8 @@ final class StuffItCorpusTests: XCTestCase {
         let sha256: String
         let forks: [Row]
     }
-    var root: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() }
-    var fixtureRoot: URL { root.appendingPathComponent("Tests/Fixtures/stuffit") }
-    func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
+    var root: URL { TestFixtures.repositoryRoot }
+    var fixtureRoot: URL { TestFixtures.url("stuffit") }
     func fixture(_ name: String) throws -> Data {
         let encoded = try Data(contentsOf: fixtureRoot.appendingPathComponent(name + ".b64"))
         XCTAssertLessThanOrEqual(encoded.count, 40_000)
@@ -38,7 +37,7 @@ final class StuffItCorpusTests: XCTestCase {
         XCTAssertLessThanOrEqual(manifest.count, 30)
         for spec in manifest {
             let bytes = try fixture(spec.file)
-            XCTAssertEqual(bytes.count, spec.size, spec.file); XCTAssertEqual(sha(bytes), spec.sha256, spec.file)
+            XCTAssertEqual(bytes.count, spec.size, spec.file); XCTAssertEqual(bytes.sha256Hex, spec.sha256, spec.file)
             let reader = try ArchiveReader.open(data: bytes)
             XCTAssertEqual(reader.format, .stuffIt)
             XCTAssertEqual(reader.entries.count, spec.entries.count, spec.file)
@@ -56,7 +55,7 @@ final class StuffItCorpusTests: XCTestCase {
                         XCTAssertThrowsError(try reader.stream(entry)) { XCTAssertEqual($0 as? KaitoError, expected) }
                     }
                 } else {
-                    XCTAssertEqual(sha(try reader.read(entry)), expected.sha256, "\(spec.file): \(expected.name)")
+                    XCTAssertEqual(try reader.read(entry).sha256Hex, expected.sha256, "\(spec.file): \(expected.name)")
                 }
             }
         }
@@ -65,7 +64,7 @@ final class StuffItCorpusTests: XCTestCase {
         let specs = try JSONDecoder().decode([Verified].self, from: Data(contentsOf: fixtureRoot.appendingPathComponent("verified-forks.json")))
         for spec in specs where spec.file.hasPrefix("testfile.") {
             let bytes = try fixture(spec.file)
-            XCTAssertEqual(sha(bytes), spec.sha256)
+            XCTAssertEqual(bytes.sha256Hex, spec.sha256)
             try verify(try ArchiveReader.open(data: bytes, options: ReaderOptions(password: "password")), rows: spec.forks)
         }
     }
@@ -76,7 +75,7 @@ final class StuffItCorpusTests: XCTestCase {
             let entry = try XCTUnwrap(reader.entries.first { $0.pathComponents.joined(separator: "/") == name && $0.formatSpecific["fork"] == row.fork })
             XCTAssertEqual(entry.name, name)
             XCTAssertEqual(entry.uncompressedSize, row.size)
-            XCTAssertEqual(sha(try reader.read(entry)), row.sha256, name)
+            XCTAssertEqual(try reader.read(entry).sha256Hex, row.sha256, name)
         }
     }
     func testExternalReportVerifiedGoForks() throws {
@@ -86,7 +85,7 @@ final class StuffItCorpusTests: XCTestCase {
             guard FileManager.default.fileExists(atPath: source.path) else { throw XCTSkip("外部の go 標本は fixture に収録しない") }
             let spec = try XCTUnwrap(specs.first { $0.file == name })
             let bytes = try Data(contentsOf: source)
-            XCTAssertEqual(sha(bytes), spec.sha256)
+            XCTAssertEqual(bytes.sha256Hex, spec.sha256)
             try verify(try ArchiveReader.open(data: bytes), rows: spec.forks)
         }
     }
@@ -107,7 +106,7 @@ final class StuffItCorpusTests: XCTestCase {
             var actual: [String] = []
             for entry in reader.entries where entry.formatSpecific["fork"] == "data" && entry.uncompressedSize != 0 {
                 let data = try reader.read(entry)
-                actual.append("\(data.count)\t\(sha(data))\t\(entry.name)")
+                actual.append("\(data.count)\t\(data.sha256Hex)\t\(entry.name)")
             }
             XCTAssertEqual(actual.sorted(), expected.sorted(), name)
         }
@@ -122,7 +121,7 @@ final class StuffItCorpusTests: XCTestCase {
             let row = try XCTUnwrap(oracle.split(separator: "\n").first).split(separator: "\t")
             // この 2 本の支給オラクルは、内側の書庫を展開せず wrapper の data を返す。
             let data = Data(try readByteRange(source: envelope.data, offset: 0, count: Int(envelope.data.length)))
-            XCTAssertEqual(String(data.count), String(row[1])); XCTAssertEqual(sha(data), String(row[2]))
+            XCTAssertEqual(String(data.count), String(row[1])); XCTAssertEqual(data.sha256Hex, String(row[2]))
             let reader = try ArchiveReader.open(source: source)
             for entry in reader.entries { _ = try reader.read(entry) }
         }
@@ -139,7 +138,7 @@ final class StuffItCorpusTests: XCTestCase {
         guard FileManager.default.fileExists(atPath: corpus.path) else { throw XCTSkip("外部オラクル入力は fixture に収録しない") }
         let good = try ArchiveReader.open(url: corpus.appendingPathComponent("v1.5-lzw-comment.sit"))
         let entry = try XCTUnwrap(good.entries.first { $0.name == "SimpleText/..namedfork/rsrc" })
-        XCTAssertEqual(sha(try good.read(entry)), "e723b7dba9c45f352e366898dc3b9d377f6b7531a7a365c6e51b40368af79ced")
+        XCTAssertEqual(try good.read(entry).sha256Hex, "e723b7dba9c45f352e366898dc3b9d377f6b7531a7a365c6e51b40368af79ced")
         let bad = try ArchiveReader.open(url: corpus.appendingPathComponent("v1-huffman.sit"))
         XCTAssertThrowsError(try bad.read(bad.entries[0])) { XCTAssertEqual($0 as? KaitoError, .checksumMismatch(entry: 0)) }
     }

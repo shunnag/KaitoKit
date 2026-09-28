@@ -7,7 +7,7 @@ import XCTest
 
 final class StuffItXCryptoTests: XCTestCase {
     typealias Writer = StuffItXContainerTests.Writer
-    static func hex(_ text: String) -> [UInt8] { Array(StuffItCodecTests.hex(text)) }
+    static func hex(_ text: String) -> [UInt8] { Array(StuffItTestSupport.hex(text)) }
     static func records(_ ciphers: [(UInt64, UInt64)]) -> [StuffItXAlgorithm] {
         ciphers.map { .init(key: 4, value: $0.0, keyLength: $0.1) }
     }

@@ -28,11 +28,7 @@ final class XZResourceLimitTests: XCTestCase {
         XCTAssertEqual(try read(fixture("x86.xz"), dictionary: 1 << 20), expected)
     }
 
-    private func fixture(_ name: String) throws -> Data {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/singlefile/\(name).b64")
-        return try XCTUnwrap(Data(base64Encoded: try String(contentsOf: url, encoding: .utf8), options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("singlefile/\(name)") }
 
     func testDictionaryLimitIsAppliedToSingleStreamsAndConcatenation() throws {
         let small = try xz(dictionary: 4_096)
@@ -49,9 +45,7 @@ final class XZResourceLimitTests: XCTestCase {
     }
 
     func testDictionaryLimitReachesXZInsideXar() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let base64 = try String(contentsOf: root.appendingPathComponent("Fixtures/container/xar-xz.xar.b64"), encoding: .utf8)
-        let bytes = try XCTUnwrap(Data(base64Encoded: base64, options: .ignoreUnknownCharacters))
+        let bytes = try TestFixtures.base64("container/xar-xz.xar")
         let reader = try ArchiveReader.open(data: bytes, options: ReaderOptions(limits: ReadLimits(maxDictionarySize: 4_095)))
         XCTAssertThrowsError(try reader.read(reader.entries[0])) { error in
             guard case .limitExceeded = error as? KaitoError else { return XCTFail("\(error)") }

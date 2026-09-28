@@ -17,23 +17,14 @@ final class LzipTests: XCTestCase {
         let fixtures: [Fixture]
     }
 
-    private var root: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/lzip")
-    }
+    private var root: URL { TestFixtures.url("lzip") }
 
     private func manifest() throws -> Manifest {
         try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appendingPathComponent("manifest.json")))
     }
 
-    private func fixture(_ name: String) throws -> Data {
-        try XCTUnwrap(Data(base64Encoded: Data(contentsOf: root.appendingPathComponent(name + ".b64")),
-                           options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("lzip/" + name) }
 
-    private func sha(_ bytes: Data) -> String {
-        SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
-    }
 
     private func decode(_ bytes: Data, chunk: Int = 8_191, limits: ReadLimits = ReadLimits()) throws -> Data {
         let decoder = try LzipDecompressor(source: DataByteSource(bytes), limits: limits)
@@ -56,11 +47,11 @@ final class LzipTests: XCTestCase {
             let name = String(item.file.dropLast(4))
             let bytes = try fixture(name)
             XCTAssertEqual(bytes.count, item.size, name)
-            XCTAssertEqual(sha(bytes), item.sha256, name)
+            XCTAssertEqual(bytes.sha256Hex, item.sha256, name)
             for chunk in [1, 7, 4_096, 65_537] where chunk == 1 ? item.dataSize < 100 : true {
                 let output = try decode(bytes, chunk: chunk)
                 XCTAssertEqual(output.count, item.dataSize, "\(name) chunk \(chunk)")
-                XCTAssertEqual(sha(output), item.dataSHA256, "\(name) chunk \(chunk)")
+                XCTAssertEqual(output.sha256Hex, item.dataSHA256, "\(name) chunk \(chunk)")
             }
             let index = try LzipMemberIndex(source: DataByteSource(bytes), limits: ReadLimits())
             XCTAssertEqual(index.totalDataSize, UInt64(item.dataSize), name)

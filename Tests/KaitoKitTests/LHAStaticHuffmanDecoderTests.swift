@@ -4,10 +4,6 @@ import Foundation
 import XCTest
 
 final class LHAStaticHuffmanDecoderTests: XCTestCase {
-    private enum TestError: Error {
-        case noProgress
-    }
-
     func testConstantLiteralBlocksDecodeForEveryMethodAndTinyReads() throws {
         for method in ["-lh4-", "-lh5-", "-lh6-", "-lh7-", "-lhx-"] {
             var writer = StaticLHABitWriter()
@@ -444,12 +440,7 @@ final class LHAStaticHuffmanDecoderTests: XCTestCase {
             )
         ])
 
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-LH5-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true
-        )
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "LH5")
         defer { try? FileManager.default.removeItem(at: directory) }
         let archiveURL = directory.appendingPathComponent("vectors.lzh")
         try archive.write(to: archiveURL, options: Data.WritingOptions.atomic)
@@ -707,23 +698,9 @@ final class LHAStaticHuffmanDecoderTests: XCTestCase {
         )
     }
 
-    private func drain(
-        _ decoder: any Decompressor,
-        bufferSize: Int
-    ) throws -> Data {
-        var result = Data()
-        var buffer = [UInt8](repeating: 0, count: bufferSize)
-        var iterations = 0
-        while !decoder.isFinished {
-            let count = try buffer.withUnsafeMutableBytes { storage in
-                try decoder.read(into: storage)
-            }
-            guard count > 0 || decoder.isFinished else { throw TestError.noProgress }
-            result.append(contentsOf: buffer.prefix(count))
-            iterations += 1
-            guard iterations < 100_000 else { throw TestError.noProgress }
-        }
-        return result
+    /// 終わらない decoder で止まらないよう、読む回数に上限を置く。
+    private func drain(_ decoder: any Decompressor, bufferSize: Int) throws -> Data {
+        try KaitoKitTests.drain(decoder, bufferSize: bufferSize, maxReads: 100_000)
     }
 
     private func appendConstantBlock(

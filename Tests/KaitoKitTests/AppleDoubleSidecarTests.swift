@@ -93,11 +93,7 @@ final class AppleDoubleSidecarTests: XCTestCase {
         }
     }
 
-    private static func fixture(_ name: String) throws -> Data {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/appledouble/\(name).b64")
-        return try XCTUnwrap(Data(base64Encoded: try String(contentsOf: url, encoding: .utf8), options: .ignoreUnknownCharacters))
-    }
+    private static func fixture(_ name: String) throws -> Data { try TestFixtures.base64("appledouble/\(name)") }
 
     private func names(_ reader: ArchiveReader) -> [String] { reader.entries.map(\.name) }
 

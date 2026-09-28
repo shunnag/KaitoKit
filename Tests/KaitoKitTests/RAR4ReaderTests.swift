@@ -30,7 +30,7 @@ final class RAR4ReaderTests: XCTestCase {
             Data(base64Encoded: encoded, options: .ignoreUnknownCharacters)
         )
         XCTAssertEqual(
-            sha256Hex(archive),
+            archive.sha256Hex,
             "2c263bf552de74d0a4d36142ae83fe44563a6fc18d1910b0ffcce3958aa24574"
         )
 
@@ -54,7 +54,7 @@ final class RAR4ReaderTests: XCTestCase {
         }
         XCTAssertEqual(decoded.count, 130_048)
         XCTAssertEqual(
-            sha256Hex(decoded),
+            decoded.sha256Hex,
             "a434d9be88dd0f9d314776f4bca0f0022695c46d09a9c59e8c77c337f843fa92"
         )
     }
@@ -222,7 +222,7 @@ final class RAR4ReaderTests: XCTestCase {
         // window, repeat state and Huffman end-marker reuse policy.
         let archive = try base64Fixture("solid_lz_rar300.rar.b64")
         XCTAssertEqual(
-            sha256Hex(archive),
+            archive.sha256Hex,
             "a2771b950416d3df441de579b76646d203fe75eb176536c2b8fb8e67a235a0ed"
         )
         let expected = [
@@ -233,7 +233,7 @@ final class RAR4ReaderTests: XCTestCase {
         let reader = try ArchiveReader.open(data: archive)
         XCTAssertEqual(reader.entries.map(\.solidGroup), [0, 0])
         for index in [1, 0, 1, 0] {
-            XCTAssertEqual(sha256Hex(try reader.read(reader.entries[index])), expected[index])
+            XCTAssertEqual(try reader.read(reader.entries[index]).sha256Hex, expected[index])
         }
 
         let overlapping = try ArchiveReader.open(data: archive)
@@ -244,7 +244,7 @@ final class RAR4ReaderTests: XCTestCase {
         }
         XCTAssertEqual(prefixCount, prefix.count)
         XCTAssertEqual(
-            sha256Hex(try overlapping.read(overlapping.entries[1])),
+            try overlapping.read(overlapping.entries[1]).sha256Hex,
             expected[1]
         )
         var staleByte: UInt8 = 0
@@ -265,11 +265,11 @@ final class RAR4ReaderTests: XCTestCase {
         _ = try original.withUnsafeMutableBytes { try originalStream.read(into: $0) }
         let reopened = try independent.reopen()
         XCTAssertEqual(
-            sha256Hex(try reopened.read(reopened.entries[1])),
+            try reopened.read(reopened.entries[1]).sha256Hex,
             expected[1]
         )
         original.append(try originalStream.readAll())
-        XCTAssertEqual(sha256Hex(original), expected[0])
+        XCTAssertEqual(original.sha256Hex, expected[0])
 
         // The returned stream owns the coordinator, immutable records and
         // packed sources it needs; it must not depend on the reader's lifetime.
@@ -278,7 +278,7 @@ final class RAR4ReaderTests: XCTestCase {
             let shortLivedReader = try ArchiveReader.open(data: archive)
             detachedStream = try shortLivedReader.stream(shortLivedReader.entries[1])
         }
-        XCTAssertEqual(sha256Hex(try detachedStream.readAll()), expected[1])
+        XCTAssertEqual(try detachedStream.readAll().sha256Hex, expected[1])
     }
 
     func testRAR29SolidPPMdModelPersistsWhenFixtureIsAvailable() throws {
@@ -293,7 +293,7 @@ final class RAR4ReaderTests: XCTestCase {
         let reader = try ArchiveReader.open(url: url)
         XCTAssertEqual(reader.entries.map(\.solidGroup), [0, 0])
         for index in [1, 0, 1] {
-            XCTAssertEqual(sha256Hex(try reader.read(reader.entries[index])), expected[index])
+            XCTAssertEqual(try reader.read(reader.entries[index]).sha256Hex, expected[index])
         }
     }
 
@@ -327,7 +327,7 @@ final class RAR4ReaderTests: XCTestCase {
             XCTAssertEqual(reader.entries.map(\.solidGroup), [0, 0, 0, 0])
             for index in [3, 1, 0, 2] {
                 XCTAssertEqual(
-                    sha256Hex(try reader.read(reader.entries[index])),
+                    try reader.read(reader.entries[index]).sha256Hex,
                     expected[index],
                     name
                 )
@@ -360,7 +360,7 @@ final class RAR4ReaderTests: XCTestCase {
     func testRAR4StoredUnixSymlinkPublishesTargetAndExtracts() throws {
         let archive = try base64Fixture("libarchive_links.rar.b64")
         XCTAssertEqual(
-            sha256Hex(archive),
+            archive.sha256Hex,
             "d421b86f6290aefad61b2a36737253b2b30fe27c156bd95abfc230f24fe0307e"
         )
         let reader = try ArchiveReader.open(data: archive)
@@ -382,7 +382,7 @@ final class RAR4ReaderTests: XCTestCase {
     func testRAR4WrongPasswordForCompressedDataIsNormalized() throws {
         let archive = try base64Fixture("libarchive_encrypted_data.rar.b64")
         XCTAssertEqual(
-            sha256Hex(archive),
+            archive.sha256Hex,
             "84ba9afcf0673aab0d1421d931e76a19294b12117483879c4b58598d3d71e83e"
         )
         let reader = try ArchiveReader.open(
@@ -485,7 +485,7 @@ final class RAR4ReaderTests: XCTestCase {
 
         let opaqueData = Data([0xde, 0xad, 0xbe, 0xef])
         var unknownFields: [UInt8] = []
-        appendLittle(UInt32(opaqueData.count), to: &unknownFields)
+        unknownFields.appendLittleEndian(UInt32(opaqueData.count))
         unknownFields.append(contentsOf: [0x12, 0x34])
         archive.append(contentsOf: makeHeader(
             type: 0x7c,
@@ -559,7 +559,7 @@ final class RAR4ReaderTests: XCTestCase {
     func testZeroHeaderSizeCannotPreventForwardProgress() throws {
         var archive = Data(RAR4Reader.signature)
         let body: [UInt8] = [0x73, 0, 0, 0, 0]
-        appendLittle(UInt16(truncatingIfNeeded: CRC32.checksum(body)), to: &archive)
+        archive.appendLittleEndian(UInt16(truncatingIfNeeded: CRC32.checksum(body)))
         archive.append(contentsOf: body)
 
         XCTAssertThrowsError(
@@ -880,15 +880,15 @@ final class RAR4ReaderTests: XCTestCase {
     private func makeFileHeader(_ file: FileFixture) -> [UInt8] {
         let crc = CRC32.checksum(file.contents)
         var fields: [UInt8] = []
-        appendLittle(UInt32(file.contents.count), to: &fields)
-        appendLittle(UInt32(file.contents.count), to: &fields)
+        fields.appendLittleEndian(UInt32(file.contents.count))
+        fields.appendLittleEndian(UInt32(file.contents.count))
         fields.append(2) // Windows
-        appendLittle(crc, to: &fields)
-        appendLittle(UInt32(0), to: &fields) // no DOS timestamp
+        fields.appendLittleEndian(crc)
+        fields.appendLittleEndian(UInt32(0)) // no DOS timestamp
         fields.append(29)
         fields.append(file.method)
-        appendLittle(UInt16(file.name.count), to: &fields)
-        appendLittle(UInt32(0x20), to: &fields)
+        fields.appendLittleEndian(UInt16(file.name.count))
+        fields.appendLittleEndian(UInt32(0x20))
         fields.append(contentsOf: file.name)
         return makeHeader(
             type: 0x74,
@@ -903,28 +903,15 @@ final class RAR4ReaderTests: XCTestCase {
         fields: [UInt8]
     ) -> [UInt8] {
         var body: [UInt8] = [type]
-        appendLittle(flags, to: &body)
-        appendLittle(UInt16(7 + fields.count), to: &body)
+        body.appendLittleEndian(flags)
+        body.appendLittleEndian(UInt16(7 + fields.count))
         body.append(contentsOf: fields)
         var result: [UInt8] = []
-        appendLittle(UInt16(truncatingIfNeeded: CRC32.checksum(body)), to: &result)
+        result.appendLittleEndian(UInt16(truncatingIfNeeded: CRC32.checksum(body)))
         result.append(contentsOf: body)
         return result
     }
 
-    private func appendLittle<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
-        var little = value.littleEndian
-        withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
-    }
-
-    private func appendLittle<T: FixedWidthInteger>(_ value: T, to bytes: inout [UInt8]) {
-        var little = value.littleEndian
-        withUnsafeBytes(of: &little) { bytes.append(contentsOf: $0) }
-    }
-
-    private func sha256Hex(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 
     private func base64Fixture(_ name: String) throws -> Data {
         let url = ZipTestSupport.repositoryRoot

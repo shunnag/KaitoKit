@@ -89,19 +89,13 @@ final class DMGReaderTests: XCTestCase {
         }
     }
 
-    private static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     private struct Payload: Decodable { let size: UInt64?; let sha256: String?; let symlink: String?; let decmpfs: Bool? }
     private struct Image: Decodable { let size: UInt64; let sha256: String; let note: String }
     private struct Manifest: Decodable { let payload: [String: Payload]; let images: [String: Image] }
     private static func manifest() throws -> Manifest {
-        try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appendingPathComponent("Fixtures/dmg/manifest.json")))
+        try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: TestFixtures.url("dmg/manifest.json")))
     }
-    private static func fixture(_ name: String) throws -> Data {
-        let base64 = try String(contentsOf: root.appendingPathComponent("Fixtures/dmg/\(name).gz.b64"), encoding: .utf8)
-        let gzip = try ArchiveReader.open(data: XCTUnwrap(Data(base64Encoded: base64, options: .ignoreUnknownCharacters)))
-        return try gzip.read(gzip.entries[0])
-    }
-    private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
+    private static func fixture(_ name: String) throws -> Data { try TestFixtures.gzipBase64("dmg/\(name)") }
 
     func testDecmpfsAttributeErrorsAndHardLinkTarget() throws {
         // 既存の mount 検証済み fixture の属性 / catalog だけをメモリ内で変える。
@@ -158,7 +152,7 @@ final class DMGReaderTests: XCTestCase {
             XCTAssertNil(entry.uncompressedSize)
             XCTAssertThrowsError(try reader.read(entry)) { XCTAssertEqual($0 as? KaitoError, expected) }
             let ordinary = try XCTUnwrap(reader.entries.first { $0.name == "data.bin" })
-            XCTAssertEqual(sha(try reader.read(ordinary)), try Self.manifest().payload["data.bin"]?.sha256)
+            XCTAssertEqual(try reader.read(ordinary).sha256Hex, try Self.manifest().payload["data.bin"]?.sha256)
         }
 
         // 属性を indirect node の CNID に移し、2 本の hard link がその本文を読むことを確かめる。
@@ -184,7 +178,7 @@ final class DMGReaderTests: XCTestCase {
             XCTAssertEqual(entry.uncompressedSize, want.size)
             XCTAssertEqual(entry.compressedSize, UInt64(attribute.count - 16))
             XCTAssertEqual(entry.formatSpecific["decmpfsType"], "7")
-            XCTAssertEqual(sha(try reader.read(entry)), want.sha256)
+            XCTAssertEqual(try reader.read(entry).sha256Hex, want.sha256)
             XCTAssertFalse(reader.entries.contains { $0.name == name + "/..namedfork/rsrc" })
         }
     }
@@ -193,7 +187,7 @@ final class DMGReaderTests: XCTestCase {
         let manifest = try Self.manifest()
         for name in ["hfs-zlib.dmg", "hfs-bzip2.dmg", "hfs-lzfse.dmg", "hfs-lzma.dmg"] {
             let bytes = try Self.fixture(name)
-            XCTAssertEqual(sha(bytes), manifest.images[name]?.sha256, name)
+            XCTAssertEqual(bytes.sha256Hex, manifest.images[name]?.sha256, name)
             XCTAssertEqual(try FormatDetector.detect(data: bytes), .dmg, name)
             let reader = try ArchiveReader.open(data: bytes)
             XCTAssertEqual(reader.format, .dmg, name)
@@ -211,10 +205,10 @@ final class DMGReaderTests: XCTestCase {
                     XCTAssertEqual(entry.methodDescription, "HFS+ decmpfs (LZVN)", entry.name)
                     XCTAssertEqual(entry.formatSpecific["decmpfsType"], "7", entry.name)
                     XCTAssertEqual(entry.uncompressedSize, want.size, entry.name)
-                    XCTAssertEqual(sha(try reader.read(entry)), want.sha256, "\(name): \(entry.name)")
+                    XCTAssertEqual(try reader.read(entry).sha256Hex, want.sha256, "\(name): \(entry.name)")
                 } else {
                     XCTAssertEqual(entry.uncompressedSize, want.size, "\(name): \(entry.name)")
-                    XCTAssertEqual(sha(try reader.read(entry)), want.sha256, "\(name): \(entry.name)")
+                    XCTAssertEqual(try reader.read(entry).sha256Hex, want.sha256, "\(name): \(entry.name)")
                     XCTAssertEqual(entry.methodDescription, "HFS+ (stored)", entry.name)
                 }
                 XCTAssertNotNil(entry.modificationDate, entry.name)
@@ -234,14 +228,14 @@ final class DMGReaderTests: XCTestCase {
                 if count == 0 { break }
                 result.append(contentsOf: buffer.prefix(count))
             }
-            XCTAssertEqual(sha(result), manifest.payload["fragmented.bin"]?.sha256, name)
+            XCTAssertEqual(result.sha256Hex, manifest.payload["fragmented.bin"]?.sha256, name)
             let reopened = try reader.reopen()
             XCTAssertEqual(reopened.entries, reader.entries, name)
         }
         // 1 byte ずつ返す source（chunk cache と extent をまたぐ読み取り）。
         let short = try ArchiveReader.open(source: ShortSource(try Self.fixture("hfs-zlib.dmg")))
         let data = try XCTUnwrap(short.entries.first { $0.name == "data.bin" })
-        XCTAssertEqual(sha(try short.read(data)), manifest.payload["data.bin"]?.sha256)
+        XCTAssertEqual(try short.read(data).sha256Hex, manifest.payload["data.bin"]?.sha256)
     }
 
     func testRawImageISOInsideUDIFAndUnsupportedVolumes() throws {
@@ -250,20 +244,20 @@ final class DMGReaderTests: XCTestCase {
         let raw = try ArchiveReader.open(data: try Self.fixture("hfs-raw.dmg"))
         XCTAssertEqual(raw.format, .dmg)
         XCTAssertEqual(raw.entries.map(\.name), ["readme.txt", "readme.txt/..namedfork/rsrc", "sub", "sub/nested.txt"])
-        XCTAssertEqual(sha(try raw.read(raw.entries[0])), manifest.payload["readme.txt"]?.sha256)
+        XCTAssertEqual(try raw.read(raw.entries[0]).sha256Hex, manifest.payload["readme.txt"]?.sha256)
         XCTAssertEqual(raw.entries[0].formatSpecific["volumeName"], "KaitoRaw")
         // Apple Partition Map と、partition 表の無い bare volume。
         for (name, volume) in [("hfs-apm-zlib.dmg", "KaitoAPM"), ("hfs-bare-zlib.dmg", "KaitoBare")] {
             let reader = try ArchiveReader.open(data: try Self.fixture(name))
             XCTAssertEqual(reader.entries.map(\.name), ["readme.txt", "readme.txt/..namedfork/rsrc", "sub", "sub/nested.txt"], name)
-            XCTAssertEqual(sha(try reader.read(reader.entries[3])), manifest.payload["sub/nested.txt"]?.sha256, name)
+            XCTAssertEqual(try reader.read(reader.entries[3]).sha256Hex, manifest.payload["sub/nested.txt"]?.sha256, name)
             XCTAssertEqual(reader.entries[0].formatSpecific["volumeName"], volume, name)
         }
         // UDIF に包まれた ISO 9660 は ISO reader に渡す。
         let iso = try ArchiveReader.open(data: try Self.fixture("iso-zlib.dmg"))
         XCTAssertEqual(iso.format, .dmg)
         XCTAssertEqual(iso.entries.map(\.name), ["readme.txt", "sub", "sub/nested.txt"])
-        XCTAssertEqual(sha(try iso.read(iso.entries[2])), manifest.payload["sub/nested.txt"]?.sha256)
+        XCTAssertEqual(try iso.read(iso.entries[2]).sha256Hex, manifest.payload["sub/nested.txt"]?.sha256)
         // ADC（UDCO）と APFS は名前付きで拒む。
         for (name, needle) in [("hfs-adc.dmg", "ADC"), ("apfs-zlib.dmg", "APFS")] {
             let bytes = try Self.fixture(name)

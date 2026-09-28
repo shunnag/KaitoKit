@@ -7,7 +7,7 @@ final class SevenZipEditLayoutSPIImportTests: XCTestCase {
         var options = ReaderOptions(password: "secret")
         XCTAssertFalse(options.recordsSevenZipEditLayout)
         options.recordsSevenZipEditLayout = true
-        let reader = try ArchiveReader.open(url: SevenZipGolden.root.appendingPathComponent("g_aesh.7z"), options: options)
+        let reader = try ArchiveReader.open(url: SevenZipGoldenCorpus.root.appendingPathComponent("g_aesh.7z"), options: options)
         let snapshot: SevenZipEditingSnapshot = try XCTUnwrap(reader.sevenZipEditingSnapshot())
         let header: SevenZipEditHeader = snapshot.header
         let folder: SevenZipEditFolder = try XCTUnwrap(snapshot.folders.first)

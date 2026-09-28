@@ -33,7 +33,6 @@ final class ZipLegacyMethodTests: XCTestCase {
         return try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: url))
     }
     private static func fixture(_ name: String) throws -> Data { try ZipTestSupport.checkedInFixture("zip-legacy/\(name)") }
-    private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     private static let fixtures: [(file: String, method: String)] = [
         ("shrink.zip", "shrink"), ("reduce1.zip", "reduce1"), ("reduce2.zip", "reduce2"), ("reduce3.zip", "reduce3"),
@@ -50,7 +49,7 @@ final class ZipLegacyMethodTests: XCTestCase {
                 let want = try XCTUnwrap(expected[entry.name], "\(item.file): \(entry.name)")
                 XCTAssertEqual(entry.methodDescription, item.method, "\(item.file): \(entry.name)")
                 XCTAssertEqual(entry.uncompressedSize, want.size, "\(item.file): \(entry.name)")
-                XCTAssertEqual(sha(try reader.read(entry)), want.sha256, "\(item.file): \(entry.name)")
+                XCTAssertEqual(try reader.read(entry).sha256Hex, want.sha256, "\(item.file): \(entry.name)")
             }
             // 小さな buffer での streaming と、1 byte ずつしか返さない source でも同じ内容になる。
             let stream = try reader.stream(reader.entries[3])
@@ -60,9 +59,9 @@ final class ZipLegacyMethodTests: XCTestCase {
                 if count == 0 { break }
                 result.append(contentsOf: buffer.prefix(count))
             }
-            XCTAssertEqual(sha(result), expected["mixed.bin"]?.sha256, item.file)
+            XCTAssertEqual(result.sha256Hex, expected["mixed.bin"]?.sha256, item.file)
             let short = try ArchiveReader.open(source: ShortSource(try Self.fixture(item.file)))
-            XCTAssertEqual(sha(try short.read(short.entries[0])), expected["text.txt"]?.sha256, item.file)
+            XCTAssertEqual(try short.read(short.entries[0]).sha256Hex, expected["text.txt"]?.sha256, item.file)
             let reopened = try reader.reopen()
             XCTAssertEqual(reopened.entries, reader.entries, item.file)
         }
@@ -75,7 +74,7 @@ final class ZipLegacyMethodTests: XCTestCase {
         let entry = try XCTUnwrap(reader.entries.first)
         XCTAssertEqual(entry.methodDescription, "shrink")
         XCTAssertEqual(entry.uncompressedSize, expected.size)
-        XCTAssertEqual(sha(try reader.read(entry)), expected.sha256)
+        XCTAssertEqual(try reader.read(entry).sha256Hex, expected.sha256)
     }
 
     func testCorruptionIsRejectedAndDoesNotLeakIntoTheNextMember() throws {
@@ -167,12 +166,12 @@ final class ZipLegacyMethodTests: XCTestCase {
             if FileManager.default.isExecutableFile(atPath: ZipTestSupport.unzipPath) {
                 let result = try ZipTestSupport.run(ZipTestSupport.unzipPath, arguments: ["-P", "legacy", "-p", url.path])
                 XCTAssertTrue(result.succeeded, "\(item.file): \(String(decoding: result.standardError, as: UTF8.self))")
-                XCTAssertEqual(sha(result.standardOutput), payload.sha256, item.file)
+                XCTAssertEqual(result.standardOutput.sha256Hex, payload.sha256, item.file)
             }
             let reader = try ArchiveReader.open(data: archive, options: ReaderOptions(password: "legacy"))
             XCTAssertTrue(reader.entries[0].isEncrypted, item.file)
             XCTAssertEqual(reader.entries[0].methodDescription, item.method, item.file)
-            XCTAssertEqual(sha(try reader.read(reader.entries[0])), payload.sha256, item.file)
+            XCTAssertEqual(try reader.read(reader.entries[0]).sha256Hex, payload.sha256, item.file)
             let wrong = try ArchiveReader.open(data: archive, options: ReaderOptions(password: "wrong"))
             XCTAssertThrowsError(try wrong.read(wrong.entries[0]), item.file) { XCTAssertEqual($0 as? KaitoError, .wrongPassword) }
             let missing = try ArchiveReader.open(data: archive)

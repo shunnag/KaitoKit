@@ -174,7 +174,7 @@ final class LHAMethodCorpusTests: XCTestCase {
         XCTAssertEqual(entry.uncompressedSize, size, relativePath)
         let decoded = try reader.read(entry)
         XCTAssertEqual(UInt64(decoded.count), size, relativePath)
-        XCTAssertEqual(hex(SHA256.hash(data: decoded)), sha256, relativePath)
+        XCTAssertEqual(decoded.sha256Hex, sha256, relativePath)
 
         if let executable = LHATestSupport.lhasaExecutableURL {
             XCTAssertEqual(
@@ -216,9 +216,5 @@ final class LHAMethodCorpusTests: XCTestCase {
             return Data()
         }
         return data
-    }
-
-    private func hex<S: Sequence>(_ bytes: S) -> String where S.Element == UInt8 {
-        bytes.map { String(format: "%02x", $0) }.joined()
     }
 }

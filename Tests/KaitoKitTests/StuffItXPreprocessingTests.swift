@@ -32,24 +32,24 @@ final class StuffItXPreprocessingTests: XCTestCase {
     }
     func testEnglishAcrossEveryFrameAndFork() throws {
         for vector in try StuffItXSlice4Tests.vectors(200) {
-            try checkBoundaries(StuffItCodecTests.hex(vector.input_hex), StuffItCodecTests.hex(vector.output_hex), method: 0)
+            try checkBoundaries(StuffItTestSupport.hex(vector.input_hex), StuffItTestSupport.hex(vector.output_hex), method: 0)
         }
     }
     func testX86AcrossOperandsAndNativeTail() throws {
-        try checkBoundaries(StuffItCodecTests.hex("e806000000e80b00000000"), StuffItCodecTests.hex("e800000000e80000000000"), method: 2)
+        try checkBoundaries(StuffItTestSupport.hex("e806000000e80b00000000"), StuffItTestSupport.hex("e800000000e80000000000"), method: 2)
     }
     func testEnglishCompressedIntermediateLengthBothDirections() throws {
         for vector in try StuffItXSlice4Tests.vectors(200) {
-            let raw = StuffItCodecTests.hex(vector.input_hex), n = UInt16(raw.count), complement = ~n
+            let raw = StuffItTestSupport.hex(vector.input_hex), n = UInt16(raw.count), complement = ~n
             let deflate = Data([15,1,UInt8(truncatingIfNeeded: n),UInt8(n >> 8),UInt8(truncatingIfNeeded: complement),UInt8(complement >> 8)]) + raw
-            try checkBoundaries(deflate, StuffItCodecTests.hex(vector.output_hex), method: 0, compression: 3)
+            try checkBoundaries(deflate, StuffItTestSupport.hex(vector.output_hex), method: 0, compression: 3)
         }
     }
     func testEnglishErrorsAndMarkerPriority() throws {
         for (hex, size) in [("",0),("010203",0),("0102030401",0),("010203040201",3),("01020304025a5a5a",10),
                             ("0102030402",2),("0102030402",4)] {
             XCTAssertThrowsError(try {
-                let decoder = try StuffItXEnglish(decoder: StuffItXSlice4Tests.copy(StuffItCodecTests.hex(hex)), size: UInt64(size))
+                let decoder = try StuffItXEnglish(decoder: StuffItXSlice4Tests.copy(StuffItTestSupport.hex(hex)), size: UInt64(size))
                 _ = try StuffItXCodecTests.collect(decoder, chunk: 1)
             }())
         }

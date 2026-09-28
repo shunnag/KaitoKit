@@ -89,7 +89,7 @@ final class ExtractorDefaultModeTests: XCTestCase {
         try archive.write(to: archiveURL)
 
         try runKaitoWithRestrictiveUmask(
-            try findKaitoExecutable(),
+            try KaitoCLI.executableURL(),
             archive: archiveURL,
             output: output
         )
@@ -303,50 +303,5 @@ final class ExtractorDefaultModeTests: XCTestCase {
                 String(decoding: errors, as: UTF8.self)
             )
         }
-    }
-
-    private func findKaitoExecutable() throws -> URL {
-        let fileManager = FileManager.default
-        if let override = ProcessInfo.processInfo.environment["KAITO_EXECUTABLE"] {
-            let candidate = URL(fileURLWithPath: override)
-            if fileManager.isExecutableFile(atPath: candidate.path) {
-                return candidate
-            }
-        }
-
-        var candidates = [
-            Bundle.main.bundleURL.deletingLastPathComponent()
-                .appendingPathComponent("kaito"),
-        ]
-        var ancestor = URL(fileURLWithPath: CommandLine.arguments[0])
-            .deletingLastPathComponent()
-        for _ in 0..<8 {
-            candidates.append(ancestor.appendingPathComponent("kaito"))
-            ancestor.deleteLastPathComponent()
-        }
-
-        let repository = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        candidates.append(repository.appendingPathComponent(".build/debug/kaito"))
-        candidates.append(repository.appendingPathComponent(".build/out/Products/Debug/kaito"))
-        for candidate in candidates where fileManager.isExecutableFile(atPath: candidate.path) {
-            return candidate
-        }
-
-        let buildDirectory = repository.appendingPathComponent(".build", isDirectory: true)
-        if let enumerator = fileManager.enumerator(
-            at: buildDirectory,
-            includingPropertiesForKeys: [.isRegularFileKey, .isExecutableKey]
-        ) {
-            for case let candidate as URL in enumerator
-                where candidate.lastPathComponent == "kaito" {
-                if fileManager.isExecutableFile(atPath: candidate.path) {
-                    return candidate
-                }
-            }
-        }
-        throw ZipTestSupportError.fixture("built kaito executable was not found")
     }
 }

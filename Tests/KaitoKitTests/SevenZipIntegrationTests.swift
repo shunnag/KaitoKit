@@ -15,7 +15,7 @@ final class SevenZipIntegrationTests: XCTestCase {
         let decoded = try reader.read(reader.entries[0])
         XCTAssertEqual(decoded, payload)
         XCTAssertEqual(
-            SHA256.hash(data: decoded).map { String(format: "%02x", $0) }.joined(),
+            decoded.sha256Hex,
             "50707e3abaa5a1b0676e0bd6b120133034ba7358c4584acc2b473207e015a2b8"
         )
         XCTAssertEqual(try reader.reopen().read(reader.entries[0]), payload)
@@ -453,8 +453,8 @@ final class SevenZipIntegrationTests: XCTestCase {
         XCTAssertEqual(fixtureReader.entries.count, entryCount)
         XCTAssertTrue(fixtureReader.entries.allSatisfy { $0.solidGroup == -1 })
 
-        let measured = try SevenZipTestSupport.runKaitoWithPeakResidentSize(
-            arguments: ["sha", archive.path]
+        let measured = try KaitoCLI.runWithPeakResidentSize(
+            ["sha", archive.path]
         )
         let lines = String(decoding: measured.standardOutput, as: UTF8.self)
             .split(separator: "\n")
@@ -684,12 +684,12 @@ final class SevenZipIntegrationTests: XCTestCase {
         for index in 0..<repetitions {
             bytes.append(0x41)
             bytes.append(0xE8)
-            appendUInt32LE(UInt32(bitPattern: Int32(index &* 13 &- 4_096)), to: &bytes)
+            bytes.appendLittleEndian(UInt32(bitPattern: Int32(index &* 13 &- 4_096)))
             bytes.append(0x42)
             bytes.append(0xE9)
-            appendUInt32LE(UInt32(bitPattern: Int32(8_192 &- index &* 7)), to: &bytes)
+            bytes.appendLittleEndian(UInt32(bitPattern: Int32(8_192 &- index &* 7)))
             bytes.append(contentsOf: [0x0F, 0x85])
-            appendUInt32LE(UInt32(index &* 11), to: &bytes)
+            bytes.appendLittleEndian(UInt32(index &* 11))
         }
         return Data(bytes)
     }
@@ -698,18 +698,11 @@ final class SevenZipIntegrationTests: XCTestCase {
         var bytes = [UInt8]()
         bytes.reserveCapacity(repetitions * 12)
         for index in 0..<repetitions {
-            appendUInt32LE(0x9400_0000 | UInt32(index & 0x03FF_FFFF), to: &bytes)
-            appendUInt32LE(0x9000_0000 | UInt32((index & 3) << 29), to: &bytes)
-            appendUInt32LE(UInt32(truncatingIfNeeded: index &* 0x9E37_79B1), to: &bytes)
+            bytes.appendLittleEndian(0x9400_0000 | UInt32(index & 0x03FF_FFFF))
+            bytes.appendLittleEndian(0x9000_0000 | UInt32((index & 3) << 29))
+            bytes.appendLittleEndian(UInt32(truncatingIfNeeded: index &* 0x9E37_79B1))
         }
         return Data(bytes)
-    }
-
-    private func appendUInt32LE(_ value: UInt32, to bytes: inout [UInt8]) {
-        bytes.append(UInt8(truncatingIfNeeded: value))
-        bytes.append(UInt8(truncatingIfNeeded: value >> 8))
-        bytes.append(UInt8(truncatingIfNeeded: value >> 16))
-        bytes.append(UInt8(truncatingIfNeeded: value >> 24))
     }
 
     private func assertSameSHA256(

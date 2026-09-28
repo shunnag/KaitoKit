@@ -36,20 +36,20 @@ final class ParallelBzip2DecompressorTests: XCTestCase {
         let source = CountingByteSource(DataByteSource(bytes))
         let recorder = CompressedTarMapRecorder(format: .bzip2)
         let diagnostics = ParallelBzip2Decompressor.Diagnostics()
-        let output = try TarEditTestSupport.drain(ParallelBzip2Decompressor(source: source, recorder: recorder, workers: 8, diagnostics: diagnostics))
+        let output = try drain(ParallelBzip2Decompressor(source: source, recorder: recorder, workers: 8, diagnostics: diagnostics), bufferSize: 65_536)
         XCTAssertEqual(source.bytesRead, UInt64(bytes.count))
         XCTAssertEqual(diagnostics.fallbackCount, 0)
         XCTAssertNotNil(recorder.finish(imageLength: UInt64(output.count), archiveLength: source.length).map)
         for (compressedLimit, outputLimit) in [(1024, 16 * 1_048_576), (8 * 1_048_576, 1_048_576)] {
             let counters = ParallelBzip2Decompressor.Diagnostics()
-            let actual = try TarEditTestSupport.drain(ParallelBzip2Decompressor(source: DataByteSource(bytes), workers: 2,
-                                                                              maximumCompressedSize: compressedLimit, maximumOutputSize: outputLimit, diagnostics: counters))
+            let actual = try drain(ParallelBzip2Decompressor(source: DataByteSource(bytes), workers: 2,
+                                                             maximumCompressedSize: compressedLimit, maximumOutputSize: outputLimit, diagnostics: counters), bufferSize: 65_536)
             XCTAssertEqual(actual, output); XCTAssertEqual(counters.fallbackCount, 1)
         }
         let large = Data(repeating: 65, count: 16 * 1_048_576 + 1)
         let packed = try GyoshukuFramingTestSupport.bzip2(large, chunkSize: large.count).data
         let counters = ParallelBzip2Decompressor.Diagnostics()
-        XCTAssertEqual(try TarEditTestSupport.drain(ParallelBzip2Decompressor(source: DataByteSource(packed), workers: 2, diagnostics: counters)), large)
+        XCTAssertEqual(try drain(ParallelBzip2Decompressor(source: DataByteSource(packed), workers: 2, diagnostics: counters), bufferSize: 65_536), large)
         XCTAssertEqual(counters.fallbackCount, 1)
     }
 
@@ -59,7 +59,7 @@ final class ParallelBzip2DecompressorTests: XCTestCase {
         for stride in 1...13 {
             let bytes = part + part + part
             let source = ShortReads(bytes, stride: stride)
-            XCTAssertEqual(try TarEditTestSupport.drain(ParallelBzip2Decompressor(source: source, workers: 2)), Data(repeating: 65, count: 3 * 65_536))
+            XCTAssertEqual(try drain(ParallelBzip2Decompressor(source: source, workers: 2), bufferSize: 65_536), Data(repeating: 65, count: 3 * 65_536))
         }
     }
 

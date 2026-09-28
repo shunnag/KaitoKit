@@ -113,7 +113,7 @@ final class LHAIntegrationTests: XCTestCase {
         XCTAssertEqual(reader.entries.map(\.kind), [.symlink, .file])
         XCTAssertEqual(reader.entries[0].formatSpecific["linkPath"], "target.txt")
 
-        let output = try temporaryDirectory(label: "symlink")
+        let output = try TestFixtures.makeTemporaryDirectory(label: "symlink")
         defer { try? FileManager.default.removeItem(at: output) }
         let implicitParent = output.appendingPathComponent("links", isDirectory: true)
         let link = implicitParent.appendingPathComponent("shortcut")
@@ -156,7 +156,7 @@ final class LHAIntegrationTests: XCTestCase {
         XCTAssertEqual(reader.entries[0].kind, .symlink)
         XCTAssertEqual(reader.entries[0].formatSpecific["linkPath"], "../outside.txt")
 
-        let output = try temporaryDirectory(label: "parent-link")
+        let output = try TestFixtures.makeTemporaryDirectory(label: "parent-link")
         defer { try? FileManager.default.removeItem(at: output) }
         XCTAssertThrowsError(try reader.extract(reader.entries[0], to: output)) { error in
             guard case KaitoError.malformed = error else {
@@ -628,7 +628,7 @@ final class LHAIntegrationTests: XCTestCase {
         guard FileManager.default.fileExists(atPath: fixture.path) else {
             throw XCTSkip("KAITOKIT_BOOK_LHA is not readable")
         }
-        let temporary = try temporaryDirectory(label: "book")
+        let temporary = try TestFixtures.makeTemporaryDirectory(label: "book")
         defer { try? FileManager.default.removeItem(at: temporary) }
         let archive = temporary.appendingPathComponent("book.lzh")
         try FileManager.default.copyItem(at: fixture, to: archive)
@@ -654,10 +654,7 @@ final class LHAIntegrationTests: XCTestCase {
 
     func testOptionalLHAFixtureCorpusAgainstLhasa() throws {
         try requireLhasa()
-        let testDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        let fixtureDirectory = testDirectory
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/lha", isDirectory: true)
+        let fixtureDirectory = TestFixtures.root.appendingPathComponent("lha", isDirectory: true)
         let manager = FileManager.default
         guard manager.fileExists(atPath: fixtureDirectory.path) else {
             throw XCTSkip("Tests/Fixtures/lha is empty")
@@ -719,7 +716,7 @@ final class LHAIntegrationTests: XCTestCase {
             let decoded = try reader.read(entry)
             XCTAssertEqual(decoded.count, 18_092, fixture)
             XCTAssertEqual(
-                SHA256.hash(data: decoded).map { String(format: "%02x", $0) }.joined(),
+                decoded.sha256Hex,
                 expectedDigest,
                 fixture
             )
@@ -833,7 +830,7 @@ final class LHAIntegrationTests: XCTestCase {
     }
 
     func testCLIListIncludesLHAHeaderLevel() throws {
-        let temporary = try temporaryDirectory(label: "cli")
+        let temporary = try TestFixtures.makeTemporaryDirectory(label: "cli")
         defer { try? FileManager.default.removeItem(at: temporary) }
         let archive = temporary.appendingPathComponent("cli.lzh")
         try LHATestSupport.makeArchive(entries: [
@@ -844,9 +841,8 @@ final class LHAIntegrationTests: XCTestCase {
             ),
         ]).write(to: archive)
 
-        let output = try runKaito(
-            findKaitoExecutable(),
-            arguments: ["list", archive.path]
+        let output = try KaitoCLI.run(
+            ["list", archive.path]
         ).trimmingCharacters(in: .newlines).components(separatedBy: "\t")
         XCTAssertEqual(
             output,
@@ -883,84 +879,5 @@ final class LHAIntegrationTests: XCTestCase {
             return Data()
         }
         return data
-    }
-
-    private func temporaryDirectory(label: String) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKit-LHA-\(label)-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
-        return directory
-    }
-
-    private func runKaito(_ executable: URL, arguments: [String]) throws -> String {
-        let process = Process()
-        let standardOutput = Pipe()
-        let standardError = Pipe()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.standardOutput = standardOutput
-        process.standardError = standardError
-        try process.run()
-        process.waitUntilExit()
-
-        let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
-        let errors = standardError.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationReason == Process.TerminationReason.exit,
-              process.terminationStatus == 0 else {
-            throw TarTestSupportError.commandFailed(
-                String(decoding: errors, as: UTF8.self)
-            )
-        }
-        return String(decoding: output, as: UTF8.self)
-    }
-
-    private func findKaitoExecutable() throws -> URL {
-        let fileManager = FileManager.default
-        if let override = ProcessInfo.processInfo.environment["KAITO_EXECUTABLE"] {
-            let candidate = URL(fileURLWithPath: override)
-            if fileManager.isExecutableFile(atPath: candidate.path) {
-                return candidate
-            }
-        }
-
-        var candidates: [URL] = [
-            Bundle.main.bundleURL.deletingLastPathComponent()
-                .appendingPathComponent("kaito"),
-        ]
-        var ancestor = URL(fileURLWithPath: CommandLine.arguments[0])
-            .deletingLastPathComponent()
-        for _ in 0..<8 {
-            candidates.append(ancestor.appendingPathComponent("kaito"))
-            ancestor.deleteLastPathComponent()
-        }
-
-        let repository = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        candidates.append(repository.appendingPathComponent(".build/debug/kaito"))
-        candidates.append(repository.appendingPathComponent(".build/out/Products/Debug/kaito"))
-        for candidate in candidates where fileManager.isExecutableFile(atPath: candidate.path) {
-            return candidate
-        }
-
-        let buildDirectory = repository.appendingPathComponent(".build", isDirectory: true)
-        if let enumerator = fileManager.enumerator(
-            at: buildDirectory,
-            includingPropertiesForKeys: [.isRegularFileKey, .isExecutableKey]
-        ) {
-            for case let candidate as URL in enumerator
-                where candidate.lastPathComponent == "kaito" {
-                if fileManager.isExecutableFile(atPath: candidate.path) {
-                    return candidate
-                }
-            }
-        }
-        throw TarTestSupportError.commandFailed("built kaito executable was not found")
     }
 }

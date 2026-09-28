@@ -5,9 +5,9 @@ import XCTest
 final class SevenZipEditingSnapshotTests: XCTestCase {
     func testEveryFrozenStructureAndReopen() throws {
         let expected = try JSONDecoder().decode(SevenZipExpectedCorpus.self,
-            from: Data(contentsOf: SevenZipGolden.root.appendingPathComponent("expected-structures.json")))
+            from: Data(contentsOf: SevenZipGoldenCorpus.root.appendingPathComponent("expected-structures.json")))
         XCTAssertEqual(expected.archives.count, 33)
-        for url in try SevenZipGolden.archives() {
+        for url in try SevenZipGoldenCorpus.archives() {
             let name = url.lastPathComponent
             var options = ReaderOptions(password: "secret")
             options.recordsSevenZipEditLayout = true
@@ -75,7 +75,7 @@ final class SevenZipEditingSnapshotTests: XCTestCase {
 
     func testAccessorAndReopenDoNotReadAndOptionDoesNotChangeOpenReads() throws {
         for name in ["g_plain.7z", "g_aesh.7z", "bcj2.7z", "sfx.7z"] {
-            let bytes = try Data(contentsOf: SevenZipGolden.root.appendingPathComponent(name))
+            let bytes = try Data(contentsOf: SevenZipGoldenCorpus.root.appendingPathComponent(name))
             var counts: [UInt64] = []
             for recording in [false, true] {
                 let source = CountingByteSource(DataByteSource(bytes))
@@ -95,7 +95,7 @@ final class SevenZipEditingSnapshotTests: XCTestCase {
     }
 
     func testSplitAndNonSevenZipHaveNoSnapshot() throws {
-        let bytes = try Data(contentsOf: SevenZipGolden.root.appendingPathComponent("g_plain.7z"))
+        let bytes = try Data(contentsOf: SevenZipGoldenCorpus.root.appendingPathComponent("g_plain.7z"))
         var options = ReaderOptions()
         options.recordsSevenZipEditLayout = true
         let directory = try SevenZipTestSupport.temporaryDirectory()
@@ -155,7 +155,7 @@ final class SevenZipEditingSnapshotTests: XCTestCase {
 
     func testRecordingDoesNotChangeHeaderFailures() throws {
         for name in ["g_plain.7z", "z_default.7z", "z_aesh.7z"] {
-            let bytes = try Data(contentsOf: SevenZipGolden.root.appendingPathComponent(name))
+            let bytes = try Data(contentsOf: SevenZipGoldenCorpus.root.appendingPathComponent(name))
             var brokenStart = bytes, brokenNext = bytes
             brokenStart[12] ^= 1
             brokenNext[brokenNext.count - 1] ^= 1
@@ -179,7 +179,7 @@ final class SevenZipEditingSnapshotTests: XCTestCase {
     private func snapshot(_ name: String) throws -> SevenZipEditingSnapshot {
         var options = ReaderOptions(password: "secret")
         options.recordsSevenZipEditLayout = true
-        return try XCTUnwrap(ArchiveReader.open(url: SevenZipGolden.root.appendingPathComponent(name),
+        return try XCTUnwrap(ArchiveReader.open(url: SevenZipGoldenCorpus.root.appendingPathComponent(name),
             options: options).sevenZipEditingSnapshot())
     }
 
@@ -200,7 +200,7 @@ final class SevenZipEditingSnapshotTests: XCTestCase {
             SevenZipEditPack(range: $0.range.relative(to: expected.baseOffset), crc32: $0.crc32)
         } ?? [], name)
         for pack in expected.main?.packs ?? [] {
-            XCTAssertEqual(SevenZipGolden.sha(bytes.subdata(in: pack.range.dataRange)), pack.sha256, name)
+            XCTAssertEqual(bytes.subdata(in: pack.range.dataRange).sha256Hex, pack.sha256, name)
         }
         if let header = expected.encodedHeader {
             XCTAssertEqual(actual.header, .encoded(folders: header.editFolders,
@@ -210,7 +210,7 @@ final class SevenZipEditingSnapshotTests: XCTestCase {
             XCTAssertEqual(actual.header.isCompressed,
                 coders.contains { $0.methodIDHex != "06f10701" && $0.methodIDHex != "00" }, name)
             for pack in header.packs {
-                XCTAssertEqual(SevenZipGolden.sha(bytes.subdata(in: pack.range.dataRange)), pack.sha256, name)
+                XCTAssertEqual(bytes.subdata(in: pack.range.dataRange).sha256Hex, pack.sha256, name)
             }
         } else {
             XCTAssertEqual(actual.header, .plain, name)
@@ -302,21 +302,5 @@ private struct SevenZipExpectedStreams: Decodable {
                 return SevenZipEditSubstream(folderIndex: index, offset: offset, size: stream.size, crc32: stream.crc32)
             }
         }
-    }
-}
-
-enum SevenZipEditTestBytes {
-    static func hex(_ string: String) -> [UInt8] {
-        let bytes = Array(string.utf8)
-        return stride(from: 0, to: bytes.count, by: 2).map {
-            UInt8(String(decoding: bytes[$0..<$0 + 2], as: UTF8.self), radix: 16)!
-        }
-    }
-    static func little<T: FixedWidthInteger>(_ value: T) -> [UInt8] {
-        (0..<MemoryLayout<T>.size).map { UInt8(truncatingIfNeeded: value >> ($0 * 8)) }
-    }
-    static func archive(header: [UInt8], packed: [UInt8] = []) -> Data {
-        let start = little(UInt64(packed.count)) + little(UInt64(header.count)) + little(CRC32.checksum(header))
-        return Data([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c, 0, 4] + little(CRC32.checksum(start)) + start + packed + header)
     }
 }

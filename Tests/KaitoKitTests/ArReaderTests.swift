@@ -5,11 +5,7 @@ import XCTest
 
 final class ArReaderTests: XCTestCase {
     private typealias B = ArArchiveBuilder
-    private func fixture(_ name: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/\(name).a.b64"), encoding: .utf8)
-        return try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("container/\(name).a") }
     private func direct(_ b: B, limits: ReadLimits = ReadLimits(), recover: Bool = false) throws -> ArReader {
         try ArReader(source: DataByteSource(data: b.data), options: ReaderOptions(limits: limits, recoverDamagedArchives: recover))
     }
@@ -29,7 +25,6 @@ final class ArReaderTests: XCTestCase {
             XCTAssertEqual(category, expected, file: file, line: line)
         }
     }
-    private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     func testExistingFixtureAndSmallWriterFixturesExtractAndReopen() throws {
         let expected: [String: [String]] = [
@@ -63,8 +58,8 @@ final class ArReaderTests: XCTestCase {
             switch fixtureName {
             case "lib":
                 XCTAssertEqual(r.entries.map(\.uncompressedSize), [27, 4096])
-                XCTAssertEqual(sha(try r.read(r.entries[0])), "70bf6ca40d63eeb669f684aafbf02a896c396de1b3aab3b0efe107d66279c202")
-                XCTAssertEqual(sha(try r.read(r.entries[1])), "e05455bcbbec58463277e8874036e57bdcf8c49c792a23ce03d6baba0765271c")
+                XCTAssertEqual(try r.read(r.entries[0]).sha256Hex, "70bf6ca40d63eeb669f684aafbf02a896c396de1b3aab3b0efe107d66279c202")
+                XCTAssertEqual(try r.read(r.entries[1]).sha256Hex, "e05455bcbbec58463277e8874036e57bdcf8c49c792a23ce03d6baba0765271c")
             case "ar-names":
                 XCTAssertEqual(r.entries.map(\.uncompressedSize), [6, 3, 2, 2])
                 XCTAssertEqual(r.entries.map { $0.formatSpecific["nameForm"] }, ["bsd-extended", "bsd-extended", "plain", "plain"])
@@ -72,10 +67,10 @@ final class ArReaderTests: XCTestCase {
                 XCTAssertEqual(r.entries.map { $0.formatSpecific["headerOffset"] }, ["8", "94", "174", "236"])
             case "ar-symtab":
                 XCTAssertEqual(r.entries.map { $0.formatSpecific["headerOffset"] }, ["8", "128", "712"])
-                XCTAssertEqual(try r.entries.map { sha(try r.read($0)) }, ["c00aa5904444d2a1eaa4a1f8085722720727b5aa9beabe612db1a60d4a42c4ad", "3df65c0758b77b028fb12ed9945f456137c19465764ecdd3d9ef49a8dc9e2bbb", "aeacbdb7d373f60cc34a23c5c570ff151291aed75cdfb8a9710a8e46bcda98ca"])
+                XCTAssertEqual(try r.entries.map { try r.read($0).sha256Hex }, ["c00aa5904444d2a1eaa4a1f8085722720727b5aa9beabe612db1a60d4a42c4ad", "3df65c0758b77b028fb12ed9945f456137c19465764ecdd3d9ef49a8dc9e2bbb", "aeacbdb7d373f60cc34a23c5c570ff151291aed75cdfb8a9710a8e46bcda98ca"])
             case "ar-deb":
                 XCTAssertEqual(try r.read(r.entries[0]), Data("2.0\n".utf8))
-                XCTAssertEqual(sha(try r.read(r.entries[2])), "89a61e871bd91f64ef247ebc81b9aa055b580968582d2d7d81672db88bbdd407")
+                XCTAssertEqual(try r.read(r.entries[2]).sha256Hex, "89a61e871bd91f64ef247ebc81b9aa055b580968582d2d7d81672db88bbdd407")
                 XCTAssertEqual(try ArchiveReader.open(data: r.read(r.entries[2])).format, .gzip)
             case "ar-tailpad":
                 XCTAssertEqual(data.count, 136)
@@ -327,10 +322,10 @@ final class ArReaderTests: XCTestCase {
             XCTAssertEqual(try r.reopen().entries, r.entries)
             var digests = "", byName: [String: String] = [:]
             for entry in r.entries {
-                let bytes = try r.read(entry), hash = sha(bytes)
+                let bytes = try r.read(entry), hash = bytes.sha256Hex
                 digests += hash; byName[entry.name] = "\(bytes.count):\(hash)"
             }
-            let total = sha(Data(digests.utf8))
+            let total = Data(digests.utf8).sha256Hex
             if fixture == "test.deb" { XCTAssertTrue(total.hasPrefix("d85102e0bfb1c4efee731a")) }
             else {
                 XCTAssertEqual(total, "80d5caebef36838bf8dc8aedbb55f80b147b12d7e306013c475b06cf73f487be")
@@ -341,8 +336,8 @@ final class ArReaderTests: XCTestCase {
         let symbols = try ArchiveReader.open(url: root.appendingPathComponent("withsym.a"))
         XCTAssertEqual(symbols.entries.map(\.name), ["__.SYMDEF SORTED", "alpha.o", "beta.o"])
         XCTAssertEqual(symbols.entries.map(\.uncompressedSize), [40, 512, 512])
-        let symbolDigests = try symbols.entries.map { sha(try symbols.read($0)) }.joined()
-        let symbolTotal = sha(Data(symbolDigests.utf8))
+        let symbolDigests = try symbols.entries.map { try symbols.read($0).sha256Hex }.joined()
+        let symbolTotal = Data(symbolDigests.utf8).sha256Hex
         // XADMaster executable の black-box 出力（2026-09-09）。実装 source は不参照。
         XCTAssertEqual(symbolTotal, "a08c54571638be4ee3b5a35cac49af77a2fe3d115d5f09971a6bf7f236c67ff7")
         print("AR_ACCEPT withsym.a entries=3 sha256=\(symbolTotal)")

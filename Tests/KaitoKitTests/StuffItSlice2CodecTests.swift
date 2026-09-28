@@ -6,14 +6,13 @@ import XCTest
 final class StuffItSlice2CodecTests: XCTestCase {
     struct Vector: Decodable { let name: String; let method: Int; let input_hex: String; let expected_hex: String }
     private func vector(_ name: String) throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let data = try Data(contentsOf: root.appendingPathComponent("Fixtures/stuffit/slice2-vectors.json"))
+        let data = try Data(contentsOf: TestFixtures.url("stuffit/slice2-vectors.json"))
         let vectors = try JSONDecoder().decode([Vector].self, from: data)
         XCTAssertEqual(vectors.count, 6)
         let v = try XCTUnwrap(vectors.first { $0.name == name })
-        let expected = StuffItCodecTests.hex(v.expected_hex)
+        let expected = StuffItTestSupport.hex(v.expected_hex)
         for chunk in [1, 7, 4096] {
-            XCTAssertEqual(try StuffItCodecTests.decode(StuffItCodecTests.hex(v.input_hex), method: v.method,
+            XCTAssertEqual(try StuffItTestSupport.decode(StuffItTestSupport.hex(v.input_hex), method: v.method,
                                                        size: expected.count, chunk: chunk), expected, name)
         }
     }
@@ -46,22 +45,22 @@ final class StuffItSlice2CodecTests: XCTestCase {
         XCTAssertEqual(width, 15)
         let expected = Data([65] + Array(repeating: 66, count: 16_129))
         let reset = Self.pack(codes + [(16_385, 15), (67, 9)])
-        XCTAssertEqual(try StuffItCodecTests.decode(reset, method: 8, size: expected.count + 1), expected + [67])
-        XCTAssertThrowsError(try StuffItCodecTests.decode(Self.pack(codes + [(66, 15)]), method: 8, size: expected.count + 1)) {
+        XCTAssertEqual(try StuffItTestSupport.decode(reset, method: 8, size: expected.count + 1), expected + [67])
+        XCTAssertThrowsError(try StuffItTestSupport.decode(Self.pack(codes + [(66, 15)]), method: 8, size: expected.count + 1)) {
             guard case KaitoError.malformed = $0 else { return XCTFail("\($0)") }
         }
         for tail in [[(16_386, 15)], [(16_385, 15), (257, 9)]] {
-            XCTAssertThrowsError(try StuffItCodecTests.decode(Self.pack(codes + tail), method: 8, size: expected.count + 1)) {
+            XCTAssertThrowsError(try StuffItTestSupport.decode(Self.pack(codes + tail), method: 8, size: expected.count + 1)) {
                 XCTAssertEqual($0 as? KaitoError, .truncated)
             }
         }
-        XCTAssertThrowsError(try StuffItCodecTests.decode(Self.pack([(65, 9), (66, 9), (256, 9)]), method: 8, size: 3))
+        XCTAssertThrowsError(try StuffItTestSupport.decode(Self.pack([(65, 9), (66, 9), (256, 9)]), method: 8, size: 3))
     }
     func testInstallerPartitionAndMalformedTrees() throws {
         XCTAssertEqual(StuffItInstaller.orderedSymbols([2, 2, 2, 2]), [3, 2, 0, 1])
         let header = Data([1, 0, 0, 0, 0, 0, 1, 0, 0, 0])
         for body in [Data([0, 3]), Data(repeating: 64, count: StuffItInstaller.maximumTreeDepth + 1)] {
-            XCTAssertThrowsError(try StuffItCodecTests.decode(header + body, method: 14, size: 1)) {
+            XCTAssertThrowsError(try StuffItTestSupport.decode(header + body, method: 14, size: 1)) {
                 guard case KaitoError.malformed = $0 else { return XCTFail("\($0)") }
             }
         }
@@ -84,15 +83,15 @@ final class StuffItSlice2CodecTests: XCTestCase {
         let second = negative([128, 254, 66])
         let third = positive([0], bits: "0000010", intermediate: 2)
         for chunk in [1, 2, 4096] {
-            XCTAssertEqual(try StuffItCodecTests.decode(first + second + third, method: 6, size: 5, chunk: chunk), Data("ABBBA".utf8))
+            XCTAssertEqual(try StuffItTestSupport.decode(first + second + third, method: 6, size: 5, chunk: chunk), Data("ABBBA".utf8))
         }
-        XCTAssertEqual(try StuffItCodecTests.decode(positive([], bits: "0000010", intermediate: 2), method: 6, size: 1), Data([0]))
+        XCTAssertEqual(try StuffItTestSupport.decode(positive([], bits: "0000010", intermediate: 2), method: 6, size: 1), Data([0]))
     }
     func testMethod6RejectsExtentOperandAndEarlyStop() throws {
         for data in [Data([128, 0, 0, 0]), Data([0, 0, 0, 0]), negative([0]), negative([255]),
                      positive([0], bits: "000", intermediate: 1),
                      positive([0], bits: "111111111111", intermediate: 1)] {
-            XCTAssertThrowsError(try StuffItCodecTests.decode(data, method: 6, size: 1))
+            XCTAssertThrowsError(try StuffItTestSupport.decode(data, method: 6, size: 1))
         }
     }
     func testMethod6NonmonotonicCodeAssignments() throws {
@@ -101,13 +100,13 @@ final class StuffItSlice2CodecTests: XCTestCase {
                      (253, "11111111110"), (254, "1111111111100"), (255, "1111111111101")]
         for (symbol, word) in words {
             let block = positive(Array(0...255), bits: "000" + word, intermediate: 2)
-            XCTAssertEqual(try StuffItCodecTests.decode(block, method: 6, size: 1), Data([UInt8(symbol)]))
+            XCTAssertEqual(try StuffItTestSupport.decode(block, method: 6, size: 1), Data([UInt8(symbol)]))
         }
     }
     func testNewCodecLimitsAndTruncation() throws {
         for method in [5, 6, 8, 14] {
-            XCTAssertThrowsError(try StuffItCodecTests.decode(Data(), method: method, size: 1))
-            XCTAssertThrowsError(try StuffItCodecTests.decode(Data(repeating: 0, count: 20), method: method,
+            XCTAssertThrowsError(try StuffItTestSupport.decode(Data(), method: method, size: 1))
+            XCTAssertThrowsError(try StuffItTestSupport.decode(Data(repeating: 0, count: 20), method: method,
                                                              size: 1, limits: ReadLimits(maxDictionarySize: 1))) {
                 guard case KaitoError.limitExceeded = $0 else { return XCTFail("\($0)") }
             }

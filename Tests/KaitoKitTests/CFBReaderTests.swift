@@ -83,11 +83,10 @@ final class CFBReaderTests: XCTestCase {
         XCTAssertEqual(try reader.read(entry).prefix(banner.count), banner)
     }
 
-    private static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     private struct Payload: Decodable { let size: UInt64; let sha256: String }
     private struct Archive: Decodable { let size: UInt64; let sha256: String; let files: [String] }
     private static func manifest() throws -> (payload: [String: Payload], archives: [String: Archive]) {
-        let data = try Data(contentsOf: root.appendingPathComponent("Fixtures/cfb/manifest.json"))
+        let data = try Data(contentsOf: TestFixtures.url("cfb/manifest.json"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         var payload: [String: Payload] = [:], archives: [String: Archive] = [:]
         for (key, value) in object {
@@ -97,12 +96,7 @@ final class CFBReaderTests: XCTestCase {
         }
         return (payload, archives)
     }
-    private static func fixture(_ name: String) throws -> Data {
-        let base64 = try String(contentsOf: root.appendingPathComponent("Fixtures/cfb/\(name).gz.b64"), encoding: .utf8)
-        let gzip = try ArchiveReader.open(data: XCTUnwrap(Data(base64Encoded: base64, options: .ignoreUnknownCharacters)))
-        return try gzip.read(gzip.entries[0])
-    }
-    private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
+    private static func fixture(_ name: String) throws -> Data { try TestFixtures.gzipBase64("cfb/\(name)") }
     /// 7-Zip と同じ綴り: 制御文字は `[n]`。
     private static func published(_ path: String) -> String {
         path.split(separator: "/", omittingEmptySubsequences: false).map { CFBReader.publishedName(String($0)) }.joined(separator: "/")
@@ -112,7 +106,7 @@ final class CFBReaderTests: XCTestCase {
         let manifest = try Self.manifest()
         for name in ["v3.cfb", "v3-interleaved.cfb", "v4.cfb", "v3-difat.cfb", "msi-names.cfb"] {
             let bytes = try Self.fixture(name)
-            XCTAssertEqual(sha(bytes), manifest.archives[name]?.sha256, name)
+            XCTAssertEqual(bytes.sha256Hex, manifest.archives[name]?.sha256, name)
             XCTAssertEqual(try FormatDetector.detect(data: bytes), .compoundFile, name)
             let reader = try ArchiveReader.open(data: bytes)
             XCTAssertEqual(reader.format, .compoundFile, name)
@@ -128,7 +122,7 @@ final class CFBReaderTests: XCTestCase {
                 let want = try XCTUnwrap(manifest.payload[original])
                 XCTAssertEqual(entry.uncompressedSize, want.size, "\(name): \(entry.name)")
                 XCTAssertEqual(entry.methodDescription, "stored", entry.name)
-                XCTAssertEqual(sha(try reader.read(entry)), want.sha256, "\(name): \(entry.name)")
+                XCTAssertEqual(try reader.read(entry).sha256Hex, want.sha256, "\(name): \(entry.name)")
             }
             if name == "msi-names.cfb" {
                 // 詰め込み名は 7-Zip と同じ綴りに戻り、元の UTF-16 名は storedName に残る。
@@ -152,7 +146,7 @@ final class CFBReaderTests: XCTestCase {
                 if count == 0 { break }
                 result.append(contentsOf: buffer.prefix(count))
             }
-            XCTAssertEqual(sha(result), manifest.payload["large-a.bin"]?.sha256, name)
+            XCTAssertEqual(result.sha256Hex, manifest.payload["large-a.bin"]?.sha256, name)
             let reopened = try reader.reopen()
             XCTAssertEqual(reopened.entries, reader.entries, name)
             XCTAssertEqual(try reopened.read(reopened.entries[3]), try reader.read(reader.entries[3]), name)
@@ -160,7 +154,7 @@ final class CFBReaderTests: XCTestCase {
         // 1 byte ずつ返す source（sector をまたぐ読み取り）。
         let short = try ArchiveReader.open(source: ShortSource(try Self.fixture("v3-interleaved.cfb")))
         let large = try XCTUnwrap(short.entries.first { $0.name == "large-b.txt" })
-        XCTAssertEqual(sha(try short.read(large)), manifest.payload["large-b.txt"]?.sha256)
+        XCTAssertEqual(try short.read(large).sha256Hex, manifest.payload["large-b.txt"]?.sha256)
     }
 
     func testPublishedNamesEscapeControlCharactersAndSlashes() {

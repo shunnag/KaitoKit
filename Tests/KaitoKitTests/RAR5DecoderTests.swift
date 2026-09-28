@@ -599,23 +599,9 @@ final class RAR5DecoderTests: XCTestCase {
         )
     }
 
+    /// 終わらない decoder で止まらないよう、読む回数に上限を置く。
     private func drain(_ decoder: any Decompressor, bufferSize: Int) throws -> Data {
-        precondition(bufferSize > 0)
-        var result = Data()
-        var buffer = [UInt8](repeating: 0, count: bufferSize)
-        var iterations = 0
-        while !decoder.isFinished {
-            let count = try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }
-            guard count > 0 || decoder.isFinished else {
-                throw KaitoError.malformed("RAR5 test decoder made no progress")
-            }
-            result.append(contentsOf: buffer.prefix(count))
-            iterations += 1
-            guard iterations <= 1_000_000 else {
-                throw KaitoError.malformed("RAR5 test decoder did not terminate")
-            }
-        }
-        return result
+        try KaitoKitTests.drain(decoder, bufferSize: bufferSize, maxReads: 1_000_000)
     }
 
     private func makeLiteralBlock(

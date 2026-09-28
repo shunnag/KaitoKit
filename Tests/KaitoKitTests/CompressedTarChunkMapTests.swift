@@ -56,7 +56,7 @@ final class CompressedTarChunkMapTests: XCTestCase {
             let recorder = CompressedTarMapRecorder(format: format, maximumChunks: stops == 3 ? 1000 : 0, gzipStopLimit: stops == 3 ? 3 : 1_048_576)
             let single = try SingleFileReader(source: source, format: format, options: ReaderOptions(), fallbackFileName: "test")
             let staged = try SingleFileMaterializer.materialize(single.stagingStream(limits: ReadLimits(), recorder: recorder), limits: ReadLimits())
-            let original = try TarEditTestSupport.drain(SingleFileReader.makeDecompressor(format: format, source: source, limits: ReadLimits()))
+            let original = try drain(SingleFileReader.makeDecompressor(format: format, source: source, limits: ReadLimits()), bufferSize: 65_536)
             XCTAssertEqual(try TarEditTestSupport.bytes(staged), original)
             XCTAssertEqual(recorder.finish(imageLength: staged.length, archiveLength: source.length).reason, .tooManyChunks, name)
         }

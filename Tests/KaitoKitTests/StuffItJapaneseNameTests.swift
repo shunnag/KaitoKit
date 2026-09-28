@@ -4,8 +4,7 @@ import XCTest
 
 final class StuffItJapaneseNameTests: XCTestCase {
     func testJapaneseFixturesResolveEveryEntryNameAndPath() throws {
-        let fixtureRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Fixtures/stuffit")
+        let fixtureRoot = TestFixtures.url("stuffit")
         for fixture in ["jp-sjis.sit", "jp-macjp.sit", "jp-euc.sit"] {
             let reader = try ArchiveReader.open(url: fixtureRoot.appendingPathComponent(fixture))
             let euc = fixture == "jp-euc.sit"

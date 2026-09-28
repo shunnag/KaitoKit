@@ -22,10 +22,9 @@ final class RAR5RecoveryTests: XCTestCase {
 
     private func digest(_ payloads: [Data]) -> String {
         let concatenated = payloads.map {
-            SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined()
+            $0.sha256Hex
         }.joined()
-        return SHA256.hash(data: Data(concatenated.utf8))
-            .map { String(format: "%02x", $0) }.joined()
+        return Data(concatenated.utf8).sha256Hex
     }
 
     func testIntactFixtureIsIdenticalWithRecoveryOnAndOff() throws {

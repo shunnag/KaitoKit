@@ -141,35 +141,15 @@ struct ZipCommandResult {
 }
 
 enum ZipTestSupport {
-    static func checkedInFixture(_ relativePath: String) throws -> Data {
-        let url = repositoryRoot.appendingPathComponent("Tests/Fixtures/\(relativePath).b64")
-        let encoded = try String(contentsOf: url, encoding: .utf8)
-        return try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters))
-    }
+    static func checkedInFixture(_ relativePath: String) throws -> Data { try TestFixtures.base64(relativePath) }
 
     static let infoZipPath = "/usr/bin/zip"
     static let unzipPath = "/usr/bin/unzip"
     static let bsdTarPath = "/usr/bin/bsdtar"
-    static let sevenZipPath = resolveExecutablePath(
-        environmentVariable: "KAITO_7ZZ",
-        executableName: "7zz",
-        fallbackPaths: ["/opt/homebrew/bin/7zz", "/usr/local/bin/7zz"]
-    )
-    static let xzPath = resolveExecutablePath(
-        environmentVariable: "KAITO_XZ",
-        executableName: "xz",
-        fallbackPaths: ["/opt/homebrew/bin/xz", "/usr/local/bin/xz"]
-    )
-    static let brotliPath = resolveExecutablePath(
-        environmentVariable: "KAITO_BROTLI",
-        executableName: "brotli",
-        fallbackPaths: ["/opt/homebrew/bin/brotli", "/usr/local/bin/brotli"]
-    )
-    static let zstdPath = resolveExecutablePath(
-        environmentVariable: "KAITO_ZSTD",
-        executableName: "zstd",
-        fallbackPaths: ["/opt/homebrew/bin/zstd", "/usr/local/bin/zstd"]
-    )
+    static let sevenZipPath = ExternalTool.sevenZip.path
+    static let xzPath = ExternalTool.xz.path
+    static let brotliPath = ExternalTool.brotli.path
+    static let zstdPath = ExternalTool.zstd.path
     static let pythonPath = "/usr/bin/python3"
 
     static func makePEPrefix(count: Int, fill: UInt8 = 0x90) -> Data {
@@ -185,33 +165,6 @@ enum ZipTestSupport {
         return Data(bytes)
     }
 
-    private static func resolveExecutablePath(
-        environmentVariable: String,
-        executableName: String,
-        fallbackPaths: [String]
-    ) -> String {
-        let environment = ProcessInfo.processInfo.environment
-        if let configured = environment[environmentVariable], !configured.isEmpty {
-            return configured
-        }
-        if let path = environment["PATH"] {
-            for directory in path.split(separator: ":", omittingEmptySubsequences: true) {
-                let candidate = URL(fileURLWithPath: String(directory), isDirectory: true)
-                    .appendingPathComponent(executableName)
-                    .path
-                if FileManager.default.isExecutableFile(atPath: candidate) {
-                    return candidate
-                }
-            }
-        }
-        for fallbackPath in fallbackPaths
-            where FileManager.default.isExecutableFile(atPath: fallbackPath)
-        {
-            return fallbackPath
-        }
-        return fallbackPaths[0]
-    }
-
     static func environmentFlagIsEnabled(_ name: String) -> Bool {
         guard let value = ProcessInfo.processInfo.environment[name]?.lowercased() else {
             return false
@@ -224,27 +177,14 @@ enum ZipTestSupport {
         }
     }
 
-    static var repositoryRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-    }
+    static var repositoryRoot: URL { TestFixtures.repositoryRoot }
 
     static var cp932FixtureScript: URL {
         repositoryRoot.appendingPathComponent("Scripts/fixtures/make-cp932-zip.py")
     }
 
     static func temporaryDirectory(label: String = "zip") throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKitTests-\(label)-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
-        return directory
+        try TestFixtures.makeTemporaryDirectory(label: label)
     }
 
     @discardableResult
@@ -262,31 +202,13 @@ enum ZipTestSupport {
         return destination
     }
 
+    /// 実行できなければ skip する。`path` が `KAITO_REQUIRE_*` を持つ道具の場所で、その変数が立っていれば失敗にする。
     static func requireExecutable(_ path: String, reason: String? = nil) throws {
-        guard FileManager.default.isExecutableFile(atPath: path) else {
-            let requiredEnvironmentVariable: String?
-            if path == sevenZipPath {
-                requiredEnvironmentVariable = "KAITO_REQUIRE_7ZZ"
-            } else if path == xzPath {
-                requiredEnvironmentVariable = "KAITO_REQUIRE_XZ"
-            } else if path == brotliPath {
-                requiredEnvironmentVariable = "KAITO_REQUIRE_BROTLI"
-            } else if path == zstdPath {
-                requiredEnvironmentVariable = "KAITO_REQUIRE_ZSTD"
-            } else {
-                requiredEnvironmentVariable = nil
-            }
-            let message = reason ?? "required fixture tool is unavailable: \(path)"
-            if let requiredEnvironmentVariable,
-               environmentFlagIsEnabled(requiredEnvironmentVariable)
-            {
-                throw ZipTestSupportError.fixture(
-                    "required external oracle is unavailable at \(path) "
-                        + "(\(requiredEnvironmentVariable)=1)"
-                )
-            }
-            throw XCTSkip(message)
-        }
+        try ExternalTool.requireExecutable(
+            path,
+            requireVariable: ExternalTool.allCases.first { $0.path == path }?.requireVariable,
+            reason: reason
+        )
     }
 
     @discardableResult
@@ -911,20 +833,15 @@ enum ZipTestSupport {
     }
 
     static func appendUInt16(_ value: UInt16, to data: inout Data) {
-        data.append(UInt8(truncatingIfNeeded: value))
-        data.append(UInt8(truncatingIfNeeded: value >> 8))
+        data.appendLittleEndian(value)
     }
 
     static func appendUInt32(_ value: UInt32, to data: inout Data) {
-        for shift in stride(from: 0, to: 32, by: 8) {
-            data.append(UInt8(truncatingIfNeeded: value >> UInt32(shift)))
-        }
+        data.appendLittleEndian(value)
     }
 
     static func appendUInt64(_ value: UInt64, to data: inout Data) {
-        for shift in stride(from: 0, to: 64, by: 8) {
-            data.append(UInt8(truncatingIfNeeded: value >> UInt64(shift)))
-        }
+        data.appendLittleEndian(value)
     }
 
     private static func replace(_ bytes: [UInt8], in data: inout Data, at offset: Int) throws {

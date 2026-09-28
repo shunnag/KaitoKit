@@ -55,14 +55,7 @@ final class RAR4HeaderEncryptionTests: XCTestCase {
     }
 
     private static func fixture() throws -> Data {
-        let url = ZipTestSupport.repositoryRoot
-            .appendingPathComponent(
-                "Tests/Fixtures/rar4/libarchive_encrypted_headers.rar.b64"
-            )
-        let encoded = try String(contentsOf: url, encoding: .utf8)
-        return try XCTUnwrap(
-            Data(base64Encoded: encoded, options: .ignoreUnknownCharacters)
-        )
+        try TestFixtures.base64("rar4/libarchive_encrypted_headers.rar")
     }
 }
 

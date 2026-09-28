@@ -245,12 +245,7 @@ final class FormatDetectorM5Tests: XCTestCase {
     }
 
     func testURLDetectionUsesSFXAndExtensionHints() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-FormatDetector-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "FormatDetector")
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let sfxURL = directory.appendingPathComponent("reader.exe")

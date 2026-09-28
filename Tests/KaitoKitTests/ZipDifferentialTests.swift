@@ -31,8 +31,8 @@ final class ZipDifferentialTests: XCTestCase {
             ZipTestSupport.unzipPath,
             arguments: ["-p", archive.path]
         ).standardOutput
-        XCTAssertEqual(sha256(try reader.read(entry)), sha256(oracle))
-        XCTAssertEqual(sha256(oracle), sha256(payload))
+        XCTAssertEqual(try reader.read(entry).sha256Hex, oracle.sha256Hex)
+        XCTAssertEqual(oracle.sha256Hex, payload.sha256Hex)
     }
 
     func testHandBuiltDescriptorAndSFXFixturesMatchUnzipBySHA256() throws {
@@ -221,8 +221,8 @@ final class ZipDifferentialTests: XCTestCase {
             entryName: "encrypted.bin",
             password: "fixed-password"
         )
-        XCTAssertEqual(sha256(kaitoData), sha256(oracleData))
-        XCTAssertEqual(sha256(kaitoData), sha256(payload))
+        XCTAssertEqual(kaitoData.sha256Hex, oracleData.sha256Hex)
+        XCTAssertEqual(kaitoData.sha256Hex, payload.sha256Hex)
     }
 
     func testBSDTarZipMatchesUnzipBySHA256ForEveryUniqueFile() throws {
@@ -255,8 +255,8 @@ final class ZipDifferentialTests: XCTestCase {
                 archiveURL: archive,
                 entryName: name
             )
-            XCTAssertEqual(sha256(kaitoData), sha256(oracleData), name)
-            XCTAssertEqual(sha256(kaitoData), sha256(expected), name)
+            XCTAssertEqual(kaitoData.sha256Hex, oracleData.sha256Hex, name)
+            XCTAssertEqual(kaitoData.sha256Hex, expected.sha256Hex, name)
         }
     }
 
@@ -331,8 +331,8 @@ final class ZipDifferentialTests: XCTestCase {
             entryName: "encrypted.bin",
             password: "fixed-password"
         )
-        XCTAssertEqual(sha256(kaitoData), sha256(oracleData))
-        XCTAssertEqual(sha256(kaitoData), sha256(payload))
+        XCTAssertEqual(kaitoData.sha256Hex, oracleData.sha256Hex)
+        XCTAssertEqual(kaitoData.sha256Hex, payload.sha256Hex)
     }
 
     private func assertDifferential(
@@ -351,8 +351,8 @@ final class ZipDifferentialTests: XCTestCase {
         XCTAssertEqual(entry.methodDescription, expectedMethod, file: file, line: line)
         let kaitoData = try reader.read(entry)
         let oracleData = try oracle()
-        XCTAssertEqual(sha256(kaitoData), sha256(oracleData), file: file, line: line)
-        XCTAssertEqual(sha256(kaitoData), sha256(expected), file: file, line: line)
+        XCTAssertEqual(kaitoData.sha256Hex, oracleData.sha256Hex, file: file, line: line)
+        XCTAssertEqual(kaitoData.sha256Hex, expected.sha256Hex, file: file, line: line)
     }
 
     private func unzipSFXData(archiveURL: URL, entryName: String) throws -> Data {
@@ -389,9 +389,6 @@ final class ZipDifferentialTests: XCTestCase {
         return result.standardOutput
     }
 
-    private func sha256(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 
     private func makeCompressiblePayload() -> Data {
         var data = Data()

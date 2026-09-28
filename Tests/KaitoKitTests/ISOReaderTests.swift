@@ -8,13 +8,7 @@ final class ISOReaderTests: XCTestCase {
     private func open(_ builder: B, limits: ReadLimits = ReadLimits()) throws -> ArchiveReader {
         try ArchiveReader.open(data: builder.data, options: ReaderOptions(limits: limits))
     }
-    private func fixture(_ name: String) throws -> Data {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/iso/\(name).iso.gz.b64")
-        let base64 = try String(contentsOf: url, encoding: .utf8)
-        let gzip = try ArchiveReader.open(data: XCTUnwrap(Data(base64Encoded: base64, options: .ignoreUnknownCharacters)))
-        return try gzip.read(gzip.entries[0])
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.gzipBase64("iso/\(name).iso") }
     private func assertError(_ expected: String, _ operation: () throws -> Void, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertThrowsError(try operation(), file: file, line: line) { error in
             let category: String

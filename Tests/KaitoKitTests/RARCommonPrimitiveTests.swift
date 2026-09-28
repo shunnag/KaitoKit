@@ -7,11 +7,11 @@ final class RARCommonPrimitiveTests: XCTestCase {
     func testBlake2sRFC7693VectorsAndIncrementalUpdates() throws {
         XCTAssertEqual(
             Blake2s.checksum(Data()),
-            try hex("69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9")
+            try Hex.data("69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9")
         )
         XCTAssertEqual(
             Blake2s.checksum(Data("abc".utf8)),
-            try hex("508c5e8c327c14e2e1a72ba34eeb452f37458b209ed63a294d999b4c86675982")
+            try Hex.data("508c5e8c327c14e2e1a72ba34eeb452f37458b209ed63a294d999b4c86675982")
         )
 
         let input = Data((0..<257).map { UInt8(truncatingIfNeeded: $0) })
@@ -27,16 +27,16 @@ final class RARCommonPrimitiveTests: XCTestCase {
     func testBlake2spReferenceVectorsAcrossStripeBoundaries() throws {
         XCTAssertEqual(
             Blake2sp.checksum(Data()),
-            try hex("dd0e891776933f43c7d032b08a917e25741f8aa9a12c12e1cac8801500f2ca4f")
+            try Hex.data("dd0e891776933f43c7d032b08a917e25741f8aa9a12c12e1cac8801500f2ca4f")
         )
         XCTAssertEqual(
             Blake2sp.checksum(Data("abc".utf8)),
-            try hex("70f75b58f1fecab821db43c88ad84edde5a52600616cd22517b7bb14d440a7d5")
+            try Hex.data("70f75b58f1fecab821db43c88ad84edde5a52600616cd22517b7bb14d440a7d5")
         )
 
         let stripe = (0..<256).map { UInt8($0) }
         let oneKiB = Data((0..<4).flatMap { _ in stripe })
-        let expectedOneKiB = try hex(
+        let expectedOneKiB = try Hex.data(
             "c9f79171d19c3703b7ebf9f762ce3fd24b302e2281f72da31a65014ff923c859"
         )
         XCTAssertEqual(Blake2sp.checksum(oneKiB), expectedOneKiB)
@@ -59,7 +59,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
         longBytes.append(contentsOf: [0x78, 0x79, 0x7A])
         XCTAssertEqual(
             Blake2sp.checksum(Data(longBytes)),
-            try hex("9e36ccaf54c42fdabe5e5e9fdfaa492b8b86a622f4cdd69e33bdc20bde217725")
+            try Hex.data("9e36ccaf54c42fdabe5e5e9fdfaa492b8b86a622f4cdd69e33bdc20bde217725")
         )
     }
 
@@ -70,17 +70,17 @@ final class RARCommonPrimitiveTests: XCTestCase {
         )
         let keys = try RAR3KeyDerivation.derive(
             password: "password",
-            salt: Array(try hex("0001020304050607"))
+            salt: Array(try Hex.data("0001020304050607"))
         )
-        XCTAssertEqual(keys.key, try hex("20f3fb49c2976b56cf873c55fbf242ed"))
+        XCTAssertEqual(keys.key, try Hex.data("20f3fb49c2976b56cf873c55fbf242ed"))
         XCTAssertEqual(
             keys.initializationVector,
-            try hex("04c8774671e283d90519dca70a85fb65")
+            try Hex.data("04c8774671e283d90519dca70a85fb65")
         )
 
         let cache = RAR3KeyCache(capacity: 1)
         XCTAssertEqual(
-            try cache.key(password: "password", salt: Array(try hex("0001020304050607"))),
+            try cache.key(password: "password", salt: Array(try Hex.data("0001020304050607"))),
             keys
         )
         XCTAssertThrowsError(
@@ -96,20 +96,20 @@ final class RARCommonPrimitiveTests: XCTestCase {
     func testRAR5KeyDerivationMatchesRAR723ArchiveVector() throws {
         let keys = try RAR5KeyDerivation.derive(
             password: "secret",
-            salt: Array(try hex("ead583e148dc040e9fcc14b20a9a3bf4")),
+            salt: Array(try Hex.data("ead583e148dc040e9fcc14b20a9a3bf4")),
             count: 15
         )
         XCTAssertEqual(
             keys.encryptionKey,
-            try hex("a3371b10fcd0e963a8459ee0423e6de76bb8f7ba2e972fa8133f6ade13e3702d")
+            try Hex.data("a3371b10fcd0e963a8459ee0423e6de76bb8f7ba2e972fa8133f6ade13e3702d")
         )
         XCTAssertEqual(
             keys.hashKey,
-            try hex("3348351def9ddd77c248433860913dfaa016ac5d7ac6b429e2ef907bcd45bb2c")
+            try Hex.data("3348351def9ddd77c248433860913dfaa016ac5d7ac6b429e2ef907bcd45bb2c")
         )
         XCTAssertEqual(
             keys.passwordCheckValue,
-            try hex("adc29773483c99c8323aa356")
+            try Hex.data("adc29773483c99c8323aa356")
         )
         XCTAssertTrue(
             try keys.verify(passwordCheckValue: Array(keys.passwordCheckValue))
@@ -121,7 +121,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
         )
         let wrongKeys = try RAR5KeyDerivation.derive(
             password: "wrong",
-            salt: Array(try hex("ead583e148dc040e9fcc14b20a9a3bf4")),
+            salt: Array(try Hex.data("ead583e148dc040e9fcc14b20a9a3bf4")),
             count: 15
         )
         XCTAssertThrowsError(
@@ -134,7 +134,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
         XCTAssertEqual(
             try cache.key(
                 password: "secret",
-                salt: Array(try hex("ead583e148dc040e9fcc14b20a9a3bf4")),
+                salt: Array(try Hex.data("ead583e148dc040e9fcc14b20a9a3bf4")),
                 count: 15
             ),
             keys
@@ -149,15 +149,15 @@ final class RARCommonPrimitiveTests: XCTestCase {
         )
         XCTAssertEqual(
             countZero.encryptionKey,
-            try hex("c6b7413bebb763bda962e5d94e24327e07d4daa9e97c14ea4126ba4b7ccb0d16")
+            try Hex.data("c6b7413bebb763bda962e5d94e24327e07d4daa9e97c14ea4126ba4b7ccb0d16")
         )
         XCTAssertEqual(
             countZero.hashKey,
-            try hex("33733b599b86375aff1856e5bde19410cd7529f478c0ae44540f1c4382cd9a14")
+            try Hex.data("33733b599b86375aff1856e5bde19410cd7529f478c0ae44540f1c4382cd9a14")
         )
         XCTAssertEqual(
             countZero.passwordCheckValue,
-            try hex("18800c2685e30021928c26db")
+            try Hex.data("18800c2685e30021928c26db")
         )
 
         XCTAssertThrowsError(
@@ -181,29 +181,29 @@ final class RARCommonPrimitiveTests: XCTestCase {
             )
         }
 
-        let hashKey = try hex(
+        let hashKey = try Hex.data(
             "3348351def9ddd77c248433860913dfaa016ac5d7ac6b429e2ef907bcd45bb2c"
         )
         XCTAssertEqual(RAR5ChecksumMAC.crc32(0x1234_5678, hashKey: hashKey), 0xD9DF_1CF4)
-        let digest = try hex(
+        let digest = try Hex.data(
             "9e36ccaf54c42fdabe5e5e9fdfaa492b8b86a622f4cdd69e33bdc20bde217725"
         )
         XCTAssertEqual(
             try RAR5ChecksumMAC.blake2sp(digest, hashKey: hashKey),
-            try hex("47d6c8d192d5479dea8246244d3490e8bcc69aed7e823e7156c518a5f1333dbe")
+            try Hex.data("47d6c8d192d5479dea8246244d3490e8bcc69aed7e823e7156c518a5f1333dbe")
         )
     }
 
     func testRARAESCBCByteSourceMatchesNISTAndSupportsUnalignedReads() throws {
-        let key = try hex("2b7e151628aed2a6abf7158809cf4f3c")
-        let iv = try hex("000102030405060708090a0b0c0d0e0f")
-        let plaintext = try hex(
+        let key = try Hex.data("2b7e151628aed2a6abf7158809cf4f3c")
+        let iv = try Hex.data("000102030405060708090a0b0c0d0e0f")
+        let plaintext = try Hex.data(
             "6bc1bee22e409f96e93d7e117393172a" +
                 "ae2d8a571e03ac9c9eb76fac45af8e51" +
                 "30c81c46a35ce411e5fbc1191a0a52ef" +
                 "f69f2445df4f9b17ad2b417be66c3710"
         )
-        let ciphertext = try hex(
+        let ciphertext = try Hex.data(
             "7649abac8119b246cee98e9b12e9197d" +
                 "5086cb9b507219ee95db113a917678b2" +
                 "73bed6b8e3c1743b7116e69e22229516" +
@@ -237,7 +237,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
             0
         )
 
-        let aes256Ciphertext = try hex(
+        let aes256Ciphertext = try Hex.data(
             "f58c4c04d6e5f1ba779eabfb5f7bfbd6" +
                 "9cfc4e967edb808d679f777bc6702c7d" +
                 "39f23369a9d9bacfa530e26304231461" +
@@ -248,7 +248,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
             ciphertextOffset: 0,
             ciphertextSize: UInt64(aes256Ciphertext.count),
             plaintextSize: UInt64(plaintext.count),
-            key: try hex(
+            key: try Hex.data(
                 "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4"
             ),
             initializationVector: iv
@@ -451,9 +451,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
     }
 
     func testRARVolumeLocatorNamesAndValidatesRAR5Numbers() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-RARVolume-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "RARVolume")
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let rar4Signature = Data([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00])
@@ -503,14 +501,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
     }
 
     func testRARVolumeLocatorPreservesPartMarkerAndExtensionSpelling() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKit-RARVolumeCase-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "RARVolumeCase")
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let rar4Signature = Data([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00])
@@ -549,9 +540,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
     }
 
     func testRAR5VolumeLocatorBoundsMainHeaderBeforeAllocating() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-RARVolumeHeader-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "RARVolumeHeader")
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let ordinary = directory.appendingPathComponent("ordinary.part1.rar")
@@ -593,9 +582,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
     }
 
     func testRARVolumeLocatorRejectsFIFOAndSymlinkSiblings() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-RARVolumeKinds-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "RARVolumeKinds")
         defer { try? FileManager.default.removeItem(at: directory) }
         let first = directory.appendingPathComponent("kind.part1.rar")
         let second = directory.appendingPathComponent("kind.part2.rar")
@@ -646,8 +633,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
     }
 
     func testRARVolumeLocatorUsesDirectoryCapturedBeforeFirstSourceOpen() throws {
-        let parent = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-RARVolumeSwap-\(UUID().uuidString)")
+        let parent = try TestFixtures.makeTemporaryDirectory(label: "RARVolumeSwap")
         let active = parent.appendingPathComponent("active", isDirectory: true)
         let moved = parent.appendingPathComponent("moved", isDirectory: true)
         try FileManager.default.createDirectory(at: active, withIntermediateDirectories: true)
@@ -677,8 +663,7 @@ final class RARCommonPrimitiveTests: XCTestCase {
     }
 
     func testRARVolumeLocatorRetainsItsOpenedDirectory() throws {
-        let parent = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KaitoKit-RARVolumeAnchor-\(UUID().uuidString)")
+        let parent = try TestFixtures.makeTemporaryDirectory(label: "RARVolumeAnchor")
         let active = parent.appendingPathComponent("active", isDirectory: true)
         let moved = parent.appendingPathComponent("moved", isDirectory: true)
         try FileManager.default.createDirectory(at: active, withIntermediateDirectories: true)
@@ -712,24 +697,6 @@ final class RARCommonPrimitiveTests: XCTestCase {
         result.append(UInt8(truncatingIfNeeded: checksum >> 24))
         result.append(contentsOf: sizeField)
         result.append(contentsOf: body)
-        return result
-    }
-
-    private func hex(_ text: String) throws -> Data {
-        guard text.count.isMultiple(of: 2) else {
-            throw KaitoError.malformed("invalid test hex")
-        }
-        var result = Data()
-        result.reserveCapacity(text.count / 2)
-        var index = text.startIndex
-        while index < text.endIndex {
-            guard let end = text.index(index, offsetBy: 2, limitedBy: text.endIndex),
-                  let byte = UInt8(text[index..<end], radix: 16) else {
-                throw KaitoError.malformed("invalid test hex")
-            }
-            result.append(byte)
-            index = end
-        }
         return result
     }
 }

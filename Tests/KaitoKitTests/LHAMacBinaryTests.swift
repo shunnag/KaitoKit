@@ -277,7 +277,7 @@ final class LHAMacBinaryTests: XCTestCase {
             let entry = try XCTUnwrap(reader.entries.first, filename)
             let decoded = try reader.read(entry)
             XCTAssertEqual(decoded.count, expectedSize, filename)
-            XCTAssertEqual(sha256(decoded), expectedDigest, filename)
+            XCTAssertEqual(decoded.sha256Hex, expectedDigest, filename)
         }
     }
 
@@ -303,7 +303,7 @@ final class LHAMacBinaryTests: XCTestCase {
             let decoded = try reader.read(try XCTUnwrap(reader.entries.first))
             XCTAssertEqual(decoded.count, 18_092, filename)
             XCTAssertEqual(
-                sha256(decoded),
+                decoded.sha256Hex,
                 "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
                 filename
             )
@@ -319,7 +319,7 @@ final class LHAMacBinaryTests: XCTestCase {
 
         XCTAssertEqual(decoded.count, 7_040)
         XCTAssertEqual(
-            sha256(decoded),
+            decoded.sha256Hex,
             "c3ccce5d607be6bcc09ffe0146069c8d8b4d72bd3d2d9ef788e6d855331b1df9"
         )
     }
@@ -341,9 +341,6 @@ final class LHAMacBinaryTests: XCTestCase {
         return corpusDirectory
     }
 
-    private func sha256(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 
     private func makeMacBinary(
         name: String,

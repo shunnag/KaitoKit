@@ -5,11 +5,8 @@ import Foundation
 import XCTest
 
 final class StuffItXFixtureTests: XCTestCase {
-    private let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("Fixtures/stuffit")
-    private func fixture(_ name: String) throws -> Data {
-        try XCTUnwrap(Data(base64Encoded: Data(contentsOf: root.appendingPathComponent(name + ".b64")), options: .ignoreUnknownCharacters))
-    }
+    private let root = TestFixtures.url("stuffit")
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("stuffit/" + name) }
     func testTenHistoricalFixturesAndCatalogs() throws {
         struct Item: Decodable { let file: String; let size: Int; let sha256: String }
         let manifest = try JSONDecoder().decode([Item].self, from: Data(contentsOf: root.appendingPathComponent("slice3-manifest.json")))
@@ -17,7 +14,7 @@ final class StuffItXFixtureTests: XCTestCase {
         for item in manifest {
             let data = try fixture(item.file)
             XCTAssertEqual(data.count, item.size); XCTAssertLessThanOrEqual(data.count, 40 * 1024)
-            XCTAssertEqual(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), item.sha256)
+            XCTAssertEqual(data.sha256Hex, item.sha256)
             XCTAssertEqual(try FormatDetector.detect(data: data), .stuffItX)
             if item.file.contains("recoverability") {
                 XCTAssertThrowsError(try ArchiveReader.open(data: data)) {
@@ -48,7 +45,7 @@ final class StuffItXFixtureTests: XCTestCase {
                 }
                 let bytes = try StuffItXCodecTests.collect(coordinator.stream(offset: 0, length: stream.output), chunk: 7)
                 XCTAssertEqual(UInt64(bytes.count), stream.output)
-                XCTAssertEqual(SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(), stream.sha256)
+                XCTAssertEqual(bytes.sha256Hex, stream.sha256)
                 matches += 1
             }
         }

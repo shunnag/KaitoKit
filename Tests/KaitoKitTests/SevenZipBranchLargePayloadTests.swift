@@ -13,8 +13,8 @@ final class SevenZipBranchLargePayloadTests: XCTestCase {
         // 乱数 payload の offset 453,175 にあった E8 候補。元の変位 0x00FE37FB に ip を足すと
         // 2^24 をまたぎ、7zz は上位 byte を 0xFF に正規化して 0xFF052237 を書く。
         // 復号側も減算後に bit 24 の符号で上位 byte を 0x00 に戻さなければならない。
-        let encoded = try hex("e83722 05ff0b867c624b")
-        let expected = try hex("e8fb37fe000b867c624b")
+        let encoded = try Hex.bytes("e83722 05ff0b867c624b")
+        let expected = try Hex.bytes("e8fb37fe000b867c624b")
         try assertDecode(
             encoded: encoded, expected: expected,
             filter: .x86, startOffset: 453_175
@@ -24,8 +24,8 @@ final class SevenZipBranchLargePayloadTests: XCTestCase {
     func testX86DisplacementBeyondSixteenMiBOfInput() throws {
         // ip が 2^24 を超えた位置でも同じ正規化が要る。7zz 26.03 で 16 MiB + 4 KiB の
         // ゼロ埋め payload の offset 0x0100_0800 に E8 00 00 00 00 を置いて取得した。
-        let encoded = try hex("e8050800ff")
-        let expected = try hex("e800000000")
+        let encoded = try Hex.bytes("e8050800ff")
+        let expected = try Hex.bytes("e800000000")
         try assertDecode(
             encoded: encoded, expected: expected,
             filter: .x86, startOffset: 0x0100_0800
@@ -37,15 +37,15 @@ final class SevenZipBranchLargePayloadTests: XCTestCase {
         // ゼロ埋め payload の offset 0x00FF_FFF8 に E8 E8 00 00 12 00 00 00 を置いた。先頭の E8 は
         // 5 byte 目 0x12 が sign byte でないため変換されず previousMask を立て、offset 1 の E8 が
         // mask の立った状態で変換される。7zz 26.03 の出力は E8 E8 FE FF 11 FF 00 00。
-        let encoded = try hex("e8e8feff11ff0000")
-        let expected = try hex("e8e8000012000000")
+        let encoded = try Hex.bytes("e8e8feff11ff0000")
+        let expected = try Hex.bytes("e8e8000012000000")
         try assertDecode(
             encoded: encoded, expected: expected,
             filter: .x86, startOffset: 0x00FF_FFF8
         )
         // 先の版で使った、operand の中に E8 を含むだけの候補（lookback は関与しない）も残す。
         try assertDecode(
-            encoded: try hex("e8fe01e8ff000000"), expected: try hex("e80102e800000000"),
+            encoded: try Hex.bytes("e8fe01e8ff000000"), expected: try Hex.bytes("e80102e800000000"),
             filter: .x86, startOffset: 0x00FF_FFF8
         )
     }
@@ -54,8 +54,8 @@ final class SevenZipBranchLargePayloadTests: XCTestCase {
         // 乱数 payload の offset 849,124 にあった ADRP。元の page delta 0x1FF91 に
         // pc >> 12 (= 0xCF) を足すと 0x20060 となり、7zz は 18 bit の符号付き値として
         // bit 17 を immhi の上位へ符号拡張した 0x90F00313 を書く。復号も同じ折り返しが要る。
-        let encoded = try hex("1303f090")
-        let expected = try hex("93fc0fb0")
+        let encoded = try Hex.bytes("1303f090")
+        let expected = try Hex.bytes("93fc0fb0")
         try assertDecode(
             encoded: encoded, expected: expected,
             filter: .arm64, startOffset: 849_124
@@ -134,8 +134,7 @@ final class SevenZipBranchLargePayloadTests: XCTestCase {
         let payload = Self.seededPayload(count: size, seed: 0x2545_F491_4F6C_DD1D)
         let payloadURL = directory.appendingPathComponent("payload.bin")
         try Data(payload).write(to: payloadURL)
-        let expectedDigest = SHA256.hash(data: Data(payload))
-            .map { String(format: "%02x", $0) }.joined()
+        let expectedDigest = Data(payload).sha256Hex
 
         for name in ["BCJ", "ARM64"] {
             let archiveURL = directory.appendingPathComponent("\(name).7z")
@@ -156,7 +155,7 @@ final class SevenZipBranchLargePayloadTests: XCTestCase {
             let data = try reader.read(entry)
             XCTAssertEqual(data.count, size, name)
             XCTAssertEqual(
-                SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+                data.sha256Hex,
                 expectedDigest,
                 name
             )
@@ -214,24 +213,6 @@ final class SevenZipBranchLargePayloadTests: XCTestCase {
             guard iterations < 1_000_000 else {
                 throw KaitoError.malformed("test decoder did not terminate")
             }
-        }
-        return result
-    }
-
-    private func hex(_ string: String) throws -> [UInt8] {
-        let compact = string.filter { !$0.isWhitespace }
-        guard compact.count.isMultiple(of: 2) else {
-            throw KaitoError.malformed("odd test hex")
-        }
-        var result = [UInt8]()
-        var index = compact.startIndex
-        while index < compact.endIndex {
-            let end = compact.index(index, offsetBy: 2)
-            guard let byte = UInt8(compact[index..<end], radix: 16) else {
-                throw KaitoError.malformed("invalid test hex")
-            }
-            result.append(byte)
-            index = end
         }
         return result
     }

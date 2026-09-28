@@ -111,14 +111,7 @@ final class CoreInfrastructureTests: XCTestCase {
     }
 
     func testFileByteSourceUsesBoundedPositionalReads() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKit-FileByteSource-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "FileByteSource")
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let url = directory.appendingPathComponent("bytes.bin")
@@ -143,14 +136,7 @@ final class CoreInfrastructureTests: XCTestCase {
     }
 
     func testFileByteSourceURLStillFollowsAnExplicitLeafSymlink() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKit-FileByteSource-Symlink-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "FileByteSource-Symlink")
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let target = directory.appendingPathComponent("target.bin")
@@ -420,18 +406,6 @@ final class CoreInfrastructureTests: XCTestCase {
             XCTAssertLessThan(read.offset, source.length, file: file, line: line)
             let end = read.offset + UInt64(read.returnedSize)
             XCTAssertLessThanOrEqual(end, source.length, file: file, line: line)
-        }
-    }
-
-    private func assertMalformed<T>(
-        _ operation: () throws -> T,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        XCTAssertThrowsError(try operation(), file: file, line: line) { error in
-            guard case KaitoError.malformed = error else {
-                return XCTFail("expected malformed, got \(error)", file: file, line: line)
-            }
         }
     }
 }

@@ -5,15 +5,11 @@ import XCTest
 /// 2026-09-20 に追加した単一 stream 形式（lzip / brotli / pbzx）の XADMaster 互換名と size 有無。
 final class KaitoArchiveSingleFileNamesTests: XCTestCase {
     private func fixture(_ relativePath: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/\(relativePath)"), encoding: .utf8)
-        return try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))
+        try XCTUnwrap(Data(base64Encoded: CompatFixtures.text(relativePath), options: .ignoreUnknownCharacters))
     }
 
     func testFormatNamesAndSizeAvailability() throws {
-        let temporary = FileManager.default.temporaryDirectory
-            .appendingPathComponent("kaito-compat-single-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        let temporary = try CompatFixtures.makeTemporaryDirectory(label: "single")
         defer { try? FileManager.default.removeItem(at: temporary) }
 
         // lzip は trailer に展開後サイズを持つので size がある。

@@ -6,12 +6,7 @@ import XCTest
 // The independent LZ4 CLI is used only to encode/decode project-owned bytes.
 final class LZ4LegacyTests: XCTestCase {
     private let blockSize = 8 * 1_024 * 1_024
-    private func fixture(_ name: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/lz4-frame")
-        return try XCTUnwrap(Data(base64Encoded: Data(contentsOf: root.appendingPathComponent(name + ".lz4.b64")),
-                                  options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("lz4-frame/" + name + ".lz4") }
     private func word(_ value: UInt32) -> Data {
         Data((0..<4).map { UInt8(truncatingIfNeeded: value >> ($0 * 8)) })
     }

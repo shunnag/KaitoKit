@@ -16,10 +16,7 @@ enum TarEditTestSupport {
             return (bytes, nil)
         } catch { return (bytes, String(describing: error)) }
     }
-    static func fixture(_ name: String) throws -> Data {
-        let path = TarGoldenCorpus.repository.appendingPathComponent("Tests/Fixtures/tar-edit/" + name + ".b64")
-        return try XCTUnwrap(Data(base64Encoded: String(contentsOf: path, encoding: .utf8), options: .ignoreUnknownCharacters))
-    }
+    static func fixture(_ name: String) throws -> Data { try TestFixtures.base64("tar-edit/" + name) }
     static func snapshot(_ data: Data, suffix: String, disk: Bool = false) throws -> TarEditingSnapshot {
         var limits = ReadLimits(); if disk { limits.inMemorySingleFileLimit = 0 }
         var options = ReaderOptions(limits: limits, appleDoublePolicy: .expose); options.recordsTarEditLayout = true
@@ -27,15 +24,6 @@ enum TarEditTestSupport {
     }
     static func bytes(_ source: any ByteSource) throws -> Data {
         Data(try readByteRange(source: source, offset: 0, count: Int(source.length)))
-    }
-    static func drain(_ decoder: any Decompressor) throws -> Data {
-        var result = Data(), buffer = [UInt8](repeating: 0, count: 65_536)
-        while !decoder.isFinished {
-            let count = try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }
-            guard count > 0 || decoder.isFinished else { throw KaitoError.truncated }
-            result.append(contentsOf: buffer.prefix(count))
-        }
-        return result
     }
     static func rawInflate(_ compressed: Data, dictionary: Data, expectedCount: Int) throws -> Data {
         var stream = z_stream()
@@ -84,12 +72,19 @@ enum TarEditTestSupport {
                 XCTAssertEqual(gzip.trailerOffset, UInt64(archive.count - 8), file: file, line: line)
                 XCTAssertEqual(gzip.trailerCRC32, GyoshukuFramingTestSupport.crc(image), file: file, line: line)
             case .bzip2:
-                decoded = try drain(Bzip2Decompressor(source: DataByteSource(compressed), offset: 0, compressedSize: UInt64(compressed.count)))
+                decoded = try drain(Bzip2Decompressor(source: DataByteSource(compressed), offset: 0, compressedSize: UInt64(compressed.count)), bufferSize: 65_536)
             case .xz(let xz):
-                decoded = try drain(XZDecompressor(source: DataByteSource(isolatedXZ(compressed, block: xz.blocks[index], flags: xz.streamFlags)), limits: ReadLimits()))
+                decoded = try drain(XZDecompressor(source: DataByteSource(isolatedXZ(compressed, block: xz.blocks[index], flags: xz.streamFlags)), limits: ReadLimits()), bufferSize: 65_536)
             }
             XCTAssertEqual(decoded, expected, "chunk \(index)", file: file, line: line)
         }
         XCTAssertEqual(imageOffset, snapshot.image.length, file: file, line: line)
     }
+}
+
+/// `options` に tar 編集用の配置の記録（`recordsTarEditLayout`）の有無だけを加えたもの。
+func tarGoldenOptions(_ options: ReaderOptions, recording: Bool) -> ReaderOptions {
+    var result = options
+    result.recordsTarEditLayout = recording
+    return result
 }

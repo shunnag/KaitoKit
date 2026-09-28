@@ -18,9 +18,7 @@ enum LHAFrozenFixtures {
     }
 
     static var root: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/lha-raw-layout", isDirectory: true)
+        TestFixtures.root.appendingPathComponent("lha-raw-layout", isDirectory: true)
     }
 
     static func all() throws -> [Fixture] {
@@ -36,7 +34,7 @@ enum LHAFrozenFixtures {
         let encoded = try Data(contentsOf: root.appendingPathComponent(fixture.file))
         let data = try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters))
         XCTAssertEqual(data.count, fixture.size, fixture.name)
-        XCTAssertEqual(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+        XCTAssertEqual(data.sha256Hex,
                        fixture.sha256, fixture.name)
         return data
     }

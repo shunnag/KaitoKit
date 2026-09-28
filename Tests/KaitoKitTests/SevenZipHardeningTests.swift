@@ -254,7 +254,7 @@ final class SevenZipHardeningTests: XCTestCase {
                 SevenZipNID.crc.rawValue,
                 1, // all defined
             ]
-            appendLittleEndian(packCRC, to: &bytes)
+            bytes.appendLittleEndian(packCRC)
             bytes.append(contentsOf: [
                 SevenZipNID.end.rawValue,
                 SevenZipNID.unpackInfo.rawValue,
@@ -986,13 +986,13 @@ final class SevenZipHardeningTests: XCTestCase {
     ) -> Data {
         let nextCRC = recordedNextCRC ?? CRC32.checksum(nextHeader)
         var startHeader: [UInt8] = []
-        appendLittleEndian(UInt64(packedData.count), to: &startHeader)
-        appendLittleEndian(UInt64(nextHeader.count), to: &startHeader)
-        appendLittleEndian(nextCRC, to: &startHeader)
+        startHeader.appendLittleEndian(UInt64(packedData.count))
+        startHeader.appendLittleEndian(UInt64(nextHeader.count))
+        startHeader.appendLittleEndian(nextCRC)
 
         var bytes = Self.signature
         bytes.append(contentsOf: [0, 4])
-        appendLittleEndian(CRC32.checksum(startHeader), to: &bytes)
+        bytes.appendLittleEndian(CRC32.checksum(startHeader))
         bytes.append(contentsOf: startHeader)
         bytes.append(contentsOf: packedData)
         bytes.append(contentsOf: nextHeader)
@@ -1038,13 +1038,13 @@ final class SevenZipHardeningTests: XCTestCase {
 
     private func inlineDefinedUInt32(_ value: UInt32) -> [UInt8] {
         var bytes: [UInt8] = [1, 0]
-        appendLittleEndian(value, to: &bytes)
+        bytes.appendLittleEndian(value)
         return bytes
     }
 
     private func inlineDefinedUInt64(_ value: UInt64) -> [UInt8] {
         var bytes: [UInt8] = [1, 0]
-        appendLittleEndian(value, to: &bytes)
+        bytes.appendLittleEndian(value)
         return bytes
     }
 
@@ -1118,18 +1118,6 @@ final class SevenZipHardeningTests: XCTestCase {
             value |= UInt64(bytes[offset + index]) << UInt64(index * 8)
         }
         return value
-    }
-
-    private func appendLittleEndian(_ value: UInt32, to bytes: inout [UInt8]) {
-        for shift in stride(from: 0, to: 32, by: 8) {
-            bytes.append(UInt8(truncatingIfNeeded: value >> UInt32(shift)))
-        }
-    }
-
-    private func appendLittleEndian(_ value: UInt64, to bytes: inout [UInt8]) {
-        for shift in stride(from: 0, to: 64, by: 8) {
-            bytes.append(UInt8(truncatingIfNeeded: value >> UInt64(shift)))
-        }
     }
 
     private func writeLittleEndian(

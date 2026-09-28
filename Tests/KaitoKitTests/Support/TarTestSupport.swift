@@ -32,15 +32,7 @@ struct HandTarEntry {
 
 enum TarTestSupport {
     static func temporaryDirectory() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKitTests-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false
-        )
-        return directory
+        try TestFixtures.makeTemporaryDirectory(label: "tar")
     }
 
     static func write(

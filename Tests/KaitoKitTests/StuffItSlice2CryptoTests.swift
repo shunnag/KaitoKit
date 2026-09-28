@@ -36,16 +36,15 @@ final class StuffItSlice2CryptoTests: XCTestCase {
         let password_hex: String; let entry_key_hex: String; let mkey_hex: String; let expected_key_and_iv_hex: String
     }
     func testClassicKnownFixtureAndPasswordLengthVectors() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/stuffit/slice2-key-vectors.json")
+        let url = TestFixtures.url("stuffit/slice2-key-vectors.json")
         let vectors = try JSONDecoder().decode([KeyVector].self, from: Data(contentsOf: url))
         XCTAssertEqual(vectors.count, 14)
         for v in vectors {
-            let password = Array(StuffItCodecTests.hex(v.password_hex))
-            let mkey = Array(StuffItCodecTests.hex(v.mkey_hex))
+            let password = Array(StuffItTestSupport.hex(v.password_hex))
+            let mkey = Array(StuffItTestSupport.hex(v.mkey_hex))
             let keys = try StuffItCrypto.ClassicKeys(password: password, mkey: mkey)
-            let fork = try keys.fork(trailer: Array(StuffItCodecTests.hex(v.entry_key_hex)))
-            XCTAssertEqual(StuffItCrypto.bytes(fork.key) + StuffItCrypto.bytes(fork.iv), Array(StuffItCodecTests.hex(v.expected_key_and_iv_hex)))
+            let fork = try keys.fork(trailer: Array(StuffItTestSupport.hex(v.entry_key_hex)))
+            XCTAssertEqual(StuffItCrypto.bytes(fork.key) + StuffItCrypto.bytes(fork.iv), Array(StuffItTestSupport.hex(v.expected_key_and_iv_hex)))
             let highBits = try StuffItCrypto.ClassicKeys(password: password.map { $0 | 128 }, mkey: mkey)
             XCTAssertEqual(highBits.verifier, keys.verifier)
             XCTAssertThrowsError(try StuffItCrypto.ClassicKeys(password: [0, 1, 2], mkey: mkey)) {
@@ -76,7 +75,7 @@ final class StuffItSlice2CryptoTests: XCTestCase {
             reader.password = "wrong"
             XCTAssertThrowsError(try reader.read(entry)) { XCTAssertEqual($0 as? KaitoError, .wrongPassword) }
             reader.password = "password"
-            XCTAssertEqual(StuffItCorpusTests().sha(try reader.read(entry)), "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25")
+            XCTAssertEqual(try reader.read(entry).sha256Hex, "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25")
             let plain = try ArchiveReader.open(data: fixtures.fixture(name.replacingOccurrences(of: ".password", with: "")))
             for encrypted in reader.entries where encrypted.isEncrypted {
                 let expected = try XCTUnwrap(plain.entries.first { $0.pathComponents == encrypted.pathComponents })
@@ -110,11 +109,11 @@ final class StuffItSlice2CryptoTests: XCTestCase {
         }
     }
     func testClassicEightByteCorpusVariantHasVerifiedSeed() throws {
-        let keys = try StuffItCrypto.ClassicKeys(password: Array("password".utf8), mkey: Array(StuffItCodecTests.hex("e3fe9f12776699c9")))
+        let keys = try StuffItCrypto.ClassicKeys(password: Array("password".utf8), mkey: Array(StuffItTestSupport.hex("e3fe9f12776699c9")))
         XCTAssertEqual(keys.verifier, 0x955a10958aac6c80)
         // Ch.05 の標準派生そのものは、長さ 8 でも引き続き 2 block である。
         XCTAssertEqual(StuffItCrypto.classicArchiveKey(password: Array("password".utf8)), 0xeb53a5151ff258ce)
-        XCTAssertThrowsError(try StuffItCrypto.ClassicKeys(password: Array("passw0rd".utf8), mkey: Array(StuffItCodecTests.hex("e3fe9f12776699c9")))) {
+        XCTAssertThrowsError(try StuffItCrypto.ClassicKeys(password: Array("passw0rd".utf8), mkey: Array(StuffItTestSupport.hex("e3fe9f12776699c9")))) {
             XCTAssertEqual($0 as? KaitoError, .wrongPassword)
         }
     }
@@ -128,7 +127,7 @@ final class StuffItSlice2CryptoTests: XCTestCase {
         }
         let mode = StuffItCryptoSource.Mode.classic(key: 0xa350f1a317a7cf44, iv: 0xc41612d4f53ad57c)
         let source = try StuffItCryptoSource(source: ShortSource(), offset: 0, stored: 32, padding: 3, mode: mode)
-        let expected = StuffItCodecTests.hex("6747e174e6981c3f5e632ed4b94e368411a5147f0ab93fc5b2420d2ed746bf61").prefix(29)
+        let expected = StuffItTestSupport.hex("6747e174e6981c3f5e632ed4b94e368411a5147f0ab93fc5b2420d2ed746bf61").prefix(29)
         XCTAssertEqual(source.length, 29)
         for offset in [0, 11, 4, 28, 29, 0] {
             var bytes = [UInt8](repeating: 0, count: 7)
@@ -144,13 +143,13 @@ final class StuffItSlice2CryptoTests: XCTestCase {
         let source = DataByteSource(data: bytes)
         var parser = StuffItParser(source: source, limits: ReadLimits()); try parser.stuffIt5()
         let archiveKey = try StuffItCrypto.sit5Key(password: Array("password".utf8), hash: XCTUnwrap(parser.archiveHash))
-        XCTAssertEqual(archiveKey, Array(StuffItCodecTests.hex("5f4dcc3b5a")))
-        XCTAssertEqual(parser.archiveHash, Array(StuffItCodecTests.hex("7635b98711")))
+        XCTAssertEqual(archiveKey, Array(StuffItTestSupport.hex("5f4dcc3b5a")))
+        XCTAssertEqual(parser.archiveHash, Array(StuffItTestSupport.hex("7635b98711")))
         let record = try XCTUnwrap(parser.records.first { $0.method == 0 && $0.size == 11 })
         let mode = StuffItCryptoSource.Mode.rc4(archiveKey + record.entryKey)
         let decrypted = try StuffItCryptoSource(source: source, offset: record.offset, stored: record.stored, mode: mode)
         let plaintext = try readByteRange(source: decrypted, offset: 0, count: 11)
-        XCTAssertEqual(StuffItCorpusTests().sha(Data(plaintext)), "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25")
+        XCTAssertEqual(Data(plaintext).sha256Hex, "9734aef6d3788ba985e78f7b3785dc4817e770be92a4e5e57e64a92cc9c2fc25")
         for offset in [7, 0, 9, 1] {
             XCTAssertEqual(try readByteRange(source: decrypted, offset: UInt64(offset), count: 2), Array(plaintext[offset..<offset + 2]))
         }

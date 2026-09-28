@@ -429,8 +429,8 @@ final class RAR5VolumeTests: XCTestCase {
 
     func testOutOfRangeNanosecondsAreRejected() throws {
         var timePayload = RAR5TestSupport.vint(0x0013)
-        appendLittle(1, to: &timePayload)
-        appendLittle(1_000_000_000, to: &timePayload)
+        timePayload.appendLittleEndian(UInt32(1))
+        timePayload.appendLittleEndian(UInt32(1_000_000_000))
         let archive = RAR5TestSupport.archive(blocks: [
             RAR5TestSupport.storedFile(
                 name: "time.txt",
@@ -533,12 +533,6 @@ final class RAR5VolumeTests: XCTestCase {
         )
         bytes[dataRange.lowerBound] ^= 0x80
         archive = Data(bytes)
-    }
-
-    private func appendLittle(_ value: UInt32, to bytes: inout [UInt8]) {
-        for shift in stride(from: 0, to: 32, by: 8) {
-            bytes.append(UInt8(truncatingIfNeeded: value >> shift))
-        }
     }
 }
 

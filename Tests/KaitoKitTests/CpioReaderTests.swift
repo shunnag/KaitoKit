@@ -5,11 +5,7 @@ import XCTest
 
 final class CpioReaderTests: XCTestCase {
     private typealias B = CpioArchiveBuilder
-    private func fixture(_ name: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/\(name).cpio.b64"), encoding: .utf8)
-        return try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("container/\(name).cpio") }
     private func direct(_ b: B, limits: ReadLimits = ReadLimits(), recover: Bool = false) throws -> CpioReader {
         try CpioReader(source: DataByteSource(data: b.data), options: ReaderOptions(limits: limits, recoverDamagedArchives: recover))
     }
@@ -28,7 +24,6 @@ final class CpioReaderTests: XCTestCase {
             XCTAssertEqual(category, expected, file: file, line: line)
         }
     }
-    private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     func testExistingFixturesAndReopen() throws {
         let expected = ["", "70bf6ca40d63eeb669f684aafbf02a896c396de1b3aab3b0efe107d66279c202",
@@ -41,7 +36,7 @@ final class CpioReaderTests: XCTestCase {
             XCTAssertEqual(reader.entries.map(\.uncompressedSize), [0, 27, 4096, 0, 15])
             for (index, entry) in reader.entries.enumerated() {
                 let data = try reader.read(entry)
-                XCTAssertEqual(sha(data), expected[index].isEmpty ? sha(Data()) : expected[index])
+                XCTAssertEqual(data.sha256Hex, expected[index].isEmpty ? Data().sha256Hex : expected[index])
                 XCTAssertEqual(entry.formatSpecific["variant"], name == "bin" ? "bin-le" : name)
             }
             XCTAssertEqual(try reader.reopen().entries, reader.entries)
@@ -339,14 +334,14 @@ final class CpioReaderTests: XCTestCase {
                 let bytes = try r.read(entry)
                 let expected = entry.kind == .directory ? Data() : Data(try Data(contentsOf: root.appendingPathComponent("src/\(entry.name)")).prefix(Int(entry.uncompressedSize!)))
                 XCTAssertEqual(bytes, expected)
-                digests += sha(bytes)
-                print("CPIO_RECOVER \(label) \(entry.name) size=\(bytes.count) sha256=\(sha(bytes))")
+                digests += bytes.sha256Hex
+                print("CPIO_RECOVER \(label) \(entry.name) size=\(bytes.count) sha256=\(bytes.sha256Hex)")
             }
             let expectedDigest = label == "bin-t60"
                 ? "dd08768ab0db5e521363a12eddc486a6e4cf923b432fb7234c4f0a2a8908407a"
                 : "9c973ba687a794e3e7e5c428d0fbc517382014742c1e79ecf82565ec09cbbef6"
-            XCTAssertEqual(sha(Data(digests.utf8)), expectedDigest)
-            print("CPIO_RECOVER_TOTAL \(label) \(sha(Data(digests.utf8)))")
+            XCTAssertEqual(Data(digests.utf8).sha256Hex, expectedDigest)
+            print("CPIO_RECOVER_TOTAL \(label) \(Data(digests.utf8).sha256Hex)")
         }
     }
 
@@ -387,7 +382,7 @@ final class CpioReaderTests: XCTestCase {
                 for entry in r.entries {
                     let contents = try r.read(entry)
                     let name = entry.name.hasPrefix("./") ? String(entry.name.dropFirst(2)) : entry.name
-                    let hash = sha(contents)
+                    let hash = contents.sha256Hex
                     digests += hash
                     byName[name] = "\(entry.uncompressedSize ?? 0):\(hash)"
                     if name == "data.bin" {
@@ -402,7 +397,7 @@ final class CpioReaderTests: XCTestCase {
                     }
                 }
                 XCTAssertNotNil(byName["日本語.txt"])
-                let aggregate = sha(Data(digests.utf8))
+                let aggregate = Data(digests.utf8).sha256Hex
                 let expected: String
                 if fixture == "tar-newc" {
                     expected = "2f164c10f679679b63186ff46af5cc0b7b06467eb51d89fed05657edb1b7bd03"

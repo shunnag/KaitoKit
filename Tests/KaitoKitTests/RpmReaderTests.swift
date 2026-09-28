@@ -29,18 +29,14 @@ final class RpmReaderTests: XCTestCase {
         ]
     }
 
-    private func fixture(_ variant: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/rpm-\(variant).rpm.b64"), encoding: .utf8)
-        return try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))
-    }
+    private func fixture(_ variant: String) throws -> Data { try TestFixtures.base64("container/rpm-\(variant).rpm") }
 
     private func rows(_ reader: ArchiveReader) throws -> [Row] {
         try reader.entries.map { entry in
             let data = try reader.read(entry)
             XCTAssertEqual(UInt64(data.count), entry.uncompressedSize, entry.name)
             return Row(entry.name, try XCTUnwrap(entry.uncompressedSize),
-                SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
+                data.sha256Hex)
         }
     }
 
@@ -81,8 +77,7 @@ final class RpmReaderTests: XCTestCase {
         XCTAssertEqual(reader.entries.count, 6)
         let actual = try rows(reader)
         XCTAssertEqual(actual, binaryRows)
-        let aggregate = SHA256.hash(data: Data(actual.map(\.sha256).joined().utf8))
-            .map { String(format: "%02x", $0) }.joined()
+        let aggregate = Data(actual.map(\.sha256).joined().utf8).sha256Hex
         XCTAssertEqual(aggregate, "058d0a9d9c28c2133c547d0a13fed38414a921b21f2b4109fef179c979d9150c")
         return reader
     }
@@ -336,8 +331,7 @@ final class RpmReaderTests: XCTestCase {
 
     private func oracles() throws -> [String: Oracle] {
         struct Manifest: Decodable { let packages: [String: Oracle] }
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let bytes = try Data(contentsOf: root.appendingPathComponent("Fixtures/container/rpm-stripped-manifest.json"))
+        let bytes = try Data(contentsOf: TestFixtures.url("container/rpm-stripped-manifest.json"))
         return try JSONDecoder().decode(Manifest.self, from: bytes).packages
     }
 

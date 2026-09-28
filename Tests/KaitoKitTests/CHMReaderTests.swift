@@ -25,11 +25,10 @@ final class CHMReaderTests: XCTestCase {
         }
     }
 
-    private static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     private struct Payload: Decodable { let size: UInt64; let sha256: String }
     private struct Archive: Decodable { let size: UInt64; let sha256: String; let files: [String] }
     private static func manifest() throws -> (payload: [String: Payload], archives: [String: Archive]) {
-        let data = try Data(contentsOf: root.appendingPathComponent("Fixtures/chm/manifest.json"))
+        let data = try Data(contentsOf: TestFixtures.url("chm/manifest.json"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         var payload: [String: Payload] = [:], archives: [String: Archive] = [:]
         for (key, value) in object {
@@ -39,18 +38,13 @@ final class CHMReaderTests: XCTestCase {
         }
         return (payload, archives)
     }
-    private static func fixture(_ name: String) throws -> Data {
-        let base64 = try String(contentsOf: root.appendingPathComponent("Fixtures/chm/\(name).gz.b64"), encoding: .utf8)
-        let gzip = try ArchiveReader.open(data: XCTUnwrap(Data(base64Encoded: base64, options: .ignoreUnknownCharacters)))
-        return try gzip.read(gzip.entries[0])
-    }
-    private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
+    private static func fixture(_ name: String) throws -> Data { try TestFixtures.gzipBase64("chm/\(name)") }
 
     func testFixturesMatchSevenZipAndTheManifest() throws {
         let manifest = try Self.manifest()
         for name in ["basic.chm", "reset1-w17.chm", "mixed-blocks.chm", "e8.chm", "multi-chunk.chm", "uncompressed.chm"] {
             let bytes = try Self.fixture(name)
-            XCTAssertEqual(sha(bytes), manifest.archives[name]?.sha256, name)
+            XCTAssertEqual(bytes.sha256Hex, manifest.archives[name]?.sha256, name)
             XCTAssertEqual(try FormatDetector.detect(data: bytes), .chm, name)
             let reader = try ArchiveReader.open(data: bytes)
             XCTAssertEqual(reader.format, .chm, name)
@@ -68,7 +62,7 @@ final class CHMReaderTests: XCTestCase {
             for entry in reader.entries.filter({ $0.kind == .file }).reversed() {
                 let want = try XCTUnwrap(manifest.payload["/" + entry.name], entry.name)
                 XCTAssertEqual(entry.uncompressedSize, want.size, "\(name): \(entry.name)")
-                XCTAssertEqual(sha(try reader.read(entry)), want.sha256, "\(name): \(entry.name)")
+                XCTAssertEqual(try reader.read(entry).sha256Hex, want.sha256, "\(name): \(entry.name)")
                 let expectedMethod = entry.name.hasPrefix("#") || name == "uncompressed.chm" ? "stored" : "LZX"
                 XCTAssertEqual(entry.methodDescription, expectedMethod, "\(name): \(entry.name)")
             }
@@ -80,14 +74,14 @@ final class CHMReaderTests: XCTestCase {
                     if count == 0 { break }
                     result.append(contentsOf: buffer.prefix(count))
                 }
-                XCTAssertEqual(sha(result), manifest.payload["/images/logo.bin"]?.sha256, name)
+                XCTAssertEqual(result.sha256Hex, manifest.payload["/images/logo.bin"]?.sha256, name)
             }
             let reopened = try reader.reopen()
             XCTAssertEqual(reopened.entries, reader.entries, name)
         }
         let short = try ArchiveReader.open(source: ShortSource(try Self.fixture("basic.chm")))
         let logo = try XCTUnwrap(short.entries.first { $0.name == "images/logo.bin" })
-        XCTAssertEqual(sha(try short.read(logo)), manifest.payload["/images/logo.bin"]?.sha256)
+        XCTAssertEqual(try short.read(logo).sha256Hex, manifest.payload["/images/logo.bin"]?.sha256)
     }
 
     func testDamagedFilesAreRejected() throws {

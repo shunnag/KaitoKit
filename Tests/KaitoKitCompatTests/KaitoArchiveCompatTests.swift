@@ -10,14 +10,7 @@ final class KaitoArchiveCompatTests: XCTestCase {
     private static let restrictiveUmaskOutput = "KAITOKIT_COMPAT_RESTRICTIVE_UMASK_OUTPUT"
 
     func testCrossVolumeCopyFallbackPreservesContentsModeAndModificationTime() throws {
-        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKitCompatRelocationTests-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: temporary,
-            withIntermediateDirectories: false
-        )
+        let temporary = try CompatFixtures.makeTemporaryDirectory(label: "Relocation")
         defer { try? FileManager.default.removeItem(at: temporary) }
 
         let sourceDirectory = temporary.appendingPathComponent("source", isDirectory: true)
@@ -92,7 +85,7 @@ final class KaitoArchiveCompatTests: XCTestCase {
     }
 
     func testHardLinkRelocationKeepsCombiningScalarDirectoryBoundary() throws {
-        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("KaitoCompatCombining-\(UUID().uuidString)")
+        let temporary = try CompatFixtures.makeTemporaryDirectory(label: "Combining")
         defer { try? FileManager.default.removeItem(at: temporary) }
         let source = temporary.appendingPathComponent("source")
         try FileManager.default.createDirectory(at: source.appendingPathComponent("pivot"), withIntermediateDirectories: true)
@@ -119,14 +112,7 @@ final class KaitoArchiveCompatTests: XCTestCase {
     }
 
     func testCompatibilitySurfaceOverTarDataAndFile() throws {
-        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKitCompatTests-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: temporary,
-            withIntermediateDirectories: false
-        )
+        let temporary = try CompatFixtures.makeTemporaryDirectory(label: "extract")
         defer { try? FileManager.default.removeItem(at: temporary) }
 
         let source = temporary.appendingPathComponent("source", isDirectory: true)
@@ -178,14 +164,7 @@ final class KaitoArchiveCompatTests: XCTestCase {
             return
         }
 
-        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKitCompatRestrictiveUmaskTests-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: temporary,
-            withIntermediateDirectories: false
-        )
+        let temporary = try CompatFixtures.makeTemporaryDirectory(label: "RestrictiveUmask")
         let source = temporary.appendingPathComponent("source", isDirectory: true)
         let targetParent = source.appendingPathComponent("nested/deeper", isDirectory: true)
         let linkParent = source.appendingPathComponent("links", isDirectory: true)
@@ -246,14 +225,7 @@ final class KaitoArchiveCompatTests: XCTestCase {
     }
 
     func testRelocatedSymbolicLinkCannotTraverseDestinationPivot() throws {
-        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKitCompatTests-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: temporary,
-            withIntermediateDirectories: false
-        )
+        let temporary = try CompatFixtures.makeTemporaryDirectory(label: "extract")
         defer { try? FileManager.default.removeItem(at: temporary) }
 
         let source = temporary.appendingPathComponent("source", isDirectory: true)
@@ -288,14 +260,7 @@ final class KaitoArchiveCompatTests: XCTestCase {
     }
 
     func testZipDirectoryNameMatchesXADWithoutChangingModernName() throws {
-        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKitCompatTests-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: temporary,
-            withIntermediateDirectories: false
-        )
+        let temporary = try CompatFixtures.makeTemporaryDirectory(label: "extract")
         defer { try? FileManager.default.removeItem(at: temporary) }
 
         let source = temporary.appendingPathComponent("source", isDirectory: true)
@@ -332,14 +297,7 @@ final class KaitoArchiveCompatTests: XCTestCase {
     }
 
     func testTinyInfoZipStoredZipCryptoOpensNormally() throws {
-        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKitCompatTests-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: temporary,
-            withIntermediateDirectories: false
-        )
+        let temporary = try CompatFixtures.makeTemporaryDirectory(label: "extract")
         defer { try? FileManager.default.removeItem(at: temporary) }
 
         let source = temporary.appendingPathComponent("source", isDirectory: true)
@@ -390,11 +348,7 @@ final class KaitoArchiveCompatTests: XCTestCase {
     }
 
     func testCompatibilitySurfaceOverZipAndSevenZip() throws {
-        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "KaitoKitCompatFormats-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false)
+        let temporary = try CompatFixtures.makeTemporaryDirectory(label: "Formats")
         defer { try? FileManager.default.removeItem(at: temporary) }
         let source = temporary.appendingPathComponent("source", isDirectory: true)
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)

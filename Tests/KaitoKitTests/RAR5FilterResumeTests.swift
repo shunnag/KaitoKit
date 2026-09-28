@@ -51,14 +51,4 @@ final class RAR5FilterResumeTests: XCTestCase {
             )
         }
     }
-
-    private func drain(_ stream: EntryStream, bufferSize: Int) throws -> Data {
-        var result = Data()
-        var buffer = [UInt8](repeating: 0, count: bufferSize)
-        while true {
-            let count = try buffer.withUnsafeMutableBytes { try stream.read(into: $0) }
-            guard count > 0 else { return result }
-            result.append(contentsOf: buffer.prefix(count))
-        }
-    }
 }

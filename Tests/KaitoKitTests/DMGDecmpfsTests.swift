@@ -6,20 +6,15 @@ import XCTest
 import zlib
 
 final class DMGDecmpfsTests: XCTestCase {
-    private static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     private struct Payload: Decodable { let size: UInt64; let sha256: String; let decmpfsType: UInt32; let sevenZipVerified: Bool }
     private struct Image: Decodable { let size: UInt64; let sha256: String }
     private struct Manifest: Decodable { let payload: [String: Payload]; let images: [String: Image] }
 
     private func fixture() throws -> (Data, Manifest) {
-        let directory = Self.root.appendingPathComponent("Fixtures/dmg")
-        let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: directory.appendingPathComponent("manifest-decmpfs.json")))
-        let base64 = try String(contentsOf: directory.appendingPathComponent("hfs-decmpfs.dmg.gz.b64"), encoding: .utf8)
-        let gzip = try ArchiveReader.open(data: XCTUnwrap(Data(base64Encoded: base64, options: .ignoreUnknownCharacters)))
-        return (try gzip.read(gzip.entries[0]), manifest)
+        let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: TestFixtures.url("dmg/manifest-decmpfs.json")))
+        return (try TestFixtures.gzipBase64("dmg/hfs-decmpfs.dmg"), manifest)
     }
 
-    private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     func testR1ReviewSkipsUnneededLargeAttributeTree() throws {
         let image = attributeVolume(leafCount: 4_100, compressed: false)
@@ -134,7 +129,7 @@ final class DMGDecmpfsTests: XCTestCase {
     func testFixtureContentsAndStreams() throws {
         let (image, manifest) = try fixture()
         XCTAssertEqual(UInt64(image.count), manifest.images["hfs-decmpfs.dmg"]?.size)
-        XCTAssertEqual(sha(image), manifest.images["hfs-decmpfs.dmg"]?.sha256)
+        XCTAssertEqual(image.sha256Hex, manifest.images["hfs-decmpfs.dmg"]?.sha256)
         let original = try ArchiveReader.open(data: image)
         XCTAssertEqual(Set(original.entries.map(\.name)), Set(manifest.payload.keys))
         XCTAssertEqual(Set(manifest.payload.values.map(\.decmpfsType)), [1, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13])
@@ -155,7 +150,7 @@ final class DMGDecmpfsTests: XCTestCase {
                         XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("HFS+ decmpfs (type \(want.decmpfsType))"))
                     }
                 } else {
-                    XCTAssertEqual(sha(try reader.read(entry)), want.sha256, entry.name)
+                    XCTAssertEqual(try reader.read(entry).sha256Hex, want.sha256, entry.name)
                 }
             }
             // 逆順でも前の entry の chunk / decoder 状態を使わない。
@@ -174,7 +169,7 @@ final class DMGDecmpfsTests: XCTestCase {
                 }
                 XCTAssertEqual(stream.remaining, 0, entry.name)
                 XCTAssertEqual(UInt64(data.count), want.size, entry.name)
-                XCTAssertEqual(sha(data), want.sha256, entry.name)
+                XCTAssertEqual(data.sha256Hex, want.sha256, entry.name)
             }
         }
     }
@@ -346,12 +341,6 @@ final class DMGDecmpfsTests: XCTestCase {
                                              limits: ReadLimits(maxInMemorySize: 512))
         XCTAssertThrowsError(try drain(limited)) {
             guard case .limitExceeded = $0 as? KaitoError else { return XCTFail("予期しないエラー: \($0)") }
-        }
-    }
-
-    private func assertMalformed(_ body: () throws -> Void, file: StaticString = #filePath, line: UInt = #line) {
-        XCTAssertThrowsError(try body(), file: file, line: line) {
-            guard case .malformed = $0 as? KaitoError else { return XCTFail("予期しないエラー: \($0)", file: file, line: line) }
         }
     }
 

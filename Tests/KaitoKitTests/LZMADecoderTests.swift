@@ -3,16 +3,11 @@ import KaitoKit
 import XCTest
 
 final class LZMADecoderTests: XCTestCase {
-    private enum TestError: Error {
-        case invalidHex
-        case noProgress
-    }
-
     func testEndMarkedStreamWithDictionaryWrapAndTinyReads() throws {
         // xz 5.8.3: `xz --format=raw --lzma1=dict=4KiB,lc=3,lp=0,pb=2`.
         // The complete raw output below has SHA-256
         // 79571bd455af60fab49756c278c50ef38aa28637cc31baef113603f8af6ef5f8.
-        let compressed = try decodeHex(
+        let compressed = try Hex.data(
             "002598492777f6198bfb55ec9f9870645187a7c68eabd4c78b5b16ef162410c2" +
             "4140807bfabb0caa78f7675954c402235e482aa24588f9b0fa9e349dfb09dd9a" +
             "037b33600bfffbbd90d6385b994ec2b712fe8e04f8e7eb2c125e32bec1e8186" +
@@ -40,7 +35,7 @@ final class LZMADecoderTests: XCTestCase {
         // xz 5.8.3: `xz --format=raw --lzma1=dict=64KiB,lc=3,lp=0,pb=2`。
         // 出力 `00309888aa02a643ebffffb5800000` から最後の end marker / range
         // coder 終端を除いた raw LZMA1 data。
-        let compressed = try decodeHex("00309888aa02a643ebffffb580")
+        let compressed = try Hex.data("00309888aa02a643ebffffb580")
         let expected = Data("abcabcabcabcabcabc".utf8)
         let decoder = try makeDecoder(
             compressed,
@@ -53,7 +48,7 @@ final class LZMADecoderTests: XCTestCase {
     }
 
     func testLiteralRunTransfersConsumedMatchHeadWithinOneRead() throws {
-        let compressed = try decodeHex("00309888aa02a643ebffffb580")
+        let compressed = try Hex.data("00309888aa02a643ebffffb580")
         let expected = Data("abcabcabcabcabcabc".utf8)
         let decoder = try makeDecoder(
             compressed,
@@ -71,7 +66,7 @@ final class LZMADecoderTests: XCTestCase {
     }
 
     func testEndMarkerBeforeKnownSizeIsMalformed() throws {
-        let compressed = try decodeHex("0083fffbffffc0000000")
+        let compressed = try Hex.data("0083fffbffffc0000000")
         let decoder = try makeDecoder(
             compressed,
             dictionarySize: 65_536,
@@ -87,7 +82,7 @@ final class LZMADecoderTests: XCTestCase {
     }
 
     func testEndMarkedStreamRejectsTruncation() throws {
-        let compressed = try decodeHex("00309888aa02a643ebffffb580")
+        let compressed = try Hex.data("00309888aa02a643ebffffb580")
         let decoder = try makeDecoder(
             compressed,
             dictionarySize: 65_536,
@@ -100,7 +95,7 @@ final class LZMADecoderTests: XCTestCase {
     }
 
     func testRejectsDictionaryBeyondLimitBeforeAllocation() throws {
-        let compressed = try decodeHex("00309888aa02a643ebffffb5800000")
+        let compressed = try Hex.data("00309888aa02a643ebffffb5800000")
         XCTAssertThrowsError(
             try makeDecoder(
                 compressed,
@@ -185,42 +180,9 @@ final class LZMADecoderTests: XCTestCase {
         )
     }
 
+    /// 終わらない decoder で止まらないよう、読む回数に上限を置く。
     private func drain(_ decoder: any Decompressor, bufferSize: Int) throws -> Data {
-        var result = Data()
-        var buffer = [UInt8](repeating: 0, count: bufferSize)
-        var iterations = 0
-        while !decoder.isFinished {
-            let count = try buffer.withUnsafeMutableBytes { storage in
-                // storage は固定長配列の全領域で、decoder はその範囲内だけを書く。
-                try decoder.read(into: storage)
-            }
-            guard count > 0 || decoder.isFinished else {
-                throw TestError.noProgress
-            }
-            result.append(contentsOf: buffer.prefix(count))
-            iterations += 1
-            guard iterations < 100_000 else {
-                throw TestError.noProgress
-            }
-        }
-        return result
-    }
-
-    private func decodeHex(_ text: String) throws -> Data {
-        guard text.utf8.count.isMultiple(of: 2) else {
-            throw TestError.invalidHex
-        }
-        var result = Data()
-        var index = text.startIndex
-        while index < text.endIndex {
-            guard let next = text.index(index, offsetBy: 2, limitedBy: text.endIndex),
-                  let byte = UInt8(text[index..<next], radix: 16) else {
-                throw TestError.invalidHex
-            }
-            result.append(byte)
-            index = next
-        }
-        return result
+        try KaitoKitTests.drain(decoder, bufferSize: bufferSize, maxReads: 100_000)
     }
 }
 

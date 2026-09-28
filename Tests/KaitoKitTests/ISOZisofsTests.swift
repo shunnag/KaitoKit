@@ -17,17 +17,8 @@ final class ISOZisofsTests: XCTestCase {
         "sub/deep.txt": (15_000, "15339b7447ee0e6d76eb753ff95726e20dfff23db842f37c373048e446c11f51"),
     ]
 
-    private func fixture(_ name: String) throws -> Data {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/iso/\(name).iso.gz.b64")
-        let base64 = try String(contentsOf: url, encoding: .utf8)
-        let gzip = try ArchiveReader.open(data: XCTUnwrap(Data(base64Encoded: base64, options: .ignoreUnknownCharacters)))
-        return try gzip.read(gzip.entries[0])
-    }
+    private func fixture(_ name: String) throws -> Data { try TestFixtures.gzipBase64("iso/\(name).iso") }
 
-    private func sha(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 
     private func read(_ stream: EntryStream, chunk: Int) throws -> Data {
         var output = Data(), buffer = [UInt8](repeating: 0, count: chunk)
@@ -61,15 +52,15 @@ final class ISOZisofsTests: XCTestCase {
                 for chunk in [1, 4_099, 65_536] where chunk > 1 || want.size < 200 {
                     let data = try read(reader.stream(entry), chunk: chunk)
                     XCTAssertEqual(UInt64(data.count), want.size, "\(name) \(entry.name) chunk \(chunk)")
-                    XCTAssertEqual(sha(data), want.sha, "\(name) \(entry.name) chunk \(chunk)")
+                    XCTAssertEqual(data.sha256Hex, want.sha, "\(name) \(entry.name) chunk \(chunk)")
                 }
-                XCTAssertEqual(sha(try reader.read(entry)), want.sha, "\(name) \(entry.name)")
+                XCTAssertEqual(try reader.read(entry).sha256Hex, want.sha, "\(name) \(entry.name)")
             }
             XCTAssertTrue(files.contains { $0.methodDescription == "zisofs (zlib)" && $0.name == "text.txt" }, name)
             XCTAssertTrue(files.contains { $0.methodDescription == "zisofs (zlib)" && $0.name == "zeros.bin" }, name)
             let reopened = try reader.reopen()
             let text = try XCTUnwrap(reopened.entries.first { $0.name == "text.txt" })
-            XCTAssertEqual(sha(try reopened.read(text)), expected["text.txt"]!.sha, name)
+            XCTAssertEqual(try reopened.read(text).sha256Hex, expected["text.txt"]!.sha, name)
         }
     }
 

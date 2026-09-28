@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 
 enum RAR5TestSupport {
-    static let executablePath = resolveRARExecutablePath()
+    static let executablePath = ExternalTool.rar.path
 
     struct BlockLayout {
         let offset: Int
@@ -12,33 +12,8 @@ enum RAR5TestSupport {
         let data: Range<Int>
     }
 
-    private static func resolveRARExecutablePath() -> String {
-        let environment = ProcessInfo.processInfo.environment
-        if let configured = environment["KAITOKIT_RAR_EXECUTABLE"],
-           !configured.isEmpty {
-            return configured
-        }
-        if let path = environment["PATH"] {
-            for directory in path.split(separator: ":", omittingEmptySubsequences: true) {
-                let candidate = URL(fileURLWithPath: String(directory), isDirectory: true)
-                    .appendingPathComponent("rar").path
-                if FileManager.default.isExecutableFile(atPath: candidate) {
-                    return candidate
-                }
-            }
-        }
-        for candidate in ["/opt/homebrew/bin/rar", "/usr/local/bin/rar"]
-        where FileManager.default.isExecutableFile(atPath: candidate) {
-            return candidate
-        }
-        return "/opt/homebrew/bin/rar"
-    }
-
     static func requireRAR() throws {
-        try ZipTestSupport.requireExecutable(
-            executablePath,
-            reason: "RAR fixture generator is unavailable at \(executablePath)"
-        )
+        try ExternalTool.rar.require(reason: "RAR fixture generator is unavailable at \(executablePath)")
     }
 
     static func makeGeneratedArchive(
@@ -90,7 +65,7 @@ enum RAR5TestSupport {
         specific += vint(unpackedSize ?? UInt64(contents.count))
         specific += vint(attributes)
         if includeCRC32 {
-            appendLittle(dataCRC32 ?? CRC32.checksum(contents), to: &specific)
+            specific.appendLittleEndian(dataCRC32 ?? CRC32.checksum(contents))
         }
         specific += vint(compressionInfo)
         specific += vint(hostOS)
@@ -156,7 +131,7 @@ enum RAR5TestSupport {
         covered += body
         var result = Data()
         var crcBytes: [UInt8] = []
-        appendLittle(CRC32.checksum(covered), to: &crcBytes)
+        crcBytes.appendLittleEndian(CRC32.checksum(covered))
         result.append(contentsOf: crcBytes)
         result.append(contentsOf: covered)
         result.append(data)
@@ -443,12 +418,6 @@ enum RAR5TestSupport {
         }
         guard value == 0 else {
             throw ZipTestSupportError.fixture("RAR5 fixture vint no longer fits its field")
-        }
-    }
-
-    private static func appendLittle(_ value: UInt32, to bytes: inout [UInt8]) {
-        for shift in stride(from: 0, to: 32, by: 8) {
-            bytes.append(UInt8(truncatingIfNeeded: value >> shift))
         }
     }
 }

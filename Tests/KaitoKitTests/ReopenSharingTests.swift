@@ -89,22 +89,22 @@ final class ReopenSharingTests: XCTestCase {
         XCTAssertEqual(source.bytesRead, 0, "reopen must leave the original ZIP local/raw caches intact")
 
         for fixture in ["xz-aes.zip", "xz-zipcrypto.zip"] {
-            let encryptedSource = CountingByteSource(DataByteSource(try ModernZIPFixtures.data(fixture)))
+            let encryptedSource = CountingByteSource(DataByteSource(try ZipModernFixtures.data(fixture)))
             let original = try ArchiveReader.open(source: encryptedSource,
-                options: ReaderOptions(password: ModernZIPFixtures.password))
-            XCTAssertEqual(try original.read(original.entries[0]), ModernZIPFixtures.payload)
+                options: ReaderOptions(password: ZipModernFixtures.password))
+            XCTAssertEqual(try original.read(original.entries[0]), ZipModernFixtures.payload)
             encryptedSource.reset()
             let correct = try original.reopen()
             XCTAssertEqual(encryptedSource.bytesRead, 0, "encrypted ZIP reopen must not parse")
-            XCTAssertEqual(correct.password, ModernZIPFixtures.password)
+            XCTAssertEqual(correct.password, ZipModernFixtures.password)
             original.password = "wrong"
             let wrong = try original.reopen()
             XCTAssertEqual(wrong.password, "wrong")
             XCTAssertThrowsError(try wrong.read(wrong.entries[0])) { XCTAssertEqual($0 as? KaitoError, .wrongPassword) }
-            XCTAssertEqual(try correct.read(correct.entries[0]), ModernZIPFixtures.payload)
-            original.password = ModernZIPFixtures.password
+            XCTAssertEqual(try correct.read(correct.entries[0]), ZipModernFixtures.payload)
+            original.password = ZipModernFixtures.password
             let restored = try original.reopen()
-            XCTAssertEqual(try restored.read(restored.entries[0]), ModernZIPFixtures.payload)
+            XCTAssertEqual(try restored.read(restored.entries[0]), ZipModernFixtures.payload)
             XCTAssertThrowsError(try wrong.read(wrong.entries[0])) { XCTAssertEqual($0 as? KaitoError, .wrongPassword) }
         }
     }
@@ -211,7 +211,7 @@ final class ReopenSharingTests: XCTestCase {
     }
 
     func testDocumentationRecordsK9SharingAndTimings() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let root = TestFixtures.repositoryRoot
         let changelog = try String(contentsOf: root.appendingPathComponent("CHANGELOG.md"), encoding: .utf8)
         let record = try String(contentsOf: root.appendingPathComponent("Documentation/verification/2026-09-19-release-review.md"), encoding: .utf8)
         XCTAssertTrue(changelog.contains("（K9）"), "Unreleased must document K9 parsed-state sharing")

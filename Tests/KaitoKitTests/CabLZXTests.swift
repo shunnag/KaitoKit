@@ -21,10 +21,8 @@ final class CabLZXTests: XCTestCase {
     private struct Frame {
         let header, start, count, size, folder: Int
     }
-    private var root: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    }
-    private var fixtures: URL { root.appendingPathComponent("Tests/Fixtures/cab-lzx") }
+    private var root: URL { TestFixtures.repositoryRoot }
+    private var fixtures: URL { TestFixtures.url("cab-lzx") }
 
     private func manifest(at directory: URL) throws -> Manifest {
         try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: directory.appendingPathComponent("manifest.json")))
@@ -33,11 +31,8 @@ final class CabLZXTests: XCTestCase {
         let bytes = try Data(contentsOf: directory.appendingPathComponent(fixture.archive))
         let data = fixture.archive.hasSuffix(".b64")
             ? try XCTUnwrap(Data(base64Encoded: bytes, options: .ignoreUnknownCharacters)) : bytes
-        XCTAssertEqual(sha(data), fixture.cab_sha256, fixture.name)
+        XCTAssertEqual(data.sha256Hex, fixture.cab_sha256, fixture.name)
         return data
-    }
-    private func sha(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
     private func assertFiles(_ reader: ArchiveReader, _ fixture: Fixture, tiny: Bool = false) throws {
         XCTAssertEqual(reader.entries.map(\.name), fixture.files.map(\.name), fixture.name)
@@ -59,7 +54,7 @@ final class CabLZXTests: XCTestCase {
                 result = try reader.read(entry)
             }
             XCTAssertEqual(UInt64(result.count), file.size, "\(fixture.name)/\(file.name)")
-            XCTAssertEqual(sha(result), file.sha256, "\(fixture.name)/\(file.name)")
+            XCTAssertEqual(result.sha256Hex, file.sha256, "\(fixture.name)/\(file.name)")
         }
     }
 
@@ -75,7 +70,7 @@ final class CabLZXTests: XCTestCase {
         for fixture in try manifest(at: fixtures).fixtures {
             let reader = try ArchiveReader.open(data: archive(fixture, at: fixtures))
             for (entry, file) in zip(reader.entries, fixture.files).reversed() {
-                XCTAssertEqual(sha(try reader.read(entry)), file.sha256, fixture.name)
+                XCTAssertEqual(try reader.read(entry).sha256Hex, file.sha256, fixture.name)
             }
             try assertFiles(reader, fixture, tiny: true)
         }
@@ -89,12 +84,6 @@ final class CabLZXTests: XCTestCase {
             if FileManager.default.isExecutableFile(atPath: url.path) { return url }
         }
         throw XCTSkip("\(name) is unavailable")
-    }
-
-    private func temporaryDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("kaito-lzx-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
     }
 
     private func run(_ executable: URL, _ arguments: [String], log: URL) throws {
@@ -132,14 +121,14 @@ final class CabLZXTests: XCTestCase {
             let expected = try Data(contentsOf: output.appendingPathComponent(entry.name))
             let actual = try reader.read(entry)
             XCTAssertEqual(actual.count, expected.count, entry.name)
-            XCTAssertEqual(sha(actual), sha(expected), "\(cab.lastPathComponent)/\(entry.name)")
+            XCTAssertEqual(actual.sha256Hex, expected.sha256Hex, "\(cab.lastPathComponent)/\(entry.name)")
         }
         return reader.entries.count
     }
 
     func testTwentyGeneratedArchivesAgainstCabextract() throws {
         let python = try executable("python3"), oracle = try executable("cabextract")
-        let directory = try temporaryDirectory()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "lzx")
         defer { try? FileManager.default.removeItem(at: directory) }
         let log = directory.appendingPathComponent("generator.log")
         try run(python, [root.appendingPathComponent("Scripts/fixtures/make-cab-lzx.py").path,
@@ -164,7 +153,7 @@ final class CabLZXTests: XCTestCase {
         let archives = contents.compactMap { $0 as? URL }.filter { $0.pathExtension.lowercased() == "cab" }
             .sorted { $0.path < $1.path }
         guard !archives.isEmpty else { throw XCTSkip("No CAB archives in KAITOKIT_CAB_CORPUS") }
-        let directory = try temporaryDirectory()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "lzx")
         defer { try? FileManager.default.removeItem(at: directory) }
         for cab in archives {
             let count = try compareOracle(cab, oracle: oracle, directory: directory)
@@ -218,7 +207,7 @@ final class CabLZXTests: XCTestCase {
             for index in [2, 0, 1, 2] {
                 let data = try reader.read(reader.entries[index])
                 XCTAssertEqual(UInt64(data.count), fixture.files[index].size)
-                XCTAssertEqual(sha(data), fixture.files[index].sha256)
+                XCTAssertEqual(data.sha256Hex, fixture.files[index].sha256)
             }
             XCTAssertThrowsError(try reader.stream(reader.entries[3])) { error in
                 guard case KaitoError.unsupportedMethod("cab multi-cabinet set") = error else {
@@ -233,7 +222,7 @@ final class CabLZXTests: XCTestCase {
 
     func testContinuedFolderContainedFilesAgainstCabextract() throws {
         let oracle = try executable("cabextract"), python = try executable("python3")
-        let directory = try temporaryDirectory()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "lzx")
         defer { try? FileManager.default.removeItem(at: directory) }
         // 小型標本では cabextract 1.11 が末尾 split の次巻不足で先頭側も失敗する。
         // 元の先頭三ファイルを保ち、continued file に一 frame を足した literal 版も照合する。
@@ -266,7 +255,7 @@ final class CabLZXTests: XCTestCase {
                 log: directory.appendingPathComponent("oracle.log"))
             let actual = try Data(contentsOf: output.appendingPathComponent(file.name))
             XCTAssertEqual(UInt64(actual.count), file.size)
-            XCTAssertEqual(sha(actual), file.sha256)
+            XCTAssertEqual(actual.sha256Hex, file.sha256)
             XCTAssertEqual(try reader.read(entry), actual)
         }
     }
@@ -354,7 +343,7 @@ final class CabLZXTests: XCTestCase {
         let frames = frames(bytes)
         for frame in frames.prefix(2) { bytes[frame.header] ^= 1 }
         let reader = try ArchiveReader.open(data: bytes)
-        XCTAssertEqual(sha(try reader.read(reader.entries[3])), fixture.files[3].sha256)
+        XCTAssertEqual(try reader.read(reader.entries[3]).sha256Hex, fixture.files[3].sha256)
         XCTAssertEqual(try reader.read(reader.entries[1]), Data())
         assertDamage { _ = try reader.read(reader.entries[0]) }
         // 検査値ゼロは既存の None/MSZIP と同様に検査対象外。
@@ -368,10 +357,10 @@ final class CabLZXTests: XCTestCase {
         let last = try XCTUnwrap(frames(bytes).last)
         bytes[last.start] ^= 1
         let reader = try ArchiveReader.open(data: bytes)
-        XCTAssertEqual(sha(try reader.read(reader.entries[0])), fixture.files[0].sha256)
+        XCTAssertEqual(try reader.read(reader.entries[0]).sha256Hex, fixture.files[0].sha256)
         XCTAssertEqual(try reader.read(reader.entries[1]), Data())
         assertDamage { _ = try reader.read(reader.entries[3]) }
-        XCTAssertEqual(sha(try reader.read(reader.entries[0])), fixture.files[0].sha256)
+        XCTAssertEqual(try reader.read(reader.entries[0]).sha256Hex, fixture.files[0].sha256)
     }
 
     private struct Bits {
@@ -559,7 +548,7 @@ final class CabLZXTests: XCTestCase {
         XCTAssertEqual(try withUnsafeMutableBytes(of: &byte) { try first.read(into: $0) }, 1)
         let second = try reader.stream(reader.entries[1])
         assertDamage { _ = try withUnsafeMutableBytes(of: &byte) { try first.read(into: $0) } }
-        XCTAssertEqual(sha(try second.readAll()), fixture.files[1].sha256)
+        XCTAssertEqual(try second.readAll().sha256Hex, fixture.files[1].sha256)
         try assertFiles(reader, fixture)
     }
 }

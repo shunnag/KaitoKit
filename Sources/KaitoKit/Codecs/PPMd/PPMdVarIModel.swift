@@ -80,6 +80,8 @@ final class PPMdVarIModel {
     private let unmasked: UnsafeMutablePointer<Offset>
     private var needsNormalization = false
 
+    // Test hook: 以下の四つは ZipPPMdTests と PPMdVarIMemoryTests が復元方式と arena の解放を
+    // 確かめるために読む。本番の呼出元はない。
     internal private(set) var restartCount = 0
     internal private(set) var cutOffCount = 0
     internal private(set) var freezeCount = 0

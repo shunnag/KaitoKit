@@ -106,24 +106,6 @@ public final class LZMA2Decoder: Decompressor {
         )
     }
 
-    convenience init(
-        source: any ByteSource,
-        offset: UInt64,
-        compressedSize: UInt64,
-        property: UInt8,
-        expectedSize: UInt64?,
-        dictionarySizeLimit: UInt64
-    ) throws {
-        try self.init(
-            source: source,
-            offset: offset,
-            compressedSize: compressedSize,
-            properties: [property],
-            expectedSize: expectedSize,
-            dictionarySizeLimit: dictionarySizeLimit
-        )
-    }
-
     // 元 stream の範囲と header-only index の点から、dictionary reset chunk を
     // 先頭として再開する。expectedSize は reset 点以後の残り出力 byte 数。
     convenience init(

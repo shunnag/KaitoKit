@@ -5,6 +5,7 @@ import Foundation
 final class PPMdVarIDecoder: Decompressor {
     private let expectedSize: UInt64
     private let rangeDecoder: PPMdVarIRangeDecoder?
+    /// Test hook: ZipPPMdTests が model の復元回数と arena の解放を読む。
     internal let model: PPMdVarIModel
     private var producedSize: UInt64 = 0
 

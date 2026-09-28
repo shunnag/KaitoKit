@@ -11,9 +11,13 @@ FUNCTIONS = {
         ('symbolScore', 'static func symbolScore('), ('scalarScore', 'static func scalarScore('),
         ('repeatedMask', 'private static func repeatedMask<'),
         ('excessiveLetters', 'static func excessiveLetters('),
+    ],
+    'NameOrthography.swift': [
         ('additionalOrthography', 'static func additionalOrthography('),
-        ('westernEvidence', 'private static func westernEvidence('),
+        ('westernEvidence', 'static func westernEvidence('),
         ('vietnameseOrthography', 'static func vietnameseOrthography('),
+    ],
+    'LetterRules.swift': [
         ('letterRules', 'static func letterRules('),
         ('LetterRuleState.append', 'struct LetterRuleState', 'mutating func append('),
         ('LetterRuleState.finish', 'struct LetterRuleState', 'mutating func finish('),
@@ -29,7 +33,8 @@ def main():
     args.out_dir.mkdir(parents=True, exist_ok=True)
     labels = [f[0] for funcs in FUNCTIONS.values() for f in funcs]
     sources = []
-    for filename in ['EncodingPolicy.swift', 'EncodingDetector.swift', 'NameEncodingCandidates.swift', 'NameEncodingScorer.swift', 'LanguageExemplars.swift']:
+    for filename in ['EncodingPolicy.swift', 'EncodingDetector.swift', 'JapaneseNameEncodingResolver.swift', 'NameEncodingCandidates.swift',
+                     'NameEncodingScorer.swift', 'LetterRules.swift', 'NameOrthography.swift', 'LanguageExemplars.swift']:
         original = ROOT / 'Sources/KaitoKit/Text' / filename
         if filename not in FUNCTIONS:
             sources.append(str(original)); continue
@@ -116,7 +121,8 @@ enum NameFunctionProfile {
     }
 }
 '''.replace('LABEL_COUNT', str(len(labels))).replace('LABELS', swift_labels))
-    command = ['xcrun', 'swiftc', '-O', '-swift-version', '6', '-parse-as-library', '-package-name', 'KaitoKit', '-module-cache-path', str(ROOT / '.build/clang-cache'), *sources, str(observer), '-o', str(args.out_dir / 'profile')]
+    # 採点器は複数ファイルの extension に分かれているため、release と同じ whole-module 最適化で比べる。
+    command = ['xcrun', 'swiftc', '-O', '-wmo', '-swift-version', '6', '-parse-as-library', '-package-name', 'KaitoKit', '-module-cache-path', str(ROOT / '.build/clang-cache'), *sources, str(observer), '-o', str(args.out_dir / 'profile')]
     subprocess.run(command, check=True)
     print(args.out_dir / 'profile')
 

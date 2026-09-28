@@ -62,8 +62,8 @@ enum NameEncodingCandidates {
         }
 
         func structurallyValid(_ bytes: [UInt8]) -> Bool {
-            if form == .cp932 { return EncodingDetector.nameIsStructurallyJapanese(bytes, euc: false) }
-            if form == .eucJP { return EncodingDetector.nameIsStructurallyJapanese(bytes, euc: true) }
+            if form == .cp932 { return JapaneseNameEncodingResolver.isStructurallyCP932(bytes) }
+            if form == .eucJP { return JapaneseNameEncodingResolver.isStructurallyEUCJP(bytes) }
             if form == .single { return bytes.allSatisfy { singleByteTable[Int($0)] != nil } }
             var index = 0
             while index < bytes.count {
@@ -93,16 +93,13 @@ enum NameEncodingCandidates {
             return true
         }
 
-        // 第4回レビュー D: ASCII の綴りに lead/trail が食い込む交差復号を byte 境界で検出する。
-        func latinIntrusions(_ bytes: [UInt8]) -> [Double] { zones(bytes).map(\.latinIntrusion) }
-
         // 設計書「採点 2」: 区点配置だけを使い、記事名由来の統計は持たない。
         struct Zone {
             let score: Double
             let vendorIdeograph: Bool
+            // ASCII の綴りに lead/trail が食い込む交差復号を byte 境界で検出した減点（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
             var latinIntrusion: Double = 0
         }
-        func zoneScores(_ bytes: [UInt8]) -> [Double] { zones(bytes).map(\.score) }
         func zones(_ bytes: [UInt8]) -> [Zone] {
             var result: [Zone] = []
             var index = 0
@@ -121,20 +118,20 @@ enum NameEncodingCandidates {
                 switch form {
                 case .cp932:
                     let row = (lead < 0xA0 ? lead - 0x81 : lead - 0xC1) * 2 + 1 + (trail >= 0x9F ? 1 : 0)
-                    score = (16...47).contains(row) ? 2 : row >= 48 ? NameEncodingScorer.secondTierScore : 0
+                    score = (16...47).contains(row) ? 2 : row >= 48 ? NameEncodingScorer.Tuning.secondTierScore : 0
                 case .eucJP:
                     if lead == 0x8E { score = 0 }
-                    else if lead == 0x8F { score = NameEncodingScorer.secondTierScore; length = 3 }
-                    else { score = (0xB0...0xCF).contains(lead) ? 2 : lead >= 0xD0 ? NameEncodingScorer.secondTierScore : 0 }
+                    else if lead == 0x8F { score = NameEncodingScorer.Tuning.secondTierScore; length = 3 }
+                    else { score = (0xB0...0xCF).contains(lead) ? 2 : lead >= 0xD0 ? NameEncodingScorer.Tuning.secondTierScore : 0 }
                 case .gb18030:
-                    if (0x30...0x39).contains(trail) { score = NameEncodingScorer.secondTierScore; length = 4 }
-                    else { score = (0xB0...0xD7).contains(lead) && trail >= 0xA1 ? 2 : lead >= 0xA1 && lead <= 0xA9 && trail >= 0xA1 ? 0 : NameEncodingScorer.secondTierScore }
+                    if (0x30...0x39).contains(trail) { score = NameEncodingScorer.Tuning.secondTierScore; length = 4 }
+                    else { score = (0xB0...0xD7).contains(lead) && trail >= 0xA1 ? 2 : lead >= 0xA1 && lead <= 0xA9 && trail >= 0xA1 ? 0 : NameEncodingScorer.Tuning.secondTierScore }
                 case .big5:
                     let pair = lead * 256 + trail
-                    score = (0xA440...0xC67E).contains(pair) ? 2 : (0xA140...0xA3BF).contains(pair) ? 0 : NameEncodingScorer.secondTierScore
+                    score = (0xA440...0xC67E).contains(pair) ? 2 : (0xA140...0xA3BF).contains(pair) ? 0 : NameEncodingScorer.Tuning.secondTierScore
                 case .cp949:
                     if (0xB0...0xC8).contains(lead), trail >= 0xA1 { score = 2 }
-                    else if (0xCA...0xFD).contains(lead), trail >= 0xA1 { score = NameEncodingScorer.secondTierScore }
+                    else if (0xCA...0xFD).contains(lead), trail >= 0xA1 { score = NameEncodingScorer.Tuning.secondTierScore }
                     else { score = 0.25 }
                 case .single: break
                 }
@@ -155,7 +152,7 @@ enum NameEncodingCandidates {
         0x9F: 0x06BA, 0xAA: 0x06BE, 0xC0: 0x06C1, 0xFF: 0x06D2,
     ]
 
-    // 設計書「採点 6」と変更履歴 c: 同点時の既定順位。HKSCS は CP950 復号失敗時だけ参加する。
+    // 設計書「採点 6」: 同点時の既定順位。HKSCS は CP950 復号失敗時だけ参加する（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
     static let all: [Candidate] = [
         Candidate("cp932", ["ja"], .cp932), Candidate("euc-jp", ["ja"], .eucJP),
         Candidate("gb18030", ["zh"], .gb18030), Candidate("cp950", ["zh-Hant"], .big5),
@@ -173,7 +170,7 @@ enum NameEncodingCandidates {
         Candidate("windows-1253", ["el"]), Candidate("windows-1254", ["tr"]),
         Candidate("windows-1255", ["he"]), Candidate("windows-1256", ["ar", "fa"]),
         Candidate("windows-1257", ["lt", "lv", "et"]),
-        // C-B: CF で扱える候補のみ。CP861 は CF の表が CP775 と同じため除外。
+        // CF で扱える候補のみ。CP861 は CF の表が CP775 と同じため除外（Documentation/verification/2026-09-14-name-encoding-languages.md）。
         Candidate("iso-8859-8", ["he"]),
         Candidate("cp862", ["he"]),
         Candidate("x-mac-hebrew", ["he"]),
@@ -203,4 +200,7 @@ enum NameEncodingCandidates {
         Candidate("x-mac-turkish", ["tr"]),
         Candidate("x-mac-thai", ["th"]),
     ]
+
+    // HKSCS の参加条件（CP950 の復号成否）を見るための CP950 の位置。
+    static let cp950Index = all.firstIndex { $0.name == "cp950" }!
 }

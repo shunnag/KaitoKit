@@ -15,7 +15,6 @@ public enum EncodingDetector {
     // not make open time grow through repeated Foundation normalization.
     private static let maximumAutomaticDetectionSampleByteCount = 256 * 1_024
     private static let maximumAutomaticDetectionSampleNameCount = 512
-    private static let maximumJapaneseScoringScalarCount = 256
 
     final class ArchiveEncodingDetectionMetrics {
         fileprivate(set) var ambiguousNameCount = 0
@@ -23,8 +22,9 @@ public enum EncodingDetector {
         fileprivate(set) var foundationSampleCandidateCount = 0
         fileprivate(set) var foundationSampleNameCount = 0
         fileprivate(set) var foundationSampleByteCount = 0
-        fileprivate(set) var plausibilityScalarCount = 0
-        fileprivate(set) var halfWidthScalarCount = 0
+        // 日本語の採点（JapaneseNameEncodingResolver）が加算する。
+        var plausibilityScalarCount = 0
+        var halfWidthScalarCount = 0
     }
 
     private struct ArchiveNameFrequency {
@@ -397,49 +397,25 @@ public enum EncodingDetector {
         if let multilingual, multilingual != .shiftJIS, multilingual != .japaneseEUC {
             return multilingual
         }
-        var ambiguousJapaneseNames: [[UInt8]] = []
-        var cp932Only = 0
-        var eucJPOnly = 0
-
-        for bytes in names {
-            let isCP932 = isStructurallyCP932(bytes)
-            let isEUCJP = isStructurallyEUCJP(bytes)
-            if isCP932, !isEUCJP {
-                cp932Only += 1
-            } else if isEUCJP, !isCP932 {
-                eucJPOnly += 1
-            } else if isCP932, isEUCJP {
-                ambiguousJapaneseNames.append(bytes)
-            }
-        }
-        metrics?.ambiguousNameCount = ambiguousJapaneseNames.count
-
-        let hasCP932Support = cp932Only > 0 || !ambiguousJapaneseNames.isEmpty
-        let hasEUCJPSupport = eucJPOnly > 0 || !ambiguousJapaneseNames.isEmpty
-        if hasCP932Support, !hasEUCJPSupport { return .shiftJIS }
-        if hasEUCJPSupport, !hasCP932Support { return .japaneseEUC }
-        if cp932Only > eucJPOnly + ambiguousJapaneseNames.count { return .shiftJIS }
-        if eucJPOnly > cp932Only + ambiguousJapaneseNames.count { return .japaneseEUC }
+        // 日本語の二候補は構造検査の票で決め、決まらない分だけ名前ごとの採点と Foundation の hint で決める。
+        var vote = JapaneseNameEncodingResolver.ArchiveVote(names: names)
+        metrics?.ambiguousNameCount = vote.ambiguousNames.count
+        if let encoding = vote.structurallyUnopposed { return encoding }
+        if let encoding = vote.decisiveMajority { return encoding }
 
         // 両構造を通る名前が勝敗を変え得る場合だけ、archive の代表列を
         // Foundation に一度渡し、その hint を各名前の一票へ反映する。
         var foundation: EncodingDetection?
         var calledFoundation = false
-        if !ambiguousJapaneseNames.isEmpty {
-            let withoutEUCShift = ambiguousJapaneseNames.filter {
-                !containsEUCShiftPrefix($0)
-            }
-            let representativeNames = withoutEUCShift.count >
-                ambiguousJapaneseNames.count - withoutEUCShift.count
-                ? withoutEUCShift
-                : names
-            let sample = concatenate(
-                representativeNames,
+        if !vote.ambiguousNames.isEmpty {
+            let sample = orderStableArchiveNameSample(
+                vote.foundationSampleNames(from: names),
                 separator: 0x0A,
-                maximumByteCount: maximumBatchByteCount,
+                maximumByteCount: maximumBatchByteCount
+                    ?? maximumAutomaticDetectionSampleByteCount,
                 metrics: metrics
             )
-            foundation = foundationDetection(
+            foundation = JapaneseNameEncodingResolver.foundationDetection(
                 bytes: sample,
                 likelyLanguage: likelyLanguage,
                 fromWindows: fromWindows
@@ -447,11 +423,8 @@ public enum EncodingDetector {
             calledFoundation = true
         }
 
-        let ambiguousNameFrequencies = archiveNameFrequencies(ambiguousJapaneseNames)
+        let ambiguousNameFrequencies = archiveNameFrequencies(vote.ambiguousNames)
         let uniqueAmbiguousNames = ambiguousNameFrequencies.map(\.bytes)
-        var cp932Votes = cp932Only
-        var eucJPVotes = eucJPOnly
-        var unresolvedVotes = ambiguousJapaneseNames.count
         let cp932Decoded = decodeArchiveNamesImpl(
             uniqueAmbiguousNames,
             as: .shiftJIS,
@@ -469,78 +442,34 @@ public enum EncodingDetector {
             guard let cp932 = cp932Decoded[index],
                   let eucJP = eucJPDecoded[index] else { continue }
             metrics?.scoredAmbiguousNameCount += 1
-            let choice = chooseAmbiguousJapanese(
+            let choice = JapaneseNameEncodingResolver.chooseAmbiguousJapanese(
                 cp932: cp932,
                 eucJP: eucJP,
                 bytes: uniqueAmbiguousNames[index],
                 foundation: foundation,
                 metrics: metrics
             )
-            let occurrenceCount = ambiguousNameFrequencies[index].count
-            if choice.encoding == .japaneseEUC {
-                eucJPVotes += occurrenceCount
-            } else {
-                cp932Votes += occurrenceCount
-            }
-            unresolvedVotes -= occurrenceCount
+            vote.resolve(ambiguousNameFrequencies[index].count, as: choice.encoding)
         }
-
-        if unresolvedVotes == 0, cp932Votes != eucJPVotes {
-            return cp932Votes > eucJPVotes ? .shiftJIS : .japaneseEUC
-        }
-        if cp932Votes > eucJPVotes + unresolvedVotes { return .shiftJIS }
-        if eucJPVotes > cp932Votes + unresolvedVotes { return .japaneseEUC }
+        if let encoding = vote.resolvedMajority { return encoding }
+        if let encoding = vote.decisiveMajority { return encoding }
 
         // 構造候補がない archive、または未解決票が残った archive だけがここへ来る。
         if !calledFoundation {
-            let sample = concatenate(
+            let sample = orderStableArchiveNameSample(
                 names,
                 separator: 0x0A,
-                maximumByteCount: maximumBatchByteCount,
+                maximumByteCount: maximumBatchByteCount
+                    ?? maximumAutomaticDetectionSampleByteCount,
                 metrics: metrics
             )
-            foundation = foundationDetection(
+            foundation = JapaneseNameEncodingResolver.foundationDetection(
                 bytes: sample,
                 likelyLanguage: likelyLanguage,
                 fromWindows: fromWindows
             )
         }
-        if !hasCP932Support, !hasEUCJPSupport {
-            return foundation?.encoding ?? .isoLatin1
-        }
-        if foundation?.encoding == .shiftJIS {
-            cp932Votes += unresolvedVotes
-            unresolvedVotes = 0
-        } else if foundation?.encoding == .japaneseEUC {
-            eucJPVotes += unresolvedVotes
-            unresolvedVotes = 0
-        }
-
-        if cp932Votes != eucJPVotes {
-            return cp932Votes > eucJPVotes ? .shiftJIS : .japaneseEUC
-        }
-        if foundation?.encoding == .japaneseEUC { return .japaneseEUC }
-        if foundation?.encoding == .shiftJIS { return .shiftJIS }
-        if hasCP932Support || hasEUCJPSupport {
-            // 日本語候補の同点時は単名 detector と同じく CP932 を優先する。
-            return .shiftJIS
-        }
-        return .isoLatin1
-    }
-
-    private static func concatenate(
-        _ names: [[UInt8]],
-        separator: UInt8,
-        maximumByteCount: Int?,
-        metrics: ArchiveEncodingDetectionMetrics?
-    ) -> [UInt8] {
-        orderStableArchiveNameSample(
-            names,
-            separator: separator,
-            maximumByteCount: maximumByteCount
-                ?? maximumAutomaticDetectionSampleByteCount,
-            metrics: metrics
-        )
+        return vote.decision(foundationHint: foundation?.encoding)
     }
 
     // Builds a bounded, order-independent sample for the one Foundation call.
@@ -626,47 +555,6 @@ public enum EncodingDetector {
         return hash
     }
 
-    // 呼出側の byte 上限内で代表入力を作る。構造投票はすべての名前を
-    // 検査済みで、この sample は書庫で一度だけの Foundation hint に使う。
-    static func boundedArchiveNameSample(
-        _ names: [[UInt8]],
-        separator: UInt8,
-        maximumByteCount: Int
-    ) -> [UInt8] {
-        let limit = max(0, maximumByteCount)
-        guard limit > 0 else { return [] }
-
-        var byteCount = 0
-        var includedNameCount = 0
-        for name in names {
-            let separatorCount = includedNameCount == 0 ? 0 : 1
-            let remaining = limit - byteCount
-            guard separatorCount <= remaining,
-                  name.count <= remaining - separatorCount else {
-                continue
-            }
-            byteCount += separatorCount + name.count
-            includedNameCount += 1
-        }
-
-        var combined: [UInt8] = []
-        combined.reserveCapacity(byteCount)
-        var remainingByteCount = byteCount
-        var appendedNameCount = 0
-        for name in names where remainingByteCount > 0 {
-            let separatorCount = appendedNameCount == 0 ? 0 : 1
-            guard separatorCount <= remainingByteCount,
-                  name.count <= remainingByteCount - separatorCount else {
-                continue
-            }
-            if separatorCount == 1 { combined.append(separator) }
-            combined.append(contentsOf: name)
-            remainingByteCount -= separatorCount + name.count
-            appendedNameCount += 1
-        }
-        return combined
-    }
-
     private static func concatenate(
         _ names: [[UInt8]],
         range: Range<Int>,
@@ -709,7 +597,7 @@ public enum EncodingDetector {
             return (.utf8, string, 1.0)
         }
 
-        // 設計書変更履歴 c、f: 先に全候補の勝者を固定し、日本語の時だけ既存経路へ委ねる。
+        // 先に全候補の勝者を固定し、日本語の時だけ既存経路へ委ねる（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
         let ranked = NameEncodingScorer.ranked(
             NameEncodingScorer.allScores(bytes, fromWindows: fromWindows),
             likelyLanguage: likelyLanguage, fromWindows: fromWindows
@@ -717,7 +605,8 @@ public enum EncodingDetector {
         if let winner = ranked.first {
             let candidate = NameEncodingCandidates.all[winner.candidateIndex]
             if !candidate.isJapanese {
-                // C-B の補完・方向制御除去は採点専用。返す名前は既存の CF 復号を通す。
+                // CP1256 の補完と Mac Arabic / Farsi の方向制御の除去は採点専用。返す名前は既存の CF 復号を通す
+                // （Documentation/verification/2026-09-14-name-encoding-languages.md）。
                 let string: String
                 if candidate.name == "windows-1256" || candidate.name == "x-mac-arabic" || candidate.name == "x-mac-farsi" {
                     string = decode(bytes: bytes, as: candidate.encoding) ?? replacementDecode(bytes, encoding: candidate.encoding)
@@ -730,292 +619,10 @@ public enum EncodingDetector {
             return (.isoLatin1, latin1, 0.2)
         }
 
-        let japanese = automaticallyDetectJapanese(bytes: bytes, likelyLanguage: likelyLanguage, fromWindows: fromWindows)
+        let japanese = JapaneseNameEncodingResolver.automaticallyDetectJapanese(
+            bytes: bytes, likelyLanguage: likelyLanguage, fromWindows: fromWindows
+        )
         return (japanese.encoding, japanese.string, NameEncodingScorer.confidence(ranked))
-    }
-
-    // 設計書変更履歴 c、f: 既存の日本語決定処理を保持し、新候補の勝者が日本語の時だけ呼ぶ。
-    private static func automaticallyDetectJapanese(
-        bytes: [UInt8], likelyLanguage: String?, fromWindows: Bool
-    ) -> EncodingDetection {
-        // Foundation の結果は先に取得し、構造検査が両方通る曖昧列では品質評価のヒントにも使う。
-        let foundation = foundationDetection(
-            bytes: bytes,
-            likelyLanguage: likelyLanguage,
-            fromWindows: fromWindows
-        )
-        let cp932 = cp932Candidate(bytes)
-        let eucJP = eucJPCandidate(bytes)
-        if let cp932, let eucJP {
-            return chooseAmbiguousJapanese(
-                cp932: cp932,
-                eucJP: eucJP,
-                bytes: bytes,
-                foundation: foundation
-            )
-        }
-        if let cp932 {
-            if foundation?.encoding == .shiftJIS {
-                return (.shiftJIS, cp932, 0.9)
-            }
-            return (.shiftJIS, cp932, 0.78)
-        }
-        if let eucJP {
-            if foundation?.encoding == .japaneseEUC {
-                return (.japaneseEUC, eucJP, 0.9)
-            }
-            return (.japaneseEUC, eucJP, 0.75)
-        }
-        if let foundation {
-            return foundation
-        }
-
-        // ISO Latin-1 は全バイトを保持できる最後のフォールバック。
-        let latin1 = decode(bytes: bytes, as: .isoLatin1)
-            ?? String(bytes.map { UnicodeScalar($0) }.map(Character.init))
-        return (.isoLatin1, latin1, 0.2)
-    }
-
-    private static func foundationDetection(
-        bytes: [UInt8],
-        likelyLanguage: String?,
-        fromWindows: Bool
-    ) -> EncodingDetection? {
-        let candidates: [UInt] = [
-            String.Encoding.shiftJIS.rawValue,
-            String.Encoding.japaneseEUC.rawValue,
-            String.Encoding.utf8.rawValue,
-            String.Encoding.iso2022JP.rawValue,
-            String.Encoding.windowsCP1252.rawValue,
-        ]
-        var options: [StringEncodingDetectionOptionsKey: Any] = [
-            .suggestedEncodingsKey: candidates,
-            .useOnlySuggestedEncodingsKey: true,
-            .allowLossyKey: false,
-        ]
-        if let likelyLanguage {
-            options[.likelyLanguageKey] = likelyLanguage
-        }
-        if fromWindows {
-            options[.fromWindowsKey] = true
-        }
-
-        var converted: NSString?
-        var usedLossyConversion = ObjCBool(false)
-        // 二つの出力変数は呼び出し完了まで生存し、Foundation はその間だけ参照する。
-        let rawEncoding = NSString.stringEncoding(
-            for: Data(bytes),
-            encodingOptions: options,
-            convertedString: &converted,
-            usedLossyConversion: &usedLossyConversion
-        )
-        guard rawEncoding != 0,
-              !usedLossyConversion.boolValue,
-              let converted
-        else {
-            return nil
-        }
-
-        let encoding = String.Encoding(rawValue: rawEncoding)
-        guard candidates.contains(encoding.rawValue) else {
-            return nil
-        }
-        return (encoding, converted as String, 0.9)
-    }
-
-    private static func cp932Candidate(_ bytes: [UInt8]) -> String? {
-        guard isStructurallyCP932(bytes) else { return nil }
-        return decode(bytes: bytes, as: .shiftJIS)
-    }
-
-    private static func isStructurallyCP932(_ bytes: [UInt8]) -> Bool {
-        var index = 0
-        while index < bytes.count {
-            let byte = bytes[index]
-            if byte <= 0x7F || (0xA1...0xDF).contains(byte) {
-                index += 1
-                continue
-            }
-
-            let isLead = (0x81...0x9F).contains(byte) || (0xE0...0xFC).contains(byte)
-            guard isLead, index + 1 < bytes.count else {
-                return false
-            }
-            let trail = bytes[index + 1]
-            let isTrail = (0x40...0x7E).contains(trail) || (0x80...0xFC).contains(trail)
-            guard isTrail, trail != 0x7F else {
-                return false
-            }
-            index += 2
-        }
-        return true
-    }
-
-    private static func eucJPCandidate(_ bytes: [UInt8]) -> String? {
-        guard isStructurallyEUCJP(bytes) else { return nil }
-        return decode(bytes: bytes, as: .japaneseEUC)
-    }
-
-    private static func isStructurallyEUCJP(_ bytes: [UInt8]) -> Bool {
-        var index = 0
-        while index < bytes.count {
-            let byte = bytes[index]
-            if byte <= 0x7F {
-                index += 1
-                continue
-            }
-            if byte == 0x8E {
-                guard index + 1 < bytes.count, (0xA1...0xDF).contains(bytes[index + 1]) else {
-                    return false
-                }
-                index += 2
-                continue
-            }
-            if byte == 0x8F {
-                guard index + 2 < bytes.count,
-                      (0xA1...0xFE).contains(bytes[index + 1]),
-                      (0xA1...0xFE).contains(bytes[index + 2])
-                else {
-                    return false
-                }
-                index += 3
-                continue
-            }
-            guard (0xA1...0xFE).contains(byte),
-                  index + 1 < bytes.count,
-                  (0xA1...0xFE).contains(bytes[index + 1])
-            else {
-                return false
-            }
-            index += 2
-        }
-        return true
-    }
-
-    private static func chooseAmbiguousJapanese(
-        cp932: String,
-        eucJP: String,
-        bytes: [UInt8],
-        foundation: EncodingDetection?,
-        metrics: ArchiveEncodingDetectionMetrics? = nil
-    ) -> EncodingDetection {
-        // 0x8E は「車」「社」等の CP932 の先頭にもなるため、単独では EUC と断定しない。
-        let eucHasOneCharacter = !eucJP.isEmpty
-            && eucJP.index(after: eucJP.startIndex) == eucJP.endIndex
-        let likelyHalfWidthName = isLikelyHalfWidthName(cp932, metrics: metrics)
-        if eucHasOneCharacter, likelyHalfWidthName {
-            return (.shiftJIS, cp932, 0.8)
-        }
-
-        var cpScore = japanesePlausibility(cp932, metrics: metrics)
-        var eucScore = japanesePlausibility(eucJP, metrics: metrics)
-        if foundation?.encoding == .shiftJIS {
-            cpScore += 0.15
-        } else if foundation?.encoding == .japaneseEUC {
-            eucScore += 0.15
-        }
-        if likelyHalfWidthName {
-            cpScore += 0.9
-        }
-        if containsEUCShiftPrefix(bytes),
-           isLikelyHalfWidthName(eucJP, metrics: metrics)
-            || isPredominantlyEUCHalfWidthName(eucJP, metrics: metrics) {
-            eucScore += 0.9
-        }
-
-        if eucScore > cpScore {
-            return (.japaneseEUC, eucJP, 0.72)
-        }
-        // 同点時は仕様上先に検査する CP932 を選ぶ。
-        return (.shiftJIS, cp932, 0.72)
-    }
-
-    private static func containsEUCShiftPrefix(_ bytes: [UInt8]) -> Bool {
-        var index = 0
-        while index < bytes.count {
-            if bytes[index] == 0x8E || bytes[index] == 0x8F {
-                return true
-            }
-            index += 1
-        }
-        return false
-    }
-
-    private static func isPredominantlyEUCHalfWidthName(
-        _ string: String,
-        metrics: ArchiveEncodingDetectionMetrics?
-    ) -> Bool {
-        // This candidate has already passed strict EUC-JP validation: each
-        // half-width scalar represents an 8E A1...DF pair. Several such pairs
-        // dominating the non-ASCII name are evidence even without a known word.
-        // A single 8E-led CP932 kanji (車 / 社 / 者) is not enough.
-        var kana = 0
-        var nonASCII = 0
-        var inspected = 0
-        for scalar in string.unicodeScalars.prefix(maximumJapaneseScoringScalarCount) {
-            inspected += 1
-            if scalar.value > 0x7F { nonASCII += 1 }
-            if (0xFF61...0xFF9F).contains(scalar.value) { kana += 1 }
-        }
-        metrics?.halfWidthScalarCount += inspected
-        return kana >= 4 && kana * 2 > nonASCII
-    }
-
-    private static func japanesePlausibility(
-        _ string: String,
-        metrics: ArchiveEncodingDetectionMetrics?
-    ) -> Double {
-        var score = 0.0
-        var count = 0.0
-        for scalar in string.unicodeScalars.prefix(maximumJapaneseScoringScalarCount) {
-            count += 1.0
-            switch scalar.value {
-            case 0x3040...0x30FF: // ひらがな・カタカナ
-                score += 2.0
-            case 0x3400...0x9FFF, 0xF900...0xFAFF: // CJK 統合漢字・互換漢字
-                score += 2.0
-            case 0xFF61...0xFF9F: // 半角カナ
-                score += 1.25
-            case 0x20...0x7E: // 一般的なファイル名 ASCII
-                score += 0.25
-            case 0x00...0x1F, 0x7F...0x9F:
-                score -= 4.0
-            default:
-                score -= 0.25
-            }
-        }
-        metrics?.plausibilityScalarCount += Int(count)
-        return count > 0 ? score / count : 0
-    }
-
-    private static func isLikelyHalfWidthName(
-        _ string: String,
-        metrics: ArchiveEncodingDetectionMetrics?
-    ) -> Bool {
-        var sawKana = false
-        var sampledScalars: [Unicode.Scalar] = []
-        sampledScalars.reserveCapacity(maximumJapaneseScoringScalarCount)
-        var inspectedScalarCount = 0
-        defer { metrics?.halfWidthScalarCount += inspectedScalarCount }
-        for scalar in string.unicodeScalars.prefix(maximumJapaneseScoringScalarCount) {
-            inspectedScalarCount += 1
-            if (0xFF61...0xFF9F).contains(scalar.value) {
-                sawKana = true
-            } else if !(0x20...0x7E).contains(scalar.value) {
-                return false
-            }
-            sampledScalars.append(scalar)
-        }
-        guard sawKana else {
-            return false
-        }
-
-        let sampled = String(sampledScalars.map(Character.init))
-        let commonTerms = [
-            "ｶﾅ", "ｶﾀｶﾅ", "ﾃｽﾄ", "ﾍﾟｰｼﾞ", "ﾌｧｲﾙ", "ｺﾐｯｸ",
-            "ﾏﾝｶﾞ", "ﾀｲﾄﾙ", "ｻﾝﾌﾟﾙ", "ｲﾗｽﾄ",
-        ]
-        return commonTerms.contains { sampled.contains($0) }
     }
 
     // 設計書「書庫単位」「性能」: 既存 sample と同じ順序・中点抽出・byte 上限を使う。
@@ -1057,7 +664,7 @@ public enum EncodingDetector {
         for index in selected.keys.sorted() {
             let count = selected[index]!
             let results = NameEncodingScorer.allScores(frequencies[index].bytes, fromWindows: fromWindows, includeHKSCS: true, archive: true)
-            // 第4回レビュー A: 全候補で同じ byte 尺度を使い、復号不能名も分母から落とさない。
+            // 全候補で同じ byte 尺度を使い、復号不能名も分母から落とさない（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
             let n = frequencies[index].bytes.reduce(0) { $0 + ($1 >= 128 ? 1 : 0) }
             var values = [SIMD16<Double>](repeating: SIMD16(repeating: -3 * Double(n)), count: candidates.count)
             for result in results {
@@ -1075,22 +682,13 @@ public enum EncodingDetector {
         let results = candidates.indices.compactMap { i -> NameEncodingScorer.Result? in
             guard decoded[i] > 0 else { return nil }
             if candidates[i].name == "windows-1258", !vietnameseEvidence { return nil }
-            if candidates[i].name == "big5-hkscs", decoded[3] == weight { return nil }
-            // 第5回レビュー: 名前ごとの最大ではなく、同じ言語の証拠を全 sample で合算してから選ぶ。
+            if candidates[i].name == "big5-hkscs", decoded[NameEncodingCandidates.cp950Index] == weight { return nil }
+            // 名前ごとの最大ではなく、同じ言語の証拠を全 sample で合算してから選ぶ（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
             let best = candidates[i].languages.indices.reduce(-Double.infinity) { max($0, totals[i][$1]) }
             return NameEncodingScorer.Result(candidateIndex: i, string: "", score: best / Double(max(1, evidenceCounts[i])), hanOnly: hanOnly[i], byteCount: evidenceCounts[i])
         }
         guard let winner = NameEncodingScorer.ranked(results, likelyLanguage: likelyLanguage, fromWindows: fromWindows).first else { return .isoLatin1 }
         return candidates[winner.candidateIndex].encoding
-    }
-
-    // 設計書「採点 1、2」: 新候補から既存の状態機械と半角名規則をそのまま使う。
-    static func nameIsStructurallyJapanese(_ bytes: [UInt8], euc: Bool) -> Bool {
-        euc ? isStructurallyEUCJP(bytes) : isStructurallyCP932(bytes)
-    }
-
-    static func nameIsLikelyHalfWidth(_ string: String) -> Bool {
-        isLikelyHalfWidthName(string, metrics: nil)
     }
 
     private static func replacementDecode(

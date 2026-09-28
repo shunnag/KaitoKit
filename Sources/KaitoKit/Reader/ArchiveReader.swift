@@ -25,10 +25,12 @@ public final class ArchiveReader {
     /// Entries in archive order.
     public let entries: [ArchiveEntry]
 
-    /// URL open で実際に連結した 2 巻以上の numbered / native ZIP セット。
-    /// 単一ファイル、兄弟のない .001、明示した巻が symlink、Data / ByteSource open は nil。
-    /// StuffIt 固有の分割、RAR の多巻、.cue の参照先は現在この API の対象外。
-    /// reopen は保持済み source を共有し、このスナップショットも引き継ぐ。
+    /// The numbered or native ZIP volume set of two or more files that `open(url:)` actually joined.
+    ///
+    /// This is `nil` for a single file, a `.001` without siblings, an explicitly named volume that is a
+    /// symbolic link, and readers opened from `Data` or a `ByteSource`. StuffIt's own split format,
+    /// RAR multi-volume sets, and the files a `.cue` sheet references are currently outside this API.
+    /// ``reopen()`` shares the retained source and carries this snapshot over.
     public var volumeSet: ArchiveVolumeSet? { assembledVolumeSet }
 
     /// The archive-wide encoding selected for otherwise undeclared entry names.
@@ -110,7 +112,9 @@ public final class ArchiveReader {
     }
 
     /// Opens an archive stored at a file URL.
-    /// `.001` から始まるバイト分割巻は、形式検出の前に同じ親の兄弟巻を連結する。
+    ///
+    /// Byte-split volumes that start at `.001` are joined with their siblings in the same parent
+    /// directory before format detection.
     public static func open(
         url: URL,
         options: ReaderOptions = ReaderOptions()
@@ -201,11 +205,15 @@ public final class ArchiveReader {
         return try stream(entry).readAll()
     }
 
-    /// 再圧縮せずに運べる形式では生レコード範囲を返す。未対応形式・isIncomplete・.001 バイト分割セットは nil。
-    /// 現在は ZIP のみ対応し、data descriptor を含む範囲と中央ディレクトリとの整合を検証する。
-    /// .zNN / .zxNN 分割巻では連結ストリーム上の絶対範囲を返す。
-    /// 暗号化 entry もパスワードなしで取得できる。payload の復号・展開・完全性検証は行わない。
-    /// 呼び出しからコピー完了まで、source の byte は不変でなければならない。
+    /// Returns the raw record range of an entry in formats whose records can be carried over without
+    /// recompression.
+    ///
+    /// This is `nil` for unsupported formats, incomplete entries (`isIncomplete`), and `.001`
+    /// byte-split sets. Only ZIP is currently supported: the range includes any data descriptor and
+    /// is validated against the central directory. For `.zNN` / `.zxNN` split volumes the range is
+    /// absolute in the joined stream. Encrypted entries are returned without a password; the payload
+    /// is not decrypted, decompressed, or integrity-checked. The source bytes must stay unchanged from
+    /// this call until the copy completes.
     public func rawRecord(of entry: ArchiveEntry) throws -> RawEntryRecord? {
         try validate(entry)
         guard !entry.isIncomplete, zipDiskLayout != nil || !(source is ConcatenatedByteSource) else { return nil }
@@ -302,8 +310,9 @@ public final class ArchiveReader {
         return result.url
     }
 
-    /// 同じ不変の byte source を共有する独立した reader を作る。
-    /// 返された reader は別の isolation domain に送信できる。
+    /// Makes an independent reader that shares the same immutable byte source.
+    ///
+    /// The returned reader can be sent to another isolation domain.
     public func reopen() throws -> sending ArchiveReader {
         var reopenedOptions = options
         reopenedOptions.password = password
@@ -357,6 +366,8 @@ public final class ArchiveReader {
         return try sevenZip.decryptedPackedStream(folder: folder, packedInput: packedInput)
     }
 
+    /// 保持済みの tar 編集用の値。`recordsTarEditLayout` を有効にした tar / 圧縮 tar の open だけが作り、
+    /// 分割巻・cpio・pbzx・tar 以外は nil。source の読取りや password の要求は行わない。
     @_spi(TarEditLayout)
     public func tarEditingSnapshot() -> TarEditingSnapshot? { tarEditingState }
 

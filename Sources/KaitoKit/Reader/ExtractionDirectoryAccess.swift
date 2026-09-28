@@ -5,6 +5,7 @@ import Foundation
 // 親を O_NOFOLLOW で開いた descriptor を辿り、読めない自分の directory は一時的に 0700 を足して開き、
 // close で元の mode に戻す。symlink や directory 以外を辿る path は malformed。
 package final class ExtractionDirectoryHandle {
+    /// O_DIRECTORY | O_NOFOLLOW で開いた directory の fd。close まで有効。
     package let descriptor: Int32
 
     private var modeToRestore: mode_t?
@@ -15,6 +16,8 @@ package final class ExtractionDirectoryHandle {
         self.modeToRestore = modeToRestore
     }
 
+    /// 開くときに owner の rwx を一時的に足していれば、元の mode に戻す。戻せなければ io。
+    /// 戻した後の close は mode を変えない。
     package func restoreMode() throws {
         guard let modeToRestore else { return }
         guard Darwin.fchmod(descriptor, modeToRestore) == 0 else {
@@ -23,10 +26,12 @@ package final class ExtractionDirectoryHandle {
         self.modeToRestore = nil
     }
 
+    /// 一時的に足した mode を戻さず、現在の mode を最終値として残す（呼出側が mode を設定済みの場合）。
     package func keepCurrentMode() {
         modeToRestore = nil
     }
 
+    /// 戻していない mode があれば戻してから fd を閉じる（どちらの失敗も無視）。二度目以降は何もしない。deinit も呼ぶ。
     package func close() {
         guard !isClosed else { return }
         if let modeToRestore {
@@ -42,11 +47,14 @@ package final class ExtractionDirectoryHandle {
     }
 }
 
+/// 展開先の directory を、symlink を辿らずに fd で開く。
+/// 自分が所有する読めない directory は一時的に owner の rwx を足して開き、返す handle が元の mode を戻す。
 package enum ExtractionDirectoryAccess {
     private static let openFlags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
     private static let permissionBits = mode_t(0o7777)
     private static let temporaryOwnerAccess = mode_t(0o700)
 
+    /// 展開の root を path で開く。最後の成分が symlink または directory 以外なら malformed。
     package static func openRoot(at path: String) throws -> ExtractionDirectoryHandle {
         let descriptor = Darwin.open(path, openFlags)
         if descriptor >= 0 {
@@ -94,6 +102,9 @@ package enum ExtractionDirectoryAccess {
         }
     }
 
+    /// root の fd から components を一成分ずつ openat で辿る（symlink は辿らない）。
+    /// create なら欠けた directory を mode 0777（umask 適用）で作る。途中の directory に一時的に足した mode は
+    /// 次の成分を開いた後に戻し、最後の directory の分は返す handle が持つ。成分は空・NUL・`/` を含めない。
     package static func open(
         _ components: [String],
         below rootDescriptor: Int32,

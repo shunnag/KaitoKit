@@ -1,6 +1,8 @@
 import Foundation
 
 // 形式実装と公開 Reader 層の間だけで使う最小契約。
+// wrapper（AppleDoubleReader）が内側へ転送する SPI（ZIP の生レコード・stream）は要件に置き、一つの形式に閉じた SPI
+// （LHA・7z・tar の配置）は ArchiveReader が具体型へ downcast して呼ぶ。
 protocol FormatReader: AnyObject {
     var format: ArchiveFormat { get }
     var entries: [ArchiveEntry] { get }

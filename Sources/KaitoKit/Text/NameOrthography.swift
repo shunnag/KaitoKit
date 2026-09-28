@@ -2,7 +2,7 @@ import Foundation
 
 // 言語ごとの正書法と位置の証拠（設計書「採点 4」）: 西欧ラテンの強勢と ç、韓国語の助詞、タイ語の分布と記号、
 // fr / is / el / he / ar / fa とキリル各言語の追加規則、ベトナム語の声調。違反の規則名は CLI の
-// --check-orthography と Tests/Tools の測定器が読むため変えない。
+// --check-orthography と Tests/Measurement/name-encoding/ の測定器が読むため変えない。
 extension NameEncodingScorer {
     // イタリア語の語末強勢の grave と、仏・葡語で後舌母音前の ç は位置を伴う綴りの証拠。
     // 借用語に別の綴りもあるため、欠如は罰せず適合だけを加点する。

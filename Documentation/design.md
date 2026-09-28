@@ -187,7 +187,7 @@ KaitoKit のどの部分に効くかを併記する。
 
 | 元資料 | 性質 | レポートの章 | KaitoKit での帰結 |
 |---|---|---|---|
-| Unicode CLDR の 19 言語の主・補助文字集合（2026-09-14 取得） | Unicode License v3 | — | `Tests/Tools/make-exemplars.py` で `LanguageExemplars.swift` の閉区間表と二分探索を生成。ライセンス全文はルートの `NOTICE`。判定器で使用。言語ごとの閉区間を一度取得し、二分探索から所属ビットマスクを作る。BMP・1 byte 表は不変キャッシュ、非BMPは名前内で候補間共有し、単名は言語別の和の最大、書庫は全sampleで同じ言語の和の最大を使う。ほぼ全文字を含むko/thのmainだけを識別証拠とせず、区分類・公知の短い頻出リスト・文字体系の規則を併用する |
+| Unicode CLDR の 19 言語の主・補助文字集合（2026-09-14 取得） | Unicode License v3 | — | `Scripts/generate/make-exemplars.py` で `LanguageExemplars.swift` の閉区間表と二分探索を生成。ライセンス全文はルートの `NOTICE`。判定器で使用。言語ごとの閉区間を一度取得し、二分探索から所属ビットマスクを作る。BMP・1 byte 表は不変キャッシュ、非BMPは名前内で候補間共有し、単名は言語別の和の最大、書庫は全sampleで同じ言語の和の最大を使う。ほぼ全文字を含むko/thのmainだけを識別証拠とせず、区分類・公知の短い頻出リスト・文字体系の規則を併用する |
 | XADMaster（MacPaw 本家と shunnag fork） | LGPL 2.1 | Ch.1–11（容器・classic / SITX codec・wrapper・前処理） | 散文からの実装。形式定数 3 表（`method13.json`、`arsenic-randomization.json`、`classic-key-substitution.json`）は XADMaster から転記した数値で、`THIRD_PARTY_DATA.md` に転記元を記録。`StuffItTables.swift` / `StuffItCrypto.swift` に埋め込み |
 | XADMaster 内蔵の English 辞書（原資産は Aladdin） | LGPL 経由の展開物 | Ch.10 | 利用者決定（2026-09-13）により `StuffItXEnglishDictionary.swift` に圧縮して組み込み。`Tests/Fixtures/NOTICE` に出自 |
 | StuffIt Deluxe 16.0.5 の `sitx` プラグイン（Smith Micro） | proprietary。レポートは静的解析と隔離呼び出しによる**測定値**のみを含み、コード・逆アセンブルは含まない | Ch.13（暗号 KDF）、Ch.37（Deflate window 10–25）、Ch.38（x86 の tail 規則）、Ch.42（Iron の native 固定上限）、Ch.25–34（JPEG、数値表）、Ch.47–55 | Deflate window、x86、Iron の native profile（slice 3–4）。SITX 暗号（slice 6）と JPEG（slice 7）はこの経路 |
@@ -1836,7 +1836,7 @@ CRC は `(B XOR c) * x^-n mod Q` となる。
 結合し、残る完全な 16-byte block を処理する。最後の代表元 16 bytes の CRC を既存 slicing
 表で計算すれば、必要な `x^-128` と 16-bit reduction が同時に得られる。
 元入力の 0〜15 byte の末尾は Swift の既存 slice-by-eight / byte loop が処理する。
-`Tests/Benchmarks/CRC16Constants.py` は逆べきの積を独立した多項式長除算で検査し、
+`Tests/Measurement/crc16/CRC16Constants.py` は逆べきの積を独立した多項式長除算で検査し、
 両 fold の全 128 basis vectors（合計 256）について恒等式を確認する。
 
 `Sources/CBzip2/CRC16Folding.h` は既存の private C module を介して命令 intrinsic を使うための
@@ -1873,7 +1873,7 @@ CLI の既存仕様どおり、各巡は 3 回の読取りから中央値を取�
 | store.lzh | 166.917 / 166.743 / 166.537 | 46.227 / 50.864 / 45.924 | 166.743 ms | 46.227 ms | 72.28% |
 | book-tiff-lh7.lzh | 354.149 / 347.704 / 354.462 | 232.577 / 227.660 / 227.558 | 354.149 ms | 227.660 ms | 35.72% |
 
-マイクロベンチは `Tests/Benchmarks/CRC16Bench.swift`。旧 source を変更前に保存し、同じ harness / flags
+マイクロベンチは `Tests/Measurement/crc16/CRC16Bench.swift`。旧 source を変更前に保存し、同じ harness / flags
 で旧・新 binary を生成する。1 warmup 後、累積 update を 7 samples 計測し、中央値を取る。
 入力生成 / mmap / copy は計測外。計測済み全 pass の CRC を出力し、最適化による計算除去を防ぐ。
 さらに旧→新を交互 3 巡実行して各中央値の中央値を採る。旧・新の全 checksum は一致した。
@@ -1921,12 +1921,12 @@ dispatch の固定費は残り、16 bytes は 2.179 → 1.983 GB/s（約 0.73 ns
   Swift の `-sanitize=address,undefined` だけでは imported C helper が計装されないため、
   `-Xcc -fsanitize=address,undefined` も必須とし、IR と fuzz binary の逆アセンブルで helper 内の
   ASan / UBSan 呼出しを確認した。既存 `Scripts/fuzz/build-asan.sh` / `run-mutants.sh` は変更せず、
-  build に C flag を補う wrapper から実行した。再実行用は `Tests/Benchmarks/CRC16Fuzz.sh`。
+  build に C flag を補う wrapper から実行した。再実行用は `Tests/Measurement/crc16/CRC16Fuzz.sh`。
 - 通常の無指定 SwiftPM build は既定 module cache の書込み制限で失敗した。
   `CLANG_MODULE_CACHE_PATH` / `SWIFTPM_MODULECACHE_OVERRIDE` を `.build/crc16-work/cache` にし、
   `--disable-sandbox`、toolchain ごとの scratch path、repository 内 TMPDIR で検証した。
   製品に sandbox 設定や toolchain 固有 flags を追加していない。
-- 再実行手順は `Tests/Benchmarks/README.md`。実測全 samples、SHA 全行、全テスト、fuzz、build
+- 再実行手順は `Tests/Measurement/crc16/README.md`。実測全 samples、SHA 全行、全テスト、fuzz、build
   のログと before binary / source は `.build/crc16-work/` に保存した（git 管理外）。
   `summary.json`、`micro-{final,real}.jsonl`、`bench-{head,r3}.jsonl`、
   `sha-{r3,lha-r3}.jsonl`、`test-{633,64,x86-direct}.log`、`fuzz.log` が主要記録。

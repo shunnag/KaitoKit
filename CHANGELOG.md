@@ -31,6 +31,12 @@
     `KaitoArchive` の三つの initializer は `convenience` になった（名前・引数・結果は同じ）。
   - 経緯を書いていた comment を現在の契約に書き換え、review 回や milestone の符号を検証記録の path に置き換えた。
     magic number に名前を付け、test だけが使う API を test target へ移した。
+- テストの共有 helper を `Tests/KaitoKitTests/Support/` に集め（`TestFixtures`・`KaitoCLI`・`Digests`・`HexBytes`・`ExternalTools`・
+  `KaitoErrorAssertions`・`DecompressorDraining`・`LittleEndianBytes` ほか）、test file を形式ごとの directory に分け、
+  milestone 名の test class を機能名に改めた（`FormatDetectorTests`・`StreamingDecompressorTests`・`ZipEndRecordHardeningTests`・
+  `NameSafetyRegressionTests`・`DocumentationConsistencyTests`・`LHAExternalCorpusTests` ほか）。計測の道具は `Tests/Measurement/`、
+  Sources へ生成物を書く generator は `Scripts/generate/` に置き、`Tests/README.md` に環境変数と外部ツールの一覧を書いた。
+  Compat のテストは `Tests/KaitoKitCompatTests/CompatFixtures.swift` を使う。
 - 挙動の変わる点（いずれも error の文言か到達できない経路）:
   - 不正な DOS 日時の error 文言が形式に依らず "invalid DOS timestamp" になった（ZIP は "invalid ZIP DOS timestamp"、
     RAR4 は "invalid RAR4 DOS timestamp" だった）。

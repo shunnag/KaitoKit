@@ -36,7 +36,7 @@ private func encodingForIANA(_ name: String) throws -> String.Encoding {
 
 // 測定用 TSV の一欄を一行にする。`|` は --archive の名前区切りなので `\|` にする。
 // 制御文字は桁を詰めた `\u{1}` 形式で、list / sha の oneLine（`\u{01}`）とは書式が異なる。
-// 出力は CLISmokeTests と Tests/Tools/measure-name-detection.py が読むため、oneLine と一つにしない。
+// 出力は CLISmokeTests と Tests/Measurement/name-encoding/measure-name-detection.py が読むため、oneLine と一つにしない。
 private func nameDetectionEscape(_ text: String) -> String {
     var output = ""
     for scalar in text.unicodeScalars {

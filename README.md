@@ -876,6 +876,9 @@ RAR5 は先頭127 Unicode scalars の UTF-8 を優先し、有効な password �
 
 ## 開発
 
+テストの構成（対象ごとのフォルダ、Support/ の共有 helper、環境変数の一覧、外部ツール、計測 harness）は
+[Tests/README.md](Tests/README.md) にまとめてある。
+
 ```console
 swift build
 swift test

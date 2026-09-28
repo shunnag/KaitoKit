@@ -101,16 +101,9 @@ final class SevenZipReader: FormatReader {
                 passwordProvider: options.passwordProvider,
                 editRecorder: editRecorder
             )
-        } catch let error as KaitoError {
+        } catch {
             guard decodedHeader.isEncrypted else { throw error }
-            switch error {
-            case .malformed, .truncated, .checksumMismatch:
-                throw KaitoError.wrongPassword
-            case .passwordRequired, .wrongPassword, .limitExceeded, .unsupportedMethod:
-                throw error
-            default:
-                throw error
-            }
+            throw SevenZipFolderDecoderFactory.wrongPasswordIfStructural(error)
         }
         let ranges: [[Int: SevenZipPackRange]]
         if let streams = header.streams {

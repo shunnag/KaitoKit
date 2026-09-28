@@ -586,19 +586,22 @@ final class SevenZipFolderDecoderFactory {
         }
     }
 
+    /// 暗号化 folder の失敗だけを `wrongPasswordIfStructural` で読み替える。
     func translateEncryptedError(_ error: Error) -> Error {
         guard isEncrypted else { return error }
-        if let kaito = error as? KaitoError {
-            switch kaito {
-            case .passwordRequired, .wrongPassword, .limitExceeded, .unsupportedMethod:
-                return kaito
-            case .malformed, .truncated, .checksumMismatch:
-                return KaitoError.wrongPassword
-            default:
-                return kaito
-            }
+        return Self.wrongPasswordIfStructural(error)
+    }
+
+    /// 暗号化された入力では、構造の破損（malformed・truncated・CRC 不一致）は誤った password と
+    /// 区別できないので `wrongPassword` にする。それ以外の error はそのまま返す。
+    static func wrongPasswordIfStructural(_ error: Error) -> Error {
+        guard let kaito = error as? KaitoError else { return error }
+        switch kaito {
+        case .malformed, .truncated, .checksumMismatch:
+            return KaitoError.wrongPassword
+        default:
+            return kaito
         }
-        return error
     }
 
     private func requireArity(

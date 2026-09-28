@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// A random-access source of immutable archive bytes.

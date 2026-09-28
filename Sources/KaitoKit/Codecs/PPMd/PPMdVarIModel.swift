@@ -2,6 +2,10 @@ import Foundation
 
 // Dmitry Shkarin の公開ドメイン Model.cpp（var.I rev.1、2002-04-28）の復号側。
 // 原典の 12 バイト context と 6 バイト state を、検証付き arena offset で表す。
+//
+// PPMd variant I rev.1 の model で、ZIP method 98（PPMdVarIDecoder）だけが使う。割り当ては
+// PPMdVarISuballocator、range coder は PPMdVarIRangeDecoder。7z と RAR が使う variant H は
+// 別系統の PPMd7Model、PPMd7Suballocator、PPMd7RangeDecoding。
 final class PPMdVarIModel {
     typealias Offset = PPMdVarISuballocator.Offset
     private struct State {

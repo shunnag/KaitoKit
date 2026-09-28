@@ -42,7 +42,7 @@ import Foundation
 //   batch boundaries; LZMADecoder, LZMA2Decoder.
 // - BCJ2Decompressor (inline): the same binary coder; its fourth input stream;
 //   throws; 7z BCJ2.
-// - PPMd7RangeDecoder: 7z's PPMd coder (zero marker byte, no `low`);
+// - SevenZipPPMdRangeDecoder: 7z's PPMd coder (zero marker byte, no `low`);
 //   ByteSource through a 64 KiB buffer; throws; PPMd7Decoder.
 // - RARPPMdRangeDecoder: RAR's carry-less coder with `low`; packed block in memory;
 //   throws; RAR29Decoder PPMd blocks.

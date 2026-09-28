@@ -44,6 +44,12 @@ private enum PPMd7ArenaAllocationError: Error {
 // - +8: UInt32 suffix
 //
 // STATE 配置（6 byte）: symbol、frequency、UInt32 successor。
+//
+// PPMd variant H の model で、7z と RAR 2.9 / 3.x の両方が使う。割り当ては
+// PPMd7Suballocator、range coder は PPMd7RangeDecoding を介して
+// SevenZipPPMdRangeDecoder（7z method 03 04 01、PPMd7Decoder）と
+// RARPPMdRangeDecoder（RAR29Decoder の PPMd block）。ZIP method 98 の variant I rev.1 は
+// 別系統の PPMdVarIModel、PPMdVarISuballocator、PPMdVarIRangeDecoder。
 final class PPMd7Model {
     typealias Offset = PPMd7Suballocator.Offset
 

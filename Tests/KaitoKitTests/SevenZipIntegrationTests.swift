@@ -453,8 +453,8 @@ final class SevenZipIntegrationTests: XCTestCase {
         XCTAssertEqual(fixtureReader.entries.count, entryCount)
         XCTAssertTrue(fixtureReader.entries.allSatisfy { $0.solidGroup == -1 })
 
-        let measured = try SevenZipTestSupport.runKaitoWithPeakResidentSize(
-            arguments: ["sha", archive.path]
+        let measured = try KaitoCLI.runWithPeakResidentSize(
+            ["sha", archive.path]
         )
         let lines = String(decoding: measured.standardOutput, as: UTF8.self)
             .split(separator: "\n")

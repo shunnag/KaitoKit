@@ -841,9 +841,8 @@ final class LHAIntegrationTests: XCTestCase {
             ),
         ]).write(to: archive)
 
-        let output = try runKaito(
-            findKaitoExecutable(),
-            arguments: ["list", archive.path]
+        let output = try KaitoCLI.run(
+            ["list", archive.path]
         ).trimmingCharacters(in: .newlines).components(separatedBy: "\t")
         XCTAssertEqual(
             output,
@@ -892,69 +891,5 @@ final class LHAIntegrationTests: XCTestCase {
             withIntermediateDirectories: false
         )
         return directory
-    }
-
-    private func runKaito(_ executable: URL, arguments: [String]) throws -> String {
-        let process = Process()
-        let standardOutput = Pipe()
-        let standardError = Pipe()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.standardOutput = standardOutput
-        process.standardError = standardError
-        try process.run()
-        process.waitUntilExit()
-
-        let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
-        let errors = standardError.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationReason == Process.TerminationReason.exit,
-              process.terminationStatus == 0 else {
-            throw TarTestSupportError.commandFailed(
-                String(decoding: errors, as: UTF8.self)
-            )
-        }
-        return String(decoding: output, as: UTF8.self)
-    }
-
-    private func findKaitoExecutable() throws -> URL {
-        let fileManager = FileManager.default
-        if let override = ProcessInfo.processInfo.environment["KAITO_EXECUTABLE"] {
-            let candidate = URL(fileURLWithPath: override)
-            if fileManager.isExecutableFile(atPath: candidate.path) {
-                return candidate
-            }
-        }
-
-        var candidates: [URL] = [
-            Bundle.main.bundleURL.deletingLastPathComponent()
-                .appendingPathComponent("kaito"),
-        ]
-        var ancestor = URL(fileURLWithPath: CommandLine.arguments[0])
-            .deletingLastPathComponent()
-        for _ in 0..<8 {
-            candidates.append(ancestor.appendingPathComponent("kaito"))
-            ancestor.deleteLastPathComponent()
-        }
-
-        let repository = TestFixtures.repositoryRoot
-        candidates.append(repository.appendingPathComponent(".build/debug/kaito"))
-        candidates.append(repository.appendingPathComponent(".build/out/Products/Debug/kaito"))
-        for candidate in candidates where fileManager.isExecutableFile(atPath: candidate.path) {
-            return candidate
-        }
-
-        let buildDirectory = repository.appendingPathComponent(".build", isDirectory: true)
-        if let enumerator = fileManager.enumerator(
-            at: buildDirectory,
-            includingPropertiesForKeys: [.isRegularFileKey, .isExecutableKey]
-        ) {
-            for case let candidate as URL in enumerator
-                where candidate.lastPathComponent == "kaito" {
-                if fileManager.isExecutableFile(atPath: candidate.path) {
-                    return candidate
-                }
-            }
-        }
-        throw TarTestSupportError.commandFailed("built kaito executable was not found")
     }
 }

@@ -314,20 +314,8 @@ final class ISOReader: FormatReader {
 
     private static func finalize(_ pending: [Pending], joliet: Bool, options: ReaderOptions,
                                  budget: MetadataBudget) throws -> ([ArchiveEntry], [Record], String.Encoding?) {
-        let names = joliet ? [] : pending.map(\.bytes).filter {
-            if case .fixed = options.encodingPolicy { return true }
-            return !EncodingDetector.isStrictUTF8($0)
-        }
-        let encoding = EncodingDetector.detectArchiveEncoding(names: names, policy: options.encodingPolicy,
-                                                              maximumBatchByteCount: Int(clamping: options.limits.maxMetadataSize))
-        var decoded: [[UInt8]: String] = [:]
-        if let encoding {
-            let strings = EncodingDetector.decodeArchiveNames(names, as: encoding, maximumBatchByteCount: Int(clamping: options.limits.maxMetadataSize))
-            for (bytes, string) in zip(names, strings) { if let string { decoded[bytes] = string } }
-        }
-        func resolve(_ bytes: [UInt8]) -> String {
-            decoded[bytes] ?? EncodingDetector.resolveUndeclaredName(bytes: bytes, policy: options.encodingPolicy, archiveEncoding: encoding).string
-        }
+        let names = ArchiveNameResolver(undeclaredNames: joliet ? [] : pending.map(\.bytes), policy: options.encodingPolicy,
+                                        limits: options.limits)
         var paths: [Int: [String]] = [:]
         var rawPaths: [Int: [UInt8]] = [:]
         var kept: [Int] = []
@@ -337,7 +325,7 @@ final class ISOReader: FormatReader {
         for (index, item) in pending.enumerated() {
             try checkCancellation(every: index)
             if let parent = item.parent, paths[parent] == nil { continue }
-            var name = joliet ? ISOBytes.joliet(item.bytes) : resolve(item.bytes)
+            var name = joliet ? ISOBytes.joliet(item.bytes) : names.resolve(item.bytes)
             if !item.rrName {
                 if let semicolon = name.lastIndex(of: ";") {
                     let tail = name[name.index(after: semicolon)...]
@@ -362,7 +350,7 @@ final class ISOReader: FormatReader {
             raw += item.bytes
             var specific = item.specific
             if let link = item.link {
-                let target = resolve(link)
+                let target = names.resolve(link)
                 guard target.split(separator: "/").count <= options.limits.maxPathComponentCount else { throw KaitoError.limitExceeded("iso link component count") }
                 guard !target.utf8.contains(0) else { throw KaitoError.malformed("iso link") }
                 specific["linkPath"] = target
@@ -393,6 +381,6 @@ final class ISOReader: FormatReader {
                 isIncomplete: item.record.unsupported == "otherVolume"))
             records.append(item.record)
         }
-        return (entries, records, joliet ? .utf16BigEndian : encoding)
+        return (entries, records, joliet ? .utf16BigEndian : names.archiveEncoding)
     }
 }

@@ -100,29 +100,14 @@ final class CpioReader: FormatReader {
                 throw KaitoError.malformed(reason)
             }
         }
-        let names = pending.map(\.name).filter {
-            if case .fixed = options.encodingPolicy { return true }
-            return !EncodingDetector.isStrictUTF8($0)
-        }
-        let encoding = EncodingDetector.detectArchiveEncoding(names: names, policy: options.encodingPolicy,
-            maximumBatchByteCount: Int(clamping: limits.maxMetadataSize))
-        var decoded: [[UInt8]: String] = [:]
-        if let encoding {
-            let strings = EncodingDetector.decodeArchiveNames(names, as: encoding,
-                maximumBatchByteCount: Int(clamping: limits.maxMetadataSize))
-            for (bytes, string) in zip(names, strings) { if let string { decoded[bytes] = string } }
-        }
-        func resolve(_ bytes: [UInt8]) -> String {
-            decoded[bytes] ?? EncodingDetector.resolveUndeclaredName(bytes: bytes, policy: options.encodingPolicy,
-                archiveEncoding: encoding).string
-        }
+        let names = ArchiveNameResolver(undeclaredNames: pending.map(\.name), policy: options.encodingPolicy, limits: limits)
         var entries: [ArchiveEntry] = []
         metadata = 0
         let concatenated = pending.contains { $0.archiveIndex > 0 }
         for (index, item) in pending.enumerated() {
             try checkCancellation(every: index)
             let record = item.record, header = record.header
-            let name = resolve(item.name)
+            let name = names.resolve(item.name)
             let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "cpio path component count")
             var specific = ["variant": header.variant.rawValue, "uid": String(header.uid), "gid": String(header.gid),
                 "nlink": String(header.nlink), "ino": String(header.ino), "dev": String(header.dev)]
@@ -136,7 +121,7 @@ final class CpioReader: FormatReader {
                 specific["rdev"] = header.rawRdev.map { String(format: "%02x", $0) }.joined()
             }
             if let link = item.link {
-                let target = resolve(link)
+                let target = names.resolve(link)
                 try ArchivePath.validateComponentCount(of: target, limit: limits.maxPathComponentCount, label: "cpio path component count")
                 specific["linkPath"] = target
             }
@@ -154,7 +139,7 @@ final class CpioReader: FormatReader {
         }
         self.entries = entries
         records = pending.map(\.record)
-        nameEncoding = encoding
+        nameEncoding = names.archiveEncoding
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {

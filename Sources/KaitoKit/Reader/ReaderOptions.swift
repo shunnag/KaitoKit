@@ -20,7 +20,7 @@ public struct ReaderOptions: Sendable {
     /// clamped to one MiB, and zero disables executable-prefix scanning.
     public var maximumSFXScanSize: UInt64
 
-    /// Data と任意 ByteSource で、実行形式 prefix 内の ZIP・RAR・7z・StuffIt 署名を探索する。
+    /// Data と任意 ByteSource で、実行形式 prefix 内の ZIP・RAR・7z・CAB・StuffIt 署名を探索する。
     /// 既定は無効。既存の LHA prefix 認識には影響しない。
     public var scanForSFXInData: Bool
 
@@ -115,28 +115,17 @@ public struct ReaderOptions: Sendable {
     }
 }
 
-/// Options controlling extraction to the file system.
-public struct ExtractionOptions: Sendable {
-    /// Whether an existing regular file may be replaced.
-    public var overwriteExisting: Bool
+/// How `__MACOSX/._name` (Finder / ditto ZIP) and `._name` (macOS tar) AppleDouble sidecars are exposed.
+public enum AppleDoublePolicy: String, Sendable, CaseIterable {
+    /// Sidecars are removed from the entry list. A sidecar that carries a resource fork is published
+    /// as `name/..namedfork/rsrc` (`formatSpecific["fork"] == "resource"`) right after its data
+    /// file; sidecars that hold only Finder information and extended attributes disappear. This is
+    /// the default.
+    case merge
 
-    /// Whether archive modification times and POSIX permissions are restored.
-    ///
-    /// Newly created objects use umask-derived file-system defaults when this is
-    /// `false`, or when an entry does not carry POSIX permissions.
-    public var preserveMetadata: Bool
+    /// Sidecars and the `__MACOSX` directories are removed; resource forks are not published.
+    case hide
 
-    /// Whether safe relative symbolic links are created.
-    public var createSymbolicLinks: Bool
-
-    /// Creates extraction options.
-    public init(
-        overwriteExisting: Bool = true,
-        preserveMetadata: Bool = true,
-        createSymbolicLinks: Bool = true
-    ) {
-        self.overwriteExisting = overwriteExisting
-        self.preserveMetadata = preserveMetadata
-        self.createSymbolicLinks = createSymbolicLinks
-    }
+    /// Every entry is listed exactly as the archive stores it.
+    case expose
 }

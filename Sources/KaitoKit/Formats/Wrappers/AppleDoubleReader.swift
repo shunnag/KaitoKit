@@ -1,20 +1,5 @@
 import Foundation
 
-/// How `__MACOSX/._name` (Finder / ditto ZIP) and `._name` (macOS tar) AppleDouble sidecars are exposed.
-public enum AppleDoublePolicy: String, Sendable, CaseIterable {
-    /// Sidecars are removed from the entry list. A sidecar that carries a resource fork is published
-    /// as `name/..namedfork/rsrc` (`formatSpecific["fork"] == "resource"`) right after its data
-    /// file; sidecars that hold only Finder information and extended attributes disappear. This is
-    /// the default.
-    case merge
-
-    /// Sidecars and the `__MACOSX` directories are removed; resource forks are not published.
-    case hide
-
-    /// Every entry is listed exactly as the archive stores it.
-    case expose
-}
-
 // 参照資料: AppleSingle/AppleDouble Formats for Foreign Files Developer's Note（Apple、1990、公開）。
 // header: magic 00051607（AppleDouble）、version 00010000 / 00020000、filler 16 byte、entry 数（BE16）、
 // entry ごとに id / offset / length（BE32）。resource fork は entry id 2。Finder 製 zip の sidecar は

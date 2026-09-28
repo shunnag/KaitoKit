@@ -90,3 +90,10 @@ enum TarEditTestSupport {
         XCTAssertEqual(imageOffset, snapshot.image.length, file: file, line: line)
     }
 }
+
+/// `options` に tar 編集用の配置の記録（`recordsTarEditLayout`）の有無だけを加えたもの。
+func tarGoldenOptions(_ options: ReaderOptions, recording: Bool) -> ReaderOptions {
+    var result = options
+    result.recordsTarEditLayout = recording
+    return result
+}

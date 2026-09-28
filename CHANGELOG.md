@@ -6,6 +6,41 @@
 
 ## [Unreleased]
 
+### 変更
+
+- ソースの配置を機能ごとに整理した。公開 API・`@_spi` の宣言・書庫の読み取り結果は変えていない。
+  - 形式に依存しない部品を `Core/` に集めた: 固定幅 field の読み取り（`ByteFields`）、FILETIME / Mac / DOS の日時変換
+    （`Timestamps`）、metadata 予算、path の component 分割、ASCII 数字、byte 範囲、CRC-16/XMODEM、XXH32 / XXH64、
+    Blake2、CommonCrypto の pointer 境界（`CommonCryptoPrimitives`）と定数時間比較、書き出しの EINTR 再試行。
+  - `ArchiveReader` の初期化を形式の検出・reader の生成・圧縮 stream の container 化に分け、`FormatReader` に
+    `reopened(options:)` と `validateEncryptionSupport(for:)` を足して型ごとの分岐を protocol に置き換えた。
+    `FormatDetector` の LHA / RAR の署名走査は `Formats/LHA/LHASignatureScanner.swift` / `Formats/RAR/RARSignatureScanner.swift` に置く。
+  - 大きな reader を役割ごとの型に分けた: ZIP（`ZipCentralDirectoryLocator` / `ZipCentralDirectoryParser` / `ZipExtraFields` /
+    `ZipLocalHeaderRecovery`）、RAR4 / RAR5（`VolumeParser` / `EntryPublisher` / `Structures` / `SolidCoordinator`）、
+    7z（`SevenZipHeaderDecoder` / `SevenZipStreamsParser` / `SevenZipFolderCoordinator` / `SevenZipMethod`）、
+    tar（`TarHeaderBlock` / `TarPAXRecords` / `TarSparse`）、LHA（`LHAExtendedHeader`）、StuffIt X の reader。
+  - codec を形式の directory から `Codecs/` に、container の枝を形式の directory に移した: gzip / xz / brotli / LZW / lzip / pbzx の
+    decompressor と `Deflate64Decompressor` は `Codecs/`、CAB の folder decoder（MSZIP / LZX）は `Formats/Cab/`、
+    `Formats/Wrappers/` は `Formats/MacEnvelope/`・`Formats/AppleDouble/`・`Formats/StuffIt/StuffItSplitSet.swift` に、
+    HFS+ は `Formats/HFSPlus/`、7z の filter は `Codecs/SevenZipFilters/`、bzip2 は `Codecs/Bzip2/`、`XPRESS` は `Xpress`、
+    StuffIt X JPEG は `Codecs/StuffItX/JPEG/`。tar splice の部品は `Reader/TarSplice/`。
+  - 名前の文字コード判定を `JapaneseNameEncodingResolver` / `LetterRules` / `NameOrthography` に分け、採点の調整値を
+    `NameEncodingScorer.Tuning` に、字母の種類を `AlphabetFlags` に集めた。`Formats/ArchiveNameResolver` が書庫全体の
+    名前判定を一つにする。
+  - `kaito` の各 command を `Sources/kaito/Commands/` に分けた。`KaitoKitCompat` の複写器と hard link の展開を型に分け、
+    `KaitoArchive` の三つの initializer は `convenience` になった（名前・引数・結果は同じ）。
+  - 経緯を書いていた comment を現在の契約に書き換え、review 回や milestone の符号を検証記録の path に置き換えた。
+    magic number に名前を付け、test だけが使う API を test target へ移した。
+- 挙動の変わる点（いずれも error の文言か到達できない経路）:
+  - 不正な DOS 日時の error 文言が形式に依らず "invalid DOS timestamp" になった（ZIP は "invalid ZIP DOS timestamp"、
+    RAR4 は "invalid RAR4 DOS timestamp" だった）。
+  - `KaitoKitCompat` の安全でない path の拒否文言が `Extractor` と同じになった（"absolute or empty entry path" /
+    "entry path contains an unsafe component" / "empty entry path"）。
+  - 要求より多い byte を返す `ByteSource` に対して `FormatDetector` と LZMA2 の外側 reader が `.truncated` / `.malformed`
+    を投げるようになった（正しい `ByteSource` では起きない）。
+  - `kaito` の usage 表示が `detect-encoding` の `--check-orthography` を含む。
+  - CAB の path component は Character ではなく UTF-8 の `/` で分ける（結合文字が `/` に続く名前だけで違いが出る）。
+
 ## [0.11.0] - 2026-09-27
 
 GyoshukuKit の編集用 SPI `ZipRawLayout` / `TarEditLayout` / `LHARawLayout` / `SevenZipEditLayout` と、

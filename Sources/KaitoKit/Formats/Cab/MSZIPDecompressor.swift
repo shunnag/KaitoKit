@@ -4,6 +4,11 @@ import Foundation
 private import zlib
 
 final class MSZIPDecompressor: CabFolderDecoder {
+    /// DEFLATE の参照窓（32 KiB）。MSZIP の CFDATA 1 個の展開後上限も同じ大きさ。
+    private static let historyWindowSize = 32 * 1_024
+    /// MSZIP の各 CFDATA が DEFLATE 本体の前に置く signature "CK"。
+    private static let blockSignature: [UInt8] = [0x43, 0x4b]
+
     private let source: any ByteSource
     private let blocks: [CabDataBlock]
     private let stored: Bool
@@ -12,7 +17,8 @@ final class MSZIPDecompressor: CabFolderDecoder {
     private var checksumVerified = false
     private var history: [UInt8] = []
     private var input: [UInt8] = []
-    private var output = [UInt8](repeating: 0, count: 32769)
+    // 宣言超過を検出する余分な 1 byte を足す（inflateBlock の avail_out）。
+    private var output = [UInt8](repeating: 0, count: MSZIPDecompressor.historyWindowSize + 1)
     private var outputOffset = 0, outputEnd = 0
     private var stream = z_stream()
     private var streamWasInitialized = false
@@ -21,7 +27,7 @@ final class MSZIPDecompressor: CabFolderDecoder {
     init(source: any ByteSource, blocks: [CabDataBlock], stored: Bool) {
         self.source = source; self.blocks = blocks; self.stored = stored
         input.reserveCapacity(Int(UInt16.max))
-        history.reserveCapacity(32768)
+        history.reserveCapacity(Self.historyWindowSize)
     }
 
     deinit {
@@ -113,11 +119,11 @@ final class MSZIPDecompressor: CabFolderDecoder {
             try inflateBlock(size: Int(block.uncompressedSize))
             let size = Int(block.uncompressedSize)
             // 短いブロックだけ以前の履歴を残す。32 KiB の出力なら連結用の複製は不要。
-            if size >= 32768 {
+            if size >= Self.historyWindowSize {
                 history.removeAll(keepingCapacity: true)
-                history.append(contentsOf: output[(size - 32768)..<size])
+                history.append(contentsOf: output[(size - Self.historyWindowSize)..<size])
             } else {
-                let excess = max(0, history.count + size - 32768)
+                let excess = max(0, history.count + size - Self.historyWindowSize)
                 if excess > 0 { history.removeFirst(excess) }
                 history.append(contentsOf: output[..<size])
             }
@@ -127,7 +133,7 @@ final class MSZIPDecompressor: CabFolderDecoder {
     }
 
     private func inflateBlock(size: Int) throws {
-        guard input.starts(with: [0x43, 0x4b]) else { throw KaitoError.malformed("cab MSZIP signature") }
+        guard input.starts(with: Self.blockSignature) else { throw KaitoError.malformed("cab MSZIP signature") }
         if streamWasInitialized {
             guard inflateReset(&stream) == Z_OK else { throw KaitoError.malformed("cab MSZIP reset") }
         } else {

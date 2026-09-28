@@ -8,7 +8,7 @@ final class ZipReader: FormatReader {
     private enum Encryption: Sendable {
         case none
         case traditional
-        case aes(extra: [UInt8], vendorVersion: UInt16, strength: UInt8)
+        case aes(WinZipAESMetadata)
     }
 
     // 1 byte の検査値を誤通過した password は、復号後の破損と区別できない。
@@ -361,8 +361,10 @@ final class ZipReader: FormatReader {
         switch record.encryption {
         case .none: encryption = .none
         case .traditional: encryption = .zipCrypto
-        case let .aes(_, vendorVersion, strength):
-            encryption = .winZipAES(strength: strength, vendorVersion: vendorVersion)
+        case let .aes(metadata):
+            encryption = .winZipAES(
+                strength: metadata.strength.rawValue, vendorVersion: metadata.vendorVersion.rawValue
+            )
         }
         return ZipRawRecordLayout(
             recordRange: record.localHeaderOffset..<end,
@@ -652,11 +654,10 @@ final class ZipReader: FormatReader {
                 throw isIncomplete ? error : ZipCryptoDecompressor.translate(error)
             }
 
-        case let .aes(extra, _, _):
+        case let .aes(metadata):
             guard let decryptionPassword = aesKey == nil ? password : "" else {
                 throw KaitoError.passwordRequired
             }
-            let metadata = try WinZipAESMetadata(extraFieldPayload: Data(extra))
             if isIncomplete, availableSize < UInt64(metadata.strength.saltLength + 2) {
                 return (source, local.dataOffset, 0, nil)
             }
@@ -2007,16 +2008,12 @@ final class ZipReader: FormatReader {
                 guard flags & ZipGeneralPurposeFlag.encrypted != 0 else {
                     throw KaitoError.malformed("WinZip AES entry lacks the encryption flag")
                 }
-                if aes.vendorVersion == 2, storedCRC != 0 {
+                if aes.vendorVersion == .ae2, storedCRC != 0 {
                     throw KaitoError.malformed("WinZip AE-2 entry has a nonzero CRC")
                 }
-                encryption = .aes(
-                    extra: aes.data,
-                    vendorVersion: aes.vendorVersion,
-                    strength: aes.strength
-                )
-                method = aes.actualMethod
-                expectedCRC = aes.vendorVersion == 2 ? nil : storedCRC
+                encryption = .aes(aes)
+                method = aes.compressionMethod
+                expectedCRC = aes.vendorVersion == .ae2 ? nil : storedCRC
             } else if flags & ZipGeneralPurposeFlag.encrypted != 0 {
                 encryption = .traditional
                 method = headerMethod
@@ -2087,8 +2084,8 @@ final class ZipReader: FormatReader {
             switch encryption {
             case .none: encryptionKey = 0
             case .traditional: encryptionKey = 1 << 48
-            case let .aes(_, _, strength):
-                encryptionKey = (2 << 48) | (UInt64(strength) << 50)
+            case let .aes(metadata):
+                encryptionKey = (2 << 48) | (UInt64(metadata.strength.rawValue) << 50)
             }
             let methodName = methodDescription(method)
             let specificKey = UInt64(method) | UInt64(versionMadeBy) << 16 | UInt64(flags) << 32
@@ -2101,8 +2098,8 @@ final class ZipReader: FormatReader {
                 switch encryption {
                 case .none: encryptionDescription = "none"
                 case .traditional: encryptionDescription = "ZipCrypto"
-                case let .aes(_, _, strength):
-                    encryptionDescription = "AES-\(aesBitCount(strength))"
+                case let .aes(metadata):
+                    encryptionDescription = "AES-\(metadata.strength.keyLength * 8)"
                 }
                 var value: [String: String] = [
                     "method": String(method),
@@ -2311,17 +2308,10 @@ final class ZipReader: FormatReader {
         )
     }
 
-    private struct AESExtra {
-        let data: [UInt8]
-        let vendorVersion: UInt16
-        let strength: UInt8
-        let actualMethod: UInt16
-    }
-
     private static func parseAESExtra(
         fields: [ZipExtraField],
         headerMethod: UInt16
-    ) throws -> AESExtra? {
+    ) throws -> WinZipAESMetadata? {
         var data: [UInt8]?
         for field in fields where field.identifier == ZipExtraFieldID.winZipAES {
             guard data == nil, headerMethod == ZipMethod.winZipAES else {
@@ -2344,18 +2334,15 @@ final class ZipReader: FormatReader {
         let vendor1 = try cursor.readUInt8()
         let strength = try cursor.readUInt8()
         let method = try cursor.readUInt16LE()
-        guard (version == 1 || version == 2),
+        // WinZipAESMetadata(extraFieldPayload:) は同じ欠陥の一部を unsupportedMethod とする。
+        // 中央ディレクトリでは malformed に揃え、EOCD 候補の再試行判定へ同じ分類で渡す。
+        guard let vendorVersion = WinZipAESVendorVersion(rawValue: version),
               vendor0 == 0x41, vendor1 == 0x45,
-              (1...3).contains(strength),
+              let keyStrength = WinZipAESStrength(rawValue: strength),
               method != ZipMethod.winZipAES else {
             throw KaitoError.malformed("invalid WinZip AES metadata")
         }
-        return AESExtra(
-            data: data,
-            vendorVersion: version,
-            strength: strength,
-            actualMethod: method
-        )
+        return WinZipAESMetadata(vendorVersion: vendorVersion, strength: keyStrength, compressionMethod: method)
     }
 
     private static func unicodePath(
@@ -2458,15 +2445,6 @@ final class ZipReader: FormatReader {
         case ZipMethod.jpeg: "jpeg"
         case ZipMethod.ppmd: "ppmd"
         default: "method \(method)"
-        }
-    }
-
-    private static func aesBitCount(_ strength: UInt8) -> Int {
-        switch strength {
-        case 1: 128
-        case 2: 192
-        case 3: 256
-        default: 0
         }
     }
 

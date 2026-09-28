@@ -4,6 +4,9 @@ import Foundation
 // 参照仕様: bzip2 公式マニュアルの high-level streaming API。
 
 /// A streaming bzip2 decompressor backed by the system libbz2.
+///
+/// Failures are not latched: after `read(into:)` throws, the state is
+/// unspecified and the instance must be discarded.
 public final class Bzip2Decompressor: Decompressor {
     private static let chunkSize = 256 * 1024
 
@@ -160,10 +163,10 @@ public final class Bzip2Decompressor: Decompressor {
 
     private func hasStreamHeader(at offset: UInt64) throws -> Bool {
         let remaining = try Checked.sub(compressedEnd, offset)
-        guard remaining >= 4 else { return false }
-        let header = try readByteRange(source: source, offset: offset, count: 4)
-        return header[0] == 0x42 && header[1] == 0x5a && header[2] == 0x68
-            && (0x31...0x39).contains(header[3])
+        let headerLength = Bzip2StreamLayout.streamHeaderLength
+        guard remaining >= UInt64(headerLength) else { return false }
+        let header = try readByteRange(source: source, offset: offset, count: headerLength)
+        return header.withUnsafeBytes { Bzip2StreamLayout.isStreamHeader($0, at: 0) }
     }
 
     private func restartStream() throws {

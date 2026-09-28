@@ -2,7 +2,31 @@ private import CBzip2
 import Darwin
 import Foundation
 
+/// 連結された bzip2 stream を区間に分け、上限付きの worker で並列に復号して順に返す。
+///
+/// 入力を走査し、byte 境界の stream 開始（`Bzip2StreamLayout.isStreamStart`）を区間の
+/// 候補にする。各区間は一つの完全な stream として worker が復号し、出力は区間の順に返す。
+/// 区間が stream 終端でちょうど終わらない場合（偽の候補、展開上限の超過）や、圧縮上限内に
+/// 次の候補がない場合は、その区間の先頭から直列の `Bzip2Decompressor` へ切り替える。
+/// 保持量は worker 数、区間の圧縮上限と展開上限で抑える。
+/// 失敗は latch しない。`read(into:)` は throw する時点で worker を放棄するので、instance を破棄する。
 final class ParallelBzip2Decompressor: Decompressor {
+    /// 同時に復号する worker 数の上限。
+    private static let maximumWorkerCount = 8
+    /// 一区間の圧縮 byte 数の上限。init の既定値でもある。
+    private static let maximumIntervalSize = 8 * 1_048_576
+    /// 一区間の展開 byte 数の上限。init の既定値でもある。
+    private static let maximumIntervalOutputSize = 16 * 1_048_576
+    /// worker が放棄を確かめるまでに書く展開 byte 数。
+    private static let abandonmentCheckInterval = 1_048_576
+    /// 走査で一度に読む圧縮 byte 数。
+    private static let scanReadSize = 1_048_576
+    /// 一回の `read(into:)` で返す byte 数の上限。
+    private static let outputChunkSize = 256 * 1_024
+    /// worker の完了を待つ間に Task の取消を確かめる間隔（秒）。
+    private static let resultPollInterval: TimeInterval = 0.05
+
+    /// Test hook: worker 数、保持 byte 数、直列への切替回数を観測する。本番の呼出元は渡さない。
     final class Diagnostics: @unchecked Sendable {
         private let lock = NSLock()
         private var live = 0, peak = 0, held = 0, peakHeld = 0, fallbacks = 0
@@ -69,7 +93,7 @@ final class ParallelBzip2Decompressor: Decompressor {
                 condition.lock()
                 if let result = results.removeValue(forKey: id) { condition.unlock(); return result }
                 if abandoned { condition.unlock(); return .invalid }
-                _ = condition.wait(until: Date(timeIntervalSinceNow: 0.05))
+                _ = condition.wait(until: Date(timeIntervalSinceNow: ParallelBzip2Decompressor.resultPollInterval))
                 condition.unlock()
                 try Task.checkCancellation()
             }
@@ -90,7 +114,7 @@ final class ParallelBzip2Decompressor: Decompressor {
                     while total < destination.count {
                         // worker は Task を持たない。放棄は最大 1 MiB の出力ごとに観測する。
                         if isAbandoned { return nil }
-                        let capacity = min(1_048_576, destination.count - total)
+                        let capacity = min(ParallelBzip2Decompressor.abandonmentCheckInterval, destination.count - total)
                         stream.next_out = destination.bindMemory(to: CChar.self).baseAddress!.advanced(by: total)
                         stream.avail_out = UInt32(capacity)
                         let before = stream.avail_in
@@ -149,17 +173,22 @@ final class ParallelBzip2Decompressor: Decompressor {
     private var currentOffset = 0
     private var finished = false
 
+    /// - Parameters:
+    ///   - injectedCandidates: Test hook: 走査に加える偽の区間候補（絶対 offset）。本番の呼出元は渡さない。
+    ///   - diagnostics: Test hook: 観測値の記録先。本番の呼出元は渡さない。
     init(source: any ByteSource, recorder: CompressedTarMapRecorder? = nil,
-         workers: Int = min(8, ProcessInfo.processInfo.activeProcessorCount),
-         maximumCompressedSize: Int = 8 * 1_048_576, maximumOutputSize: Int = 16 * 1_048_576,
+         workers: Int = min(ParallelBzip2Decompressor.maximumWorkerCount, ProcessInfo.processInfo.activeProcessorCount),
+         maximumCompressedSize: Int = ParallelBzip2Decompressor.maximumIntervalSize,
+         maximumOutputSize: Int = ParallelBzip2Decompressor.maximumIntervalOutputSize,
          injectedCandidates: [UInt64] = [], diagnostics: Diagnostics? = nil) throws {
         self.source = source; self.recorder = recorder
-        self.workerCount = max(1, min(8, workers))
-        self.compressedLimit = max(10, min(8 * 1_048_576, maximumCompressedSize))
+        self.workerCount = max(1, min(Self.maximumWorkerCount, workers))
+        self.compressedLimit = max(Bzip2StreamLayout.headerLength, min(Self.maximumIntervalSize, maximumCompressedSize))
         self.diagnostics = diagnostics
         self.injectedCandidates = injectedCandidates.filter { $0 > 0 && $0 < source.length }.sorted()
-        self.workers = Workers(count: max(1, min(8, workers)), outputLimit: max(1, min(16 * 1_048_576, maximumOutputSize)), diagnostics: diagnostics)
-        self.scannerReservation = Reservation(self.compressedLimit + 10, diagnostics: diagnostics)
+        self.workers = Workers(count: max(1, min(Self.maximumWorkerCount, workers)),
+                               outputLimit: max(1, min(Self.maximumIntervalOutputSize, maximumOutputSize)), diagnostics: diagnostics)
+        self.scannerReservation = Reservation(self.compressedLimit + Bzip2StreamLayout.headerLength, diagnostics: diagnostics)
         if workerCount < 2 { try fallBack(at: 0) }
     }
     deinit { workers.abandon() }
@@ -171,7 +200,7 @@ final class ParallelBzip2Decompressor: Decompressor {
             while true {
                 if let serial { return try serial.read(into: buffer) }
                 if let current, currentOffset < current.bytes.count {
-                    let count = min(buffer.count, 256 * 1024, current.bytes.count - currentOffset)
+                    let count = min(buffer.count, Self.outputChunkSize, current.bytes.count - currentOffset)
                     current.bytes.withUnsafeBytes { bytes in
                         buffer.baseAddress!.copyMemory(from: bytes.baseAddress!.advanced(by: currentOffset), byteCount: count)
                     }
@@ -190,7 +219,7 @@ final class ParallelBzip2Decompressor: Decompressor {
                     recorder?.appendBzip2(compressedRange: job.range, outputSize: UInt64(output.bytes.count), level: job.level, crc: job.crc)
                     current = output
                 case .invalid:
-                    // この始点は直前に検証済みの END。以後を従来の状態機械へ戻す。
+                    // この始点は直前の区間が検証済みの END で終わった位置。以後は直列 decoder で復号する。
                     try fallBack(at: job.range.lowerBound)
                 }
             }
@@ -211,7 +240,9 @@ final class ParallelBzip2Decompressor: Decompressor {
         while !scanningFinished, jobs.count < workerCount {
             switch try scanInterval() {
             case .interval(let bytes, let range):
-                let job = Job(id: nextJob, range: range, level: bytes[bytes.startIndex + 3] - 0x30, crc: recorder == nil ? 0 : CRC32.checksum(bytes))
+                let levelDigit = bytes[bytes.startIndex + Bzip2StreamLayout.streamHeaderLength - 1]
+                let job = Job(id: nextJob, range: range, level: levelDigit - Bzip2StreamLayout.levelDigitBase,
+                              crc: recorder == nil ? 0 : CRC32.checksum(bytes))
                 nextJob += 1; jobs.append(job); workers.submit(bytes, id: job.id)
             case .fallback(let offset):
                 fallbackOffset = offset; scanningFinished = true
@@ -221,7 +252,7 @@ final class ParallelBzip2Decompressor: Decompressor {
     }
 
     private func scanInterval() throws -> Scanned {
-        while scan.count < 10, sourceOffset < source.length { try refillScan() }
+        while scan.count < Bzip2StreamLayout.headerLength, sourceOffset < source.length { try refillScan() }
         if scan.isEmpty, sourceOffset == source.length { return .end }
         guard Self.isCandidate(scan, at: 0) else { return .fallback(scanStart) }
         while true {
@@ -231,7 +262,7 @@ final class ParallelBzip2Decompressor: Decompressor {
                 candidate = min(candidate ?? relative, relative)
             }
             if let candidate {
-                guard candidate >= 10, candidate <= compressedLimit else { return .fallback(scanStart) }
+                guard candidate >= Bzip2StreamLayout.headerLength, candidate <= compressedLimit else { return .fallback(scanStart) }
                 let bytes = Data(scan.prefix(candidate)), range = scanStart..<(scanStart + UInt64(candidate))
                 scan = Data(scan.dropFirst(candidate)); scanStart = range.upperBound; searchOffset = 1
                 return .interval(bytes, range)
@@ -242,13 +273,15 @@ final class ParallelBzip2Decompressor: Decompressor {
                 scan = Data(); scanStart = sourceOffset; searchOffset = 1
                 return .interval(bytes, range)
             }
-            if scan.count >= compressedLimit + 10 { return .fallback(scanStart) }
-            searchOffset = max(1, scan.count - 9)
+            if scan.count >= compressedLimit + Bzip2StreamLayout.headerLength { return .fallback(scanStart) }
+            // 末尾の headerLength - 1 byte は次の refill 後に候補の先頭になり得る。
+            searchOffset = max(1, scan.count - (Bzip2StreamLayout.headerLength - 1))
             try refillScan()
         }
     }
     private func refillScan() throws {
-        let requested = min(1_048_576, compressedLimit + 10 - scan.count, Int(min(UInt64(Int.max), source.length - sourceOffset)))
+        let requested = min(Self.scanReadSize, compressedLimit + Bzip2StreamLayout.headerLength - scan.count,
+                            Int(min(UInt64(Int.max), source.length - sourceOffset)))
         guard requested > 0 else { return }
         var bytes = Data(count: requested)
         let count = try bytes.withUnsafeMutableBytes { try source.read(into: $0, at: sourceOffset) }
@@ -257,23 +290,18 @@ final class ParallelBzip2Decompressor: Decompressor {
         bytes.removeLast(requested - count); scan.append(bytes); sourceOffset += UInt64(count)
     }
     private static func isCandidate(_ bytes: Data, at offset: Int) -> Bool {
-        bytes.withUnsafeBytes { isCandidate($0, at: offset) }
-    }
-    private static func isCandidate(_ bytes: UnsafeRawBufferPointer, at offset: Int) -> Bool {
-        guard offset >= 0, offset + 10 <= bytes.count,
-              bytes[offset] == 0x42, bytes[offset + 1] == 0x5a, bytes[offset + 2] == 0x68,
-              (0x31...0x39).contains(bytes[offset + 3]) else { return false }
-        let magic = bytes[(offset + 4)..<(offset + 10)]
-        return magic.elementsEqual([0x31, 0x41, 0x59, 0x26, 0x53, 0x59]) || magic.elementsEqual([0x17, 0x72, 0x45, 0x38, 0x50, 0x90])
+        bytes.withUnsafeBytes { Bzip2StreamLayout.isStreamStart($0, at: offset) }
     }
     private static func nextCandidate(_ data: Data, from start: Int) -> Int? {
         data.withUnsafeBytes { bytes in
-            guard bytes.count >= 10, let base = bytes.baseAddress else { return nil }
+            let headerLength = Bzip2StreamLayout.headerLength
+            guard bytes.count >= headerLength, let base = bytes.baseAddress else { return nil }
             var cursor = start
-            while cursor <= bytes.count - 10 {
-                guard let found = memchr(base.advanced(by: cursor), 0x42, bytes.count - 9 - cursor) else { return nil }
+            while cursor <= bytes.count - headerLength {
+                guard let found = memchr(base.advanced(by: cursor), Int32(Bzip2StreamLayout.signature[0]),
+                                         bytes.count - (headerLength - 1) - cursor) else { return nil }
                 let offset = base.distance(to: found)
-                if isCandidate(bytes, at: offset) { return offset }
+                if Bzip2StreamLayout.isStreamStart(bytes, at: offset) { return offset }
                 cursor = offset + 1
             }
             return nil

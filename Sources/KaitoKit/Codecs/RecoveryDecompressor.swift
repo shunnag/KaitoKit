@@ -2,6 +2,7 @@ import Foundation
 
 // 欠損が確認された入力だけに使い、既存 codec の切断通知を正常な終端へ変換する。
 // 一度の呼出しを 1 byte に限定し、例外で未報告の出力を失わないようにする。
+// 入力の truncated だけを終端として latch し（`stopped`）、それ以外の失敗は latch せずに伝える。
 final class RecoveryDecompressor: Decompressor {
     private let input: any Decompressor
     private var stopped = false

@@ -3,6 +3,7 @@ import Foundation
 // 参照仕様: LZMA SDK の Methods.txt に記載された 7z Delta filter。
 
 /// 7z の Delta filter を逐次的に逆変換する。
+/// 失敗は latch しない。`read(into:)` が throw した後の状態は未規定なので、instance を破棄する。
 final class DeltaFilterDecompressor: Decompressor {
     private static let chunkSize = 256 * 1_024
 

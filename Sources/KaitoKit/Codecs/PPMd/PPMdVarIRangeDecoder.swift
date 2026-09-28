@@ -2,6 +2,8 @@ import Foundation
 
 // 公開ドメイン原典 Coder.hpp の carryless range coder。
 // 正規化の位置は Model.cpp が決めるため、区間更新とは分ける。
+// 兄弟: variant H の SevenZipPPMdRangeDecoder（7z）と RARPPMdRangeDecoder（RAR）は PPMd7RangeDecoding
+// 経由で PPMd7Model が使う。一覧: Core/BitReader.swift の先頭。
 final class PPMdVarIRangeDecoder {
     private let source: any ByteSource
     private let endOffset: UInt64

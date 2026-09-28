@@ -1,6 +1,9 @@
 import Foundation
 
 /// A bounded pass-through decompressor for stored archive data.
+///
+/// Failures are not latched; a throwing `read(into:)` leaves the source offset
+/// unchanged.
 public final class CopyDecompressor: Decompressor {
     // 小さい entry は Data の inline/既存 allocation 経路の方が軽いため一括経路を限定する。
     static let directReadMinimumSize = 1 * 1_024 * 1_024

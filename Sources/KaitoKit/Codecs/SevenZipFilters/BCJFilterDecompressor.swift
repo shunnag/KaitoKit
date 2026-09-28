@@ -17,6 +17,7 @@ enum SevenZipBranchFilter: Sendable, Equatable {
 }
 
 /// 7z branch filter を固定長の出力ストリームとして逆変換する。
+/// 失敗は latch しない。`read(into:)` が throw した後の状態は未規定なので、instance を破棄する。
 final class BCJFilterDecompressor: Decompressor {
     private static let inputChunkSize = 256 * 1_024
 
@@ -247,7 +248,7 @@ final class BCJFilterDecompressor: Decompressor {
                 // 変位は 25 bit の符号付き値として保存されている。減算後の上位 byte は
                 // bit 24 の符号で 0x00 / 0xFF に正規化する。ip との加算で 2^24 を
                 // またいだ変位は、これを省くと上位 byte が 0xFE / 0x01 のまま残る
-                // (2026-09-20 の 1 MiB 超乱数 payload で再現)。
+                // (SevenZipBranchLargePayloadTests が固定する)。
                 destination = normalizeX86Displacement(destination)
                 writeUInt32LE(destination, into: &bytes, at: position + 1)
                 position += 5
@@ -337,7 +338,7 @@ final class BCJFilterDecompressor: Decompressor {
                 }
                 // page delta は 18 bit の符号付き値として扱われ、21 bit の immhi:immlo には
                 // bit 17 を符号拡張した形で書き戻す。pc の減算で ±2^17 をまたいだ値も
-                // 同じ規則で折り返す (2026-09-20 の 1 MiB 超乱数 payload で再現)。
+                // 同じ規則で折り返す (SevenZipBranchLargePayloadTests が固定する)。
                 var decoded = (encoded &- (pc >> 12)) & 0x3_FFFF
                 if decoded & 0x2_0000 != 0 {
                     decoded |= 0x1C_0000

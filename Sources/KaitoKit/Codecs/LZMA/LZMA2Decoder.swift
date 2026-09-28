@@ -11,7 +11,7 @@ struct LZMA2ResetPoint: Sendable, Equatable {
     /// Output offset immediately before the reset chunk.
     let uncompressedOffset: UInt64
 
-    // raw reset (0x01) の後で従来 property を再利用できるように保存する。
+    // raw reset (0x01) の後でも直前の LZMA property を再利用できるように保存する。
     let lzmaProperties: UInt8?
 
     // 0x01 は dictionary だけを reset し、LZMA 確率 state は保持する。
@@ -36,10 +36,11 @@ struct LZMA2ResetPoint: Sendable, Equatable {
 /// The single property byte describes the dictionary size. Compressed and
 /// uncompressed chunks are decoded incrementally without retaining the whole
 /// output.
+///
+/// Failures are not latched: after `read(into:)` throws, the state is
+/// unspecified and the instance must be discarded.
 public final class LZMA2Decoder: Decompressor {
     private static let outputChunkSize = 256 * 1_024
-    private static let maximumUnpackedChunkSize: UInt64 = 2 * 1_024 * 1_024
-    private static let maximumPackedChunkSize: UInt64 = 64 * 1_024
     private static let maximumResetPointCount = 1_000_000
 
     private let source: any ByteSource
@@ -48,9 +49,7 @@ public final class LZMA2Decoder: Decompressor {
     private var reader: ByteReader
     private let lzma: LZMADecoder
 
-    private var needsDictionaryReset = true
-    private var needsProperties = true
-    private var needsStateReset = true
+    private var resets = LZMA2ResetTracker()
     private var compressedChunkIsActive = false
     private var uncompressedChunk: [UInt8] = []
     private var uncompressedChunkPosition = 0
@@ -103,24 +102,6 @@ public final class LZMA2Decoder: Decompressor {
         )
     }
 
-    convenience init(
-        source: any ByteSource,
-        offset: UInt64,
-        compressedSize: UInt64,
-        property: UInt8,
-        expectedSize: UInt64?,
-        dictionarySizeLimit: UInt64
-    ) throws {
-        try self.init(
-            source: source,
-            offset: offset,
-            compressedSize: compressedSize,
-            properties: [property],
-            expectedSize: expectedSize,
-            dictionarySizeLimit: dictionarySizeLimit
-        )
-    }
-
     // 元 stream の範囲と header-only index の点から、dictionary reset chunk を
     // 先頭として再開する。expectedSize は reset 点以後の残り出力 byte 数。
     convenience init(
@@ -146,7 +127,7 @@ public final class LZMA2Decoder: Decompressor {
             offset: resetPoint.compressedOffset,
             count: 1
         )[0]
-        guard control == 0x01 || control >= 0xE0 else {
+        guard LZMA2ChunkHeader.resetsDictionary(control: control) else {
             throw KaitoError.malformed("LZMA2 restart point is not a dictionary reset")
         }
         let remainingCompressedSize = try Checked.sub(
@@ -163,7 +144,7 @@ public final class LZMA2Decoder: Decompressor {
         )
         if let properties = resetPoint.lzmaProperties {
             try lzma.preloadLZMA2Properties(properties)
-            needsProperties = false
+            resets.acceptPreloadedProperties()
         }
     }
 
@@ -257,9 +238,7 @@ public final class LZMA2Decoder: Decompressor {
             offset: offset
         )
         var outputOffset: UInt64 = 0
-        var needsDictionaryReset = true
-        var needsProperties = true
-        var needsStateReset = true
+        var resets = LZMA2ResetTracker()
         var currentLZMAProperties: UInt8?
         var result: [LZMA2ResetPoint] = []
         var pendingRawResetPointIndices: [Int] = []
@@ -267,7 +246,21 @@ public final class LZMA2Decoder: Decompressor {
         while true {
             let controlOffset = reader.offset
             let control = try reader.readUInt8()
-            if control == 0 {
+            // raw dictionary reset の点の上限は size より先に確かめる。上限超過（呼出元は先頭からの
+            // 再開へ退避する）を、続く size の切断より先に報告する。
+            if control == LZMA2ChunkHeader.rawDictionaryResetControl,
+               result.count >= maximumPointCount {
+                throw KaitoError.limitExceeded("too many LZMA2 dictionary reset points")
+            }
+            let header = try LZMA2ChunkHeader(
+                control: control,
+                controlOffset: controlOffset,
+                reader: &reader,
+                resets: &resets
+            )
+
+            switch header {
+            case .end:
                 // この後に LZMA chunk がない raw reset は独立再開できる。
                 for index in pendingRawResetPointIndices {
                     result[index].isRestartable = true
@@ -279,18 +272,9 @@ public final class LZMA2Decoder: Decompressor {
                     throw KaitoError.malformed("LZMA2 output size does not match the expected size")
                 }
                 return result
-            }
 
-            if control < 0x80 {
-                guard control == 0x01 || control == 0x02 else {
-                    throw KaitoError.malformed("invalid LZMA2 control byte")
-                }
-                if control == 0x01 {
-                    guard result.count < maximumPointCount else {
-                        throw KaitoError.limitExceeded(
-                            "too many LZMA2 dictionary reset points"
-                        )
-                    }
+            case let .uncompressed(size, resetsDictionary):
+                if resetsDictionary {
                     result.append(
                         LZMA2ResetPoint(
                             compressedOffset: controlOffset,
@@ -300,91 +284,51 @@ public final class LZMA2Decoder: Decompressor {
                         )
                     )
                     pendingRawResetPointIndices.append(result.count - 1)
-                    needsDictionaryReset = false
-                } else if needsDictionaryReset {
-                    throw KaitoError.malformed("LZMA2 stream starts without a dictionary reset")
+                }
+                outputOffset = try Self.checkedOutputEnd(
+                    position: outputOffset,
+                    adding: size,
+                    expectedSize: expectedSize
+                )
+                let next = try Checked.add(reader.offset, size)
+                guard next <= endOffset else { throw KaitoError.truncated }
+                try reader.seek(to: next)
+
+            case let .compressed(unpackedSize, packedSize, resetsDictionary, resetsState, properties):
+                if let properties {
+                    currentLZMAProperties = properties
+                }
+                // raw 0x01 自体は coding state を reset しない。最初の後続
+                // compressed chunk で state が reset される場合だけ再開可能になる。
+                for index in pendingRawResetPointIndices {
+                    result[index].isRestartable = resetsState
+                }
+                pendingRawResetPointIndices.removeAll(keepingCapacity: true)
+
+                if resetsDictionary {
+                    guard result.count < maximumPointCount else {
+                        throw KaitoError.limitExceeded(
+                            "too many LZMA2 dictionary reset points"
+                        )
+                    }
+                    result.append(
+                        LZMA2ResetPoint(
+                            compressedOffset: controlOffset,
+                            uncompressedOffset: outputOffset,
+                            lzmaProperties: currentLZMAProperties
+                        )
+                    )
                 }
 
-                let unpackedSize = UInt64(try reader.readUInt16BE()) + 1
-                guard unpackedSize <= Self.maximumPackedChunkSize else {
-                    throw KaitoError.malformed("invalid LZMA2 uncompressed chunk size")
-                }
                 outputOffset = try Self.checkedOutputEnd(
                     position: outputOffset,
                     adding: unpackedSize,
                     expectedSize: expectedSize
                 )
-                let next = try Checked.add(reader.offset, unpackedSize)
+                let next = try Checked.add(reader.offset, packedSize)
                 guard next <= endOffset else { throw KaitoError.truncated }
                 try reader.seek(to: next)
-                continue
             }
-
-            let unpackedSize = try Self.readCompressedUnpackedSize(
-                control: control,
-                reader: &reader
-            )
-            let packedSize = UInt64(try reader.readUInt16BE()) + 1
-            guard packedSize <= Self.maximumPackedChunkSize else {
-                throw KaitoError.malformed("invalid LZMA2 packed chunk size")
-            }
-
-            let resetsDictionary = control >= 0xE0
-            if resetsDictionary {
-                needsDictionaryReset = false
-            } else if needsDictionaryReset {
-                throw KaitoError.malformed("LZMA2 stream starts without a dictionary reset")
-            }
-
-            if control >= 0xC0 {
-                let properties = try reader.readUInt8()
-                try Self.validateLZMAProperties(properties)
-                currentLZMAProperties = properties
-                needsProperties = false
-            } else if needsProperties {
-                throw KaitoError.malformed("LZMA2 stream uses LZMA before properties")
-            }
-
-            let resetsState = control >= 0xA0
-            if resetsState {
-                needsStateReset = false
-            } else if needsStateReset {
-                throw KaitoError.malformed(
-                    "LZMA2 control 0x\(String(control, radix: 16)) at byte \(controlOffset) "
-                        + "uses coding state before it is initialized"
-                )
-            }
-
-            // raw 0x01 自体は coding state を reset しない。最初の後続
-            // compressed chunk で state が reset される場合だけ再開可能になる。
-            for index in pendingRawResetPointIndices {
-                result[index].isRestartable = resetsState
-            }
-            pendingRawResetPointIndices.removeAll(keepingCapacity: true)
-
-            if resetsDictionary {
-                guard result.count < maximumPointCount else {
-                    throw KaitoError.limitExceeded(
-                        "too many LZMA2 dictionary reset points"
-                    )
-                }
-                result.append(
-                    LZMA2ResetPoint(
-                        compressedOffset: controlOffset,
-                        uncompressedOffset: outputOffset,
-                        lzmaProperties: currentLZMAProperties
-                    )
-                )
-            }
-
-            outputOffset = try Self.checkedOutputEnd(
-                position: outputOffset,
-                adding: unpackedSize,
-                expectedSize: expectedSize
-            )
-            let next = try Checked.add(reader.offset, packedSize)
-            guard next <= endOffset else { throw KaitoError.truncated }
-            try reader.seek(to: next)
         }
     }
 
@@ -402,8 +346,15 @@ public final class LZMA2Decoder: Decompressor {
     private func beginNextChunk() throws {
         let controlOffset = reader.offset
         let control = try reader.readUInt8()
+        let header = try LZMA2ChunkHeader(
+            control: control,
+            controlOffset: controlOffset,
+            reader: &reader,
+            resets: &resets
+        )
 
-        if control == 0 {
+        switch header {
+        case .end:
             guard reader.offset == endOffset else {
                 throw KaitoError.malformed("bytes follow the LZMA2 end control")
             }
@@ -411,123 +362,42 @@ public final class LZMA2Decoder: Decompressor {
                 throw KaitoError.malformed("LZMA2 output size does not match the expected size")
             }
             finished = true
-            return
-        }
 
-        if control < 0x80 {
-            try beginUncompressedChunk(control: control)
-        } else {
-            try beginCompressedChunk(control: control, controlOffset: controlOffset)
-        }
-    }
-
-    private func beginUncompressedChunk(control: UInt8) throws {
-        guard control == 0x01 || control == 0x02 else {
-            throw KaitoError.malformed("invalid LZMA2 control byte")
-        }
-        if control == 0x01 {
-            lzma.resetLZMA2Dictionary()
-            needsDictionaryReset = false
-        } else if needsDictionaryReset {
-            throw KaitoError.malformed("LZMA2 stream starts without a dictionary reset")
-        }
-
-        let unpackedSize = UInt64(try reader.readUInt16BE()) + 1
-        guard unpackedSize <= Self.maximumPackedChunkSize else {
-            throw KaitoError.malformed("invalid LZMA2 uncompressed chunk size")
-        }
-        _ = try Self.checkedOutputEnd(
-            position: outputPosition,
-            adding: unpackedSize,
-            expectedSize: expectedSize
-        )
-        uncompressedChunk = Array(try reader.readBytes(try Checked.toInt(unpackedSize)))
-        uncompressedChunkPosition = 0
-    }
-
-    private func beginCompressedChunk(control: UInt8, controlOffset: UInt64) throws {
-        let unpackedSize = try Self.readCompressedUnpackedSize(
-            control: control,
-            reader: &reader
-        )
-        let packedSize = UInt64(try reader.readUInt16BE()) + 1
-        guard packedSize <= Self.maximumPackedChunkSize else {
-            throw KaitoError.malformed("invalid LZMA2 packed chunk size")
-        }
-
-        let resetsDictionary = control >= 0xE0
-        if resetsDictionary {
-            lzma.resetLZMA2Dictionary()
-            needsDictionaryReset = false
-        } else if needsDictionaryReset {
-            throw KaitoError.malformed("LZMA2 stream starts without a dictionary reset")
-        }
-
-        let properties: UInt8?
-        if control >= 0xC0 {
-            let value = try reader.readUInt8()
-            try Self.validateLZMAProperties(value)
-            properties = value
-            needsProperties = false
-        } else {
-            guard !needsProperties else {
-                throw KaitoError.malformed("LZMA2 stream uses LZMA before properties")
+        case let .uncompressed(size, resetsDictionary):
+            if resetsDictionary {
+                lzma.resetLZMA2Dictionary()
             }
-            properties = nil
-        }
-
-        let resetState = control >= 0xA0
-        if resetState {
-            needsStateReset = false
-        } else if needsStateReset {
-            throw KaitoError.malformed(
-                "LZMA2 control 0x\(String(control, radix: 16)) at byte \(controlOffset) "
-                    + "uses coding state before it is initialized"
+            _ = try Self.checkedOutputEnd(
+                position: outputPosition,
+                adding: size,
+                expectedSize: expectedSize
             )
-        }
-        _ = try Self.checkedOutputEnd(
-            position: outputPosition,
-            adding: unpackedSize,
-            expectedSize: expectedSize
-        )
-        let packedOffset = reader.offset
-        let next = try Checked.add(packedOffset, packedSize)
-        guard next <= endOffset else { throw KaitoError.truncated }
-        try reader.seek(to: next)
+            uncompressedChunk = Array(try reader.readBytes(try Checked.toInt(size)))
+            uncompressedChunkPosition = 0
 
-        try lzma.beginLZMA2Chunk(
-            source: source,
-            offset: packedOffset,
-            compressedSize: packedSize,
-            unpackedSize: unpackedSize,
-            resetState: resetState,
-            properties: properties
-        )
-        compressedChunkIsActive = true
-    }
+        case let .compressed(unpackedSize, packedSize, resetsDictionary, resetsState, properties):
+            if resetsDictionary {
+                lzma.resetLZMA2Dictionary()
+            }
+            _ = try Self.checkedOutputEnd(
+                position: outputPosition,
+                adding: unpackedSize,
+                expectedSize: expectedSize
+            )
+            let packedOffset = reader.offset
+            let next = try Checked.add(packedOffset, packedSize)
+            guard next <= endOffset else { throw KaitoError.truncated }
+            try reader.seek(to: next)
 
-    private static func readCompressedUnpackedSize(
-        control: UInt8,
-        reader: inout ByteReader
-    ) throws -> UInt64 {
-        let low = UInt64(try reader.readUInt16BE())
-        let high = UInt64(control & 0x1F) << 16
-        let size = try Checked.add(try Checked.add(high, low), 1)
-        guard size > 0, size <= maximumUnpackedChunkSize else {
-            throw KaitoError.malformed("invalid LZMA2 unpacked chunk size")
-        }
-        return size
-    }
-
-    private static func validateLZMAProperties(_ property: UInt8) throws {
-        let packed = Int(property)
-        guard packed < 9 * 5 * 5 else {
-            throw KaitoError.malformed("invalid LZMA lc/lp/pb properties")
-        }
-        let literalContextBits = packed % 9
-        let literalPositionBits = (packed / 9) % 5
-        guard literalContextBits + literalPositionBits <= 4 else {
-            throw KaitoError.malformed("invalid LZMA2 literal properties")
+            try lzma.beginLZMA2Chunk(
+                source: source,
+                offset: packedOffset,
+                compressedSize: packedSize,
+                unpackedSize: unpackedSize,
+                resetState: resetsState,
+                properties: properties
+            )
+            compressedChunkIsActive = true
         }
     }
 

@@ -4,6 +4,9 @@ private import zlib
 // 参照仕様: RFC 1951、および zlib 公式マニュアルの inflate API。
 
 /// A streaming raw-DEFLATE or RFC 1950 zlib decompressor backed by system zlib.
+///
+/// Failures are not latched: after `read(into:)` throws, the state is
+/// unspecified and the instance must be discarded.
 public final class DeflateDecompressor: Decompressor {
     private static let chunkSize = 256 * 1024
 

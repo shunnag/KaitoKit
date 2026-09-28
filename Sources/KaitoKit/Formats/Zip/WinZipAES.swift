@@ -53,6 +53,7 @@ struct WinZipAESMetadata: Sendable, Equatable {
         self.compressionMethod = compressionMethod
     }
 
+    // テスト専用。読取経路では中央ディレクトリの解析が 0x9901 を検証して memberwise init で作る。
     // 呼び出し側が ID と長さを除いた追加フィールド本体を渡す。
     init(extraFieldPayload payload: Data) throws {
         guard payload.count >= 7 else {
@@ -79,6 +80,7 @@ struct WinZipAESMetadata: Sendable, Equatable {
 }
 
 // 圧縮サイズに含まれる salt / verifier / ciphertext / auth を分離する。
+// 読取経路は二つの長さの定数だけを使い、`init(data:)` はテスト専用の一括復号が使う。
 struct WinZipAESPayload: Sendable, Equatable {
     static let passwordVerifierSize = 2
     static let authenticationCodeSize = 10
@@ -166,6 +168,7 @@ struct WinZipAESDerivedKeys: Sendable, Equatable {
     }
 }
 
+// テスト専用の一括復号の結果。
 struct WinZipAESDecryptionResult: Sendable, Equatable {
     let data: Data
     let derivedKeys: WinZipAESDerivedKeys
@@ -179,6 +182,7 @@ struct WinZipAESStreamDecryptionResult: Sendable {
     let shouldCacheDerivedKeys: Bool
 }
 
+// テスト専用の一括復号が返す、遅延した HMAC の照合。
 struct WinZipAESAuthenticationCheck: Sendable, Equatable {
     private let computedCode: Data
     private let storedCode: Data
@@ -252,7 +256,7 @@ enum WinZipAES {
             ? min(Checked.sub(compressedSize, overhead), availableCiphertext)
             : availableCiphertext
         let authenticationOffset = try Checked.add(ciphertextOffset, ciphertextSize)
-        // 欠損した暗号文には末尾 HMAC がない。完全な範囲の認証は従来どおり必須。
+        // 欠損した暗号文には末尾 HMAC がない。完全な範囲では認証が必須。
         let storedCode: Data? = try isIncomplete ? nil : Data(readByteRange(
             source: source,
             offset: authenticationOffset,
@@ -274,6 +278,7 @@ enum WinZipAES {
         )
     }
 
+    // テスト専用の一括復号 API（decrypt と prepareDecryption）。読取経路は prepareStreamingDecryption を使う。
     static func decrypt(
         payload data: Data,
         password: String,
@@ -306,7 +311,7 @@ enum WinZipAES {
         return result
     }
 
-    // EntryStream 用: verifier を検証して復号するが、HMAC の照合は終端クロージャまで遅延する。
+    // verifier を検証して復号し、HMAC の照合は返した authenticationCheck まで遅延する。
     static func prepareDecryption(
         payload data: Data,
         password: String,
@@ -688,6 +693,7 @@ struct WinZipAESCTR: Sendable {
         }
     }
 
+    // テスト専用の一括復号と CTR のテストが使う。読取経路は transformInPlace を使う。
     mutating func transform(_ input: Data) throws -> Data {
         guard !input.isEmpty else {
             return Data()

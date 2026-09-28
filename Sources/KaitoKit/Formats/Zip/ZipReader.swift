@@ -2,8 +2,10 @@ import Darwin
 import Foundation
 
 // 参照仕様: PKWARE APPNOTE.TXT 6.3.x。通常は中央ディレクトリを索引として扱う。
+// 索引の位置決めは ZipCentralDirectoryLocator、解析は ZipCentralDirectoryParser、中央ディレクトリを使えない
+// 書庫の復旧は ZipLocalHeaderRecovery が行う。この型は local header と entry 範囲の検証、payload の復号、
+// entry の stream と raw layout SPI を受け持つ。
 final class ZipReader: FormatReader {
-
     // ZipCrypto の 1 byte 検査値を誤通過した password は、復号後の破損と区別できない。
     // そのため展開中の構造的な失敗（malformed・truncated・checksumMismatch）を wrongPassword として返す。
     private final class ZipPasswordAmbiguousDecompressor: Decompressor {
@@ -70,7 +72,7 @@ final class ZipReader: FormatReader {
     private let localHeaderOrderPositions: [Int]
     private var localRecords: [LocalRecord?] = []
     private var validatedLocalRangePosition = -1
-    // 通常の読取は従来どおり payload まで。descriptor を含む検証の進捗は分離する。
+    // 通常の読取は payload 終端まで検証する。descriptor を含む検証の進捗は分離する。
     private var validatedRawRangePosition = -1
     private var password: String?
     private var aesDerivedKeyCache: [WinZipAESKeyCacheKey: WinZipAESDerivedKeys] = [:]
@@ -149,8 +151,8 @@ final class ZipReader: FormatReader {
     }
 
     func reopened(options: ReaderOptions) -> sending (any FormatReader)? {
-        // Parsed arrays are immutable COW values. Local validation progress,
-        // cached headers and derived AES keys start empty in each reader.
+        // 解析済みの配列は不変の COW 値として共有する。local の検証の進捗、cache した header、
+        // 導出済みの AES 鍵は reader ごとに空から始める。
         ZipReader(source: source, options: options, centralDirectoryOffset: centralDirectoryOffset,
                   records: records, localHeaderOrder: localHeaderOrder,
                   localHeaderOrderPositions: localHeaderOrderPositions,
@@ -232,8 +234,8 @@ final class ZipReader: FormatReader {
         if zipCryptoErrorsAreWrongPassword {
             decompressor = ZipPasswordAmbiguousDecompressor(decompressor, expectedSize: entry.uncompressedSize)
         }
-        // Recovery bounds unencrypted stored payload.size to available source bytes,
-        // so CopyDecompressor can preserve bulk reads without recovery wrapping.
+        // 復旧は暗号化されていない stored の payload.size を source に実在する byte 数に抑えるので、
+        // CopyDecompressor は RecoveryDecompressor で包まずに一括読取を保てる。
         return try EntryStream(
             decompressor: entry.isIncomplete && !(record.method == ZipMethod.stored && !entry.isEncrypted)
                 ? RecoveryDecompressor(decompressor, maximumOutputSize: entry.uncompressedSize)
@@ -319,8 +321,8 @@ final class ZipReader: FormatReader {
     }
 
     private func resolveLocalRecord(at index: Int, limits: ReadLimits, sequential: Bool = false) throws -> LocalRecord {
-        // Keep reopen independent of entry count; allocate this mutable cache
-        // only when the new reader first needs a local header.
+        // reopen の費用を entry 数に比例させない。この可変 cache は、新しい reader が初めて
+        // local header を必要としたときに確保する。
         if localRecords.isEmpty { localRecords = Array(repeating: nil, count: records.count) }
         if let cached = localRecords[index] { return cached }
         let central = records[index]
@@ -607,10 +609,9 @@ final class ZipReader: FormatReader {
                 }
             }
             if stagesXZ, record.method == ZipMethod.xz {
-                // XZ checks every block's dictionary before native decoding, then
-                // rereads the stream. AES random access authenticates the entire
-                // ciphertext each time. Snapshot one sequential authenticated pass
-                // to keep this linear, without weakening mutable-source checks.
+                // XZ は native の展開の前に全 block の辞書を検査してから stream を読み直す。AES の任意位置の
+                // 読取は毎回暗号文全体を認証する。認証済みの順次読取一回分を写し取り、変わり得る source の
+                // 検査を弱めずに費用を線形に保つ。
                 var stagingLimits = limits
                 stagingLimits.maxEntrySize = decryptedSource.length
                 stagingLimits.inMemorySingleFileLimit = min(limits.inMemorySingleFileLimit, 4 * 1_024 * 1_024)
@@ -729,7 +730,7 @@ final class ZipReader: FormatReader {
                 memorySizeLimit: limits.maxDictionarySize
             )
         case ZipMethod.zstdDeprecated, ZipMethod.zstd:
-            // APPNOTE: 20 is the deprecated Zstandard identifier; decode both IDs.
+            // APPNOTE: 20 は Zstandard の旧 ID。現行の 93 と同じく展開する。
             return try ZstdDecompressor(source: source, offset: offset, compressedSize: compressedSize,
                                         expectedSize: uncompressedSize, limits: limits)
         case ZipMethod.xz:

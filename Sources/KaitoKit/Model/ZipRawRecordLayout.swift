@@ -1,3 +1,5 @@
+/// GyoshukuKit の ZIP 編集用。CD の暗号 flag と 0x9901 extra から得た暗号方式。
+/// `strength`（1 / 2 / 3 = AES-128 / 192 / 256）と `vendorVersion`（1 = AE-1、2 = AE-2）は 0x9901 の生値。
 @_spi(ZipRawLayout)
 public enum ZipRawEncryption: Sendable, Equatable {
     case none, zipCrypto

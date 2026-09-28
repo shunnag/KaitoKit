@@ -93,7 +93,7 @@ enum ZipEndRecords {
                     let directoryEnd = try Checked.add(
                         UInt64(candidate.centralDirectoryOffset), UInt64(candidate.centralDirectorySize))
                     // 標準窓に偽候補が一つだけ見える場合も、通常の ZIP32 位置と異なれば検証する。
-                    // 通常の単巻は追加読取なしで進み、ZIP64 locator がある候補は従来どおり扱う。
+                    // 通常の単巻は追加読取なしで進み、ZIP64 locator がある単独の候補はこの検査をしない。
                     let needsCoherenceCheck = try candidates.count > 1
                         || (directoryEnd != candidate.offset && locator(source: source, end: candidate) == nil)
                     if last == 0, candidate.totalEntries > 0, needsCoherenceCheck,

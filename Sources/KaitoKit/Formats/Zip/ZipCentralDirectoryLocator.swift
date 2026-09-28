@@ -46,6 +46,9 @@ struct ZipEndRecordParseBudget {
 enum ZipCentralDirectoryLocator {
     private typealias EndRecord = ZipEndRecords.EndRecord
 
+    /// EOCD 候補を新しい順に試し、最初に整合した中央ディレクトリを解析して返す。
+    /// 標準の窓（EOCD と最大の comment）で書庫が見つからないか、見つかった書庫が空で source の末尾まで届かないときだけ、
+    /// 1 MiB の末尾 data を含む窓へ広げて試し直す。どちらも失敗したら標準の窓の error を優先して投げる。
     static func locate(
         source: any ByteSource,
         diskLayout: ZipDiskLayout? = nil,
@@ -135,11 +138,9 @@ enum ZipCentralDirectoryLocator {
                     budget: &budget
                 )
 
-                // An empty EOCD-shaped sequence is structurally self-consistent
-                // wherever it appears. Before accepting one, prefer a coherent
-                // non-empty EOCD whose declared comment wholly contains it.
-                // This preserves real comments containing PK\x05\x06 without
-                // allowing an arbitrary SFX prefix to discard a later archive.
+                // 空の EOCD の形をした byte 列は、どこにあっても構造としては自己整合する。
+                // 採用する前に、宣言した comment がそれを丸ごと含む、整合した空でない EOCD を優先する。
+                // これで PK\x05\x06 を含む本物の comment を保ち、任意の SFX 前置きに後ろの書庫を捨てさせない。
                 if parsed.entries.isEmpty,
                    candidateIndex + 1 < candidates.count {
                     for enclosing in candidates[(candidateIndex + 1)...]
@@ -180,10 +181,8 @@ enum ZipCentralDirectoryLocator {
                 }
                 return (parsed, end, nil)
             } catch {
-                // Trailing data can contain an EOCD-shaped byte sequence. It
-                // is not a usable candidate unless its complete central
-                // directory is coherent, so continue toward the preceding
-                // bounded candidate before reporting the newest failure.
+                // 末尾 data は EOCD の形をした byte 列を含み得る。中央ディレクトリ全体が整合しない限り
+                // 候補として使えないので、最新の失敗を報告する前に上限内の一つ前の候補へ進む。
                 guard try shouldRetryEndRecordCandidateError(
                     error,
                     source: source,
@@ -212,8 +211,7 @@ enum ZipCentralDirectoryLocator {
         guard let kaitoError = error as? KaitoError else { return false }
         switch kaitoError {
         case let .limitExceeded(reason):
-            // Exhausting either candidate budget is itself the hard stop that
-            // bounds adversarial retries; it must never become retryable.
+            // どちらかの候補予算の枯渇は、敵対的な再試行を抑える停止そのもの。再試行可能にしない。
             guard reason != "ZIP end-record candidate attempts",
                   reason != "ZIP end-record candidate metadata work" else {
                 return false
@@ -224,12 +222,9 @@ enum ZipCentralDirectoryLocator {
             return false
         }
 
-        // Disk and configured-limit fields are checked before the directory is
-        // read. Preserve those policy errors for a genuinely coherent newer
-        // concatenated archive, but do not let an EOCD-shaped trailing sequence
-        // with no matching directory hide an older archive.
-        // Claim checks intentionally relax policy limits, so they must charge
-        // the shared work budget even after the first parsing attempt.
+        // disk の欄と設定上限は中央ディレクトリを読む前に検査する。本当に整合した新しい連結書庫では
+        // その policy error を保つが、対応する中央ディレクトリの無い EOCD 形の末尾 byte 列に古い書庫を隠させない。
+        // 整合性の検査は policy 上限を意図して緩めるので、最初の解析試行の後も共有の作業予算へ課金する。
         budget.endFirstAttemptExemption()
         do {
             return try !hasCoherentDirectoryClaim(
@@ -240,8 +235,7 @@ enum ZipCentralDirectoryLocator {
                 budget: &budget
             )
         } catch {
-            // Only a completed, bounded check can justify an older candidate.
-            // If the work budget runs out, stop with the original policy error.
+            // 古い候補へ進む根拠になるのは、上限内で完了した検査だけ。作業予算が尽きたら元の policy error で止める。
             if case let KaitoError.limitExceeded(reason) = error,
                reason == "ZIP end-record candidate metadata work" {
                 return false
@@ -299,8 +293,7 @@ enum ZipCentralDirectoryLocator {
             }
         }
 
-        // Some producers emit a ZIP64 record and locator without ZIP32
-        // sentinels. Try that evidenced interpretation before the ZIP32 claim.
+        // ZIP32 の番兵値なしに ZIP64 record と locator を書く作成元がある。その根拠のある解釈を ZIP32 の検査より先に試す。
         if try ZipEndRecords.locator(source: source, end: end) != nil {
             do {
                 if try hasCoherentZIP64DirectoryClaim(
@@ -339,9 +332,8 @@ enum ZipCentralDirectoryLocator {
         let entryCount = Int(end.totalEntries)
         let size = UInt64(end.centralDirectorySize)
 
-        // An empty EOCD carries no central-directory evidence with which to
-        // distinguish a real archive from an EOCD-shaped trailing sequence.
-        // Let candidate ordering continue toward an older evidenced archive.
+        // 空の EOCD には、本物の書庫と EOCD 形の末尾 byte 列を区別する中央ディレクトリの根拠が無い。
+        // 候補の順序に従い、根拠のある古い書庫へ進ませる。
         guard entryCount != 0, size != 0 else { return false }
 
         let directoryStart: UInt64
@@ -388,12 +380,12 @@ enum ZipCentralDirectoryLocator {
         guard try locator.readUInt32LE() == ZipSignature.zip64Locator else {
             return false
         }
-        _ = try locator.readUInt32LE() // locator disk is a policy field
+        _ = try locator.readUInt32LE() // locator の disk 番号（policy 検査の欄で、ここでは見ない）
         let relativeRecordOffset = try locator.readUInt64LE()
-        _ = try locator.readUInt32LE() // disk count is a policy field
+        _ = try locator.readUInt32LE() // disk 数（同上）
 
-        // The bounded backwards lookup proves that a ZIP64 record actually ends
-        // at this locator. A bare locator-shaped trailer is not enough evidence.
+        // 上限付きの後方探索で、ZIP64 record が実際にこの locator の直前で終わることを確かめる。
+        // locator の形をした末尾だけでは根拠にならない。
         guard limits.maxMetadataSize >= UInt64(ZipRecordSize.zip64EndFixed) else { return false }
         try budget.chargeMetadataBytes(min(locatorOffset, limits.maxMetadataSize))
         let recordOffset = try findZIP64RecordOffset(
@@ -419,9 +411,9 @@ enum ZipCentralDirectoryLocator {
 
         _ = try record.readUInt16LE()
         _ = try record.readUInt16LE()
-        _ = try record.readUInt32LE() // record disk is a policy field
-        _ = try record.readUInt32LE() // central disk is a policy field
-        _ = try record.readUInt64LE() // per-disk count is a policy field
+        _ = try record.readUInt32LE() // record の disk 番号（policy 検査の欄で、ここでは見ない）
+        _ = try record.readUInt32LE() // 中央ディレクトリの disk 番号（同上）
+        _ = try record.readUInt64LE() // disk ごとの件数（同上）
         let totalEntries = try record.readUInt64LE()
         let directorySize = try record.readUInt64LE()
         let relativeDirectoryOffset = try record.readUInt64LE()
@@ -451,8 +443,7 @@ enum ZipCentralDirectoryLocator {
         }
         guard directoryEnd <= recordOffset,
               directoryEnd <= source.length else { return false }
-        // Even a minimal central entry needs 46 bytes, so a count that cannot
-        // fit Int cannot be represented by any in-memory ByteSource envelope.
+        // 最小の中央 entry でも 46 byte 必要なので、Int に収まらない件数を収める ByteSource は無い。
         guard totalEntries <= UInt64(Int.max) else { return false }
         return try hasCoherentCentralDirectoryClaim(
             source: source,
@@ -492,9 +483,8 @@ enum ZipCentralDirectoryLocator {
               minimumSize <= directorySize else { return false }
         var cursor = directoryStart
 
-        // Only fixed headers are read; variable fields are bounded and skipped
-        // from their declared lengths. Every read is charged to the shared work
-        // budget before it occurs, including claims after the first attempt.
+        // 読むのは固定部だけで、可変部は宣言長で範囲を確かめて飛ばす。最初の試行の後の検査も含め、
+        // どの読取も行う前に共有の作業予算へ課金する。
         for index in 0..<entryCount {
             try checkCancellation(every: index)
             guard cursor <= directoryEnd,
@@ -643,9 +633,8 @@ enum ZipCentralDirectoryLocator {
                 throw CancellationError()
             } catch {
                 let zip64Error = error
-                // A four-byte locator signature can legally occur at the start
-                // of a ZIP32 central-entry comment. Only use that interpretation
-                // when its complete central directory parses coherently.
+                // 4 byte の locator 署名は、ZIP32 の最後の中央 entry の comment の先頭にも正当に現れ得る。
+                // ZIP32 と読む解釈は、その中央ディレクトリ全体が整合して解析できるときだけ採る。
                 do {
                     let location = try locateZIP32Directory(
                         source: source,

@@ -81,7 +81,8 @@ final class StuffItXJPEGMode1Blocks {
         guard row >= 0, row < l.height, col >= 0, col < l.width else { throw jpegMalformed("mode-1 coefficient coordinates or block limit") }
         let index = l.ring+(row & 1)*l.width+col, upper = l.ring+((row-1) & 1)*l.width+col
         guard tags.p[index] != row else { throw jpegMalformed("duplicate mode-1 block") }
-        // Python の cache は二行添字であり、上左が同じ走査中に置換される挙動も保持する。
+        // cache は二行 ring（参照実装と同じ添字）。4:2:0 の輝度では上左 block の slot が同じ MCU 行の走査中に
+        // 置き換わるため、置換前の DC を呼出側が保存して upperLeftOverride で渡す。
         let left = col > 0 ? UnsafePointer(cache.p+(index-1)*64) : nil
         let up = row > 0 ? UnsafePointer(cache.p+upper*64) : nil
         let ul = row > 0 && col > 0 ? UnsafePointer(cache.p+(upper-1)*64) : nil

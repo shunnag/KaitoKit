@@ -105,7 +105,8 @@ struct JPEGTableSet {
     }
     func scaled(_ key: Int) throws -> [Int] {
         guard let q = quantization[key] else { throw jpegMalformed("undefined quantization table") }
-        // Python の演算の括弧と Double の十進定数を保ち、積和演算へ縮約しない。
+        // 丸めは (値 × (scale[x] × scale[y])) × 8.0 + 0.5 をこの括弧と順序の Double で計算し、積和へ縮約しない。
+        // 順序や縮約で丸めが変わると、量子化表が参照実装と一致しなくなる。
         return q.enumerated().map { i,value in Int(Double(value)*(StuffItXJPEGTables.scale[i%8]*StuffItXJPEGTables.scale[i/8])*8.0+0.5) }
     }
 }
@@ -212,13 +213,13 @@ final class StuffItXJPEGBaseline {
     }
 }
 
-// stuffitx_jpeg_restore.py の DelayedBits。最後の完全な一バイトも保留する。
+// progressive scan の entropy bit 列。最後の一バイトは完全でも保留し、finish で scan 末尾の保存 byte に置き換えて出力する。
+// 出典: stuffitx_jpeg_restore.py の DelayedBits。
 final class JPEGDelayedBits {
     let output: JPEGOutput
     var value = 0
     var count = 0
     var total = 0
-    var missing = 0
     init(_ output: JPEGOutput) { self.output = output }
     @inline(__always) func flush() throws {
         try output.append(value)
@@ -237,7 +238,6 @@ final class JPEGDelayedBits {
     }
     @inline(__always) func symbol(_ table: JPEGHuffman, _ symbol: Int) throws {
         guard symbol >= 0, symbol < 256 else { throw jpegMalformed("progressive Huffman symbol range") }
-        if table.codes.p[256+symbol] == 0 { missing += 1 }
         try put(table.codes.p[symbol],table.codes.p[256+symbol])
     }
     @inline(__always) func signed(_ v: Int) throws {
@@ -462,7 +462,7 @@ final class StuffItXJPEGProgressive {
         var ordinal = 0
         func endUnit() throws {
             ordinal += 1
-            // Python と同じく base MCU 数で制限し、EOB は restart をまたいで残す。
+            // restart 間隔は base MCU 数で数え、保留中の EOB run は restart を跨いで保持する。
             if tables.restart != 0 && ordinal < geometry.width*geometry.height && ordinal%tables.restart == 0 {
                 try encoder.bits.restart(encoder.restarts); encoder.restarts += 1
                 encoder.lastDC.p.update(repeating:0,count:3)

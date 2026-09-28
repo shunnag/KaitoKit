@@ -1,4 +1,5 @@
-// Microsoft [MS-PATCH] v20160613 を CAB 向けに読み替えた実装。出自と十一項目の差分は設計文書に記録。
+// Microsoft [MS-PATCH] v20160613 を CAB 向けに読み替えた実装。出自と CAB 向けの十一項目の読み替えは
+// Documentation/design.md の「CAB LZX の出自と読み替え」に、WIM chunk の差分は verification/2026-09-21-wim.md に記録。
 final class LZXDecoder {
     private let windowSize: Int
     private let expectedSize: UInt64
@@ -28,8 +29,8 @@ final class LZXDecoder {
         return result
     }()
 
-    /// WIM の chunk（黒箱で確定、2026-09-21 の検証記録）: stream 先頭の E8 header bit が無く、変換サイズは
-    /// 固定。block header は 3 bit の type の後に 1 bit（1 = block size 32768、0 = 16 bit の size が続く）。
+    /// WIM chunk 形式: stream 先頭の E8 header bit が無く、変換サイズは固定。block header は 3 bit の type の後に
+    /// 1 bit（1 = block size 32768、0 = 16 bit の size が続く）。根拠: verification/2026-09-21-wim.md の黒箱検証。
     private let wimVariant: Bool
 
     /// `intelHeader`: stream 先頭の 1 bit（E8 変換サイズの有無）を読むか。CAB は読む。WIM の chunk は
@@ -127,8 +128,8 @@ final class LZXDecoder {
             }
         }
         let nextSize = try Checked.add(decodedSize, UInt64(outputSize))
-        // 奇数長の生 block の後ろの padding byte: CAB は末尾でも要求する。WIM の chunk は末尾に置かない
-        // （黒箱で確定）ので、入力が残っているときだけ消費する。
+        // 奇数長の生 block の後ろの padding byte: CAB は末尾の block にも要求する。WIM chunk は末尾では置かないので、
+        // 入力が残っているときだけ消費する。根拠: verification/2026-09-21-wim.md の黒箱検証。
         if blockRemaining == 0, rawPadding,
            bits.remainingRawBytes > 0 || (!wimVariant && nextSize == expectedSize) {
             try consumeRawPadding(&bits)
@@ -167,7 +168,7 @@ final class LZXDecoder {
         declaredSize = try Checked.add(declaredSize, UInt64(blockRemaining))
         if blockType == 3 {
             // 生 block 直前の padding は [MS-PATCH] 2.3.2.1 の規則（整列済みでも 1 word）を WIM にも適用する。
-            // boot.wim の 165 個の生 block はすべて非整列で始まり、整列時の WIM の挙動は未確認（検証記録）。
+            // 整列済みで始まる WIM の生 block は未確認（boot.wim の 165 個はすべて非整列。verification/2026-09-21-wim.md）。
             try bits.beginRaw()
             for index in 0..<3 {
                 let offset = try bits.readRawOffset()

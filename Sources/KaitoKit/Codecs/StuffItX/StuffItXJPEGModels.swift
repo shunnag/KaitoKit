@@ -80,6 +80,7 @@ final class StuffItXJPEGModel {
         let i1 = bs * 36 + jpegBitLength(diff1 / 512) * 6 + jpegBitLength(diff2 / 512)
         let i2 = jpegBitLength(diff1 / 256) * 49 + jpegBitLength(abs(a-d) / 256) * 7 + jpegBitLength(abs(a-e) / 256)
         let i3 = 10 * (c == 0 ? 0 : 1) + jpegBitLength(diff1 / 32)
+        // 112 / 364 / 707 は T.dc_starts[1...3]、重み (8,6,4,2) は T.dc_weights と同じ値を直書きしている。
         let keys = JPEGModelKeys(a: i0*16, b: (i1+112)*16, c: (i2+364)*16, d: (i3+707)*16, width: 16)
         try combine(keys, [4,4,4,4,3,3,3,3,2,2,2,2,1,1,1,1], (8,6,4,2)); return keys
     }
@@ -96,6 +97,7 @@ final class StuffItXJPEGModel {
         let i1 = (c << 9) + (uh << 6) + (dcbin * 4 & ~7) + avg
         let i2 = c << 3 | (c == 2 ? cb & 7 : a)
         let i3 = (c << 7) + ((c == 2 ? cb & 7 : a) << 4) + dcbin
+        // 1024 / 2560 / 2584 は T.horizontal_starts[1...3] と同じ値を直書きしている。
         let k = JPEGModelKeys(a: 0x2d70+i0*8, b: 0x2d70+(i1+1024)*8, c: 0x2d70+(i2+2560)*8, d: 0x2d70+(i3+2584)*8, width: 8)
         try combine(k,T.limit_base,(32,12,1,5))
         if up[0] == 0 { frequencies.p[uh] *= 2 }
@@ -109,6 +111,7 @@ final class StuffItXJPEGModel {
         let i1 = c*512 + lv*8 + cv + avg*64
         let i2 = (c*64 | a*8) + (c == 2 ? cv : h)
         let i3 = (c*512 | a*64) + h*8 + (c == 2 ? cv : lv)
+        // 1024 / 2560 / 2752 は T.vertical_starts[1...3] と同じ値を直書きしている。
         let k = JPEGModelKeys(a: 0x8430+i0*8, b: 0x8430+(i1+1024)*8, c: 0x8430+(i2+2560)*8, d: 0x8430+(i3+2752)*8, width: 8)
         try combine(k,T.limit_base,c == 2 ? (20,8,12,2) : (20,8,6,24))
         if left[0] == 0 { frequencies.p[lv] *= 2 }
@@ -165,6 +168,7 @@ final class StuffItXJPEGModel {
         let sclass = sc(jpegI16(Int(UInt32(truncatingIfNeeded: chosen) >> 3))), mclass = jpegCat4(Int(co[pos]))
         let combined = mclass*3+sclass, i0 = vert+hor*3, i1 = combined*4 | jpegCat4(jpegI16(chosenQ))
         let i2 = (c == 0 ? 0 : 2700) + min(y,4)*5 + min(x,4) + (vert+hor*3)*25 + combined*225
+        // 9 / 57 は T.sign_starts[1...2]、重み (3,2,7) は T.sign_weights と同じ値を直書きしている。
         let k = JPEGModelKeys(a: i0*2, b: (i1+9)*2, c: (i2+57)*2, d: 0, width: 2, sign: true)
         try combine(k,[8,8],(3,2,7,0))
         if x+y <= 11 {

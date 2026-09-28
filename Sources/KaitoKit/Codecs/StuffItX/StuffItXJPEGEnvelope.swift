@@ -101,7 +101,6 @@ final class StuffItXJPEGHeaderModel {
     let one = JPEGStorage<Int>(256 * 256, 0)
     let frequencies = JPEGStorage<Int>(256, 0)
     var previous = 0
-    var decodedBytes = 0
     var rescales = 0
     func byte(_ decoder: StuffItXJPEGRange) throws -> Int {
         let context = one.p.advanced(by: previous * 256), f = frequencies.p
@@ -109,7 +108,7 @@ final class StuffItXJPEGHeaderModel {
         let symbol = try decoder.value(f, 256)
         update(context,symbol)
         update(zero.p,symbol)
-        previous = symbol; decodedBytes += 1; return symbol
+        previous = symbol; return symbol
     }
     private func update(_ row: UnsafeMutablePointer<Int>, _ symbol: Int) {
         row[symbol] += 8

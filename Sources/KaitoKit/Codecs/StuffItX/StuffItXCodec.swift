@@ -1,4 +1,6 @@
 // 指定資料 Ch.07 の dispatch。圧縮属性の欠落と値ゼロは区別する。
+// 「指定資料 Ch.xx」は利用者所有の StuffIt 形式再構築レポート（inbox/stuffit/、入力は同 SHA256SUMS で照合）の章番号。
+// 出自と slice ごとの入力範囲は Documentation/design.md の「StuffIt provenance map」と各 slice の段落に記録する。
 import Foundation
 
 enum StuffItXCodec {

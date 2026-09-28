@@ -9,11 +9,6 @@ struct ZstdFSE: Sendable {
     let accuracyLog: Int
     let cells: [Cell]
 
-    init(symbol: Int) {
-        accuracyLog = 0
-        cells = [Cell(symbol: symbol, bits: 0, baseline: 0)]
-    }
-
     init(probabilities: [Int], accuracyLog: Int) throws {
         guard (5...9).contains(accuracyLog), !probabilities.isEmpty, probabilities.count <= 256,
               probabilities.allSatisfy({ (-1...(1 << accuracyLog)).contains($0) }),

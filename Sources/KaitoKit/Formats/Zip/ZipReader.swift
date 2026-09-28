@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 // 参照仕様: PKWARE APPNOTE.TXT 6.3.x。通常は中央ディレクトリを索引として扱う。

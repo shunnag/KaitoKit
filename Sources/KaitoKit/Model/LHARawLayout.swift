@@ -5,6 +5,7 @@ public struct LHAMemberLayout: Sendable, Equatable {
     public let headerRange: Range<UInt64>
     /// level 1 は skip size から拡張 header を除いた長さ、または 0x42 の値。
     public let dataRange: Range<UInt64>
+    /// header の level（0〜3）、`-lh5-` などの method、OS ID（level 0 で OS byte がなければ nil）、data の CRC-16。
     public let headerLevel: UInt8
     public let method: String
     public let osID: UInt8?
@@ -13,6 +14,7 @@ public struct LHAMemberLayout: Sendable, Equatable {
     public let entryIndex: Int?
 }
 
+/// member 列の終わり方。0x00 の一 byte、空名の -lhd- member、終端なしの EOF。
 @_spi(LHARawLayout)
 public enum LHAArchiveTerminator: Sendable, Equatable {
     case zeroByte(offset: UInt64)
@@ -20,6 +22,8 @@ public enum LHAArchiveTerminator: Sendable, Equatable {
     case endOfFile
 }
 
+/// zeroByte 終端の後ろの byte。長さ 0 は none、65,536 以下は読んで zeros / nonZero、それより長ければ読まずに
+/// unchecked。zeroByte 以外の終端では notApplicable。
 @_spi(LHARawLayout)
 public enum LHATrailingBytes: Sendable, Equatable {
     case none
@@ -29,13 +33,16 @@ public enum LHATrailingBytes: Sendable, Equatable {
     case notApplicable
 }
 
+/// GyoshukuKit の LHA 編集用。書庫の順の member 配置と終端。範囲は SFX を含む source 先頭からの絶対位置。
 @_spi(LHARawLayout)
 public struct LHAArchiveLayout: Sendable {
+    /// source 全体の長さ。
     public let archiveLength: UInt64
     /// 最初の header の offset（SFX の prefix 長）。member が無ければ終端の offset。
     public let firstHeaderOffset: UInt64
     /// 最後の member の data の終わり。member が無ければ firstHeaderOffset。
     public let endOfMembersOffset: UInt64
+    /// 終端の種類と、その後ろの byte の分類。
     public let terminator: LHAArchiveTerminator
     public let trailingBytes: LHATrailingBytes
 
@@ -60,6 +67,7 @@ public struct LHAArchiveLayout: Sendable {
 
     /// 書庫の順の member 数。公開しない member を含み、空名の -lhd- の終端は含まない。
     public var memberCount: Int { records.count + unpublishedMembers.count }
+    /// entry として公開しない member の数（memberCount に含まれる）。
     public var unpublishedMemberCount: Int { unpublishedMembers.count }
 
     /// position は書庫の順（0..<memberCount）。範囲外は KaitoError.notFound。

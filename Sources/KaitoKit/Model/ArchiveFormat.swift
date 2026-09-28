@@ -12,10 +12,10 @@ public enum ArchiveFormat: String, Sendable, CaseIterable {
     /// LHA/LZH containers.
     case lha
 
-    /// classic StuffIt と StuffIt 5 の容器。
+    /// Classic StuffIt and StuffIt 5 containers.
     case stuffIt = "sit"
 
-    /// StuffIt X のバイナリ容器。
+    /// StuffIt X binary containers.
     case stuffItX = "sitx"
 
     /// POSIX, pax, or GNU tar containers.
@@ -82,7 +82,7 @@ public enum ArchiveFormat: String, Sendable, CaseIterable {
     /// XZ streams.
     case xz
 
-    /// Zstandard ストリーム。/ Zstandard streams.
+    /// Zstandard streams.
     case zstd
 
     /// Modern and legacy LZ4 frames, including linked blocks and concatenation.

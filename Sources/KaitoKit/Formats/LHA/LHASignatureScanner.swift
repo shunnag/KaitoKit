@@ -44,31 +44,28 @@ enum LHASignatureScanner {
         case 0:
             // Level 0/1 store the base-header size excluding the two leading
             // size/checksum bytes. Both fixed fields and the name CRC must fit.
-            guard bytes[0] >= 22 else { return false }
+            guard Int(bytes[0]) + 2 >= LHAHeaderParser.level0MinimumHeaderSize else { return false }
             totalSize = try Checked.add(UInt64(bytes[0]), 2)
         case 1:
-            guard bytes[0] >= 25 else { return false }
+            guard Int(bytes[0]) + 2 >= LHAHeaderParser.level1MinimumHeaderSize else { return false }
             totalSize = try Checked.add(UInt64(bytes[0]), 2)
         case 2:
             // Level 2 uses a little-endian total header size. A low byte of
             // zero is the archive end marker, and the format therefore
             // forbids total header sizes that are multiples of 256.
             guard bytes[0] != 0 else { return false }
-            totalSize = UInt64(bytes[0]) | (UInt64(bytes[1]) << 8)
-            guard totalSize >= 26 else { return false }
+            totalSize = UInt64(LittleEndian.uint16(bytes, at: 0))
+            guard totalSize >= UInt64(LHAHeaderParser.level2MinimumHeaderSize) else { return false }
         case 3:
             // Level 3 declares a four-byte extension-size width, followed by
             // its four-byte total header size and first extension size.
-            guard bytes.count >= 32,
+            guard bytes.count >= LHAHeaderParser.level3MinimumHeaderSize,
                   bytes[0] == 4,
                   bytes[1] == 0 else {
                 return false
             }
-            totalSize = UInt64(bytes[24])
-                | (UInt64(bytes[25]) << 8)
-                | (UInt64(bytes[26]) << 16)
-                | (UInt64(bytes[27]) << 24)
-            guard totalSize >= 32 else { return false }
+            totalSize = UInt64(LittleEndian.uint32(bytes, at: 24))
+            guard totalSize >= UInt64(LHAHeaderParser.level3MinimumHeaderSize) else { return false }
         default:
             return false
         }
@@ -147,7 +144,9 @@ enum LHASignatureScanner {
         let level = bytes[index + 20]
         switch level {
         case 0, 1:
-            let minimumSize = level == 0 ? 24 : 27
+            let minimumSize = level == 0
+                ? LHAHeaderParser.level0MinimumHeaderSize
+                : LHAHeaderParser.level1MinimumHeaderSize
             let totalSize = Int(bytes[index]) + 2
             guard totalSize >= minimumSize,
                   totalSize <= bytes.count - index else {
@@ -160,16 +159,15 @@ enum LHASignatureScanner {
             return sum == bytes[index + 1]
 
         case 2:
-            let totalSize = Int(bytes[index]) | (Int(bytes[index + 1]) << 8)
+            let totalSize = Int(LittleEndian.uint16(bytes, at: index))
             guard bytes[index] != 0,
-                  totalSize >= 26,
+                  totalSize >= LHAHeaderParser.level2MinimumHeaderSize,
                   totalSize <= bytes.count - index else {
                 return false
             }
             let headerEnd = index + totalSize
-            var currentSize = Int(bytes[index + 24])
-                | (Int(bytes[index + 25]) << 8)
-            var cursor = index + 26
+            var currentSize = Int(LittleEndian.uint16(bytes, at: index + 24))
+            var cursor = index + LHAHeaderParser.level2MinimumHeaderSize
             var records = 0
             while currentSize != 0 {
                 guard currentSize >= 3,
@@ -181,16 +179,14 @@ enum LHASignatureScanner {
                 let recordEnd = cursor + currentSize
                 if bytes[cursor] == 0x00 {
                     guard currentSize >= 5 else { return false }
-                    let expected = UInt16(bytes[cursor + 1])
-                        | (UInt16(bytes[cursor + 2]) << 8)
+                    let expected = LittleEndian.uint16(bytes, at: cursor + 1)
                     var authenticated = Array(bytes[index..<headerEnd])
                     let crcOffset = cursor - index + 1
                     authenticated[crcOffset] = 0
                     authenticated[crcOffset + 1] = 0
                     return CRC16.checksum(authenticated) == expected
                 }
-                currentSize = Int(bytes[recordEnd - 2])
-                    | (Int(bytes[recordEnd - 1]) << 8)
+                currentSize = Int(LittleEndian.uint16(bytes, at: recordEnd - 2))
                 cursor = recordEnd
                 records += 1
             }

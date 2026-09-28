@@ -700,10 +700,10 @@ public final class LZMADecoder: Decompressor {
         resetState: Bool,
         properties: UInt8?
     ) throws {
-        guard unpackedSize > 0, unpackedSize <= 2 * 1_024 * 1_024 else {
+        guard unpackedSize > 0, unpackedSize <= LZMA2ChunkHeader.maximumUnpackedChunkSize else {
             throw KaitoError.malformed("invalid LZMA2 unpacked chunk size")
         }
-        guard compressedSize > 0, compressedSize <= 64 * 1_024 else {
+        guard compressedSize > 0, compressedSize <= LZMA2ChunkHeader.maximumPackedChunkSize else {
             throw KaitoError.malformed("invalid LZMA2 packed chunk size")
         }
         guard properties == nil || resetState else {

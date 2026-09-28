@@ -615,7 +615,7 @@ Writer payload SHA-256 (filename, bytes, hash):
 zip-ppmd/ (2026-09-11, cooViewer-th30)
 ------------------------------------
 project-owned の決定的 payload（seed 0x50504D49）を 7zz の ZIP PPMd writer で圧縮した。
-再生成: python3 Scripts/fixtures/make-zip-ppmd.py
+再生成: python3 Tests/Fixtures/zip-ppmd/make-zip-ppmd.py
 元入力の SHA-256 / CRC32 / サイズ / 実際の parameter word は manifest.json とテスト定数に記録。
 text 3 本、構造化 binary 1 本、メモリ復元用の乱数反復 2 本、混在書庫 1 本。
 乱数 fixture は一様乱数 12 KiB を 2 回並べた後に反復 payload 32 KiB を追加する。
@@ -690,7 +690,7 @@ StuffIt X slice 4（2026-09-13、bd cooViewer-gu28.4）
   Iron の旧 4 本は declared 頻度上限、x86 の旧 2 本は五バイト末尾変換を期待しており、native と区別する。
   slice4-iron-native-vectors.json の 8 本は Ch.08 / Ch.42 の数式から独立に作成した fixture。
   先頭 4 本は旧 vector と同じ平文を native 上限で符号化し、後半は seed 9406 の run 履歴と
-  反復 context・空 raw・複数 block を含む。生成手順は Scripts/fixtures/make-stuffit-iron-vectors.py。
+  反復 context・空 raw・複数 block を含む。生成手順は Tests/Fixtures/stuffit/make-stuffit-iron-vectors.py。
   他実装のソースや Web は参照していない。slice 3 の Blend vector は全 4 submethod の出力一致へ更新した。
   verify_slice4_corpus.py は支給 SHA / archive-verification.json と通常 CLI の出力を照合する。
   Mac 7 の同じ CC0 ファイル集合の 16 書庫・包みを、Mac 9 レコードの名前付き全 fork と照合する。
@@ -756,7 +756,7 @@ StuffIt X slice 7（2026-09-13、bd cooViewer-gu28.7）
   IMG_0243-240-gray.p20.jc の先頭 64 ブロックと IMG_0243-240-b420q75.p10.jc の
   先頭 96 ブロックから、ヘッダーを含む照合に必要な圧縮 prefix だけを保持する。
   元 JPEG 64 本・292 ストリーム・歴史的書庫の全体は外部コーパスに残す。
-  生成器は Tests/Tools/stuffitx-jpeg-vectors.py と stuffitx-jpeg-tables.py。
+  生成器は Tests/Measurement/stuffitx-jpeg/stuffitx-jpeg-vectors.py と Scripts/generate/stuffitx-jpeg-tables.py。
   詳細は Documentation/verification/2026-09-13-stuffit-slice7.md。
 
 

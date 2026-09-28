@@ -92,30 +92,30 @@ enum TarGoldenInputSupport {
     }
     static func compressedInputs() throws -> [(String, String, Data)] {
         let tar = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "payload", contents: Data(repeating: 65, count: 140_000))])
-        let gz = try GyoshukuFramingTestSupport.gzip(tar, chunkSize: 65_536).data
-        let bz = try GyoshukuFramingTestSupport.bzip2(tar, level: 9, chunkSize: 65_536).data
-        let xz = try GyoshukuFramingTestSupport.xz(tar, chunkSize: 65_536).data
+        let gz = try CompressedTarFramingTestSupport.gzip(tar, chunkSize: 65_536).data
+        let bz = try CompressedTarFramingTestSupport.bzip2(tar, level: 9, chunkSize: 65_536).data
+        let xz = try CompressedTarFramingTestSupport.xz(tar, chunkSize: 65_536).data
         var rich = Data([0x1f, 0x8b, 8, 0x1e, 0, 0, 0, 0, 0, 3, 3, 0, 1, 2, 3]) + Data("archive.tar\0".utf8) + Data(repeating: 65, count: 270_000) + Data([0])
-        rich.append(GyoshukuFramingTestSupport.le(GyoshukuFramingTestSupport.crc(rich)).prefix(2))
+        rich.append(CompressedTarFramingTestSupport.le(CompressedTarFramingTestSupport.crc(rich)).prefix(2))
         rich.append(gz.dropFirst(10))
         var gzipCRC = gz; gzipCRC[gzipCRC.count - 8] ^= 1
         var gzipSize = gz; gzipSize[gzipSize.count - 4] ^= 1
         var brokenBZ = bz; brokenBZ[25] ^= 64
         var falseBZ = bz; falseBZ.insert(contentsOf: [0x42, 0x5a, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59], at: 30)
-        let footer = xz.count - 12, index = footer - Int(GyoshukuFramingTestSupport.uint32(xz, footer + 4) + 1) * 4
+        let footer = xz.count - 12, index = footer - Int(CompressedTarFramingTestSupport.uint32(xz, footer + 4) + 1) * 4
         var indexRecord = xz; indexRecord[index + 2] ^= 1
         var indexCRC = xz; indexCRC[footer - 1] ^= 1
         var blockCheck = xz; blockCheck[index - 1] ^= 1
         return [
             ("gzip-rich-header", "tar.gz", rich), ("gzip-dense-blocks", "tar.gz", try denseGzip(tar)),
-            ("gzip-1m", "tar.gz", try GyoshukuFramingTestSupport.gzip(tar).data),
-            ("gzip-multiple", "tar.gz", gz + (try GyoshukuFramingTestSupport.gzip(Data()).data)),
+            ("gzip-1m", "tar.gz", try CompressedTarFramingTestSupport.gzip(tar).data),
+            ("gzip-multiple", "tar.gz", gz + (try CompressedTarFramingTestSupport.gzip(Data()).data)),
             ("gzip-zero-tail", "tar.gz", gz + Data([0])), ("gzip-garbage", "tar.gz", gz + Data([1])),
             ("gzip-crc", "tar.gz", gzipCRC), ("gzip-isize", "tar.gz", gzipSize), ("gzip-truncated", "tar.gz", Data(gz.dropLast(5))),
-            ("bzip2-level9", "tar.bz2", bz), ("bzip2-empty-stream", "tar.bz2", bz + (try GyoshukuFramingTestSupport.bzip2(Data()).data) + bz),
+            ("bzip2-level9", "tar.bz2", bz), ("bzip2-empty-stream", "tar.bz2", bz + (try CompressedTarFramingTestSupport.bzip2(Data()).data) + bz),
             ("bzip2-garbage", "tar.bz2", bz + Data([1])), ("bzip2-corrupt", "tar.bz2", brokenBZ),
             ("bzip2-truncated", "tar.bz2", Data(bz.dropLast(5))), ("bzip2-false-candidate", "tar.bz2", falseBZ),
-            ("xz-none", "tar.xz", try GyoshukuFramingTestSupport.xz(tar, chunkSize: 65_536, check: 0).data),
+            ("xz-none", "tar.xz", try CompressedTarFramingTestSupport.xz(tar, chunkSize: 65_536, check: 0).data),
             ("xz-multiple", "tar.xz", xz + xz), ("xz-padding", "tar.xz", xz + Data(count: 4)),
             ("xz-index-record", "tar.xz", indexRecord), ("xz-index-crc", "tar.xz", indexCRC),
             ("xz-block-check", "tar.xz", blockCheck), ("xz-truncated", "tar.xz", Data(xz.dropLast(4)))

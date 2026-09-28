@@ -114,10 +114,7 @@ final class DMGReader: FormatReader {
                 return
             }
         }
-        // APFS（container superblock の signature "NXSB" が block 0）は範囲外。
-        if disk.length >= 40, Array(try readByteRange(source: disk, offset: 32, count: 4)) == Array("NXSB".utf8) {
-            throw KaitoError.unsupportedMethod("APFS volume in a disk image")
-        }
+        // APFS（container superblock の signature "NXSB" が block 0）は範囲外。候補は必ず disk 先頭（0）から始まる。
         for offset in candidates where offset + 40 <= disk.length {
             if Array(try readByteRange(source: disk, offset: offset + 32, count: 4)) == Array("NXSB".utf8) {
                 throw KaitoError.unsupportedMethod("APFS volume in a disk image")

@@ -19,12 +19,9 @@ enum RAR3KeyDerivation {
     private static let snapshotInterval = rounds / 16
     private static let maximumChunkBytes = 512 * 1_024
 
+    // テスト専用の鍵導出。読取経路は derive(passwordUTF16LE:salt:) を使う。
     static func derive(password: String, salt: [UInt8]) throws -> RAR3DerivedKey {
         try derive(passwordUTF16LE: passwordBytes(password), salt: salt)
-    }
-
-    static func derive(password: String, salt: Data) throws -> RAR3DerivedKey {
-        try derive(password: password, salt: [UInt8](salt))
     }
 
     static func derive(

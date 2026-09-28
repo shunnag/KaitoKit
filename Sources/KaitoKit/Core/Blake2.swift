@@ -146,6 +146,7 @@ struct Blake2s: Sendable {
         return result
     }
 
+    // テスト専用の一括ハッシュ計算。読取経路は update と finalize による逐次処理を使う。
     static func checksum(_ data: Data) -> Data {
         var hash = Blake2s()
         hash.update(data)
@@ -321,6 +322,7 @@ struct Blake2sp: Sendable {
         return result
     }
 
+    // テスト専用の一括ハッシュ計算。読取経路は update と finalize による逐次処理を使う。
     static func checksum(_ data: Data) -> Data {
         var hash = Blake2sp()
         hash.update(data)

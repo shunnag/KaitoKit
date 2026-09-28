@@ -33,10 +33,11 @@ struct LHAParsedArchive {
 
 enum LHAHeaderParser {
     private static let minimumCommonPrefixSize = 21
-    private static let level0MinimumHeaderSize = 24
-    private static let level1MinimumHeaderSize = 27
-    // Levels 2 and 3 also start their extension chains at these offsets
-    // (LHAExtendedFields.parseLevel2Chain / parseLevel3Chain).
+    // Smallest valid base header per level, in bytes. LHASignatureScanner
+    // applies the same bounds to candidates, and levels 2 and 3 start their
+    // extension chains at these offsets (LHAExtendedFields).
+    static let level0MinimumHeaderSize = 24
+    static let level1MinimumHeaderSize = 27
     static let level2MinimumHeaderSize = 26
     static let level3MinimumHeaderSize = 32
     private static let larcMethods: Set<String> = ["-lzs-", "-lz4-", "-lz5-"]

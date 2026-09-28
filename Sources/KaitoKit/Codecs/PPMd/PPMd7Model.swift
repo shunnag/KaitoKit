@@ -90,6 +90,13 @@ final class PPMd7Model {
     private static let contextSize = 12
     private static let stateSize = 6
     private static let null = PPMd7Suballocator.nullOffset
+    // 二値 context の確率表は行が state の frequency - 1、列が suffix の state 数・直前の成功・
+    // 記号の上位 bit・run flag から作る添字。SEE context 表は行が未 mask の state 数、列が
+    // escape の特徴 bit。
+    private static let binarySummaryRows = 128
+    private static let binarySummaryColumns = 64
+    private static let seeRows = 25
+    private static let seeColumns = 16
 
     private let maximumOrder: Int
     private let allocator: PPMd7Suballocator
@@ -120,15 +127,15 @@ final class PPMd7Model {
         self.allocator = try PPMd7Suballocator(memorySize: memorySize)
         self.nsToBinaryIndex = Self.makeNS2BSIndex()
         self.nsToSEEIndex = Self.makeNS2SEEIndex()
-        self.binarySummaries = .allocate(capacity: 128 * 64)
-        self.binarySummaries.initialize(repeating: 0, count: 128 * 64)
+        self.binarySummaries = .allocate(capacity: Self.binarySummaryRows * Self.binarySummaryColumns)
+        self.binarySummaries.initialize(repeating: 0, count: Self.binarySummaryRows * Self.binarySummaryColumns)
         self.characterMask = .allocate(capacity: 256)
         self.characterMask.initialize(repeating: 0, count: 256)
         try restartModel()
     }
 
     deinit {
-        binarySummaries.deinitialize(count: 128 * 64)
+        binarySummaries.deinitialize(count: Self.binarySummaryRows * Self.binarySummaryColumns)
         binarySummaries.deallocate()
         characterMask.deinitialize(count: 256)
         characterMask.deallocate()
@@ -287,18 +294,18 @@ final class PPMd7Model {
             + Self.highBits4(try stateSymbol(at: state))
             + highBitsFlag
             + runFlag
-        guard (0..<128).contains(row),
-              (0..<64).contains(column) else {
+        guard (0..<Self.binarySummaryRows).contains(row),
+              (0..<Self.binarySummaryColumns).contains(column) else {
             throw KaitoError.malformed("PPMd7 binary probability index is out of range")
         }
 
-        let probability = binarySummaries[row * 64 + column]
+        let probability = binarySummaries[row * Self.binarySummaryColumns + column]
         let escaped = try decoder.decodeBinary(probability: probability)
         var updated = probability - ((probability + 32) >> 7)
 
         if !escaped {
             updated += SDK.binaryInterval
-            binarySummaries[row * 64 + column] = updated
+            binarySummaries[row * Self.binarySummaryColumns + column] = updated
             foundState = state
             if frequency < 128 {
                 try setStateFrequency(frequency + 1, at: state)
@@ -306,7 +313,7 @@ final class PPMd7Model {
             runLength += 1
             previousSuccess = 1
         } else {
-            binarySummaries[row * 64 + column] = updated
+            binarySummaries[row * Self.binarySummaryColumns + column] = updated
             characterMask[Int(try stateSymbol(at: state))] = escapeCount
             numberMasked = 0
             previousSuccess = 0
@@ -970,15 +977,15 @@ final class PPMd7Model {
         )
         maximumContext = root
 
-        for column in 0..<64 {
-            for row in 0..<128 {
-                binarySummaries[row * 64 + column] = SDK.binaryScale
+        for column in 0..<Self.binarySummaryColumns {
+            for row in 0..<Self.binarySummaryRows {
+                binarySummaries[row * Self.binarySummaryColumns + column] = SDK.binaryScale
                     - SDK.initialBinaryEscapes[column & 7] / (row + 2)
             }
         }
 
-        seeContexts = (0..<25).map { row in
-            (0..<16).map { _ in PPMd7ArenaSEEContext(initialValue: 5 * row + 10) }
+        seeContexts = (0..<Self.seeRows).map { row in
+            (0..<Self.seeColumns).map { _ in PPMd7ArenaSEEContext(initialValue: 5 * row + 10) }
         }
         try validate(root)
     }

@@ -1,5 +1,17 @@
 import Foundation
 
+/// 検証の一段を `TarSpliceVerificationError` に写す。上限と I/O の失敗はそのまま通す。
+func tarSpliceVerification<T>(_ reason: TarSpliceVerificationError.Reason, segmentIndex: Int? = nil,
+                              _ body: () throws -> T) throws -> T {
+    do { return try body() }
+    catch let error as KaitoError {
+        switch error {
+        case .limitExceeded, .io: throw error
+        default: throw TarSpliceVerificationError(reason, segmentIndex: segmentIndex, underlying: error)
+        }
+    }
+}
+
 // encoded だけを一つの staging に流す。reused の image は葉の範囲として残す。
 final class CompressedTarSpliceVerifier: Decompressor {
     private struct Part {

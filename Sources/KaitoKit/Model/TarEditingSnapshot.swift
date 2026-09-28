@@ -171,8 +171,3 @@ public struct XZBlockMap: Sendable, Equatable {
     public let indexRange: Range<UInt64>
     public let footerRange: Range<UInt64>
 }
-
-func currentTarArchiveIdentity(_ source: any ByteSource) -> ByteSourceFileIdentity? {
-    if let file = source as? FileByteSource { return try? file.fileIdentity() }
-    return try? (source as? any ByteSourceFileIdentityProviding)?.currentFileIdentity()
-}

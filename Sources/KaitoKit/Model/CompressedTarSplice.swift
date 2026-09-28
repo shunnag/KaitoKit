@@ -33,14 +33,3 @@ public struct TarSpliceVerificationError: Error, Sendable {
         self.underlying = underlying
     }
 }
-
-func tarSpliceVerification<T>(_ reason: TarSpliceVerificationError.Reason, segmentIndex: Int? = nil,
-                              _ body: () throws -> T) throws -> T {
-    do { return try body() }
-    catch let error as KaitoError {
-        switch error {
-        case .limitExceeded, .io: throw error
-        default: throw TarSpliceVerificationError(reason, segmentIndex: segmentIndex, underlying: error)
-        }
-    }
-}

@@ -21,3 +21,9 @@ public struct ByteSourceFileIdentity: Sendable, Hashable {
 public protocol ByteSourceFileIdentityProviding: ByteSource {
     func currentFileIdentity() throws -> ByteSourceFileIdentity
 }
+
+/// source が file なら現在の identity。identity を持たない source は nil。
+func currentTarArchiveIdentity(_ source: any ByteSource) -> ByteSourceFileIdentity? {
+    if let file = source as? FileByteSource { return try? file.fileIdentity() }
+    return try? (source as? any ByteSourceFileIdentityProviding)?.currentFileIdentity()
+}

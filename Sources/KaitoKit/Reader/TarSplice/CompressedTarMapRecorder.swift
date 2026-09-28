@@ -1,18 +1,6 @@
 import Foundation
 private import zlib
 
-// 同じ出力位置の空 block は後の点へまとめる。先頭を動かすと圧縮 byte の被覆に穴が開く。
-func normalizeGzipPoints(_ points: [GzipSyncPoint]) -> [GzipSyncPoint] {
-    guard let first = points.first else { return [] }
-    var result = [first]
-    for point in points.dropFirst() {
-        if point.imageOffset == 0 { continue }
-        if result.last?.imageOffset == point.imageOffset { result[result.count - 1] = point }
-        else { result.append(point) }
-    }
-    return result
-}
-
 final class CompressedTarMapRecorder {
     let format: ArchiveFormat
     let maximumChunks: Int
@@ -46,6 +34,18 @@ final class CompressedTarMapRecorder {
     private var xzCursor = 0
     private var xzIndex: Range<UInt64>?
     private var xzFooter: Range<UInt64>?
+
+    // 同じ出力位置の空 block は後の点へまとめる。先頭を動かすと圧縮 byte の被覆に穴が開く。
+    static func normalizeGzipPoints(_ points: [GzipSyncPoint]) -> [GzipSyncPoint] {
+        guard let first = points.first else { return [] }
+        var result = [first]
+        for point in points.dropFirst() {
+            if point.imageOffset == 0 { continue }
+            if result.last?.imageOffset == point.imageOffset { result[result.count - 1] = point }
+            else { result.append(point) }
+        }
+        return result
+    }
 
     init(format: ArchiveFormat, maximumChunks: Int = 1_048_576, gzipStopLimit: UInt64 = 1_048_576) {
         self.format = format
@@ -176,7 +176,7 @@ final class CompressedTarMapRecorder {
                   gzipOutput == imageLength, gzipPoints.last!.compressedOffset < trailerOffset,
                   LittleEndian.uint32(gzipTrailer, at: 0) == gzipFinalCRC,
                   LittleEndian.uint32(gzipTrailer, at: 4) == UInt32(truncatingIfNeeded: imageLength),
-                  normalizeGzipPoints(gzipPoints) == gzipPoints else { disable(.inconsistent); return (nil, reason) }
+                  Self.normalizeGzipPoints(gzipPoints) == gzipPoints else { disable(.inconsistent); return (nil, reason) }
             map = .gzip(.init(headerLength: first.compressedOffset, points: gzipPoints, trailerOffset: trailerOffset,
                               trailerCRC32: gzipFinalCRC, imageLength: imageLength, compressedChecksums: gzipChecksums))
             compressedStart = first.compressedOffset; compressedEnd = trailerOffset

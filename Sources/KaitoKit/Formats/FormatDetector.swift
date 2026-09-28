@@ -31,9 +31,6 @@ import Foundation
 /// 8. Binary cpio is considered last and must validate a bounded record chain.
 public enum FormatDetector {
     private static let tarBlockSize = 512
-    private static let zipEOCDMinimumSize = 22
-    private static let zipMaximumCommentSize = 65_535
-    private static let zipMaximumTrailingDataSize = 1 * 1_024 * 1_024
     /// Executable-prefix detection never examines a marker beyond one MiB.
     static let maximumSFXScanSize: UInt64 = 1 * 1_024 * 1_024
 
@@ -336,7 +333,7 @@ public enum FormatDetector {
         var records = 0
         while source.length - position >= 4 {
             let bytes = try readByteRange(source: source, offset: position, count: 4)
-            let magic = littleEndianUInt32(bytes, at: 0)
+            let magic = UInt64(LittleEndian.uint32(bytes, at: 0))
             if magic == LZ4FrameDecompressor.magic || magic == LZ4FrameDecompressor.legacyMagic { return .lz4 }
             guard ZstdFrameHeader.isSkippable(magic) else { return .zstd }
             guard records < limits.maxMetadataRecordCount else {
@@ -345,7 +342,7 @@ public enum FormatDetector {
             records += 1
             guard source.length - position >= 8 else { return .zstd }
             let sizeBytes = try readByteRange(source: source, offset: position + 4, count: 4)
-            let size = littleEndianUInt32(sizeBytes, at: 0)
+            let size = UInt64(LittleEndian.uint32(sizeBytes, at: 0))
             position += 8
             guard size <= source.length - position else { return .zstd }
             position += size
@@ -475,69 +472,21 @@ public enum FormatDetector {
     private static func containsNativeZipEOCD(
         source: any ByteSource
     ) throws -> Bool {
-        guard source.length >= UInt64(zipEOCDMinimumSize) else {
-            return false
-        }
-
-        let maximumSearch = zipMaximumCommentSize
-            + zipEOCDMinimumSize
-            + zipMaximumTrailingDataSize
-        let searchLength = try Checked.toInt(min(source.length, UInt64(maximumSearch)))
-        let searchOffset = try Checked.sub(source.length, UInt64(searchLength))
-        let tail = try readByteRange(source: source, offset: searchOffset, count: searchLength)
-        guard tail.count >= zipEOCDMinimumSize else {
-            return false
-        }
-
-        for index in stride(
-            from: tail.count - zipEOCDMinimumSize,
-            through: 0,
-            by: -1
+        guard source.length >= UInt64(ZipEndRecords.endMinimumSize) else { return false }
+        for end in try ZipEndRecords.findEndRecords(
+            source: source,
+            maximumSearchSize: ZipEndRecords.endMinimumSize + ZipEndRecords.maximumCommentSize
+                + ZipEndRecords.maximumTrailingDataSize
         ) {
-            guard tail[index] == 0x50,
-                  tail[index + 1] == 0x4B,
-                  tail[index + 2] == 0x05,
-                  tail[index + 3] == 0x06 else {
+            // ZIP64 の番兵は ZIP64 end record が無いと基点を出せない。通常の ZIP64 書庫は先頭に local header の印を持つ。
+            if end.centralDirectorySize == UInt32.max || end.centralDirectoryOffset == UInt32.max {
                 continue
             }
-
-            let highCommentLength = try Checked.shiftLeft(
-                UInt64(tail[index + 21]),
-                by: 8
-            )
-            let commentLength = UInt64(tail[index + 20]) | highCommentLength
-            let recordLength = try Checked.add(UInt64(zipEOCDMinimumSize), commentLength)
-            let recordEnd = try Checked.add(UInt64(index), recordLength)
-            guard recordEnd <= UInt64(tail.count),
-                  UInt64(tail.count) - recordEnd <= UInt64(zipMaximumTrailingDataSize) else {
-                continue
-            }
-
-            let directorySize = littleEndianUInt32(tail, at: index + 12)
-            let directoryOffset = littleEndianUInt32(tail, at: index + 16)
-            // ZIP64 sentinels require the ZIP64 end record to infer a base.
-            // Normal ZIP64 archives still have a native local marker at zero.
-            guard directorySize != UInt64(UInt32.max),
-                  directoryOffset != UInt64(UInt32.max) else {
-                continue
-            }
-            let directoryEnd = directoryOffset.addingReportingOverflow(directorySize)
-            guard !directoryEnd.overflow else { continue }
-            let absoluteRecordOffset = try Checked.add(searchOffset, UInt64(index))
-            if directoryEnd.partialValue == absoluteRecordOffset {
+            // 検出側の規則はこれだけ: central directory の終端が EOCD の位置に一致する（基点 0）。
+            if UInt64(end.centralDirectoryOffset) + UInt64(end.centralDirectorySize) == end.offset {
                 return true
             }
         }
         return false
-    }
-
-    private static func littleEndianUInt32(
-        _ bytes: [UInt8],
-        at offset: Int
-    ) -> UInt64 {
-        UInt64(bytes[offset])
-            | (UInt64(bytes[offset + 1]) << 8)
-            | (UInt64(bytes[offset + 2]) << 16)
-            | (UInt64(bytes[offset + 3]) << 24)
     }
 }

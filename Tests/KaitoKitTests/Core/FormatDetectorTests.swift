@@ -136,6 +136,32 @@ final class FormatDetectorTests: XCTestCase {
         }
     }
 
+    func testNativeZipWithDamagedLocalHeaderIsDetectedWithoutSFXOptions() throws {
+        let archive = try makeZipWithDamagedLocalHeader()
+        XCTAssertEqual(try ZipTestSupport.layout(of: archive).archiveBase, 0)
+        XCTAssertEqual(try FormatDetector.detect(data: archive), .zip)
+    }
+
+    func testNativeZipWithDamagedLocalHeaderRejectsZIP64Sentinels() throws {
+        let archive = try makeZipWithDamagedLocalHeader()
+        let layout = try ZipTestSupport.layout(of: archive)
+        let centralDirectorySizeFieldOffset = 12
+        let centralDirectoryOffsetFieldOffset = 16
+        for fieldOffset in [centralDirectorySizeFieldOffset, centralDirectoryOffsetFieldOffset] {
+            var sentinelArchive = archive
+            try ZipTestSupport.writeUInt32(
+                UInt32.max, to: &sentinelArchive, at: layout.endRecordOffset + fieldOffset
+            )
+            assertUnsupported(sentinelArchive)
+        }
+    }
+
+    func testNonArchiveShorterThanZipEndRecordThrowsUnsupportedFormat() {
+        for size in 0..<ZipEndRecords.endMinimumSize {
+            assertUnsupported(Data(repeating: 0, count: size))
+        }
+    }
+
     func testStructurallyPlausibleLHAWinsOverTwoByteGzipMarker() throws {
         var header = [UInt8](repeating: 0, count: 40)
         header[0] = 0x1F
@@ -363,6 +389,15 @@ final class FormatDetectorTests: XCTestCase {
         var implausibleLHA = makeLHAHeader(method: "-lh5-")
         implausibleLHA[0] = 4
         assertUnsupported(implausibleLHA)
+    }
+
+    private func makeZipWithDamagedLocalHeader() throws -> Data {
+        var archive = try ZipTestSupport.makeArchive(entries: [
+            HandZipEntry(name: "member.txt", uncompressedData: Data("zip".utf8)),
+        ])
+        let damagedLocalSignature: UInt32 = 0xDEAD_BEEF
+        try ZipTestSupport.writeUInt32(damagedLocalSignature, to: &archive, at: 0)
+        return archive
     }
 
     private func makePE(marker: [UInt8], at markerOffset: Int) -> Data {

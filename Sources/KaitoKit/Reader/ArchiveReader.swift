@@ -557,7 +557,7 @@ public final class ArchiveReader {
             let rarSourceURL = source is ConcatenatedByteSource
                 ? nil
                 : (sourceVolumeURL ?? sourceURL)
-            guard let signature = try FormatDetector.findRARSignature(source: source) else {
+            guard let signature = try RARSignatureScanner.find(source: source) else {
                 throw KaitoError.unsupportedFormat
             }
             if signature.version == .rar5 {
@@ -594,8 +594,8 @@ public final class ArchiveReader {
             // FormatDetector accepts a lone terminator only with an LHA
             // filename hint. There is no member header for the SFX scanner.
             let signatures = source.length == 1
-                ? [FormatDetector.LHASignatureMatch(offset: 0)]
-                : try FormatDetector.findLHASignatures(source: source)
+                ? [LHASignatureScanner.Match(offset: 0)]
+                : try LHASignatureScanner.findSignatures(source: source)
             guard !signatures.isEmpty else {
                 throw KaitoError.unsupportedFormat
             }

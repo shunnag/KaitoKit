@@ -6,7 +6,7 @@ import Foundation
 //（2026-09-21 の検証記録）。Info-ZIP / 7-Zip / deark / PKZIP の実装ソースは開いていない。
 
 /// 圧縮範囲を LSB 先頭で読む bit reader。入力が尽きたら truncated。
-struct ZipLegacyBitReader {
+private struct ZipLegacyBitReader {
     private let source: any ByteSource
     private let end: UInt64
     private var offset: UInt64
@@ -55,7 +55,7 @@ struct ZipLegacyBitReader {
     mutating func readBit() throws -> Int { try read(1) }
 }
 
-/// 展開後 byte を呼び出し側の buffer へ順に渡す共通の枝。`produce` が 1 byte ずつ生成する。
+/// 宣言された展開後サイズと生成済み byte 数だけを持つ進捗カウンタ。`isFinished` は宣言サイズへの到達。
 private struct OutputPump {
     let expectedSize: UInt64
     var produced: UInt64 = 0
@@ -317,7 +317,7 @@ final class ReduceDecompressor: Decompressor {
 // MARK: - Implode (method 6)
 
 /// §5.3.7〜5.3.8 の Shannon-Fano 木。bit 長の並びから code を作り、LSB 先頭で 1 bit ずつ読んで照合する。
-struct ImplodeTree {
+private struct ImplodeTree {
     private var codeToSymbol: [Int: Int] = [:]      // (length << 16 | code) → symbol
     private let maximumLength: Int
 

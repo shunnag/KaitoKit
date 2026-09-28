@@ -21,27 +21,29 @@ struct MacWrapperInfo {
     var comment: [UInt8]?
 }
 
-struct StuffItEnvelope {
+/// Mac 由来の入力を data fork と resource fork に分けたもの。MacBinary / AppleSingle / BinHex 4 の wrapper を
+/// 剥がした結果のほか、StuffIt の分割 set・SFX・生の StuffIt もこの形で表す。
+struct MacEnvelope {
     let data: any ByteSource
     let resource: (any ByteSource)?
     /// wrapper を剥がしたときの属性。分割 set や SFX、生の StuffIt では nil。
     var wrapper: MacWrapperInfo? = nil
 }
 
-/// Mac OS の日時（1904-01-01 からの秒、UTC 扱い）。0 は未設定。
-func macEpochDate(_ seconds: UInt64) -> Date? {
-    guard seconds != 0 else { return nil }
-    return MacEpoch.date(seconds: seconds)
-}
-
-enum StuffItWrapper {
+/// MacBinary / AppleSingle / BinHex 4 の wrapper header を読み、`MacEnvelope` を作る。
+enum MacEnvelopeParser {
     /// MacBinary / BinHex の header と fork の CRC。
     static func xmodem(_ bytes: some Sequence<UInt8>) -> UInt16 { CRC16XModem.checksum(bytes) }
     /// fork の範囲を offset 0 から提示し、後続の resource / padding を不可視にする。
     static func region(_ source: any ByteSource, offset: UInt64, length: UInt64) throws -> any ByteSource {
         try BoundedByteSource(source: source, baseOffset: offset, length: length)
     }
-    static func unwrap(source: any ByteSource, prefix: [UInt8], limits: ReadLimits) throws -> StuffItEnvelope? {
+    /// Mac OS の日時（1904-01-01 からの秒、UTC 扱い）。0 は未設定。
+    private static func macEpochDate(_ seconds: UInt64) -> Date? {
+        guard seconds != 0 else { return nil }
+        return MacEpoch.date(seconds: seconds)
+    }
+    static func unwrap(source: any ByteSource, prefix: [UInt8], limits: ReadLimits) throws -> MacEnvelope? {
         if prefix.count >= 4 {
             let magic = StuffItHeader.be32(prefix, 0)
             if magic == 0x00051607 || magic == 0x07160500 { throw KaitoError.unsupportedFormat }
@@ -61,7 +63,7 @@ enum StuffItWrapper {
         }
         return nil
     }
-    private static func macBinary(_ source: any ByteSource, prefix b: [UInt8]) throws -> StuffItEnvelope? {
+    private static func macBinary(_ source: any ByteSource, prefix b: [UInt8]) throws -> MacEnvelope? {
         guard b.count >= 128, b[0] == 0, (1...63).contains(b[1]), b[74] == 0, b[82] == 0,
               b[108..<116].allSatisfy({ $0 == 0 }), !b[2..<2 + Int(b[1])].contains(0) else { return nil }
         let dataSize = StuffItHeader.be32(b, 83), resourceSize = StuffItHeader.be32(b, 87)
@@ -84,11 +86,11 @@ enum StuffItWrapper {
         info.finderFlags = UInt16(b[73]) << 8 | UInt16(b[101])
         info.created = macEpochDate(StuffItHeader.be32(b, 91))
         info.modified = macEpochDate(StuffItHeader.be32(b, 95))
-        return try StuffItEnvelope(data: region(source, offset: dataOffset, length: dataSize),
+        return try MacEnvelope(data: region(source, offset: dataOffset, length: dataSize),
                                   resource: resourceSize == 0 ? nil : region(source, offset: resourceOffset, length: resourceSize),
                                   wrapper: info)
     }
-    private static func appleSingle(_ source: any ByteSource, littleEndian: Bool, limits: ReadLimits) throws -> StuffItEnvelope {
+    private static func appleSingle(_ source: any ByteSource, littleEndian: Bool, limits: ReadLimits) throws -> MacEnvelope {
         let header = try readByteRange(source: source, offset: 0, count: 26)
         let version = StuffItHeader.be32(header, 4)
         guard version == 0x00020000 || version == 0x00000200 else { throw KaitoError.unsupportedFormat }
@@ -141,9 +143,9 @@ enum StuffItWrapper {
             }
         }
         guard let data else { throw KaitoError.unsupportedFormat }
-        return StuffItEnvelope(data: data, resource: resource, wrapper: info)
+        return MacEnvelope(data: data, resource: resource, wrapper: info)
     }
-    private static func binHex(_ source: any ByteSource, offset: UInt64, limits: ReadLimits) throws -> StuffItEnvelope {
+    private static func binHex(_ source: any ByteSource, offset: UInt64, limits: ReadLimits) throws -> MacEnvelope {
         let input = try StuffItPackedInput(source: source, offset: offset, size: source.length - offset)
         func whitespace(_ byte: UInt8) -> Bool { byte == 32 || (9...13).contains(byte) }
         var previousSpace = false
@@ -209,8 +211,15 @@ enum StuffItWrapper {
         info.type = UInt32(StuffItHeader.be32(h, Int(n) + 2))
         info.creator = UInt32(StuffItHeader.be32(h, Int(n) + 6))
         info.finderFlags = StuffItHeader.be16(h, Int(n) + 10)
-        return try StuffItEnvelope(data: region(decoded, offset: UInt64(dataOffset), length: d),
+        return try MacEnvelope(data: region(decoded, offset: UInt64(dataOffset), length: d),
                                   resource: r == 0 ? nil : region(decoded, offset: UInt64(resourceOffset), length: r),
                                   wrapper: info)
     }
 }
+
+// MARK: - 旧名
+
+/// 旧名。FormatDetector / ArchiveReader の caller が新しい名前へ移るまでの転送（k2reader の follow-up で削除する）。
+typealias StuffItEnvelope = MacEnvelope
+/// 旧名。FormatDetector の caller が新しい名前へ移るまでの転送（k2reader の follow-up で削除する）。
+typealias StuffItWrapper = MacEnvelopeParser

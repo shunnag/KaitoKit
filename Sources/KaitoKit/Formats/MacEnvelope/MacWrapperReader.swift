@@ -6,9 +6,9 @@ final class MacWrapperReader: FormatReader {
     let format: ArchiveFormat
     let entries: [ArchiveEntry]
     let nameEncoding: String.Encoding?
-    private let envelope: StuffItEnvelope
+    private let envelope: MacEnvelope
 
-    init(envelope: StuffItEnvelope, format: ArchiveFormat, options: ReaderOptions, fallbackFileName: String?) throws {
+    init(envelope: MacEnvelope, format: ArchiveFormat, options: ReaderOptions, fallbackFileName: String?) throws {
         guard let info = envelope.wrapper else { throw KaitoError.unsupportedFormat }
         self.envelope = envelope
         self.format = format

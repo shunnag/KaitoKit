@@ -27,8 +27,8 @@ final class SingleFileReader: FormatReader {
         self.source = source
         self.format = format
 
-        let storedName: StoredName
-        let modificationDate: Date?
+        var storedName = Self.fallbackName(fallbackFileName, format: format)
+        var modificationDate: Date? = nil
         var uncompressedSize: UInt64?
         switch format {
         case .gzip:
@@ -39,63 +39,40 @@ final class SingleFileReader: FormatReader {
             gzipHeaderLength = header.length
             if let originalName = header.originalName {
                 storedName = StoredName(bytes: originalName, declaredEncoding: nil)
-            } else {
-                storedName = Self.fallbackName(
-                    fallbackFileName,
-                    format: format
-                )
             }
             modificationDate = header.modificationDate
 
         case .bzip2:
             try Self.validateBzip2Header(source: source)
-            storedName = Self.fallbackName(fallbackFileName, format: format)
-            modificationDate = nil
 
         case .xz:
             try Self.validateXZHeader(source: source)
-            storedName = Self.fallbackName(fallbackFileName, format: format)
-            modificationDate = nil
 
         case .compress:
             // LZW の確保と shift の前に maxbits を検証する。
             _ = try LZWDecoder(source: source)
-            storedName = Self.fallbackName(fallbackFileName, format: format)
-            modificationDate = nil
 
         case .zstd:
             uncompressedSize = try ZstdDecompressor.contentSize(source: source, limits: options.limits)
-            storedName = Self.fallbackName(fallbackFileName, format: format)
-            modificationDate = nil
 
         case .lz4:
             uncompressedSize = try LZ4FrameDecompressor.contentSize(source: source, limits: options.limits)
-            storedName = Self.fallbackName(fallbackFileName, format: format)
-            modificationDate = nil
 
         case .lzma:
             let header = try LZMAAloneHeader.read(source: source, limits: options.limits)
             uncompressedSize = header.uncompressedSize
-            storedName = Self.fallbackName(fallbackFileName, format: format)
-            modificationDate = nil
 
         case .lzip:
             // 末尾の member size を辿る索引で全 member の構造と合計サイズを open 時に確定する。
             uncompressedSize = try LzipMemberIndex(source: source, limits: options.limits).totalDataSize
-            storedName = Self.fallbackName(fallbackFileName, format: format)
-            modificationDate = nil
 
         case .brotli:
             // header の window を辞書上限と照合する。サイズと checksum は形式に無い。
             _ = try BrotliDecompressor.validateHeader(source: source, limits: options.limits)
-            storedName = Self.fallbackName(fallbackFileName, format: format)
-            modificationDate = nil
 
         case .pbzx:
             // chunk 表を歩いて展開後サイズを確定する（chunk 数と合計は上限で制限）。
             uncompressedSize = try PbzxDecompressor.contentSize(source: source, limits: options.limits)
-            storedName = Self.fallbackName(fallbackFileName, format: format)
-            modificationDate = nil
 
         default:
             throw KaitoError.unsupportedFormat
@@ -249,41 +226,10 @@ final class SingleFileReader: FormatReader {
     ) -> StoredName {
         let supplied = fileName.flatMap { $0.isEmpty ? nil : $0 } ?? "data"
         let lowered = supplied.lowercased()
-        let suffixes: [String]
-        switch format {
-        case .gzip:
-            suffixes = [".tar.gz", ".tgz", ".gz"]
-        case .bzip2:
-            suffixes = [".tar.bz2", ".tbz2", ".tbz", ".bz2", ".bz"]
-        case .xz:
-            suffixes = [".tar.xz", ".txz", ".xz"]
-        case .zstd:
-            suffixes = [".tar.zst", ".tzst", ".zst"]
-        case .compress:
-            suffixes = [".tar.z", ".tz", ".z"]
-        case .lz4:
-            suffixes = [".tar.lz4", ".lz4"]
-        case .lzma:
-            suffixes = [".tar.lzma", ".tlz", ".lzma"]
-        case .lzip:
-            suffixes = [".tar.lz", ".tlz", ".lz"]
-        case .brotli:
-            suffixes = [".tar.br", ".tbr", ".br"]
-        case .pbzx:
-            suffixes = [".pbzx"]
-        default:
-            suffixes = []
-        }
-
-
         var resolved = supplied
-        if let suffix = suffixes.first(where: { lowered.hasSuffix($0) }) {
-            resolved.removeLast(suffix.count)
-            if !resolved.isEmpty,
-               suffix.hasPrefix(".tar.") || suffix == ".tgz" ||
-                suffix == ".tbz2" || suffix == ".tbz" ||
-                suffix == ".txz" || suffix == ".tz" || suffix == ".tzst" || suffix == ".tlz" ||
-                suffix == ".tbr" {
+        if let row = CompressedNaming.stripRows(for: format).first(where: { lowered.hasSuffix($0.suffix) }) {
+            resolved.removeLast(row.suffix.count)
+            if !resolved.isEmpty, row.impliesTar {
                 resolved += ".tar"
             }
         }

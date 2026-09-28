@@ -6,7 +6,6 @@ enum ZipEndRecords {
     static let endMinimumSize = 22
     static let maximumCommentSize = 65_535
     static let maximumTrailingDataSize = 1 * 1_024 * 1_024
-    private static let endSignature: UInt32 = 0x0605_4b50
 
     struct EndRecord {
         let offset: UInt64
@@ -26,12 +25,13 @@ enum ZipEndRecords {
     }
 
     static func locator(source: any ByteSource, end: EndRecord) throws -> Locator? {
-        guard end.offset >= 20 else { return nil }
-        let bytes = try readByteRange(source: source, offset: Checked.sub(end.offset, 20), count: 20)
-        guard littleUInt32(bytes, at: 0) == 0x0706_4b50 else { return nil }
-        return Locator(recordDisk: littleUInt32(bytes, at: 4),
-                       relativeRecordOffset: littleUInt64(bytes, at: 8),
-                       diskCount: littleUInt32(bytes, at: 16))
+        let size = ZipRecordSize.zip64Locator
+        guard end.offset >= UInt64(size) else { return nil }
+        let bytes = try readByteRange(source: source, offset: Checked.sub(end.offset, UInt64(size)), count: size)
+        guard LittleEndian.uint32(bytes, at: 0) == ZipSignature.zip64Locator else { return nil }
+        return Locator(recordDisk: LittleEndian.uint32(bytes, at: 4),
+                       relativeRecordOffset: LittleEndian.uint64(bytes, at: 8),
+                       diskCount: LittleEndian.uint32(bytes, at: 16))
     }
 
     private struct DiscoveryState {
@@ -161,39 +161,23 @@ enum ZipEndRecords {
 
         var candidates: [EndRecord] = []
         for index in stride(from: tail.count - endMinimumSize, through: 0, by: -1) {
-            guard littleUInt32(tail, at: index) == endSignature else { continue }
-            let commentLength = Int(littleUInt16(tail, at: index + 20))
+            guard LittleEndian.uint32(tail, at: index) == ZipSignature.endOfCentralDirectory else { continue }
+            let commentLength = Int(LittleEndian.uint16(tail, at: index + 20))
             let recordEnd = index + endMinimumSize + commentLength
             guard recordEnd <= tail.count,
                   tail.count - recordEnd <= maximumTrailingDataSize else { continue }
             let record = EndRecord(
                 offset: try Checked.add(tailOffset, UInt64(index)),
                 recordEnd: try Checked.add(tailOffset, UInt64(recordEnd)),
-                diskNumber: littleUInt16(tail, at: index + 4),
-                centralDirectoryDisk: littleUInt16(tail, at: index + 6),
-                entriesOnDisk: littleUInt16(tail, at: index + 8),
-                totalEntries: littleUInt16(tail, at: index + 10),
-                centralDirectorySize: littleUInt32(tail, at: index + 12),
-                centralDirectoryOffset: littleUInt32(tail, at: index + 16)
+                diskNumber: LittleEndian.uint16(tail, at: index + 4),
+                centralDirectoryDisk: LittleEndian.uint16(tail, at: index + 6),
+                entriesOnDisk: LittleEndian.uint16(tail, at: index + 8),
+                totalEntries: LittleEndian.uint16(tail, at: index + 10),
+                centralDirectorySize: LittleEndian.uint32(tail, at: index + 12),
+                centralDirectoryOffset: LittleEndian.uint32(tail, at: index + 16)
             )
             candidates.append(record)
         }
         return candidates
-    }
-
-    private static func littleUInt16(_ bytes: [UInt8], at index: Int) -> UInt16 {
-        UInt16(bytes[index]) | UInt16(bytes[index + 1]) << 8
-    }
-
-    private static func littleUInt32(_ bytes: [UInt8], at index: Int) -> UInt32 {
-        UInt32(bytes[index])
-            | UInt32(bytes[index + 1]) << 8
-            | UInt32(bytes[index + 2]) << 16
-            | UInt32(bytes[index + 3]) << 24
-    }
-
-    private static func littleUInt64(_ bytes: [UInt8], at index: Int) -> UInt64 {
-        UInt64(littleUInt32(bytes, at: index))
-            | UInt64(littleUInt32(bytes, at: index + 4)) << 32
     }
 }

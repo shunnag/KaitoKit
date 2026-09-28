@@ -33,7 +33,7 @@ enum WinZipAESStrength: UInt8, Sendable, CaseIterable {
 
 // 0x9901 追加フィールドの 7 バイト仕様部分。
 struct WinZipAESMetadata: Sendable, Equatable {
-    static let extraFieldID: UInt16 = 0x9901
+    static let extraFieldID = ZipExtraFieldID.winZipAES
 
     let vendorVersion: WinZipAESVendorVersion
     let strength: WinZipAESStrength

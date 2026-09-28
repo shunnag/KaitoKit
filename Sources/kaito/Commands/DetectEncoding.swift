@@ -6,6 +6,10 @@ private struct NameDetectionError: Error, CustomStringConvertible {
     let description: String
 }
 
+// 全体の usage と、このコマンドの引数誤りの message が共有する一行。
+let detectEncodingUsage =
+    "detect-encoding [--archive | --check-orthography] [--language <code> | --no-language] [--from-windows] [--decode <iana>] <tsv>"
+
 private func ianaName(_ encoding: String.Encoding) throws -> String {
     // Foundation の別名をコーパスの表記に揃える。
     switch encoding {
@@ -30,6 +34,9 @@ private func encodingForIANA(_ name: String) throws -> String.Encoding {
     return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(value))
 }
 
+// 測定用 TSV の一欄を一行にする。`|` は --archive の名前区切りなので `\|` にする。
+// 制御文字は桁を詰めた `\u{1}` 形式で、list / sha の oneLine（`\u{01}`）とは書式が異なる。
+// 出力は CLISmokeTests と Tests/Tools/measure-name-detection.py が読むため、oneLine と一つにしない。
 private func nameDetectionEscape(_ text: String) -> String {
     var output = ""
     for scalar in text.unicodeScalars {
@@ -79,12 +86,10 @@ func runDetectEncoding(_ arguments: [String]) throws {
     var fromWindows = false
     var decodeEncoding: String.Encoding?
     var path: String?
-    var index = 0
-    let usage = "detect-encoding [--archive | --check-orthography] [--language <code> | --no-language] [--from-windows] [--decode <iana>] <tsv>"
-    func invalid() -> NameDetectionError { NameDetectionError(description: usage) }
-    while index < arguments.count {
-        let argument = arguments[index]
-        index += 1
+    // 引数の誤りは usage エラー（終了 2）ではなく、この command の error（終了 1）として返す。
+    func invalid() -> NameDetectionError { NameDetectionError(description: detectEncodingUsage) }
+    var cursor = ArgumentCursor(arguments)
+    while let argument = cursor.next() {
         switch argument {
         case "--check-orthography":
             guard !checkOrthography else { throw invalid() }
@@ -93,11 +98,9 @@ func runDetectEncoding(_ arguments: [String]) throws {
             guard !archive else { throw invalid() }
             archive = true
         case "--language":
-            guard !hasLanguage, index < arguments.count,
-                  !arguments[index].isEmpty, !arguments[index].hasPrefix("-") else { throw invalid() }
+            guard !hasLanguage, let value = cursor.next(), !value.isEmpty, !value.hasPrefix("-") else { throw invalid() }
             hasLanguage = true
-            language = arguments[index]
-            index += 1
+            language = value
         case "--no-language":
             guard !hasLanguage else { throw invalid() }
             hasLanguage = true
@@ -106,9 +109,8 @@ func runDetectEncoding(_ arguments: [String]) throws {
             guard !fromWindows else { throw invalid() }
             fromWindows = true
         case "--decode":
-            guard decodeEncoding == nil, index < arguments.count else { throw invalid() }
-            decodeEncoding = try encodingForIANA(arguments[index])
-            index += 1
+            guard decodeEncoding == nil, let name = cursor.next() else { throw invalid() }
+            decodeEncoding = try encodingForIANA(name)
         default:
             guard path == nil, !argument.hasPrefix("-") else { throw invalid() }
             path = argument

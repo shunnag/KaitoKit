@@ -164,7 +164,7 @@ final class LHAReader: FormatReader {
                 limits: limits
             )
         case "-lh4-", "-lh5-", "-lh6-", "-lh7-", "-lhx-":
-            return try LZSStaticHuffmanDecoder(
+            return try LHAStaticHuffmanDecoder(
                 method: record.method,
                 source: source,
                 offset: record.dataOffset,

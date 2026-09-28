@@ -668,7 +668,7 @@ final class LHAStaticHuffmanDecoderTests: XCTestCase {
         var remaining = 20
         var callCount = 0
         while remaining > 0 {
-            lhaCopyMatch(
+            copyLZMatchThroughWindow(
                 window: window,
                 windowMask: 7,
                 windowPosition: &windowPosition,

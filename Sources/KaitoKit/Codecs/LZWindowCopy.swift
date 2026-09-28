@@ -1,7 +1,8 @@
 import Darwin
 
-/// Copies a previously validated LHA LZ match into the caller buffer and the
-/// power-of-two history window.
+/// Copies a previously validated LZ match into the caller buffer and the
+/// power-of-two history window. Shared by the LHA (-lh4- to -lh7-, -lh1-, LArc),
+/// RAR 2.9 and RAR5 token loops.
 ///
 /// Token decoders validate the distance, remaining length, and output bounds
 /// before entering their symbol loops. Keeping those checks at the token
@@ -10,7 +11,7 @@ import Darwin
 /// caller buffer before the ring is updated, preserving forward-overlap LZSS
 /// semantics even when either side wraps.
 @inline(__always)
-func lhaCopyMatch(
+func copyLZMatchThroughWindow(
     window: UnsafeMutablePointer<UInt8>,
     windowMask: Int,
     windowPosition: inout Int,

@@ -159,7 +159,7 @@ final class LHAStaticHuffmanDecoder: Decompressor {
               failure == nil {
             if localPendingLength > 0 {
                 let before = outputPosition
-                lhaCopyMatch(
+                copyLZMatchThroughWindow(
                     window: window,
                     windowMask: windowMask,
                     windowPosition: &localWindowPosition,
@@ -613,6 +613,3 @@ private final class LHAStaticLengthStorage {
         free(UnsafeMutableRawPointer(bytes))
     }
 }
-
-/// Former name, kept only until the LHA and ARJ readers spell `LHAStaticHuffmanDecoder`.
-typealias LZSStaticHuffmanDecoder = LHAStaticHuffmanDecoder

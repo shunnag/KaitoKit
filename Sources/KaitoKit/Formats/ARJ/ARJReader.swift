@@ -157,7 +157,7 @@ final class ARJReader: FormatReader {
                                    length: size, expectedCRC32: header.crc32, entryIndex: entry.index, limits: limits)
         case 1, 2, 3:
             // Archive Team wiki: LHA の lh6 と同じ静的 Huffman + LZ77（窓 26 KB は 32 KB 窓の中で使う）。
-            let decoder = try LZSStaticHuffmanDecoder(method: "-lh6-", source: source, offset: record.dataOffset,
+            let decoder = try LHAStaticHuffmanDecoder(method: "-lh6-", source: source, offset: record.dataOffset,
                                                       compressedSize: UInt64(header.compressedSize), uncompressedSize: size, limits: limits)
             return try EntryStream(decompressor: decoder, length: size, expectedCRC32: header.crc32, entryIndex: entry.index, limits: limits)
         case 8, 9:

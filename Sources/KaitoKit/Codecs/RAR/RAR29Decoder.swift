@@ -1222,7 +1222,7 @@ final class RAR29Decoder: Decompressor {
             // caller output, then mirrors at most one ring turn in two copies.
             // Distance one uses memset. Distance/output bounds are validated
             // by the token loop, including filter boundaries and pending reads.
-            lhaCopyMatch(
+            copyLZMatchThroughWindow(
                 window: window,
                 windowMask: windowMask,
                 windowPosition: &windowPosition,

@@ -2,7 +2,7 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
-final class LHABoundedWindowTests: XCTestCase {
+final class LZWindowCopyTests: XCTestCase {
     func testEveryRingPositionDistanceAndChunkAgainstForwardCopy() {
         let size = 32
         let window = UnsafeMutablePointer<UInt8>.allocate(capacity: size)
@@ -29,7 +29,7 @@ final class LHABoundedWindowTests: XCTestCase {
                         var remaining = length
                         var count = 0
                         while remaining > 0 {
-                            lhaCopyMatch(
+                            copyLZMatchThroughWindow(
                                 window: window, windowMask: size - 1,
                                 windowPosition: &actualPosition, distance: distance,
                                 remaining: &remaining, output: output,

@@ -126,7 +126,7 @@ final class LArcDecoder: Decompressor {
         while outputPosition < outputLimit {
             if pendingLength > 0 {
                 let before = outputPosition
-                lhaCopyMatch(
+                copyLZMatchThroughWindow(
                     window: window,
                     windowMask: windowMask,
                     windowPosition: &windowPosition,

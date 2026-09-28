@@ -1043,7 +1043,7 @@ final class RAR5Decoder: Decompressor {
         var remaining = count
         var outputPosition = 0
         while remaining > 0 {
-            lhaCopyMatch(
+            copyLZMatchThroughWindow(
                 window: window,
                 windowMask: windowMask,
                 windowPosition: &windowPosition,

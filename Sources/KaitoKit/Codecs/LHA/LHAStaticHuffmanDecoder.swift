@@ -27,7 +27,8 @@ import Foundation
 /// count, a Huffman tree that codes command-tree lengths, the command tree, and
 /// the position tree. Standard commands 0...255 are literals and 256...509 are
 /// 3...256-byte matches; LHArk uses its documented 289-symbol alphabet and
-/// match-length mapping through 514 bytes.
+/// match-length mapping through 514 bytes. LArc's `-lzs-` is a different
+/// method and is decoded by `LArcDecoder`.
 ///
 /// Hot-loop invariants:
 /// - the packed input is retained once with an eight-byte zero sentinel;
@@ -39,7 +40,7 @@ import Foundation
 ///   boundary; symbol decoding and window copying do not throw;
 /// - a logical bit bound remains separate from the physical sentinel, so a
 ///   padded lookup is never accepted as real compressed input.
-final class LZSStaticHuffmanDecoder: Decompressor {
+final class LHAStaticHuffmanDecoder: Decompressor {
     private static let commandCountBitWidth = 9
     private static let codeLengthSymbolCount = 19
     private static let codeLengthCountBitWidth = 5
@@ -89,7 +90,7 @@ final class LZSStaticHuffmanDecoder: Decompressor {
         )
 
         let compressedCount = try Checked.toInt(compressedSize)
-        guard compressedCount <= Int.max - LZSStaticHuffmanDecoder.sentinelByteCount,
+        guard compressedCount <= Int.max - LHAStaticHuffmanDecoder.sentinelByteCount,
               compressedCount <= Int.max / 8 else {
             throw KaitoError.limitExceeded("LHA compressed input size")
         }
@@ -98,7 +99,7 @@ final class LZSStaticHuffmanDecoder: Decompressor {
             source: source,
             offset: offset,
             count: compressedCount,
-            sentinelCount: LZSStaticHuffmanDecoder.sentinelByteCount
+            sentinelCount: LHAStaticHuffmanDecoder.sentinelByteCount
         )
 
         self.configuration = configuration
@@ -109,14 +110,14 @@ final class LZSStaticHuffmanDecoder: Decompressor {
         )
         self.lengthStorage = try LHAStaticLengthStorage(
             codeLengthCount: max(
-                LZSStaticHuffmanDecoder.codeLengthSymbolCount,
+                LHAStaticHuffmanDecoder.codeLengthSymbolCount,
                 configuration.positionSymbolCount
             ),
             commandCount: configuration.commandSymbolCount
         )
         self.codeLengthTable = try LHAStaticHuffmanTable(
             name: "code-length",
-            maximumSymbolCount: LZSStaticHuffmanDecoder.codeLengthSymbolCount
+            maximumSymbolCount: LHAStaticHuffmanDecoder.codeLengthSymbolCount
         )
         self.commandTable = try LHAStaticHuffmanTable(
             name: "command",
@@ -300,9 +301,9 @@ final class LZSStaticHuffmanDecoder: Decompressor {
         guard !bits.overrun else { throw KaitoError.truncated }
 
         try readCodeLengths(
-            symbolCount: LZSStaticHuffmanDecoder.codeLengthSymbolCount,
-            countBitWidth: LZSStaticHuffmanDecoder.codeLengthCountBitWidth,
-            specialIndex: LZSStaticHuffmanDecoder.codeLengthSpecialIndex,
+            symbolCount: LHAStaticHuffmanDecoder.codeLengthSymbolCount,
+            countBitWidth: LHAStaticHuffmanDecoder.codeLengthCountBitWidth,
+            specialIndex: LHAStaticHuffmanDecoder.codeLengthSpecialIndex,
             lengths: lengthStorage.codeLengths,
             table: codeLengthTable,
             bits: &bits
@@ -400,7 +401,7 @@ final class LZSStaticHuffmanDecoder: Decompressor {
             count: configuration.commandSymbolCount
         )
         let encodedCount = Int(
-            bits.read(LZSStaticHuffmanDecoder.commandCountBitWidth)
+            bits.read(LHAStaticHuffmanDecoder.commandCountBitWidth)
         )
         guard encodedCount <= configuration.commandSymbolCount else {
             throw KaitoError.malformed(
@@ -410,7 +411,7 @@ final class LZSStaticHuffmanDecoder: Decompressor {
 
         if encodedCount == 0 {
             let symbol = Int(
-                bits.read(LZSStaticHuffmanDecoder.commandCountBitWidth)
+                bits.read(LHAStaticHuffmanDecoder.commandCountBitWidth)
             )
             guard symbol < configuration.commandSymbolCount else {
                 throw KaitoError.malformed(
@@ -440,7 +441,7 @@ final class LZSStaticHuffmanDecoder: Decompressor {
                     zeroCount = Int(bits.read(4)) + 3
                 default:
                     zeroCount = Int(
-                        bits.read(LZSStaticHuffmanDecoder.commandCountBitWidth)
+                        bits.read(LHAStaticHuffmanDecoder.commandCountBitWidth)
                     ) + 20
                 }
                 guard zeroCount <= encodedCount - index,
@@ -960,3 +961,6 @@ private struct LHAStaticBitCursor {
         }
     }
 }
+
+/// Former name, kept only until the LHA and ARJ readers spell `LHAStaticHuffmanDecoder`.
+typealias LZSStaticHuffmanDecoder = LHAStaticHuffmanDecoder

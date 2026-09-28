@@ -23,26 +23,31 @@ final class DMGReader: FormatReader {
         return source
     }
 
+    /// UEFI GPT の header（LBA 1）と partition entry の field offset。
+    private enum GPTOffset {
+        static let partitionEntryLBA = 72
+        static let entryCount = 80
+        static let entrySize = 84
+        static let entryStartingLBA = 32
+    }
+
     /// volume の開始 offset（byte）の候補: bare volume、GPT / APM の partition、UDIF の blkx。
     static func volumeCandidates(disk: any ByteSource) throws -> [UInt64] {
         var candidates: [UInt64] = [0]
         guard disk.length >= 1024 else { return candidates }
         let sector1 = try readByteRange(source: disk, offset: 512, count: 512)
         if Array(sector1[0..<8]) == Array("EFI PART".utf8) {
-            // UEFI GPT header（little-endian）: partition entry LBA @72、entry 数 @80、entry size @84。
-            // entry: starting LBA @32、ending LBA @40。
-            let entryLBA = UInt64(sector1[72]) | UInt64(sector1[73]) << 8 | UInt64(sector1[74]) << 16 | UInt64(sector1[75]) << 24
-                | UInt64(sector1[76]) << 32 | UInt64(sector1[77]) << 40 | UInt64(sector1[78]) << 48 | UInt64(sector1[79]) << 56
-            let count = Int(UInt32(sector1[80]) | UInt32(sector1[81]) << 8 | UInt32(sector1[82]) << 16 | UInt32(sector1[83]) << 24)
-            let size = Int(UInt32(sector1[84]) | UInt32(sector1[85]) << 8 | UInt32(sector1[86]) << 16 | UInt32(sector1[87]) << 24)
+            // UEFI GPT header（little-endian）。entry の ending LBA（@40）は使わない。
+            let entryLBA = LittleEndian.uint64(sector1, at: GPTOffset.partitionEntryLBA)
+            let count = Int(LittleEndian.uint32(sector1, at: GPTOffset.entryCount))
+            let size = Int(LittleEndian.uint32(sector1, at: GPTOffset.entrySize))
             if size >= 128, size <= 4096, count > 0, count <= 1024, entryLBA > 0,
                (try? Checked.add(Checked.mul(entryLBA, 512), UInt64(count * size))) ?? UInt64.max <= disk.length {
                 let table = try readByteRange(source: disk, offset: entryLBA * 512, count: count * size)
                 for index in 0..<count {
                     let o = index * size
                     guard table[o..<(o + 16)].contains(where: { $0 != 0 }) else { continue }     // 空 entry
-                    var start: UInt64 = 0
-                    for byte in 0..<8 { start |= UInt64(table[o + 32 + byte]) << (8 * byte) }
+                    let start = LittleEndian.uint64(table, at: o + GPTOffset.entryStartingLBA)
                     if let offset = try? Checked.mul(start, 512), offset < disk.length { candidates.append(offset) }
                 }
             }

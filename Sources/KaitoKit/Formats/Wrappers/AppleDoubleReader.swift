@@ -29,7 +29,7 @@ struct AppleDoubleHeader {
     /// 先頭 byte 列から header を読む。AppleDouble でなければ nil、entry 表が壊れていれば malformed。
     init?(_ b: [UInt8], totalLength: UInt64?) throws {
         guard b.count >= Self.headerSize else { return nil }
-        func u32(_ o: Int) -> UInt32 { UInt32(b[o]) << 24 | UInt32(b[o + 1]) << 16 | UInt32(b[o + 2]) << 8 | UInt32(b[o + 3]) }
+        func u32(_ o: Int) -> UInt32 { BigEndian.uint32(b, at: o) }
         guard u32(0) == Self.magic, [0x0001_0000, 0x0002_0000].contains(u32(4)) else { return nil }
         let count = Int(b[24]) << 8 | Int(b[25])
         guard count <= Self.maximumEntries else { throw KaitoError.malformed("AppleDouble entry count") }

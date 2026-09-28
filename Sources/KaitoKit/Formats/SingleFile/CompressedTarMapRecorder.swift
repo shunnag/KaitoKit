@@ -174,8 +174,8 @@ final class CompressedTarMapRecorder {
                   archiveLength >= 8, trailerOffset == archiveLength - 8,
                   gzipTrailer.count == 8, gzipChecksums.count == gzipPoints.count,
                   gzipOutput == imageLength, gzipPoints.last!.compressedOffset < trailerOffset,
-                  Self.little(gzipTrailer, 0) == gzipFinalCRC,
-                  Self.little(gzipTrailer, 4) == UInt32(truncatingIfNeeded: imageLength),
+                  LittleEndian.uint32(gzipTrailer, at: 0) == gzipFinalCRC,
+                  LittleEndian.uint32(gzipTrailer, at: 4) == UInt32(truncatingIfNeeded: imageLength),
                   normalizeGzipPoints(gzipPoints) == gzipPoints else { disable(.inconsistent); return (nil, reason) }
             map = .gzip(.init(headerLength: first.compressedOffset, points: gzipPoints, trailerOffset: trailerOffset,
                               trailerCRC32: gzipFinalCRC, imageLength: imageLength, compressedChecksums: gzipChecksums))
@@ -206,9 +206,5 @@ final class CompressedTarMapRecorder {
         }
         guard c == compressedEnd, u == imageLength else { disable(.inconsistent); return (nil, reason) }
         return (map, nil)
-    }
-
-    private static func little(_ bytes: [UInt8], _ offset: Int) -> UInt32 {
-        (0..<4).reduce(0) { $0 | UInt32(bytes[offset + $1]) << ($1 * 8) }
     }
 }

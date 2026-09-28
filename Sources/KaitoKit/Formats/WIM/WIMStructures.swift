@@ -6,11 +6,9 @@ import Foundation
 // chunk の生格納）は黒箱で確定した。2026-09-21 の検証記録を参照。
 
 enum WIMBytes {
-    static func u16(_ b: [UInt8], _ o: Int) -> UInt16 { UInt16(b[o]) | UInt16(b[o + 1]) << 8 }
-    static func u32(_ b: [UInt8], _ o: Int) -> UInt32 {
-        UInt32(b[o]) | UInt32(b[o + 1]) << 8 | UInt32(b[o + 2]) << 16 | UInt32(b[o + 3]) << 24
-    }
-    static func u64(_ b: [UInt8], _ o: Int) -> UInt64 { UInt64(u32(b, o)) | UInt64(u32(b, o + 4)) << 32 }
+    static func u16(_ b: [UInt8], _ o: Int) -> UInt16 { LittleEndian.uint16(b, at: o) }
+    static func u32(_ b: [UInt8], _ o: Int) -> UInt32 { LittleEndian.uint32(b, at: o) }
+    static func u64(_ b: [UInt8], _ o: Int) -> UInt64 { LittleEndian.uint64(b, at: o) }
 
     /// FILETIME（1601-01-01 からの 100 ns）。0 は未設定。
     static func fileTime(_ value: UInt64) -> Date? {

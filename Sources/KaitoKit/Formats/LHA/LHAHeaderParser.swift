@@ -341,8 +341,8 @@ enum LHAHeaderParser {
         }
 
         let method = try parseMethod(header)
-        let packedSize = UInt64(littleUInt32(header, at: 7))
-        let originalSize = UInt64(littleUInt32(header, at: 11))
+        let packedSize = UInt64(LittleEndian.uint32(header, at: 7))
+        let originalSize = UInt64(LittleEndian.uint32(header, at: 11))
         try validateEntrySizes(
             compressed: packedSize,
             uncompressed: originalSize,
@@ -355,7 +355,7 @@ enum LHAHeaderParser {
             throw KaitoError.malformed("LHA level-0 name overruns its header")
         }
         let rawName = Array(header[22..<crcOffset])
-        let crc16 = littleUInt16(header, at: crcOffset)
+        let crc16 = LittleEndian.uint16(header, at: crcOffset)
         let osOffset = crcOffset + 2
         // In a level-0 header, any byte following the data CRC is the creator
         // OS ID. Preserve unknown and less-common IDs instead of discarding
@@ -365,16 +365,16 @@ enum LHAHeaderParser {
             filename: rawName,
             directory: nil
         )
-        var modificationDate = try dosDate(littleUInt32(header, at: 15))
+        var modificationDate = try dosDate(LittleEndian.uint32(header, at: 15))
         var extended = ExtendedFields()
         // LHa for UNIX の level 0 は CRC の後に固定長 U 拡張を置く。
         // 全 12 byte がある version 0 だけを解釈し、他の creator の末尾は保持しない。
         if osID == 0x55, header.count - osOffset >= 12, header[osOffset + 1] == 0 {
-            let timestamp = littleUInt32(header, at: osOffset + 2)
+            let timestamp = LittleEndian.uint32(header, at: osOffset + 2)
             modificationDate = Date(timeIntervalSince1970: Double(timestamp))
-            extended.unixMode = littleUInt16(header, at: osOffset + 6)
-            extended.uid = littleUInt16(header, at: osOffset + 8)
-            extended.gid = littleUInt16(header, at: osOffset + 10)
+            extended.unixMode = LittleEndian.uint16(header, at: osOffset + 6)
+            extended.uid = LittleEndian.uint16(header, at: osOffset + 8)
+            extended.gid = LittleEndian.uint16(header, at: osOffset + 10)
         }
         let dataOffset = try Checked.add(offset, totalHeaderSize)
         let nextOffset = try checkedPayloadEnd(
@@ -446,8 +446,8 @@ enum LHAHeaderParser {
         }
 
         let method = try parseMethod(base)
-        let skipSize = UInt64(littleUInt32(base, at: 7))
-        let originalSize32 = UInt64(littleUInt32(base, at: 11))
+        let skipSize = UInt64(LittleEndian.uint32(base, at: 7))
+        let originalSize32 = UInt64(LittleEndian.uint32(base, at: 11))
         let nameLength = Int(base[21])
         let crcOffset = 22 + nameLength
         // CRC16, OS ID, and the first two-byte extension length must all fit.
@@ -455,9 +455,9 @@ enum LHAHeaderParser {
             throw KaitoError.malformed("LHA level-1 name overruns its base header")
         }
         let baseFilename = Array(base[22..<crcOffset])
-        let crc16 = littleUInt16(base, at: crcOffset)
+        let crc16 = LittleEndian.uint16(base, at: crcOffset)
         let osID = base[crcOffset + 2]
-        let firstExtensionSize = littleUInt16(base, at: base.count - 2)
+        let firstExtensionSize = LittleEndian.uint16(base, at: base.count - 2)
 
         let baseEnd = try Checked.add(offset, baseHeaderSize)
         var fields = ExtendedFields()
@@ -497,7 +497,7 @@ enum LHAHeaderParser {
             directory: fields.directory
         )
         let declaredEncoding = declaredEncoding(for: fields.codePage)
-        let baseModificationDate = try dosDate(littleUInt32(base, at: 15))
+        let baseModificationDate = try dosDate(LittleEndian.uint32(base, at: 15))
         let modificationDate = fields.unixModificationDate
             ?? fields.windowsModificationDate
             ?? baseModificationDate
@@ -558,7 +558,7 @@ enum LHAHeaderParser {
         recoverDamagedArchives: Bool
     ) throws -> ParsedHeader {
         let sizeBytes = try readByteRange(source: source, offset: offset, count: 2)
-        let declaredHeaderSize = UInt64(littleUInt16(sizeBytes, at: 0))
+        let declaredHeaderSize = UInt64(LittleEndian.uint16(sizeBytes, at: 0))
         guard declaredHeaderSize >= UInt64(level2MinimumHeaderSize) else {
             throw KaitoError.malformed("LHA level-2 header is too short")
         }
@@ -575,9 +575,9 @@ enum LHAHeaderParser {
         }
 
         let method = try parseMethod(declaredHeader)
-        let packedSize32 = UInt64(littleUInt32(declaredHeader, at: 7))
-        let originalSize32 = UInt64(littleUInt32(declaredHeader, at: 11))
-        let crc16 = littleUInt16(declaredHeader, at: 21)
+        let packedSize32 = UInt64(LittleEndian.uint32(declaredHeader, at: 7))
+        let originalSize32 = UInt64(LittleEndian.uint32(declaredHeader, at: 11))
+        let crc16 = LittleEndian.uint16(declaredHeader, at: 21)
         let osID = declaredHeader[23]
         let toleratedHeaderSize = try Checked.add(declaredHeaderSize, 2)
         let candidate: [UInt8]
@@ -638,7 +638,7 @@ enum LHAHeaderParser {
         )
         let declaredEncoding = declaredEncoding(for: fields.codePage)
         let baseModificationDate = Date(
-            timeIntervalSince1970: Double(littleUInt32(candidate, at: 15))
+            timeIntervalSince1970: Double(LittleEndian.uint32(candidate, at: 15))
         )
         // The Windows-time extension is defined as a level-1 override. At
         // level 2 the base field is already Unix time, so retain 0x41's
@@ -706,13 +706,13 @@ enum LHAHeaderParser {
             offset: offset,
             size: UInt64(level3MinimumHeaderSize)
         )
-        guard littleUInt16(base, at: 0) == 4 else {
+        guard LittleEndian.uint16(base, at: 0) == 4 else {
             throw KaitoError.malformed("invalid LHA level-3 size-field width")
         }
         guard base[20] == 3 else {
             throw KaitoError.malformed("LHA header level changed inside its base header")
         }
-        let totalHeaderSize = UInt64(littleUInt32(base, at: 24))
+        let totalHeaderSize = UInt64(LittleEndian.uint32(base, at: 24))
         guard totalHeaderSize >= UInt64(level3MinimumHeaderSize) else {
             throw KaitoError.malformed("LHA level-3 header is too short")
         }
@@ -724,9 +724,9 @@ enum LHAHeaderParser {
         )
 
         let method = try parseMethod(header)
-        let packedSize32 = UInt64(littleUInt32(header, at: 7))
-        let originalSize32 = UInt64(littleUInt32(header, at: 11))
-        let crc16 = littleUInt16(header, at: 21)
+        let packedSize32 = UInt64(LittleEndian.uint32(header, at: 7))
+        let originalSize32 = UInt64(LittleEndian.uint32(header, at: 11))
+        let crc16 = LittleEndian.uint16(header, at: 21)
         let osID = header[23]
         var fields = ExtendedFields()
         let extensionRecordCount = try parseLevel3Extensions(
@@ -748,7 +748,7 @@ enum LHAHeaderParser {
             directory: fields.directory
         )
         let modificationDate = fields.unixModificationDate ?? Date(
-            timeIntervalSince1970: Double(littleUInt32(header, at: 15))
+            timeIntervalSince1970: Double(LittleEndian.uint32(header, at: 15))
         )
         let permissions = posixPermissions(fields.unixMode, osID: osID)
         let dataOffset = try Checked.add(offset, totalHeaderSize)
@@ -843,7 +843,7 @@ enum LHAHeaderParser {
                 crcFieldOffset: crcFieldOffset,
                 fields: &fields
             )
-            let nextSize = littleUInt16(chunk, at: size - 2)
+            let nextSize = LittleEndian.uint16(chunk, at: size - 2)
             fullHeader.append(contentsOf: chunk)
 
             let nextOffset = try Checked.add(currentOffset, currentSize)
@@ -863,7 +863,7 @@ enum LHAHeaderParser {
         fields: inout ExtendedFields,
         limits: ReadLimits
     ) throws -> (recordCount: Int, endOffset: Int) {
-        var currentSize = Int(littleUInt16(header, at: 24))
+        var currentSize = Int(LittleEndian.uint16(header, at: 24))
         var cursor = level2MinimumHeaderSize
         var recordCount = 0
 
@@ -886,7 +886,7 @@ enum LHAHeaderParser {
                 crcFieldOffset: cursor + 1,
                 fields: &fields
             )
-            let nextSize = littleUInt16(header, at: end - 2)
+            let nextSize = LittleEndian.uint16(header, at: end - 2)
             guard end > cursor else {
                 throw KaitoError.malformed("LHA extended-header loop made no progress")
             }
@@ -907,7 +907,7 @@ enum LHAHeaderParser {
         fields: inout ExtendedFields,
         limits: ReadLimits
     ) throws -> Int {
-        var currentSize = UInt64(littleUInt32(header, at: 28))
+        var currentSize = UInt64(LittleEndian.uint32(header, at: 28))
         var cursor = level3MinimumHeaderSize
         var recordCount = 0
 
@@ -931,7 +931,7 @@ enum LHAHeaderParser {
                 crcFieldOffset: cursor + 1,
                 fields: &fields
             )
-            let nextSize = littleUInt32(header, at: end - 4)
+            let nextSize = LittleEndian.uint32(header, at: end - 4)
             guard end > cursor else {
                 throw KaitoError.malformed("LHA extended-header loop made no progress")
             }
@@ -956,7 +956,7 @@ enum LHAHeaderParser {
             guard fields.headerCRC16 == nil else {
                 throw KaitoError.malformed("duplicate LHA common extension")
             }
-            fields.headerCRC16 = littleUInt16(data, at: 0)
+            fields.headerCRC16 = LittleEndian.uint16(data, at: 0)
             fields.headerCRCFieldOffset = crcFieldOffset
         case 0x01:
             if !data.isEmpty { fields.filename = data }
@@ -968,14 +968,14 @@ enum LHAHeaderParser {
             guard data.count == 2 else {
                 throw KaitoError.malformed("invalid LHA MS-DOS attribute extension")
             }
-            fields.dosAttributes = littleUInt16(data, at: 0)
+            fields.dosAttributes = LittleEndian.uint16(data, at: 0)
         case 0x41:
             guard data.count == 24 else {
                 throw KaitoError.malformed("invalid LHA Windows timestamp extension")
             }
-            fields.windowsCreationDate = try windowsFileTime(littleUInt64(data, at: 0))
-            fields.windowsModificationDate = try windowsFileTime(littleUInt64(data, at: 8))
-            fields.windowsAccessDate = try windowsFileTime(littleUInt64(data, at: 16))
+            fields.windowsCreationDate = try windowsFileTime(LittleEndian.uint64(data, at: 0))
+            fields.windowsModificationDate = try windowsFileTime(LittleEndian.uint64(data, at: 8))
+            fields.windowsAccessDate = try windowsFileTime(LittleEndian.uint64(data, at: 16))
         case 0x42:
             guard data.count == 16 else {
                 throw KaitoError.malformed("invalid LHA 64-bit size extension")
@@ -985,8 +985,8 @@ enum LHAHeaderParser {
                 throw KaitoError.malformed("duplicate LHA 64-bit size extension")
             }
             // UNLHA32 records packed (compressed) size first, then original size.
-            fields.compressedSize64 = littleUInt64(data, at: 0)
-            fields.uncompressedSize64 = littleUInt64(data, at: 8)
+            fields.compressedSize64 = LittleEndian.uint64(data, at: 0)
+            fields.uncompressedSize64 = LittleEndian.uint64(data, at: 8)
         case 0x46:
             guard data.count == 4 else {
                 throw KaitoError.malformed("invalid LHA code-page extension")
@@ -994,19 +994,19 @@ enum LHAHeaderParser {
             guard fields.codePage == nil else {
                 throw KaitoError.malformed("duplicate LHA code-page extension")
             }
-            fields.codePage = littleUInt32(data, at: 0)
+            fields.codePage = LittleEndian.uint32(data, at: 0)
         case 0x50:
             guard data.count == 2 else {
                 throw KaitoError.malformed("invalid LHA Unix permission extension")
             }
-            fields.unixMode = littleUInt16(data, at: 0)
+            fields.unixMode = LittleEndian.uint16(data, at: 0)
         case 0x51:
             guard data.count == 4 else {
                 throw KaitoError.malformed("invalid LHA Unix uid/gid extension")
             }
             // header.doc stores GID before UID.
-            fields.gid = littleUInt16(data, at: 0)
-            fields.uid = littleUInt16(data, at: 2)
+            fields.gid = LittleEndian.uint16(data, at: 0)
+            fields.uid = LittleEndian.uint16(data, at: 2)
         case 0x52:
             fields.group = data
         case 0x53:
@@ -1016,7 +1016,7 @@ enum LHAHeaderParser {
                 throw KaitoError.malformed("invalid LHA Unix timestamp extension")
             }
             fields.unixModificationDate = Date(
-                timeIntervalSince1970: Double(littleUInt32(data, at: 0))
+                timeIntervalSince1970: Double(LittleEndian.uint32(data, at: 0))
             )
         case 0x7F, 0xFF:
             break
@@ -1603,24 +1603,5 @@ enum LHAHeaderParser {
 
     private static func unixTimeDescription(_ date: Date) -> String {
         String(format: "%.7f", date.timeIntervalSince1970)
-    }
-
-    private static func littleUInt16(_ bytes: [UInt8], at offset: Int) -> UInt16 {
-        UInt16(bytes[offset]) | (UInt16(bytes[offset + 1]) << 8)
-    }
-
-    private static func littleUInt32(_ bytes: [UInt8], at offset: Int) -> UInt32 {
-        UInt32(bytes[offset])
-            | (UInt32(bytes[offset + 1]) << 8)
-            | (UInt32(bytes[offset + 2]) << 16)
-            | (UInt32(bytes[offset + 3]) << 24)
-    }
-
-    private static func littleUInt64(_ bytes: [UInt8], at offset: Int) -> UInt64 {
-        var value: UInt64 = 0
-        for index in 0..<8 {
-            value |= UInt64(bytes[offset + index]) << UInt64(index * 8)
-        }
-        return value
     }
 }

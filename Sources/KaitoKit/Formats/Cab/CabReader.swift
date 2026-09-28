@@ -30,7 +30,7 @@ final class CabReader: FormatReader {
         var folderReserve: UInt64 = 0, dataReserve: UInt64 = 0
         if header.flags & 4 != 0 {
             let reserve = try cursor.read(4)
-            let headerReserve = UInt64(CabCursor.u16(reserve, 0))
+            let headerReserve = UInt64(LittleEndian.uint16(reserve, at: 0))
             folderReserve = UInt64(reserve[2]); dataReserve = UInt64(reserve[3])
             try Checked.size(headerReserve, limit: limits.maxMetadataSize)
             try budget.charge(Checked.add(4, headerReserve))

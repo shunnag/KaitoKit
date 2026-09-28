@@ -617,7 +617,7 @@ final class ZipReader: FormatReader {
             limits: limits, bound: min(centralDirectoryOffset, source.length),
             headerOffset: { records[localHeaderOrder[$0]].localHeaderOffset }
         ) { return bytes }
-        return try Self.readExactly(source: source, offset: offset, count: count)
+        return try readByteRange(source: source, offset: offset, count: count)
     }
 
     private func payloadSource(
@@ -774,7 +774,7 @@ final class ZipReader: FormatReader {
             )
         case 14:
             guard compressedSize >= 4 else { throw KaitoError.truncated }
-            let prefix = try Self.readExactly(source: source, offset: offset, count: 4)
+            let prefix = try readByteRange(source: source, offset: offset, count: 4)
             var cursor = ZipByteCursor(prefix)
             _ = try cursor.readUInt16LE() // 情報用途だけの LZMA SDK バージョン
             let propertyLength = UInt64(try cursor.readUInt16LE())
@@ -784,7 +784,7 @@ final class ZipReader: FormatReader {
             let headerSize = try Checked.add(4, propertyLength)
             guard headerSize <= compressedSize else { throw KaitoError.truncated }
             let propertiesOffset = try Checked.add(offset, 4)
-            let properties = try Self.readExactly(
+            let properties = try readByteRange(
                 source: source,
                 offset: propertiesOffset,
                 count: try Checked.toInt(propertyLength)
@@ -807,7 +807,7 @@ final class ZipReader: FormatReader {
             guard let uncompressedSize else {
                 throw KaitoError.malformed("ZIP PPMd requires a known uncompressed size")
             }
-            let prefix = try Self.readExactly(source: source, offset: offset, count: 2)
+            let prefix = try readByteRange(source: source, offset: offset, count: 2)
             var cursor = ZipByteCursor(prefix)
             let parameterWord = try cursor.readUInt16LE()
             return try PPMdVarIDecoder(
@@ -852,7 +852,7 @@ final class ZipReader: FormatReader {
                 source: source, from: offset, scanned: &scanned, limits: limits
             )
             guard source.length - offset >= 4 else { break }
-            let signature = try readExactly(source: source, offset: offset, count: 4)
+            let signature = try readByteRange(source: source, offset: offset, count: 4)
             guard littleUInt32(signature, at: 0) == localHeaderSignature else { break }
             guard source.length - offset >= 30 else { break }
             guard recovery.count < limits.maxEntryCount else {
@@ -862,7 +862,7 @@ final class ZipReader: FormatReader {
                 Checked.mul(UInt64(recovery.count + 1), 256),
                 limit: limits.maxTotalMetadataSize
             )
-            let header = try readExactly(source: source, offset: offset, count: 30)
+            let header = try readByteRange(source: source, offset: offset, count: 30)
             let flags = littleUInt16(header, at: 6)
             let nameSize = Int(littleUInt16(header, at: 26))
             let extraSize = Int(littleUInt16(header, at: 28))
@@ -870,7 +870,7 @@ final class ZipReader: FormatReader {
             try Checked.size(UInt64(30 + variableSize), limit: limits.maxMetadataSize)
             let dataOffset = try Checked.add(offset, UInt64(30 + variableSize))
             guard dataOffset <= source.length else { break }
-            let variable = try readExactly(
+            let variable = try readByteRange(
                 source: source, offset: offset + 30, count: variableSize
             )
             let fields = try parseExtraFields(
@@ -899,7 +899,7 @@ final class ZipReader: FormatReader {
                 // descriptor の署名あり・なし、ZIP32・ZIP64 の終端候補を範囲内で検査する。
                 for descriptorSize in [16, 24, 12, 20] {
                     guard UInt64(descriptorSize) <= compressed else { continue }
-                    let descriptor = try readExactly(
+                    let descriptor = try readByteRange(
                         source: source, offset: nextOffset - UInt64(descriptorSize),
                         count: descriptorSize
                     )
@@ -1003,7 +1003,7 @@ final class ZipReader: FormatReader {
             let budget = limits.maxTotalMetadataSize - scanned
             let count = min(source.length - offset, 65_536, limits.maxMetadataSize, budget)
             guard count >= 4 else { throw KaitoError.limitExceeded("ZIP recovery scan bytes") }
-            let bytes = try readExactly(source: source, offset: offset, count: Int(count))
+            let bytes = try readByteRange(source: source, offset: offset, count: Int(count))
             for index in 0...(bytes.count - 4) {
                 if index & 0x3ff == 0 { try Task.checkCancellation() }
                 let signature = littleUInt32(bytes, at: index)
@@ -1354,7 +1354,7 @@ final class ZipReader: FormatReader {
     ) throws -> Bool {
         guard end.offset >= 20 else { return false }
         let locatorOffset = try Checked.sub(end.offset, 20)
-        let locatorBytes = try readExactly(
+        let locatorBytes = try readByteRange(
             source: source,
             offset: locatorOffset,
             count: 20
@@ -1376,7 +1376,7 @@ final class ZipReader: FormatReader {
             locatorOffset: locatorOffset,
             limits: limits
         )
-        let fixed = try readExactly(source: source, offset: recordOffset, count: 56)
+        let fixed = try readByteRange(source: source, offset: recordOffset, count: 56)
         var record = ZipByteCursor(fixed)
         guard try record.readUInt32LE() == zip64EndSignature else { return false }
         let payloadSize = try record.readUInt64LE()
@@ -1475,7 +1475,7 @@ final class ZipReader: FormatReader {
             guard cursor <= directoryEnd,
                   directoryEnd - cursor >= 46 else { return false }
             try budget.chargeMetadataBytes(46)
-            let fixed = try readExactly(
+            let fixed = try readByteRange(
                 source: source,
                 offset: cursor,
                 count: 46
@@ -1514,7 +1514,7 @@ final class ZipReader: FormatReader {
                     return false
                 }
                 try budget.chargeMetadataBytes(extraLength)
-                let extra = try readExactly(
+                let extra = try readByteRange(
                     source: source,
                     offset: extraOffset,
                     count: Int(extraLength)
@@ -1685,7 +1685,7 @@ final class ZipReader: FormatReader {
         end: EndRecord
     ) throws -> Bool {
         guard end.offset >= 20 else { return false }
-        let locatorSignature = try readExactly(
+        let locatorSignature = try readByteRange(
             source: source,
             offset: try Checked.sub(end.offset, 20),
             count: 4
@@ -1776,7 +1776,7 @@ final class ZipReader: FormatReader {
             recordOffset = try findZIP64RecordOffset(
                 source: source, locatorOffset: locatorOffset, limits: limits)
         }
-        let fixed = try readExactly(source: source, offset: recordOffset, count: 56)
+        let fixed = try readByteRange(source: source, offset: recordOffset, count: 56)
         var record = ZipByteCursor(fixed)
         guard try record.readUInt32LE() == zip64EndSignature else {
             throw KaitoError.malformed("invalid ZIP64 end record")
@@ -1864,7 +1864,7 @@ final class ZipReader: FormatReader {
         let searchSize = min(locatorOffset, limits.maxMetadataSize)
         let searchCount = try Checked.toInt(searchSize)
         let searchOffset = try Checked.sub(locatorOffset, searchSize)
-        let bytes = try readExactly(source: source, offset: searchOffset, count: searchCount)
+        let bytes = try readByteRange(source: source, offset: searchOffset, count: searchCount)
         guard bytes.count >= 56 else { throw KaitoError.truncated }
 
         for index in stride(from: bytes.count - 56, through: 0, by: -1) {
@@ -1898,7 +1898,7 @@ final class ZipReader: FormatReader {
         records: [Record],
         nameEncoding: String.Encoding?
     ) {
-        let bytes = try recoveredBytes ?? readExactly(
+        let bytes = try recoveredBytes ?? readByteRange(
             source: source,
             offset: location.offset,
             count: try Checked.toInt(location.size)
@@ -2559,20 +2559,6 @@ final class ZipReader: FormatReader {
             result = field.data
         }
         return result
-    }
-
-    private static func readExactly(
-        source: any ByteSource,
-        offset: UInt64,
-        count: Int
-    ) throws -> [UInt8] {
-        guard count >= 0 else {
-            throw KaitoError.malformed("negative ZIP read size")
-        }
-        let end = try Checked.add(offset, UInt64(count))
-        guard end <= source.length else { throw KaitoError.truncated }
-        guard count > 0 else { return [] }
-        return try readByteRange(source: source, offset: offset, count: count)
     }
 
     private static func littleUInt16(_ bytes: [UInt8], at index: Int) -> UInt16 {

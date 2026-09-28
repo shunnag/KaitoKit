@@ -6,13 +6,6 @@ import Foundation
 // 窓を 26 KB に限る」に従い、既存の LHA static-Huffman decoder を lh6 の parameter で使う（利用者所有の実物で
 // 7-Zip / deark / unar と黒箱照合）。method 4 の bitstream には公開の記述が無く非対応。2026-09-21 の検証記録を参照。
 
-enum ARJBytes {
-    static func u16(_ b: [UInt8], _ o: Int) -> UInt16 { UInt16(b[o]) | UInt16(b[o + 1]) << 8 }
-    static func u32(_ b: [UInt8], _ o: Int) -> UInt32 {
-        UInt32(b[o]) | UInt32(b[o + 1]) << 8 | UInt32(b[o + 2]) << 16 | UInt32(b[o + 3]) << 24
-    }
-}
-
 /// 主 header と local file header に共通の basic header（technote の "basic header"）。
 struct ARJHeader {
     static let identifier: [UInt8] = [0x60, 0xEA]
@@ -44,7 +37,7 @@ struct ARJHeader {
     /// `bytes` の offset 0 に header id がある前提で読む。CRC が合わなければ malformed、id が無ければ nil。
     static func parse(_ b: [UInt8]) throws -> ARJHeader? {
         guard b.count >= 4, b[0] == identifier[0], b[1] == identifier[1] else { return nil }
-        let basicSize = Int(ARJBytes.u16(b, 2))
+        let basicSize = Int(LittleEndian.uint16(b, at: 2))
         guard basicSize <= maximumBasicSize else { throw KaitoError.malformed("arj basic header size \(basicSize)") }
         guard basicSize > 0 else {
             return ARJHeader(firstHeaderSize: 0, archiverVersion: 0, minimumVersion: 0, hostOS: 0, flags: 0, method: 0, fileType: 0,
@@ -55,7 +48,7 @@ struct ARJHeader {
         let basic = Array(b[4..<(4 + basicSize)])
         var crc = CRC32()
         crc.update(basic)
-        guard crc.value == ARJBytes.u32(b, 4 + basicSize) else { throw KaitoError.malformed("arj header crc") }
+        guard crc.value == LittleEndian.uint32(b, at: 4 + basicSize) else { throw KaitoError.malformed("arj header crc") }
         let firstSize = Int(basic[0])
         guard firstSize >= 30, firstSize <= basicSize else { throw KaitoError.malformed("arj first header size \(firstSize)") }
         var index = firstSize
@@ -71,7 +64,7 @@ struct ARJHeader {
         var extendedCount = 0
         while true {
             guard b.count >= cursor + 2 else { throw KaitoError.truncated }
-            let size = Int(ARJBytes.u16(b, cursor))
+            let size = Int(LittleEndian.uint16(b, at: cursor))
             cursor += 2
             if size == 0 { break }
             guard extendedCount < 16, b.count >= cursor + size + 4 else { throw KaitoError.truncated }
@@ -79,9 +72,9 @@ struct ARJHeader {
             extendedCount += 1
         }
         return ARJHeader(firstHeaderSize: firstSize, archiverVersion: basic[1], minimumVersion: basic[2], hostOS: basic[3],
-                         flags: basic[4], method: basic[5], fileType: basic[6], dateTime: ARJBytes.u32(basic, 8),
-                         compressedSize: ARJBytes.u32(basic, 12), originalSize: ARJBytes.u32(basic, 16), crc32: ARJBytes.u32(basic, 20),
-                         filespecPosition: ARJBytes.u16(basic, 24), accessMode: ARJBytes.u16(basic, 26),
+                         flags: basic[4], method: basic[5], fileType: basic[6], dateTime: LittleEndian.uint32(basic, at: 8),
+                         compressedSize: LittleEndian.uint32(basic, at: 12), originalSize: LittleEndian.uint32(basic, at: 16), crc32: LittleEndian.uint32(basic, at: 20),
+                         filespecPosition: LittleEndian.uint16(basic, at: 24), accessMode: LittleEndian.uint16(basic, at: 26),
                          extraData: Array(basic[30..<firstSize]), rawName: name, rawComment: comment, totalSize: cursor)
     }
 
@@ -127,11 +120,11 @@ final class ARJReader: FormatReader {
         let last = min(Int(maximumScan), bytes.count - 4)
         for index in 0...last where bytes[index] == 0x60 && bytes[index + 1] == 0xEA {
             if index > 0, !(bytes[0] == 0x4D && bytes[1] == 0x5A) { break }     // SFX でなければ先頭以外は見ない
-            let size = Int(ARJBytes.u16(bytes, index + 2))
+            let size = Int(LittleEndian.uint16(bytes, at: index + 2))
             guard size >= 7, size <= ARJHeader.maximumBasicSize, index + 4 + size + 4 <= bytes.count else { continue }
             var crc = CRC32()
             crc.update(Array(bytes[(index + 4)..<(index + 4 + size)]))
-            if crc.value == ARJBytes.u32(bytes, index + 4 + size), bytes[index + 4 + 6] == 2 {   // main header は file type 2
+            if crc.value == LittleEndian.uint32(bytes, at: index + 4 + size), bytes[index + 4 + 6] == 2 {   // main header は file type 2
                 return UInt64(index)
             }
         }
@@ -215,7 +208,7 @@ final class ARJReader: FormatReader {
             if header.fileType == 1 { specific["textMode"] = "true" }
             if header.flags & ARJHeader.flagVolume != 0 { specific["continuesInNextVolume"] = "true" }
             if header.flags & ARJHeader.flagExtendedFilePosition != 0, header.extraData.count >= 4 {
-                specific["extendedFilePosition"] = String(ARJBytes.u32(header.extraData, 0))
+                specific["extendedFilePosition"] = String(LittleEndian.uint32(header.extraData, at: 0))
             }
             if !header.rawComment.isEmpty {
                 specific["comment"] = EncodingDetector.resolveUndeclaredName(bytes: header.rawComment, policy: policy,

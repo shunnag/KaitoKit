@@ -19,7 +19,7 @@ struct PbzxHeader: Equatable {
     init(prefix: [UInt8], limits: ReadLimits) throws {
         guard prefix.count >= Self.size else { throw KaitoError.truncated }
         guard Array(prefix[..<4]) == Self.magic else { throw KaitoError.unsupportedFormat }
-        let chunkSize = PbzxDecompressor.bigEndian(prefix, at: 4)
+        let chunkSize = BigEndian.uint64(prefix, at: 4)
         guard chunkSize > 0 else { throw KaitoError.malformed("pbzx chunk size is zero") }
         // chunk 全体を memory で扱うわけではないが、XZ の辞書と同じ上限で法外な宣言を拒否する。
         try Checked.size(chunkSize, limit: max(limits.maxDictionarySize, 16 * 1_024 * 1_024))
@@ -69,8 +69,8 @@ final class PbzxDecompressor: Decompressor {
     private func chunkHeader(at offset: UInt64) throws -> (unpacked: UInt64, stored: UInt64) {
         guard try Checked.add(offset, 16) <= source.length else { throw KaitoError.truncated }
         let bytes = try readByteRange(source: source, offset: offset, count: 16)
-        let unpacked = Self.bigEndian(bytes, at: 0)
-        let stored = Self.bigEndian(bytes, at: 8)
+        let unpacked = BigEndian.uint64(bytes, at: 0)
+        let stored = BigEndian.uint64(bytes, at: 8)
         guard unpacked <= header.chunkSize else {
             throw KaitoError.malformed("pbzx chunk exceeds the declared chunk size")
         }
@@ -131,11 +131,5 @@ final class PbzxDecompressor: Decompressor {
             terminalError = error
             throw error
         }
-    }
-
-    static func bigEndian(_ bytes: [UInt8], at index: Int) -> UInt64 {
-        var value: UInt64 = 0
-        for i in 0..<8 { value = (value << 8) | UInt64(bytes[index + i]) }
-        return value
     }
 }

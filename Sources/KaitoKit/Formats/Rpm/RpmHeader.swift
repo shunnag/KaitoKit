@@ -119,7 +119,7 @@ struct RpmHeader {
         -> (end: UInt64, values: [Tag: String], fileList: RpmFileList?, rpmFormat: UInt64?) {
         let header = try readByteRange(source: source, offset: start, count: 16)
         guard header.starts(with: [0x8e, 0xad, 0xe8]) else { throw KaitoError.malformed("rpm header magic") }
-        let nindex = UInt64(be32(header, 8)), hsize = UInt64(be32(header, 12))
+        let nindex = UInt64(BigEndian.uint32(header, at: 8)), hsize = UInt64(BigEndian.uint32(header, at: 12))
         let indexSize = try Checked.mul(nindex, 16)
         try Checked.size(hsize, limit: limits.maxMetadataSize)
         try Checked.size(indexSize, limit: limits.maxMetadataSize)
@@ -144,12 +144,12 @@ struct RpmHeader {
             try Checked.size(metadataSize, limit: limits.maxTotalMetadataSize)
         }
         for position in stride(from: 0, to: indexes.count, by: 16) {
-            let tag = Tag(rawValue: be32(indexes, position))
-            guard let type = ValueType(rawValue: be32(indexes, position + 4)) else {
+            let tag = Tag(rawValue: BigEndian.uint32(indexes, at: position))
+            guard let type = ValueType(rawValue: BigEndian.uint32(indexes, at: position + 4)) else {
                 throw KaitoError.malformed("rpm index entry")
             }
-            let offset = UInt64(be32(indexes, position + 8))
-            let count = UInt64(be32(indexes, position + 12))
+            let offset = UInt64(BigEndian.uint32(indexes, at: position + 8))
+            let count = UInt64(BigEndian.uint32(indexes, at: position + 12))
             guard offset < hsize,
                   try Checked.add(offset, Checked.mul(count, type.width)) <= hsize else {
                 throw KaitoError.malformed("rpm index entry")
@@ -239,10 +239,5 @@ struct RpmHeader {
             fileList = RpmFileList(files: files, digestAlgorithm: numbers[.fileDigestAlgorithm].map { UInt32($0[0]) })
         }
         return (end, values, fileList, numbers[.rpmFormat]?.first)
-    }
-
-    private static func be32(_ bytes: [UInt8], _ offset: Int) -> UInt32 {
-        UInt32(bytes[offset]) << 24 | UInt32(bytes[offset + 1]) << 16
-            | UInt32(bytes[offset + 2]) << 8 | UInt32(bytes[offset + 3])
     }
 }

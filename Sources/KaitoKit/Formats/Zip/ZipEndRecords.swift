@@ -27,7 +27,7 @@ enum ZipEndRecords {
 
     static func locator(source: any ByteSource, end: EndRecord) throws -> Locator? {
         guard end.offset >= 20 else { return nil }
-        let bytes = try readExactly(source: source, offset: Checked.sub(end.offset, 20), count: 20)
+        let bytes = try readByteRange(source: source, offset: Checked.sub(end.offset, 20), count: 20)
         guard littleUInt32(bytes, at: 0) == 0x0706_4b50 else { return nil }
         return Locator(recordDisk: littleUInt32(bytes, at: 4),
                        relativeRecordOffset: littleUInt64(bytes, at: 8),
@@ -157,7 +157,7 @@ enum ZipEndRecords {
             min(source.length, UInt64(max(endMinimumSize, maximumSearchSize)))
         )
         let tailOffset = try Checked.sub(source.length, UInt64(count))
-        let tail = try readExactly(source: source, offset: tailOffset, count: count)
+        let tail = try readByteRange(source: source, offset: tailOffset, count: count)
 
         var candidates: [EndRecord] = []
         for index in stride(from: tail.count - endMinimumSize, through: 0, by: -1) {
@@ -179,20 +179,6 @@ enum ZipEndRecords {
             candidates.append(record)
         }
         return candidates
-    }
-
-    private static func readExactly(
-        source: any ByteSource,
-        offset: UInt64,
-        count: Int
-    ) throws -> [UInt8] {
-        guard count >= 0 else {
-            throw KaitoError.malformed("negative ZIP read size")
-        }
-        let end = try Checked.add(offset, UInt64(count))
-        guard end <= source.length else { throw KaitoError.truncated }
-        guard count > 0 else { return [] }
-        return try readByteRange(source: source, offset: offset, count: count)
     }
 
     private static func littleUInt16(_ bytes: [UInt8], at index: Int) -> UInt16 {

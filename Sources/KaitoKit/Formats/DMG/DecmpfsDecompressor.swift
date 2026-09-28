@@ -12,13 +12,8 @@ struct DecmpfsHeader {
         guard attribute.prefix(4).elementsEqual([0x66, 0x70, 0x6D, 0x63]) else {
             throw KaitoError.malformed("hfs+ decmpfs magic")
         }
-        compressionType = Self.u32(attribute, 4)
-        uncompressedSize = UInt64(Self.u32(attribute, 8)) | UInt64(Self.u32(attribute, 12)) << 32
-    }
-
-    static func u32(_ bytes: [UInt8], _ offset: Int) -> UInt32 {
-        UInt32(bytes[offset]) | UInt32(bytes[offset + 1]) << 8
-            | UInt32(bytes[offset + 2]) << 16 | UInt32(bytes[offset + 3]) << 24
+        compressionType = LittleEndian.uint32(attribute, at: 4)
+        uncompressedSize = UInt64(LittleEndian.uint32(attribute, at: 8)) | UInt64(LittleEndian.uint32(attribute, at: 12)) << 32
     }
 
     var usesResourceFork: Bool { [4, 8, 10, 12].contains(compressionType) }
@@ -106,7 +101,7 @@ final class DecmpfsDecompressor: Decompressor {
             }
             let prefix = try Self.read(fork, offset: dataOffset, count: 8, limits: limits, metadata: true)
             guard UInt64(HFSBytes.u32(prefix, 0)) == dataLength - 4,
-                  UInt64(DecmpfsHeader.u32(prefix, 4)) == chunkCount else {
+                  UInt64(LittleEndian.uint32(prefix, at: 4)) == chunkCount else {
                 throw KaitoError.malformed("hfs+ decmpfs resource chunk count or length")
             }
             let tableSize = try Checked.add(4, Checked.mul(chunkCount, 8))
@@ -117,7 +112,7 @@ final class DecmpfsDecompressor: Decompressor {
             layout = .zlib(base: base, tableEnd: tableEnd, dataEnd: dataEnd)
         } else {
             let first = try Self.read(fork, offset: 0, count: 4, limits: limits, metadata: true)
-            let tableSize = UInt64(DecmpfsHeader.u32(first, 0))
+            let tableSize = UInt64(LittleEndian.uint32(first, at: 0))
             guard tableSize >= 4, tableSize % 4 == 0, tableSize / 4 - 1 == chunkCount, tableSize <= fork.length else {
                 throw KaitoError.malformed("hfs+ decmpfs offset table chunk count")
             }
@@ -180,8 +175,8 @@ final class DecmpfsDecompressor: Decompressor {
         case .inline: preconditionFailure()
         case .offsets:
             let pair = try Self.read(fork, offset: Checked.mul(chunkIndex, 4), count: 8, limits: limits, metadata: true)
-            offset = UInt64(DecmpfsHeader.u32(pair, 0))
-            let end = UInt64(DecmpfsHeader.u32(pair, 4))
+            offset = UInt64(LittleEndian.uint32(pair, at: 0))
+            let end = UInt64(LittleEndian.uint32(pair, at: 4))
             let tableEnd = try Checked.mul(Checked.add(chunkCount, 1), 4)
             guard offset >= tableEnd, end >= offset, end <= fork.length else {
                 throw KaitoError.malformed("hfs+ decmpfs chunk offsets")
@@ -190,8 +185,8 @@ final class DecmpfsDecompressor: Decompressor {
         case .zlib(let base, let tableEnd, let dataEnd):
             let descriptor = try Self.read(fork, offset: Checked.add(base, Checked.add(4, Checked.mul(chunkIndex, 8))),
                                            count: 8, limits: limits, metadata: true)
-            offset = try Checked.add(base, UInt64(DecmpfsHeader.u32(descriptor, 0)))
-            length = UInt64(DecmpfsHeader.u32(descriptor, 4))
+            offset = try Checked.add(base, UInt64(LittleEndian.uint32(descriptor, at: 0)))
+            length = UInt64(LittleEndian.uint32(descriptor, at: 4))
             guard offset >= tableEnd, try Checked.add(offset, length) <= dataEnd else {
                 throw KaitoError.malformed("hfs+ decmpfs chunk descriptor")
             }

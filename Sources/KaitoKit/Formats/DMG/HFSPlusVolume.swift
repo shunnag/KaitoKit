@@ -6,11 +6,9 @@ import Foundation
 // chflags(2) の man page による。2026-09-22 の検証記録を参照。
 
 enum HFSBytes {
-    static func u16(_ b: [UInt8], _ o: Int) -> UInt16 { UInt16(b[o]) << 8 | UInt16(b[o + 1]) }
-    static func u32(_ b: [UInt8], _ o: Int) -> UInt32 {
-        UInt32(b[o]) << 24 | UInt32(b[o + 1]) << 16 | UInt32(b[o + 2]) << 8 | UInt32(b[o + 3])
-    }
-    static func u64(_ b: [UInt8], _ o: Int) -> UInt64 { UInt64(u32(b, o)) << 32 | UInt64(u32(b, o + 4)) }
+    static func u16(_ b: [UInt8], _ o: Int) -> UInt16 { BigEndian.uint16(b, at: o) }
+    static func u32(_ b: [UInt8], _ o: Int) -> UInt32 { BigEndian.uint32(b, at: o) }
+    static func u64(_ b: [UInt8], _ o: Int) -> UInt64 { BigEndian.uint64(b, at: o) }
 
     /// HFS Plus の日時: 1904-01-01 00:00:00 UTC からの秒（createDate だけは local time だが公開は modification）。
     static func date(_ seconds: UInt32) -> Date? {

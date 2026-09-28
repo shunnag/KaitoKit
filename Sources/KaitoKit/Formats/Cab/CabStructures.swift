@@ -11,13 +11,13 @@ struct CabHeader {
         guard bytes.starts(with: [0x4d, 0x53, 0x43, 0x46]), bytes[25] == 1 else {
             throw KaitoError.unsupportedFormat
         }
-        cabinetSize = UInt64(CabCursor.u32(bytes, 8))
-        filesOffset = UInt64(CabCursor.u32(bytes, 16))
-        folderCount = Int(CabCursor.u16(bytes, 26))
-        fileCount = Int(CabCursor.u16(bytes, 28))
-        flags = CabCursor.u16(bytes, 30)
-        setID = CabCursor.u16(bytes, 32)
-        cabinetIndex = CabCursor.u16(bytes, 34)
+        cabinetSize = UInt64(LittleEndian.uint32(bytes, at: 8))
+        filesOffset = UInt64(LittleEndian.uint32(bytes, at: 16))
+        folderCount = Int(LittleEndian.uint16(bytes, at: 26))
+        fileCount = Int(LittleEndian.uint16(bytes, at: 28))
+        flags = LittleEndian.uint16(bytes, at: 30)
+        setID = LittleEndian.uint16(bytes, at: 32)
+        cabinetIndex = LittleEndian.uint16(bytes, at: 34)
     }
 }
 
@@ -38,9 +38,9 @@ struct CabFolder {
     }
 
     init(_ bytes: [UInt8]) {
-        dataOffset = UInt64(CabCursor.u32(bytes, 0))
-        blockCount = Int(CabCursor.u16(bytes, 4))
-        typeCompress = CabCursor.u16(bytes, 6)
+        dataOffset = UInt64(LittleEndian.uint32(bytes, at: 0))
+        blockCount = Int(LittleEndian.uint16(bytes, at: 4))
+        typeCompress = LittleEndian.uint16(bytes, at: 6)
     }
 }
 
@@ -58,12 +58,12 @@ struct CabFile {
     }
 
     init(_ bytes: [UInt8], name: [UInt8]) {
-        size = UInt64(CabCursor.u32(bytes, 0))
-        folderOffset = UInt64(CabCursor.u32(bytes, 4))
-        folderIndex = CabCursor.u16(bytes, 8)
-        date = CabCursor.u16(bytes, 10)
-        time = CabCursor.u16(bytes, 12)
-        attributes = CabCursor.u16(bytes, 14)
+        size = UInt64(LittleEndian.uint32(bytes, at: 0))
+        folderOffset = UInt64(LittleEndian.uint32(bytes, at: 4))
+        folderIndex = LittleEndian.uint16(bytes, at: 8)
+        date = LittleEndian.uint16(bytes, at: 10)
+        time = LittleEndian.uint16(bytes, at: 12)
+        attributes = LittleEndian.uint16(bytes, at: 14)
         self.name = name
     }
 }
@@ -75,9 +75,9 @@ struct CabDataBlock {
     let folderOffset: UInt64
 
     init(_ bytes: [UInt8], dataOffset: UInt64, folderOffset: UInt64 = 0) throws {
-        checksum = CabCursor.u32(bytes, 0)
-        compressedSize = CabCursor.u16(bytes, 4)
-        uncompressedSize = CabCursor.u16(bytes, 6)
+        checksum = LittleEndian.uint32(bytes, at: 0)
+        compressedSize = LittleEndian.uint16(bytes, at: 4)
+        uncompressedSize = LittleEndian.uint16(bytes, at: 6)
         guard uncompressedSize <= 32768 else { throw KaitoError.malformed("cab block size") }
         self.dataOffset = dataOffset
         self.folderOffset = folderOffset
@@ -87,7 +87,7 @@ struct CabDataBlock {
         var sum = UInt32(compressedSize) | (UInt32(uncompressedSize) << 16)
         var index = 0
         while data.count - index >= 4 {
-            sum ^= CabCursor.u32(data, index)
+            sum ^= LittleEndian.uint32(data, at: index)
             index += 4
         }
         // [MS-CAB] §3.1: 端数だけ逆順の byte word にする。通常のゼロ埋め LE とは異なる。
@@ -149,13 +149,5 @@ struct CabCursor {
             if used < bytes.count { try skip(1); return result }
         }
         throw KaitoError.malformed(label)
-    }
-
-    static func u16(_ bytes: [UInt8], _ offset: Int) -> UInt16 {
-        UInt16(bytes[offset]) | (UInt16(bytes[offset + 1]) << 8)
-    }
-
-    static func u32(_ bytes: [UInt8], _ offset: Int) -> UInt32 {
-        UInt32(u16(bytes, offset)) | (UInt32(u16(bytes, offset + 2)) << 16)
     }
 }

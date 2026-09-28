@@ -3,12 +3,8 @@
 import Foundation
 
 enum StuffItHeader {
-    static func be16(_ b: [UInt8], _ p: Int) -> UInt16 {
-        UInt16(b[p]) << 8 | UInt16(b[p + 1])
-    }
-    static func be32(_ b: [UInt8], _ p: Int) -> UInt64 {
-        UInt64(be16(b, p)) << 16 | UInt64(be16(b, p + 2))
-    }
+    static func be16(_ b: [UInt8], _ p: Int) -> UInt16 { BigEndian.uint16(b, at: p) }
+    static func be32(_ b: [UInt8], _ p: Int) -> UInt64 { UInt64(BigEndian.uint32(b, at: p)) }
     static func signature(_ b: [UInt8]) -> String? {
         if b.count >= 14, Array(b[10..<14]) == Array("rLau".utf8) {
             let digit: (UInt8) -> Bool = { (48...57).contains($0) }

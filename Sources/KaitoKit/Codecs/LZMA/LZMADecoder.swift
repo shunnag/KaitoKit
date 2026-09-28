@@ -275,12 +275,6 @@ public final class LZMADecoder: Decompressor {
         finished
     }
 
-    /// 範囲復号器が消費した入力の直後の絶対 offset。end marker で終わる stream の
-    /// 実長（lzip の member size 検証）に使う。range decoder が無ければ `nil`。
-    var consumedInputOffset: UInt64? {
-        rangeDecoder?.consumedOffset
-    }
-
     /// end marker に到達し、与えた圧縮範囲を byte 単位で使い切ったかどうか。
     var consumedEntireInput: Bool {
         finished && (rangeDecoder?.consumedAllInput ?? false)
@@ -918,10 +912,6 @@ private struct LZMARangeDecoder {
     var isFinishedOK: Bool { code == 0 && !overrun }
     var consumedAllInput: Bool {
         nextSourceOffset == endOffset && inputPosition == inputCount && !overrun
-    }
-    /// 消費済み入力の直後の絶対 offset。先読みして未消費の byte は含めない。
-    var consumedOffset: UInt64 {
-        nextSourceOffset &- UInt64(inputCount &- inputPosition)
     }
 
     init(

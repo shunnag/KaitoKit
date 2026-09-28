@@ -156,7 +156,7 @@ final class SevenZipReader: FormatReader {
         self.password = options.password
     }
 
-    func reopened(options: ReaderOptions) -> sending SevenZipReader {
+    func reopened(options: ReaderOptions) -> sending (any FormatReader)? {
         // No folder coordinator, verified-pack cache or derived key crosses
         // the reader boundary, including keys used to decode the header.
         SevenZipReader(source: source, options: options, entries: entries,

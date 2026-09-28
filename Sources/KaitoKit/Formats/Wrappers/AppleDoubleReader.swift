@@ -180,13 +180,8 @@ final class AppleDoubleReader: FormatReader {
     }
 
     /// 内側の reader を開き直し、同じ写像を掛ける。
-    func reopened(options: ReaderOptions) throws -> sending AppleDoubleReader {
-        let reopenedInner: any FormatReader
-        if let zip = inner as? ZipReader {
-            reopenedInner = zip.reopened(options: options)
-        } else if let tar = inner as? TarReader {
-            reopenedInner = tar.reopened(options: options)
-        } else {
+    func reopened(options: ReaderOptions) throws -> sending (any FormatReader)? {
+        guard let reopenedInner = try inner.reopened(options: options) else {
             throw KaitoError.unsupportedMethod("AppleDouble merge reopen for \(inner.format.rawValue)")
         }
         return AppleDoubleReader(inner: reopenedInner, entries: entries, mappings: mappings)

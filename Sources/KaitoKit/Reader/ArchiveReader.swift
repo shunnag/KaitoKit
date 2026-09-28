@@ -666,22 +666,20 @@ public final class ArchiveReader {
     public func reopen() throws -> sending ArchiveReader {
         var reopenedOptions = options
         reopenedOptions.password = password
-        let parsedReader: any FormatReader
-        if let merged = reader as? AppleDoubleReader {
-            parsedReader = try merged.reopened(options: reopenedOptions)
-        } else if let zip = reader as? ZipReader {
-            parsedReader = zip.reopened(options: reopenedOptions)
-        } else if let tar = reader as? TarReader {
-            parsedReader = tar.reopened(options: reopenedOptions)
-        } else if let sevenZip = reader as? SevenZipReader {
-            parsedReader = sevenZip.reopened(options: reopenedOptions)
-        } else if let lha = reader as? LHAReader {
-            parsedReader = lha.reopened(options: reopenedOptions)
-        } else if let rar5 = reader as? RAR5Reader {
-            parsedReader = rar5.reopened(options: reopenedOptions)
-        } else if let rar4 = reader as? RAR4Reader {
-            parsedReader = rar4.reopened(options: reopenedOptions)
-        } else if let stagedTarSource, reader is CpioReader {
+        if let parsedReader = try reader.reopened(options: reopenedOptions) {
+            return try ArchiveReader(
+                sharing: stagedTarSource ?? source,
+                sourceURL: sourceURL,
+                options: reopenedOptions,
+                parsedReader: parsedReader,
+                outputBudget: outputBudget.reopened(),
+                zipDiskLayout: zipDiskLayout,
+                volumeSet: volumeSet,
+                stagedTarSource: stagedTarSource,
+                tarEditingState: tarEditingState
+            )
+        }
+        if let stagedTarSource, reader is CpioReader {
             // 圧縮 cpio / pbzx の展開結果は保持済みなので、再展開せずその source から開き直す。
             return try ArchiveReader(
                 source: stagedTarSource,
@@ -690,25 +688,13 @@ public final class ArchiveReader {
                 volumeSet: volumeSet,
                 options: reopenedOptions
             )
-        } else {
-            return try ArchiveReader(
-                source: source,
-                sourceURL: sourceURL,
-                zipDiskLayout: zipDiskLayout,
-                volumeSet: volumeSet,
-                options: reopenedOptions
-            )
         }
         return try ArchiveReader(
-            sharing: stagedTarSource ?? source,
+            source: source,
             sourceURL: sourceURL,
-            options: reopenedOptions,
-            parsedReader: parsedReader,
-            outputBudget: outputBudget.reopened(),
             zipDiskLayout: zipDiskLayout,
             volumeSet: volumeSet,
-            stagedTarSource: stagedTarSource,
-            tarEditingState: tarEditingState
+            options: reopenedOptions
         )
     }
 
@@ -847,8 +833,7 @@ public final class ArchiveReader {
 
     private func preparePassword(for entry: ArchiveEntry) throws {
         // 復号に必須の resource / hash がなければ、password provider より先に診断する。
-        if let stuffIt = reader as? StuffItReader { try stuffIt.validateEncryptionSupport(for: entry) }
-        if let stuffItX = reader as? StuffItXReader { try stuffItX.validateEncryptionSupport(for: entry) }
+        try reader.validateEncryptionSupport(for: entry)
         if entry.isEncrypted, password == nil, let provider = options.passwordProvider {
             password = try provider.password(for: format)
         }

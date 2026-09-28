@@ -46,7 +46,7 @@ final class LHAReader: FormatReader {
         self.unpublishedMembers = unpublishedMembers
     }
 
-    func reopened(options: ReaderOptions) -> sending LHAReader {
+    func reopened(options: ReaderOptions) -> sending (any FormatReader)? {
         LHAReader(source: source, entries: entries, nameEncoding: nameEncoding, records: records,
                   firstHeaderOffset: firstHeaderOffset, terminator: terminator,
                   unpublishedMembers: unpublishedMembers)

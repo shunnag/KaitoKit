@@ -64,7 +64,7 @@ final class TarReader: FormatReader {
         self.layoutStorage = layoutStorage
     }
 
-    func reopened(options: ReaderOptions) -> sending TarReader {
+    func reopened(options: ReaderOptions) -> sending (any FormatReader)? {
         TarReader(source: source, entries: entries, nameEncoding: nameEncoding, records: records, layoutStorage: layoutStorage)
     }
 

@@ -11,6 +11,14 @@ protocol FormatReader: AnyObject {
     func zipRawRecordLayout(at index: Int, limits: ReadLimits) throws -> ZipRawRecordLayout?
     func zipStream(at index: Int, limits: ReadLimits, aesKey: ZipAESKeyMaterial?, storedOnly: Bool) throws -> EntryStream?
     func setPassword(_ password: String?)
+
+    /// 解析済みの不変状態を共有し、復号・cache・password の可変状態だけを新しくした reader。
+    /// 共有できない形式は nil を返し、ArchiveReader は source から開き直す。
+    /// 戻り値は別の isolation domain へ送れる。
+    func reopened(options: ReaderOptions) throws -> sending (any FormatReader)?
+
+    /// 復号に必須の resource / hash が無い entry を、password provider に問う前に診断する。
+    func validateEncryptionSupport(for entry: ArchiveEntry) throws
 }
 
 extension FormatReader {
@@ -24,6 +32,12 @@ extension FormatReader {
 
     // 暗号を持たない形式は password 更新を無視する。
     func setPassword(_ password: String?) {}
+
+    // 解析結果を共有する reopen を持たない形式は、ArchiveReader に開き直しを任せる。
+    func reopened(options: ReaderOptions) throws -> sending (any FormatReader)? { nil }
+
+    // 暗号を持たない形式、または対応状況を entry ごとに診断しない形式は何もしない。
+    func validateEncryptionSupport(for entry: ArchiveEntry) throws {}
 
     /// `entries` に載っている entry だけを受け付け、その index を返す。他の reader の entry や
     /// 古い一覧の entry は `.notFound("<label> entry index N")`。

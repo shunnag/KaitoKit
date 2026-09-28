@@ -147,7 +147,7 @@ final class ZipLocalReadAheadTests: XCTestCase {
             let first = source.reads
             assertWindows(first, lower: 0, bound: bound, maximum: 160)
             source.reset()
-            let reopened = reader.reopened(options: options)
+            let reopened = try XCTUnwrap(reader.reopened(options: options))
             XCTAssertTrue(source.reads.isEmpty)
             for index in reopened.entries.indices { _ = try reopened.zipRawRecordLayout(at: index, limits: limits) }
             XCTAssertEqual(source.reads, first)

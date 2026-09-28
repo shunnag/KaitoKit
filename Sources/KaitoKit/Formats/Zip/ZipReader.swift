@@ -241,7 +241,7 @@ final class ZipReader: FormatReader {
         self.localReadAhead = ZipLocalReadAhead(policy: readAhead)
     }
 
-    func reopened(options: ReaderOptions) -> sending ZipReader {
+    func reopened(options: ReaderOptions) -> sending (any FormatReader)? {
         // Parsed arrays are immutable COW values. Local validation progress,
         // cached headers and derived AES keys start empty in each reader.
         ZipReader(source: source, options: options, centralDirectoryOffset: centralDirectoryOffset,

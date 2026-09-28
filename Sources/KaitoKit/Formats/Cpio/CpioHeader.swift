@@ -177,17 +177,3 @@ struct CpioHeader {
     }
 
 }
-
-// MARK: - 旧名
-
-extension CpioHeader {
-    /// 旧名。FormatDetector / ArchiveReader の caller が新しい名前へ移るまでの転送（k2reader の follow-up で削除する）。
-    static func probe(_ prefix: [UInt8], source: any ByteSource) -> CpioVariant? {
-        detectVariant(prefix, source: source)
-    }
-
-    /// 旧名。FormatDetector の caller が新しい名前へ移るまでの転送（k2reader の follow-up で削除する）。
-    static func probeBinary(source: any ByteSource, recoverDamagedArchives: Bool = false) -> Bool {
-        detectBinary(source: source, recoverDamagedArchives: recoverDamagedArchives)
-    }
-}

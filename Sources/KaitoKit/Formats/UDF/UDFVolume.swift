@@ -513,12 +513,3 @@ final class UDFVolume {
         }
     }
 }
-
-// MARK: - 旧名
-
-extension UDFVolume {
-    /// 旧名。FormatDetector の caller が新しい名前へ移るまでの転送（k2reader の follow-up で削除する）。
-    static func hasRecognitionSequence(source: any ByteSource, pureOnly: Bool) throws -> Bool {
-        try detectRecognitionSequence(source: source, pureOnly: pureOnly)
-    }
-}

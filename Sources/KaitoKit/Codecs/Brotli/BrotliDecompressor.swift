@@ -262,12 +262,3 @@ final class BrotliDecompressor: Decompressor {
         inputCount = count
     }
 }
-
-// MARK: - 旧名
-
-extension BrotliDecompressor {
-    /// 旧名。FormatDetector の caller が新しい名前へ移るまでの転送（k2reader の follow-up で削除する）。
-    static func isPlausibleStream(source: any ByteSource, limits: ReadLimits) -> Bool {
-        detect(source: source, limits: limits)
-    }
-}

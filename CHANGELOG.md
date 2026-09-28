@@ -37,7 +37,11 @@
   `NameSafetyRegressionTests`・`DocumentationConsistencyTests`・`LHAExternalCorpusTests` ほか）。計測の道具は `Tests/Measurement/`、
   Sources へ生成物を書く generator は `Scripts/generate/` に置き、`Tests/README.md` に環境変数と外部ツールの一覧を書いた。
   Compat のテストは `Tests/KaitoKitCompatTests/CompatFixtures.swift` を使う。
-- 挙動の変わる点（いずれも error の文言か到達できない経路）:
+- 挙動の変わる点（error の文言、到達できない経路、既定の上限でしか届かない境界）:
+  - `ArchivePath.components` は component 数が上限とちょうど等しい path の末尾の `//`（例: 上限 2 の "a/b//"）と、
+    上限 0 の "/" を受け入れる。rpm と xar の旧 `split(maxSplits:)` はこれを拒否していた。既定の上限 1,024 でのみ観測できる。
+  - 到達できない error 文言の統一: "negative ZIP/detector read size" → "negative byte-range size"、"temporary-file buffer has no
+    storage" → "write buffer has no storage"、"xar decoder byte count" → "decoder byte count"。zstd の到達できない `default:` は削除。
   - 不正な DOS 日時の error 文言が形式に依らず "invalid DOS timestamp" になった（ZIP は "invalid ZIP DOS timestamp"、
     RAR4 は "invalid RAR4 DOS timestamp" だった）。
   - `KaitoKitCompat` の安全でない path の拒否文言が `Extractor` と同じになった（"absolute or empty entry path" /

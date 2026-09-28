@@ -54,10 +54,9 @@ struct KaitoArchiveHardLinkExtractor {
             extractionError = error
         }
 
-        // The private tree is deliberately left owner-accessible, so pathname-based
-        // recursive removal remains usable even when the process umask created mode-000
-        // extraction directories. Cleanup and destination-mode restoration are part of
-        // a successful compatibility extraction rather than best-effort defers.
+        // private な木は owner が読める mode のまま残す。process の umask が mode 000 の展開 directory を
+        // 作っても、path による再帰削除が使えるようにするため。後始末と展開先の mode の復元は
+        // 互換展開の成功の一部であり、defer の best-effort ではない。
         stagingDirectory.close()
         var cleanupError: (any Error)?
         do {

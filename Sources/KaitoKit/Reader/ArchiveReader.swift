@@ -492,7 +492,7 @@ public final class ArchiveReader {
     /// 形式検出の結果。StuffIt の envelope（wrapper を剥いだ payload と resource fork）があれば持つ。
     private struct DetectedFormat {
         let format: ArchiveFormat
-        let stuffItInput: StuffItEnvelope?
+        let stuffItInput: MacEnvelope?
     }
 
     /// 形式 reader を開いた結果。format と entries は reader 自身から取る。
@@ -729,7 +729,7 @@ public final class ArchiveReader {
         case .pbzxAuto:
             // pbzx は Apple の pkg / OTA が cpio payload を包むためだけに使う container なので、
             // 展開結果が cpio ならその entry を直接公開し、そうでなければ単一 stream に留める。
-            if CpioHeader.probe(try readByteRange(source: staged, offset: 0, count: Int(min(6, staged.length))),
+            if CpioHeader.detectVariant(try readByteRange(source: staged, offset: 0, count: Int(min(6, staged.length))),
                                 source: staged) != nil {
                 return OpenedFormatReader(reader: try CpioReader(source: staged, options: options),
                                           password: options.password, stagedTarSource: staged)

@@ -35,10 +35,3 @@ struct XarHeader {
         bytes[offset..<offset + count].reduce(0) { ($0 << 8) | UInt64($1) }
     }
 }
-
-// MARK: - 旧名
-
-extension XarHeader {
-    /// 旧名。FormatDetector の caller が新しい名前へ移るまでの転送（k2reader の follow-up で削除する）。
-    static func probe(_ bytes: [UInt8]) -> Bool { isPlausibleHeader(bytes) }
-}

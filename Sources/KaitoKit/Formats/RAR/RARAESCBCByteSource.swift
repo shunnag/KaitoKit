@@ -100,7 +100,7 @@ final class RARAESCBCByteSource: ByteSource {
             )
         }
 
-        var plaintext = try RARCommonCrypto.decryptECB(blocks: ciphertext, key: key)
+        var plaintext = try RARBlockDecryption.decryptECB(blocks: ciphertext, key: key)
         for block in 0..<blockCount {
             let base = block * Self.blockSize
             for index in 0..<Self.blockSize {
@@ -135,7 +135,7 @@ final class RARAESCBCByteSource: ByteSource {
 
 // The CommonCrypto call is in Core/CommonCryptoPrimitives; this adds RAR's AES
 // input checks and error text.
-private enum RARCommonCrypto {
+private enum RARBlockDecryption {
     static func decryptECB(blocks: [UInt8], key: Data) throws -> [UInt8] {
         guard !blocks.isEmpty,
               blocks.count.isMultiple(of: kCCBlockSizeAES128),

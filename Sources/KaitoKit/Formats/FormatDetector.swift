@@ -131,7 +131,7 @@ public enum FormatDetector {
 
     /// envelope の形式: payload が StuffIt なら classic / X、そうでなければ wrapper 自身（MacBinary /
     /// AppleSingle / BinHex 4）を 1 file の書庫として扱う。
-    static func envelopeFormat(_ envelope: StuffItEnvelope) throws -> ArchiveFormat {
+    static func envelopeFormat(_ envelope: MacEnvelope) throws -> ArchiveFormat {
         let inner = try readByteRange(source: envelope.data, offset: 0, count: Int(min(envelope.data.length, 100)))
         if StuffItHeader.signature(inner) != nil || inner.starts(with: "StuffIt!".utf8) {
             return try stuffItFormat(envelope.data)
@@ -146,25 +146,25 @@ public enum FormatDetector {
 
     // wrapper は一段だけ剥がす。内側の他形式へは再帰的に dispatch しない。
     static func stuffItInput(source: any ByteSource, prefix: [UInt8]? = nil, limits: ReadLimits,
-                             maximumSFXScanSize: UInt64 = 0) throws -> StuffItEnvelope? {
+                             maximumSFXScanSize: UInt64 = 0) throws -> MacEnvelope? {
         // URL open で連結済みの分割セットは data fork と resource fork をそのまま渡す。
         if let split = source as? StuffItSplitSource {
-            return StuffItEnvelope(data: split, resource: split.resourceFork)
+            return MacEnvelope(data: split, resource: split.resourceFork)
         }
         let bytes = try prefix ?? readByteRange(source: source, offset: 0, count: Int(min(source.length, 512)))
         // Data で開いた分割 part は、単独で R+D を覆う場合だけ連結なしで成立する。
         if StuffItSplitHeader(bytes) != nil,
            let split = try StuffItSplitSet.assemble(firstVolumeURL: nil, source: source, directory: nil, limits: limits) {
-            return StuffItEnvelope(data: split, resource: split.resourceFork)
+            return MacEnvelope(data: split, resource: split.resourceFork)
         }
         if TarReader.isPlausibleMemberHeader(bytes) { return nil }
         if bytes.starts(with: "StuffIt?".utf8) { throw KaitoError.unsupportedFormat }
         if StuffItHeader.signature(bytes) != nil || bytes.starts(with: "StuffIt!".utf8) {
-            return StuffItEnvelope(data: source, resource: nil)
+            return MacEnvelope(data: source, resource: nil)
         }
         if bytes.starts(with: [0x4d, 0x5a]) {
             guard let offset = try StuffItSFX.find(source: source, maximumScanSize: maximumSFXScanSize, limits: limits) else { return nil }
-            return StuffItEnvelope(data: try RebasedByteSource(source: source, baseOffset: offset), resource: nil)
+            return MacEnvelope(data: try RebasedByteSource(source: source, baseOffset: offset), resource: nil)
         }
         // 強い先頭署名を持つ既存形式の payload を BinHex の説明文として探索しない。
         let nativePrefixes: [[UInt8]] = [
@@ -175,12 +175,12 @@ public enum FormatDetector {
             LzipMember.magic, PbzxHeader.magic, WIMHeader.signature, CFBHeader.signature,
             CHMHeader.signature, ARJHeader.identifier
         ]
-        if nativePrefixes.contains(where: { hasPrefix(bytes, $0) }) || XarHeader.probe(bytes)
+        if nativePrefixes.contains(where: { hasPrefix(bytes, $0) }) || XarHeader.isPlausibleHeader(bytes)
             || ZstdFrameHeader.hasMagic(bytes) || isBzip2Header(bytes)
             || ArReader.isPlausibleArchive(bytes, sourceLength: source.length) { return nil }
         if try LHASignatureScanner.isHeader(bytes, sourceLength: source.length) { return nil }
         // wrapper の payload が StuffIt でなくても、wrapper 自身を 1 file の書庫として公開する（envelopeFormat）。
-        return try StuffItWrapper.unwrap(source: source, prefix: bytes, limits: limits)
+        return try MacEnvelopeParser.unwrap(source: source, prefix: bytes, limits: limits)
     }
 
     private static func detect(
@@ -232,7 +232,7 @@ public enum FormatDetector {
         if hasPrefix(prefix, CHMHeader.signature), prefix.count >= 8, [2, 3].contains(CHMBytes.u32(prefix, 4)) { return .chm }
         // ARJ: 先頭の header id + CRC の合う main header。DOS SFX（MZ）は下の実行形式 prefix の走査で扱う。
         if hasPrefix(prefix, ARJHeader.identifier), try ARJReader.findMainHeader(source: source, maximumScan: 0) != nil { return .arj }
-        if XarHeader.probe(prefix) { return .xar }
+        if XarHeader.isPlausibleHeader(prefix) { return .xar }
         if hasPrefix(prefix, [0x04, 0x22, 0x4d, 0x18]) || hasPrefix(prefix, [0x02, 0x21, 0x4c, 0x18]) { return .lz4 }
         if ZstdFrameHeader.hasMagic(prefix) { return try skippableStreamFormat(source: source, limits: limits) }
         if hasPrefix(prefix, [0xED, 0xAB, 0xEE, 0xDB]) { return .rpm }
@@ -250,7 +250,7 @@ public enum FormatDetector {
             return .compress
         }
         if ArReader.isPlausibleArchive(prefix, sourceLength: source.length) { return .ar }
-        if CpioHeader.probe(prefix, source: source) != nil { return .cpio }
+        if CpioHeader.detectVariant(prefix, source: source) != nil { return .cpio }
         // A damaged first local marker can still belong to a native ZIP when
         // its end record places the central directory at an absolute base of
         // zero. A nonzero inferred base is an SFX prefix and follows the
@@ -281,13 +281,13 @@ public enum FormatDetector {
             if ISOReader.isPlausibleVolumeDescriptor(sector) { return .iso }
             // ECMA-167 2/8.3.1: CD001 を持たず BEA01 … NSR02|NSR03 … TEA01 の認識列だけがある image は
             // UDF 専用。CD001 を伴う hybrid は `.iso` として ISOReader が UDF の木を選ぶ。
-            if try UDFVolume.hasRecognitionSequence(source: source, pureOnly: true) { return .udf }
+            if try UDFVolume.detectRecognitionSequence(source: source, pureOnly: true) { return .udf }
             // ECMA-130 の生 sector image（BIN/CUE、.img、.mdf）: 2352 / 2448 / 2336 byte の sector から
             // user data を取り出した上で同じ判定を行う。
             if let raw = try RawSectorByteSource.wrapIfRaw(source) {
                 let sector = try readByteRange(source: raw, offset: 32768, count: 2048)
                 if ISOReader.isPlausibleVolumeDescriptor(sector) { return .iso }
-                if try UDFVolume.hasRecognitionSequence(source: raw, pureOnly: true) { return .udf }
+                if try UDFVolume.detectRecognitionSequence(source: raw, pureOnly: true) { return .udf }
             }
         }
         // 生の Apple disk image: GPT / APM / bare の HFS+ volume（koly 付きは上で判定済み）。
@@ -317,12 +317,12 @@ public enum FormatDetector {
             // brotli (RFC 7932) にも magic が無い。`.br` / `.tbr` の名前と、有効な WBITS を持つ
             // stream header、先頭 chunk の試し復号がそろったときだけ受理する。
             if ["br", "tbr"].contains(pathExtension.lowercased()),
-               BrotliDecompressor.isPlausibleStream(source: source, limits: limits) {
+               BrotliDecompressor.detect(source: source, limits: limits) {
                 return .brotli
             }
         }
 
-        if CpioHeader.probeBinary(source: source, recoverDamagedArchives: recoverDamagedArchives) { return .cpio }
+        if CpioHeader.detectBinary(source: source, recoverDamagedArchives: recoverDamagedArchives) { return .cpio }
         throw KaitoError.unsupportedFormat
     }
 

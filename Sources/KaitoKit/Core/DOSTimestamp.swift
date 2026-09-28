@@ -1,6 +1,6 @@
 import Foundation
 
-// DOS 日時（1980 起点、2 秒単位）の復号。ZIP と CAB が共有し、不正な値を error にするか捨てるかは
+// DOS 日時（1980 起点、2 秒単位）の復号。ZIP・CAB・RAR4 が共有し、不正な値を error にするか捨てるかは
 // 呼出側が選ぶ。bit 配置は Core/Timestamps.swift の DOSDateTime、月日の検査と Calendar 変換はここ。
 
 func dosModificationDate(date: UInt16, time: UInt16) throws -> Date? {

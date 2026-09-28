@@ -12,7 +12,7 @@ struct ExtractionResult {
     let fileIdentity: ExtractedFileIdentity?
 }
 
-// KaitoKitCompat が dirfd の再配置と path の判定を共有するため package。
+// KaitoKitCompat が path の判定（safeComponents）を共有するため package。dirfd の API は ExtractionDirectoryAccess にある。
 package enum Extractor {
     private static let copyBufferSize = 256 * 1024
 

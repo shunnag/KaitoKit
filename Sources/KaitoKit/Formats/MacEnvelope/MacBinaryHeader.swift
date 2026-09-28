@@ -5,7 +5,7 @@ import Foundation
 
 /// MacBinary header（128 byte、数値は big-endian）の field 位置と header CRC。
 ///
-/// header を受け入れるかの判定は使う側が持つ。StuffIt の wrapper 解除（`StuffItWrapper`）と MacLHA の
+/// header を受け入れるかの判定は使う側が持つ。StuffIt の wrapper 解除（`MacEnvelopeParser`）と MacLHA の
 /// data fork 抽出（`MacBinaryDataForkDecompressor`）は、CRC を持たない MacBinary I をそれぞれ別の
 /// 追加検査で見分ける。
 enum MacBinaryHeader {

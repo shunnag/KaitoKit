@@ -216,10 +216,3 @@ enum MacEnvelopeParser {
                                   wrapper: info)
     }
 }
-
-// MARK: - 旧名
-
-/// 旧名。FormatDetector / ArchiveReader の caller が新しい名前へ移るまでの転送（k2reader の follow-up で削除する）。
-typealias StuffItEnvelope = MacEnvelope
-/// 旧名。FormatDetector の caller が新しい名前へ移るまでの転送（k2reader の follow-up で削除する）。
-typealias StuffItWrapper = MacEnvelopeParser

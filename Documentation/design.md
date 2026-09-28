@@ -97,6 +97,25 @@ streaming 検証契約:
   `umask 0777` で新規作成された mode `000` directory と、先に復元済みの restrictive directory を
   後続 entry が通過できるようにするための明示的な抽出契約である。
 
+## 3.1 ソースの配置(2026-09-28)
+
+`Sources/KaitoKit/` は責務ごとの directory に分け、file 名は中の主な型の名前に合わせる。SwiftPM は配置を見ない。
+
+| directory | 規則 |
+|---|---|
+| `Core/` | 形式を知らない基盤。`ByteSource` とその view、`Checked` 算術、`ReadLimits`、`KaitoError`、bit reader、固定幅 field(`ByteFields`)、日時(`Timestamps`)、metadata 予算、path の分割、ASCII 数字、CRC・XXH・Blake2・CommonCrypto の境界、cancel 確認の間隔 |
+| `Model/` | 公開の値型と `@_spi` の snapshot(`ArchiveEntry`、`ArchiveFormat`、`RawEntryRecord`、`ZipRawRecordLayout`、`TarEditingSnapshot`、`SevenZipEditingSnapshot`、`LHARawLayout`) |
+| `Reader/` | façade と巻の組み立て。`ArchiveReader`(検出 → reader 生成 → 圧縮 container)、`EntryStream`、`Extractor` と dirfd API、`ReaderOptions`、巻 set、`TarSplice/`(圧縮 tar の splice 検証) |
+| `Text/` | 名前の文字コード判定。`EncodingDetector`、`JapaneseNameEncodingResolver`、`NameEncodingScorer` と `LetterRules` / `NameOrthography`、`PathComponentSplitter`。`LanguageExemplars.swift` は `Scripts/generate/` が生成する表 |
+| `Formats/<形式>/` | container の reader。`Reader` / `Structures` / `Parser` / `Publisher` / `Coordinator` / `Crypto` の語を形式をまたいで同じ意味で使う。`FormatDetector` は順序、`<形式>SignatureScanner` は署名走査。`MacEnvelope/`(MacBinary・AppleSingle・BinHex の封筒)、`AppleDouble/`、`HFSPlus/`、`Cab/` の folder decoder もここ |
+| `Codecs/<方式>/` | `Decompressor` に適合する復号器と、その bit reader・表。hot path。命名・comment・定数以外は触らない。`LZWindowCopy.swift` は LHA・RAR が共有する窓コピー、`SevenZipFilters/` は 7z 専用の filter |
+| `KaitoKitCompat/` | XADMaster 形の façade `KaitoArchive` と、複写器・hard link 展開の型 |
+| `kaito/` | CLI。`Commands/` に command ごとの file、`ArgumentCursor` が引数を読む |
+
+`Codecs/` は `Formats/` の型に依存しない。`Formats/` は `Core/`・`Codecs/`・`Text/` を使う。`Reader/` だけが形式をまたいで
+分岐する。試験は `Tests/README.md` に配置と環境変数をまとめ、共有の helper は `Tests/KaitoKitTests/Support/`、
+環境変数で有効にする計測は `Probes/`、計測の道具は `Tests/Measurement/` に置く。
+
 ## 4. 性能の目標値(Scripts/bench results-2026-08-27、M4 Max、XADMaster final)
 
 | ケース | XADMaster |

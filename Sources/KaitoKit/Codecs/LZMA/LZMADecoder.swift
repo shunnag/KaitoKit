@@ -61,9 +61,11 @@ public final class LZMADecoder: Decompressor {
     ///   - properties: Exactly five LZMA1 property bytes.
     ///   - expectedSize: Known output size, or `nil` to require an end marker.
     ///   - dictionarySizeLimit: Maximum accepted dictionary allocation.
-    ///   - outputSizeHint: end marker 終端の stream で、容器が別途宣言する出力サイズ。
-    ///     辞書の確保量を抑えるためだけに使い、終端判定には使わない。宣言より長い出力は
-    ///     容器側の検証で拒否される前提で、超過分の参照は invalid distance になる。
+    ///   - outputSizeHint: For a stream terminated by an end marker, the output
+    ///     size that the container declares separately. It only bounds the
+    ///     dictionary allocation and never decides where the stream ends. Output
+    ///     beyond the declaration is left to the container's own check, and a
+    ///     reference past the retained dictionary fails as an invalid distance.
     public convenience init(
         source: any ByteSource,
         offset: UInt64,
@@ -1017,9 +1019,8 @@ private struct LZMAHotRangeState {
     var overrun: Bool { inputPosition > inputCount }
 
     // この本体を三項演算子や mask 形へ書き換えず、bit tree の最終段も先読みしない。
-    // code < bound は LLVM が既に csel 化するため手書き branchless は効かない。
-    // 設計検討の micro benchmark では 5〜6% 遅かった（2026-09-12、cooViewer-r897）。
-    // この値は採用形の A/B では再測していない。
+    // code < bound は LLVM が既に csel 化するため手書き branchless は効かない
+    // （経緯と測定: design.md §11「LZMA / LZMA2 bit tree 先読み」）。
     @inline(__always)
     mutating func decodeBit(
         probability: UInt32,
@@ -1464,7 +1465,8 @@ private func decodeLZMARepeatedMatchSymbol(
 
 // literal 木も深さ 8 の bit tree なので同じ先読みを使う。8 段を手展開しないこと。
 // 手展開すると本体が大きくなり、book-solid.7z が実測で退行する
-// (@inline(__always) のみで +31%、@_transparent を足しても +18%。2026-09-12、cooViewer-r897)。
+// (@inline(__always) のみで +31%、@_transparent を足しても +18%。
+// 測定: design.md §11「LZMA / LZMA2 bit tree 先読み」)。
 @inline(__always)
 private func decodeLZMAPlainLiteral(
     probabilities: UnsafeMutablePointer<UInt16>,

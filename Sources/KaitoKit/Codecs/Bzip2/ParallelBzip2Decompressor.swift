@@ -218,7 +218,7 @@ final class ParallelBzip2Decompressor: Decompressor {
                     recorder?.appendBzip2(compressedRange: job.range, outputSize: UInt64(output.bytes.count), level: job.level, crc: job.crc)
                     current = output
                 case .invalid:
-                    // この始点は直前に検証済みの END。以後を従来の状態機械へ戻す。
+                    // この始点は直前の区間が検証済みの END で終わった位置。以後は直列 decoder で復号する。
                     try fallBack(at: job.range.lowerBound)
                 }
             }

@@ -96,9 +96,9 @@ final class PPMd7Model {
     private let nsToBinaryIndex: [Int]
     private let nsToSEEIndex: [Int]
 
-    // Fixed-size probability/mask storage is private to this model. Indices
-    // are validated at context boundaries (mask symbols are UInt8). Keeping
-    // these allocations stable avoids COW/exclusivity work in symbol loops.
+    // 固定長の確率表と mask はこの model だけが持つ。添字は context の境界で検証する
+    // （mask の記号は UInt8）。確保を固定したままにし、記号 loop での COW と
+    // exclusivity の検査を避ける。
     private let binarySummaries: UnsafeMutablePointer<Int>
     private var seeContexts = [[PPMd7ArenaSEEContext]]()
     private let characterMask: UnsafeMutablePointer<UInt8>
@@ -146,9 +146,9 @@ final class PPMd7Model {
 
         var escapedContexts = 0
         while foundState == Self.null {
-            // Range normalization belongs between an escape interval update
-            // and the next suffix context.  Keeping it here also preserves the
-            // 7z decoder's former one-normalize-per-subrange behavior.
+            // normalize は escape の区間更新と次の suffix context の間で一度だけ行う。
+            // 7z の coder ではこれが部分区間ごとに一度の normalize と等価になり、
+            // RAR の carry-less coder はこの位置を必要とする。
             try decoder.normalize()
             orderFall += 1
             var suffix = try suffix(of: minimumContext)
@@ -175,8 +175,7 @@ final class PPMd7Model {
             try decodeSymbol2(in: minimumContext, using: decoder)
         }
 
-        // A selected symbol commits the final interval before model updates
-        // change the probabilities used for the next symbol.
+        // 選ばれた記号の最終区間を、次の記号の確率を変える model 更新より前に確定する。
         try decoder.normalize()
 
         let selected = foundState
@@ -339,8 +338,8 @@ final class PPMd7Model {
         var actualAvailable = 0
         var symbolFrequency = 0
         let maskBytes = characterMask
-        // Every state symbol is UInt8; the state span and 256-byte mask
-        // remain valid until the model update after selection.
+        // state の記号はすべて UInt8。state の範囲と 256 byte の mask は、
+        // 選択後の model 更新まで有効なままである。
         for index in 0..<stateCount {
             let available = maskBytes[Int(states[index * Self.stateSize])] != escapeCount ? 1 : 0
             actualAvailable += available
@@ -459,8 +458,8 @@ final class PPMd7Model {
 
         if selectedIndex > 0 {
             let selected = try loadState(at: foundState)
-            // Shift already-validated packed states within the same block.
-            // memmove preserves overlap and the original stable ordering.
+            // 検証済みの packed state を同じ block の中でずらす。
+            // memmove は重なりを扱い、元の安定な順序を保つ。
             try allocator.copyBytes(
                 from: stateBase, to: stateBase + Offset(Self.stateSize),
                 count: selectedIndex * Self.stateSize

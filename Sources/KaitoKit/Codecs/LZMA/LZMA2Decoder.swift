@@ -11,7 +11,7 @@ struct LZMA2ResetPoint: Sendable, Equatable {
     /// Output offset immediately before the reset chunk.
     let uncompressedOffset: UInt64
 
-    // raw reset (0x01) の後で従来 property を再利用できるように保存する。
+    // raw reset (0x01) の後でも直前の LZMA property を再利用できるように保存する。
     let lzmaProperties: UInt8?
 
     // 0x01 は dictionary だけを reset し、LZMA 確率 state は保持する。

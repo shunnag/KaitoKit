@@ -1,11 +1,10 @@
 import Foundation
 
-/// Range-coder operations consumed by the shared PPMd variant-H model.
+/// 共有の PPMd variant H model（`PPMd7Model`）が使う range coder の操作。
 ///
-/// Subrange updates deliberately do not normalize.  The model normalizes
-/// after a selected symbol and before each suffix descent, which is equivalent
-/// to the 7z coder's per-subrange refill and is required by RAR's carry-less
-/// coder.
+/// 部分区間の更新では意図して normalize しない。model は記号の選択後と各 suffix への
+/// 降下前に normalize を呼ぶ。これは 7z の coder では部分区間ごとの refill と等価で、
+/// RAR の carry-less coder ではこの位置が必須になる。
 protocol PPMd7RangeDecoding: AnyObject {
     func threshold(total: Int) throws -> Int
     func remove(start: Int, size: Int) throws

@@ -43,6 +43,7 @@ public final class LZMA2Decoder: Decompressor {
     private static let outputChunkSize = 256 * 1_024
     private static let maximumUnpackedChunkSize: UInt64 = 2 * 1_024 * 1_024
     private static let maximumPackedChunkSize: UInt64 = 64 * 1_024
+    private static let maximumRawChunkSize: UInt64 = 64 * 1_024
     private static let maximumResetPointCount = 1_000_000
 
     private let source: any ByteSource
@@ -291,7 +292,7 @@ public final class LZMA2Decoder: Decompressor {
                 }
 
                 let unpackedSize = UInt64(try reader.readUInt16BE()) + 1
-                guard unpackedSize <= Self.maximumPackedChunkSize else {
+                guard unpackedSize <= Self.maximumRawChunkSize else {
                     throw KaitoError.malformed("invalid LZMA2 uncompressed chunk size")
                 }
                 outputOffset = try Self.checkedOutputEnd(
@@ -323,7 +324,7 @@ public final class LZMA2Decoder: Decompressor {
 
             if control >= 0xC0 {
                 let properties = try reader.readUInt8()
-                try Self.validateLZMAProperties(properties)
+                _ = try LZMAProperties(packed: properties, requireLZMA2LiteralLimit: true)
                 currentLZMAProperties = properties
                 needsProperties = false
             } else if needsProperties {
@@ -418,7 +419,7 @@ public final class LZMA2Decoder: Decompressor {
         }
 
         let unpackedSize = UInt64(try reader.readUInt16BE()) + 1
-        guard unpackedSize <= Self.maximumPackedChunkSize else {
+        guard unpackedSize <= Self.maximumRawChunkSize else {
             throw KaitoError.malformed("invalid LZMA2 uncompressed chunk size")
         }
         _ = try Self.checkedOutputEnd(
@@ -451,7 +452,7 @@ public final class LZMA2Decoder: Decompressor {
         let properties: UInt8?
         if control >= 0xC0 {
             let value = try reader.readUInt8()
-            try Self.validateLZMAProperties(value)
+            _ = try LZMAProperties(packed: value, requireLZMA2LiteralLimit: true)
             properties = value
             needsProperties = false
         } else {
@@ -502,18 +503,6 @@ public final class LZMA2Decoder: Decompressor {
             throw KaitoError.malformed("invalid LZMA2 unpacked chunk size")
         }
         return size
-    }
-
-    private static func validateLZMAProperties(_ property: UInt8) throws {
-        let packed = Int(property)
-        guard packed < 9 * 5 * 5 else {
-            throw KaitoError.malformed("invalid LZMA lc/lp/pb properties")
-        }
-        let literalContextBits = packed % 9
-        let literalPositionBits = (packed / 9) % 5
-        guard literalContextBits + literalPositionBits <= 4 else {
-            throw KaitoError.malformed("invalid LZMA2 literal properties")
-        }
     }
 
     private static func checkedOutputEnd(

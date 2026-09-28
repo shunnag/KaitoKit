@@ -35,7 +35,7 @@ enum ZipEndRecords {
     }
 
     private struct DiscoveryState {
-        var budget: ZipReader.EndRecordParseBudget
+        var budget: ZipEndRecordParseBudget
         var attemptedOffsets: Set<UInt64> = []
         var fallback: UInt64?
         var candidateError: Error?
@@ -44,7 +44,7 @@ enum ZipEndRecords {
     static func lastDiskIndex(source: any ByteSource, limits: ReadLimits) throws -> UInt64? {
         guard source.length >= UInt64(endMinimumSize) else { return nil }
         let standardSearchSize = endMinimumSize + maximumCommentSize
-        var state = DiscoveryState(budget: ZipReader.EndRecordParseBudget(limits: limits))
+        var state = DiscoveryState(budget: ZipEndRecordParseBudget(limits: limits))
         let initial = try findEndRecords(source: source, maximumSearchSize: standardSearchSize)
         if let last = try selectLastDiskIndex(initial, source: source, state: &state) {
             return last
@@ -97,7 +97,7 @@ enum ZipEndRecords {
                     let needsCoherenceCheck = try candidates.count > 1
                         || (directoryEnd != candidate.offset && locator(source: source, end: candidate) == nil)
                     if last == 0, candidate.totalEntries > 0, needsCoherenceCheck,
-                       try !ZipReader.hasCoherentZIP32End(source: source, end: candidate, budget: &state.budget) {
+                       try !ZipCentralDirectoryLocator.hasCoherentZIP32End(source: source, end: candidate, budget: &state.budget) {
                         continue
                     }
                     if needsCoherenceCheck, last > 0, UInt64(candidate.centralDirectoryDisk) == last,
@@ -115,7 +115,7 @@ enum ZipEndRecords {
     }
 
     private static func declaredLastDisk(source: any ByteSource, end: EndRecord,
-                                         budget: inout ZipReader.EndRecordParseBudget) throws -> UInt64 {
+                                         budget: inout ZipEndRecordParseBudget) throws -> UInt64 {
         let hasSentinel = end.diskNumber == UInt16.max || end.centralDirectoryDisk == UInt16.max
             || end.entriesOnDisk == UInt16.max || end.totalEntries == UInt16.max
             || end.centralDirectorySize == UInt32.max || end.centralDirectoryOffset == UInt32.max
@@ -125,7 +125,7 @@ enum ZipEndRecords {
         if !isZIP32Directory, let locator = try locator(source: source, end: end) {
             // SFX 単巻では相対位置だけでは判断できないため、既存の索引候補検査を共有する。
             if !hasSentinel, end.diskNumber == 0,
-               try ZipReader.hasCoherentZIP32End(source: source, end: end, budget: &budget) {
+               try ZipCentralDirectoryLocator.hasCoherentZIP32End(source: source, end: end, budget: &budget) {
                 return 0
             }
             guard locator.diskCount > 0 else {

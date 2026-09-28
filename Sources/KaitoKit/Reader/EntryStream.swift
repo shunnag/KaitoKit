@@ -89,6 +89,12 @@ public final class EntryStream {
         }
     }
 
+    /// 長さ 0 の entry（directory、空 file、data を持たない record）の stream。
+    static func empty(entryIndex: Int, limits: ReadLimits) throws -> EntryStream {
+        try EntryStream(decompressor: CopyDecompressor(source: DataByteSource(Data()), offset: 0, compressedSize: 0),
+                        length: 0, expectedCRC32: nil, entryIndex: entryIndex, limits: limits)
+    }
+
     /// Reads up to `buffer.count` bytes and returns the number read.
     public func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
         if let terminalError { throw terminalError }

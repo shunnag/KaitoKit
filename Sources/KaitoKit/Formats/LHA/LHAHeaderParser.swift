@@ -188,7 +188,7 @@ enum LHAHeaderParser {
         var reader = try ByteReader(source: source)
 
         while offset < source.length {
-            if pendingEntries.count & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: pendingEntries.count)
             try reader.seek(to: offset)
             let firstByte = try reader.readUInt8()
             if firstByte == 0 {
@@ -1078,7 +1078,7 @@ enum LHAHeaderParser {
         var retainedMetadataSize: UInt64 = 0
 
         for index in pendingEntries.indices {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard let pending = pendingEntries[index] else {
                 throw KaitoError.malformed("LHA pending entry is missing")
             }

@@ -155,7 +155,7 @@ final class ARJReader: FormatReader {
         var headers: [Record] = []
         var rawNames: [[UInt8]] = []
         while true {
-            if headers.count & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: headers.count)
             guard offset < source.length else { throw KaitoError.truncated }
             let header = try readHeader(at: offset)
             offset += UInt64(header.totalSize)
@@ -177,7 +177,7 @@ final class ARJReader: FormatReader {
         var entries: [ArchiveEntry] = []
         var records: [Record] = []
         for (index, record) in headers.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let header = record.header
             // file type 4（volume label）と 5（chapter label）は file ではない。
             guard header.fileType == 0 || header.fileType == 1 || header.fileType == 3 else { continue }
@@ -231,13 +231,11 @@ final class ARJReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("arj entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "arj")
         let record = records[entry.index]
         let header = record.header
         if entry.kind == .directory {
-            return try EntryStream(source: DataByteSource(Data()), offset: 0, length: 0, limits: limits)
+            return try EntryStream.empty(entryIndex: entry.index, limits: limits)
         }
         if header.flags & ARJHeader.flagGarbled != 0 { throw KaitoError.unsupportedMethod("ARJ garbled (encrypted) file") }
         if header.flags & ARJHeader.flagVolume != 0 || header.flags & ARJHeader.flagExtendedFilePosition != 0 {
@@ -255,7 +253,7 @@ final class ARJReader: FormatReader {
                                                       compressedSize: UInt64(header.compressedSize), uncompressedSize: size, limits: limits)
             return try EntryStream(decompressor: decoder, length: size, expectedCRC32: header.crc32, entryIndex: entry.index, limits: limits)
         case 8, 9:
-            return try EntryStream(source: DataByteSource(Data()), offset: 0, length: 0, limits: limits)
+            return try EntryStream.empty(entryIndex: entry.index, limits: limits)
         default:
             throw KaitoError.unsupportedMethod("ARJ method \(header.method)")
         }

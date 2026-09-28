@@ -194,7 +194,7 @@ final class CFBReader: FormatReader {
         let entriesPerSector = sectorSize / CFBDirectoryEntry.size
         try Checked.size(UInt64(directorySectors.count) * UInt64(entriesPerSector), limit: UInt64(options.limits.maxMetadataRecordCount))
         for (position, location) in directorySectors.enumerated() {
-            if position & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: position)
             let b = try Self.sector(location, source: source, sectorSize: sectorSize, sectorCount: sectorCount, budget: budget)
             for index in 0..<entriesPerSector {
                 directory.append(try CFBDirectoryEntry(b, index * CFBDirectoryEntry.size, majorVersion: header.majorVersion))
@@ -231,7 +231,7 @@ final class CFBReader: FormatReader {
         var pending: [(id: UInt32, components: [String], depth: Int, publish: Bool)] = [(root.child, [], 0, false)]
         var nodeCount = 0
         while let item = pending.popLast() {
-            if nodeCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: nodeCount)
             nodeCount &+= 1
             let (id, components, depth, publish) = item
             guard id != CFBHeader.noStream else { continue }
@@ -340,15 +340,13 @@ final class CFBReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("cfb entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "cfb")
         let record = records[entry.index].entry
         guard record.type == .stream else {
-            return try EntryStream(source: DataByteSource(Data()), offset: 0, length: 0, limits: limits)
+            return try EntryStream.empty(entryIndex: entry.index, limits: limits)
         }
         let size = record.size
-        if size == 0 { return try EntryStream(source: DataByteSource(Data()), offset: 0, length: 0, limits: limits) }
+        if size == 0 { return try EntryStream.empty(entryIndex: entry.index, limits: limits) }
         let sectorSize = UInt64(header.sectorSize)
         let sectorCount = (source.length - sectorSize) / sectorSize
         var runs: [(offset: UInt64, length: UInt64)] = []

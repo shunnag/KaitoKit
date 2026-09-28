@@ -299,7 +299,7 @@ final class HFSVolumeListing {
                                    expectedCRC32: nil, entryIndex: entry.index, limits: limits)
         }
         guard let fork = record.fork, fork.logicalSize > 0 else {
-            return try EntryStream(source: DataByteSource(Data()), offset: 0, length: 0, limits: limits)
+            return try EntryStream.empty(entryIndex: entry.index, limits: limits)
         }
         let extents = try volume.extents(of: fork, fileID: record.fileID, forkType: record.forkType)
         var runs: [(offset: UInt64, length: UInt64)] = []

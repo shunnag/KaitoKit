@@ -1234,7 +1234,7 @@ final class RAR4Reader: FormatReader {
         var blockCount = 0
 
         while offset < source.length {
-            if blockCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: blockCount)
             blockCount &+= 1
             let encryptedHeader = mainHeader?.hasEncryptedHeaders == true
             let encryptedHeaderEnvelopeIsShort = encryptedHeader
@@ -1686,7 +1686,7 @@ final class RAR4Reader: FormatReader {
         var solidGroups = [Int](repeating: -1, count: pendingEntries.count)
         var previousFileIndex: Int?
         for index in pendingEntries.indices {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard pendingEntries[index].kind != .directory && records[index].method != 0x30 else { continue }
             let continuesSolidStream = records[index].firstFlags & FileFlag.solid != 0
             if continuesSolidStream {
@@ -1710,7 +1710,7 @@ final class RAR4Reader: FormatReader {
         }
 
         for (index, pending) in pendingEntries.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let unresolved = pending.decodedUnicodeName == nil
             let decoded = pending.decodedUnicodeName ??
                 EncodingDetector.resolveUndeclaredName(

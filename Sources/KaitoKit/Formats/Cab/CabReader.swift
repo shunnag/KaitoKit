@@ -49,7 +49,7 @@ final class CabReader: FormatReader {
         try budget.array(count: header.fileCount, stride: 256)
         var folders: [CabFolder] = []
         for index in 0..<header.folderCount {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let folder = CabFolder(try cursor.read(8))
             guard folder.dataOffset <= header.cabinetSize else { throw KaitoError.truncated }
             folders.append(folder)
@@ -57,7 +57,7 @@ final class CabReader: FormatReader {
         }
         var files: [CabFile] = []
         for index in 0..<header.fileCount {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let bytes = try fileCursor.read(16)
             let name = try fileCursor.name(limit: limits.maxMetadataSize, label: "cab file name")
             let file = CabFile(bytes, name: name)
@@ -71,7 +71,7 @@ final class CabReader: FormatReader {
         var blocks: [[CabDataBlock]] = [], folderSizes: [UInt64] = []
         var totalOutput: UInt64 = 0
         for (index, folder) in folders.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             var dataCursor = CabCursor(source: source, end: header.cabinetSize, offset: folder.dataOffset)
             try dataCursor.validateRecords(count: folder.blockCount, stride: Checked.add(8, dataReserve))
             guard folder.blockCount <= limits.maxMetadataRecordCount else {
@@ -81,7 +81,7 @@ final class CabReader: FormatReader {
             var folderBlocks: [CabDataBlock] = []
             var size: UInt64 = 0
             for blockIndex in 0..<folder.blockCount {
-                if blockIndex & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: blockIndex)
                 let bytes = try dataCursor.read(8)
                 try dataCursor.skip(dataReserve)
                 let block = try CabDataBlock(bytes, dataOffset: dataCursor.offset, folderOffset: size)
@@ -114,7 +114,7 @@ final class CabReader: FormatReader {
         var entries: [ArchiveEntry] = []
         var dosTimestampDecoder = DOSTimestampDecoder()
         for (index, file) in files.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let declared: String.Encoding? = file.attributes & 0x80 != 0 ? .utf8 : nil
             let resolved = declared == .utf8 ? String(decoding: file.name, as: UTF8.self)
                 : decoded[file.name] ?? EncodingDetector.resolveUndeclaredName(bytes: file.name,
@@ -146,9 +146,7 @@ final class CabReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("cab entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "cab")
         let file = files[entry.index]
         guard file.continued == nil else { throw KaitoError.unsupportedMethod("cab multi-cabinet set") }
         let index = Int(file.folderIndex), folder = folders[Int(file.folderIndex)]

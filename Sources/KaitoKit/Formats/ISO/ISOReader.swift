@@ -120,9 +120,7 @@ final class ISOReader: FormatReader {
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
         if let udf { return try udf.stream(for: entry, limits: limits) }
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("iso entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "iso")
         let record = records[entry.index]
         if let reason = record.unsupported { throw KaitoError.unsupportedMethod("ISO 9660 \(reason)") }
         if let zisofs = record.zisofs, record.sections.count == 1 {
@@ -162,7 +160,7 @@ final class ISOReader: FormatReader {
         var result: [ISODirectoryRecord] = []
         var recordCount = 0
         while pos < bytes.count {
-            if recordCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: recordCount)
             recordCount &+= 1
             let length = Int(bytes[pos])
             let remaining = 2048 - Int((range.offset + UInt64(pos)) % 2048)
@@ -188,7 +186,7 @@ final class ISOReader: FormatReader {
         var directoryCount = 0
         var recordCount = 0
         while let node = stack.popLast() {
-            if directoryCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: directoryCount)
             let directoryRecords: [ISODirectoryRecord]
             if let retained = node.directoryRecords {
                 directoryRecords = retained
@@ -202,7 +200,7 @@ final class ISOReader: FormatReader {
             ancestors.insert(node.record.lba)
             var i = node.nextRecord
             while i < directoryRecords.count {
-                if recordCount & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: recordCount)
                 recordCount &+= 1
                 let first = directoryRecords[i]
                 i += 1
@@ -337,7 +335,7 @@ final class ISOReader: FormatReader {
         var seen: [String: Int] = [:]
         var specificByIndex: [Int: [String: String]] = [:]
         for (index, item) in pending.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             if let parent = item.parent, paths[parent] == nil { continue }
             var name = joliet ? ISOBytes.joliet(item.bytes) : resolve(item.bytes)
             if !item.rrName {
@@ -379,7 +377,7 @@ final class ISOReader: FormatReader {
         var entries: [ArchiveEntry] = []
         var records: [Record] = []
         for (position, index) in kept.enumerated() {
-            if position & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: position)
             let item = pending[index]
             let components = paths[index]!
             var specific = specificByIndex[index]!

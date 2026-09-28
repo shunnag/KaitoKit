@@ -33,7 +33,7 @@ final class StuffItXReader: FormatReader {
         var objects: [StuffItXElement] = [], objectIndex: [UInt64: Int] = [:]
         var forks: [Fork] = [], streams: [UInt64: StuffItXElement] = [:], streamOrder: [UInt64] = []
         for (index, element) in elements.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             switch element.type {
             case 2, 4:
                 guard let id = element.attributes[1], objectIndex[id] == nil else { throw KaitoError.malformed("StuffIt X object ID") }
@@ -56,7 +56,7 @@ final class StuffItXReader: FormatReader {
         var catalogSeen = false, comment: String?
         var metadataSize: UInt64 = 0
         for (index, element) in elements.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard element.type == 5 else { continue }
             guard let size = element.attributes[5] else { throw KaitoError.malformed("StuffIt X catalog length") }
             try Checked.size(size, limit: limits.maxMetadataSize)
@@ -88,7 +88,7 @@ final class StuffItXReader: FormatReader {
                                                                          archiveEncoding: encoding).string }
         var paths: [Int: [String]] = [:]
         for i in objects.indices {
-            if i & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: i)
             var chain: [Int] = [], seen = Set<Int>(), current: Int? = i
             while let j = current, paths[j] == nil {
                 guard seen.insert(j).inserted else { throw KaitoError.malformed("StuffIt X parent cycle") }
@@ -114,7 +114,7 @@ final class StuffItXReader: FormatReader {
         var byStream: [UInt64: [Fork]] = [:], auxiliaries: [UInt64: [String]] = [:]
         var auxiliaryStreams: [UInt64: [UInt64]] = [:], encryptedAuxiliaryOwners = Set<UInt64>()
         for (index, fork) in forks.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard objectIndex[fork.owner] != nil else { throw KaitoError.malformed("StuffIt X missing fork owner") }
             guard streams[fork.stream] != nil else { throw KaitoError.unsupportedMethod("StuffIt X missing or segmented stream \(fork.stream)") }
             byStream[fork.stream, default: []].append(fork)
@@ -169,12 +169,12 @@ final class StuffItXReader: FormatReader {
             intervals.append((fork?.stream, offset, size)); referenced.insert(owner)
         }
         for (index, id) in streamOrder.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard let element = streams[id] else { continue }
             let streamForks = byStream[id] ?? []
             var slots: [UInt64: Fork] = [:]
             for (index, fork) in streamForks.enumerated() {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 if let previous = slots[fork.slot] {
                     guard previous.length == fork.length, previous.kind == fork.kind else { throw KaitoError.malformed("StuffIt X shared slot disagreement") }
                 } else { slots[fork.slot] = fork }
@@ -182,7 +182,7 @@ final class StuffItXReader: FormatReader {
             let auxiliaryOnly = !streamForks.isEmpty && streamForks.allSatisfy { $0.kind == 3 }
             var offsets: [UInt64: UInt64] = [:], sum: UInt64 = 0
             for i in 0..<slots.count {
-                if i & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: i)
                 guard let fork = slots[UInt64(i)] else { throw KaitoError.malformed("StuffIt X sparse slots") }
                 offsets[UInt64(i)] = sum; sum = try Checked.add(sum, fork.length)
             }
@@ -200,13 +200,13 @@ final class StuffItXReader: FormatReader {
                 try Checked.size(total, limit: limits.maxTotalUncompressedSize)
             }
             for (index, fork) in streamForks.sorted(by: { $0.slot < $1.slot }).enumerated() {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 guard fork.kind <= 1 else { continue }
                 try append(owner: fork.owner, fork: fork, offset: offsets[fork.slot]!, solid: slots.count > 1)
             }
         }
         for (index, object) in objects.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let id = object.attributes[1]!
             if !referenced.contains(id) { try append(owner: id, fork: nil) }
         }

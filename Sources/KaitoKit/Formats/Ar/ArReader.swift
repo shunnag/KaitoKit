@@ -57,7 +57,7 @@ final class ArReader: FormatReader {
         }
         var headerCount = 0
         walk: while offset < source.length {
-            if headerCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: headerCount)
             headerCount &+= 1
             guard source.length - offset >= 60 else {
                 if options.recoverDamagedArchives { break }
@@ -155,7 +155,7 @@ final class ArReader: FormatReader {
         var entries: [ArchiveEntry] = []
         // 表と pending を保持したまま復号名・component を追加するため、合算で制限する。
         for (index, item) in pending.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let record = item.record, header = record.header
             let name = resolve(item.name)
             let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "ar path component count")
@@ -180,9 +180,7 @@ final class ArReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("ar entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "ar")
         let record = records[entry.index]
         if record.incomplete {
             let copy = try CopyDecompressor(source: source, offset: record.offset, compressedSize: record.size)

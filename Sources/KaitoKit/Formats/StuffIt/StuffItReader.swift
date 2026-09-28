@@ -43,7 +43,7 @@ final class StuffItReader: FormatReader {
         var pathBytes = UInt64(archiveComment?.utf8.count ?? 0)
         try Checked.size(Checked.add(pathBytes, parser.metadataSize), limit: options.limits.maxTotalMetadataSize)
         for (index, record) in records.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let detection = EncodingDetector.resolveUndeclaredName(bytes: record.rawName, policy: options.encodingPolicy,
                                                                    archiveEncoding: encoding)
             var resolved = detection.string

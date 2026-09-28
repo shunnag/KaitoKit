@@ -222,7 +222,7 @@ struct SevenZipHeaderCursor {
         var mask: UInt8 = 0
         var byte: UInt8 = 0
         for index in 0..<count {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             if mask == 0 {
                 byte = try readUInt8()
                 mask = 0x80
@@ -372,7 +372,7 @@ enum SevenZipStreamsParser {
         if nid == .size {
             sizes.reserveCapacity(count)
             for index in 0..<count {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 sizes.append(try cursor.readNumber())
             }
             nid = SevenZipNID(rawValue: try cursor.readUInt8())
@@ -423,7 +423,7 @@ enum SevenZipStreamsParser {
         switch external {
         case 0:
             for index in 0..<count {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 folders.append(try parseFolder(
                     cursor: &cursor,
                     limits: limits,
@@ -440,7 +440,7 @@ enum SevenZipStreamsParser {
                 [UInt8](externalStreams[try Checked.toInt(index64)])
             )
             for index in 0..<count {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 folders.append(try parseFolder(
                     cursor: &definitions,
                     limits: limits,
@@ -457,7 +457,7 @@ enum SevenZipStreamsParser {
             throw KaitoError.malformed("7z UnpackInfo is missing coder output sizes")
         }
         for index in folders.indices {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             try budget.reserve(
                 count: folders[index].outputCount,
                 bytesPerRecord: unpackSizeMetadataBytes,
@@ -475,7 +475,7 @@ enum SevenZipStreamsParser {
         if nid == .crc {
             let digests = try parseDigests(cursor: &cursor, count: count)
             for index in folders.indices {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 folders[index].digest = digests[index]
             }
             nid = SevenZipNID(rawValue: try cursor.readUInt8())
@@ -750,7 +750,7 @@ enum SevenZipStreamsParser {
                 sawCounts = true
                 var total = 0
                 for index in folders.indices {
-                    if index & 0x3ff == 0 { try Task.checkCancellation() }
+                    try checkCancellation(every: index)
                     let count = try boundedCount(
                         try cursor.readNumber(),
                         remaining: cursor.remaining,
@@ -772,11 +772,11 @@ enum SevenZipStreamsParser {
                 sawSizes = true
                 try reserveSubstreams(counts.reduce(0, +))
                 for folderIndex in folders.indices {
-                    if folderIndex & 0x3ff == 0 { try Task.checkCancellation() }
+                    try checkCancellation(every: folderIndex)
                     let explicitCount = max(0, counts[folderIndex] - 1)
                     sizes[folderIndex].reserveCapacity(explicitCount)
                     for streamIndex in 0..<explicitCount {
-                        if streamIndex & 0x3ff == 0 { try Task.checkCancellation() }
+                        try checkCancellation(every: streamIndex)
                         sizes[folderIndex].append(try cursor.readNumber())
                     }
                 }
@@ -787,7 +787,7 @@ enum SevenZipStreamsParser {
                 }
                 var count = 0
                 for index in folders.indices {
-                    if index & 0x3ff == 0 { try Task.checkCancellation() }
+                    try checkCancellation(every: index)
                     if counts[index] == 1, folders[index].digest.value != nil { continue }
                     guard count <= limits.maxEntryCount - counts[index] else {
                         throw KaitoError.limitExceeded("7z substream digest count")
@@ -818,7 +818,7 @@ enum SevenZipStreamsParser {
         var result: [SevenZipSubstream] = []
         var digestIndex = 0
         for folderIndex in folders.indices {
-            if folderIndex & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: folderIndex)
             let folder = folders[folderIndex]
             guard folder.unpackSizes.count == folder.outputCount,
                   folder.finalOutputIndex < folder.unpackSizes.count else {
@@ -838,7 +838,7 @@ enum SevenZipStreamsParser {
             let folderSize = folder.unpackSizes[folder.finalOutputIndex]
             var offset: UInt64 = 0
             for streamIndex in 0..<count {
-                if streamIndex & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: streamIndex)
                 let size: UInt64
                 if streamIndex + 1 == count {
                     size = try Checked.sub(folderSize, offset)
@@ -889,7 +889,7 @@ enum SevenZipStreamsParser {
             count: count
         )
         for index in 0..<count {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard defined[index] else { continue }
             result[index] = SevenZipDigest(value: try cursor.readUInt32LE())
         }

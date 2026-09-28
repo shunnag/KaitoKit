@@ -1385,7 +1385,7 @@ final class RAR5Reader: FormatReader {
 
         var blockCount = 0
         while offset < source.length, !state.sawEndHeader {
-            if blockCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: blockCount)
             blockCount &+= 1
             let block: Block
             headerBodyWasVerified = false
@@ -2338,7 +2338,7 @@ final class RAR5Reader: FormatReader {
         if archiveFlags.contains(RAR5ArchiveFlags.solid) {
             var previousFileIndex: Int?
             for index in pending.indices {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 guard pending[index].kind != .directory
                     && !isZeroBodyRedirection(pending[index].extras.redirection?.type) else { continue }
                 if pending[index].compression.isSolid {
@@ -2370,7 +2370,7 @@ final class RAR5Reader: FormatReader {
         records.reserveCapacity(pending.count)
 
         for (index, item) in pending.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let zeroBodyRedirection = isZeroBodyRedirection(
                 item.extras.redirection?.type
             )

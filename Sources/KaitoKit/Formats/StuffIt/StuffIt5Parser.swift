@@ -48,7 +48,7 @@ extension StuffItParser {
         var rootChildren = Int(remaining)
         var headerCount = 0
         while remaining > 0 {
-            if headerCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: headerCount)
             headerCount &+= 1
             let h = try bytes(position, 48, end: end)
             guard h[0..<4].allSatisfy({ $0 == 0xa5 }) else { throw KaitoError.malformed("StuffIt 5 entry signature") }

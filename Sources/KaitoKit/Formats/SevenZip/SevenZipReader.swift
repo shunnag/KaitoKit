@@ -477,7 +477,7 @@ final class SevenZipReader: FormatReader {
         folderData.reserveCapacity(streams.folders.count)
         var aggregate: UInt64 = 0
         for index in streams.folders.indices {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let factory = try SevenZipFolderDecoderFactory(
                 source: source,
                 folder: streams.folders[index],
@@ -498,7 +498,7 @@ final class SevenZipReader: FormatReader {
         var result: [Data] = []
         result.reserveCapacity(streams.substreams.count)
         for (index, stream) in streams.substreams.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard stream.folderIndex >= 0, stream.folderIndex < folderData.count else {
                 throw KaitoError.malformed("7z substream references an invalid folder")
             }
@@ -543,14 +543,14 @@ final class SevenZipReader: FormatReader {
 
         var folderSubstreamCounts: [Int: Int] = [:]
         for (index, stream) in substreams.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             folderSubstreamCounts[stream.folderIndex, default: 0] += 1
         }
         var folderPackedSizes: [UInt64] = []
         if let streams {
             folderPackedSizes.reserveCapacity(streams.folders.count)
             for index in streams.folders.indices {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 var total: UInt64 = 0
                 for range in packedRanges[index].values {
                     total = try Checked.add(total, range.size)
@@ -573,7 +573,7 @@ final class SevenZipReader: FormatReader {
         var streamIndex = 0
 
         for (index, file) in files.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let substream: SevenZipSubstream?
             let folder: SevenZipFolder?
             if file.hasStream {

@@ -118,7 +118,7 @@ final class TarReader: FormatReader {
 
         while offset < source.length {
             // PAX/GNU 拡張も数え、公開 entry が増えない走査でも中断する。
-            if headerCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: headerCount)
             headerCount &+= 1
             let remaining = try Checked.sub(source.length, offset)
             guard remaining >= 512 else {
@@ -414,7 +414,7 @@ final class TarReader: FormatReader {
         var undecoratedNames: [[UInt8]] = []
         undecoratedNames.reserveCapacity(pendingEntries.count)
         for (index, pending) in pendingEntries.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             if pending.name.declaredEncoding == nil {
                 switch policy {
                 case .fixed:
@@ -440,7 +440,7 @@ final class TarReader: FormatReader {
             )
             archiveDecodedNames.reserveCapacity(undecoratedNames.count)
             for (index, (bytes, string)) in zip(undecoratedNames, decodedNames).enumerated() {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 if let string { archiveDecodedNames[bytes] = string }
             }
         }
@@ -534,7 +534,7 @@ final class TarReader: FormatReader {
         var lastEntryByNormalizedPath: [String: Int] = [:]
 
         for (index, pending) in pendingEntries.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let resolvedName = try resolve(
                 pending.name,
                 policy: policy,

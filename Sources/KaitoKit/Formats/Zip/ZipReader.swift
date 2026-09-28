@@ -201,7 +201,7 @@ final class ZipReader: FormatReader {
         self.records = parsedDirectory.records
         var comparisonCount = 0
         let localHeaderOrder = try parsedDirectory.records.indices.sorted { lhs, rhs in
-            if comparisonCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: comparisonCount)
             comparisonCount &+= 1
             let lhsOffset = parsedDirectory.records[lhs].localHeaderOffset
             let rhsOffset = parsedDirectory.records[rhs].localHeaderOffset
@@ -212,14 +212,14 @@ final class ZipReader: FormatReader {
             count: parsedDirectory.records.count
         )
         for (position, index) in localHeaderOrder.enumerated() {
-            if position & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: position)
             localHeaderOrderPositions[index] = position
         }
         self.localHeaderOrder = localHeaderOrder
         self.localHeaderOrderPositions = localHeaderOrderPositions
         if !options.lazyLocalHeaders || options.recoverDamagedArchives {
             for index in records.indices {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 _ = try localRecord(at: index, limits: options.limits)
             }
         }
@@ -847,7 +847,7 @@ final class ZipReader: FormatReader {
         var metadata: [UInt8] = []
         var recovery: [RecoveryExtent] = []
         while offset < source.length {
-            if recovery.count & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: recovery.count)
             offset = try nextRecoveryMarker(
                 source: source, from: offset, scanned: &scanned, limits: limits
             )
@@ -1005,7 +1005,7 @@ final class ZipReader: FormatReader {
             guard count >= 4 else { throw KaitoError.limitExceeded("ZIP recovery scan bytes") }
             let bytes = try readByteRange(source: source, offset: offset, count: Int(count))
             for index in 0...(bytes.count - 4) {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 let signature = littleUInt32(bytes, at: index)
                 if signature == localHeaderSignature || signature == centralHeaderSignature
                     || signature == endSignature || signature == zip64EndSignature {
@@ -1471,7 +1471,7 @@ final class ZipReader: FormatReader {
         // from their declared lengths. Every read is charged to the shared work
         // budget before it occurs, including claims after the first attempt.
         for index in 0..<entryCount {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard cursor <= directoryEnd,
                   directoryEnd - cursor >= 46 else { return false }
             try budget.chargeMetadataBytes(46)
@@ -1868,7 +1868,7 @@ final class ZipReader: FormatReader {
         guard bytes.count >= 56 else { throw KaitoError.truncated }
 
         for index in stride(from: bytes.count - 56, through: 0, by: -1) {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard littleUInt32(bytes, at: index) == zip64EndSignature else { continue }
             let payloadSize = littleUInt64(bytes, at: index + 4)
             guard payloadSize >= 44 else { continue }
@@ -1938,7 +1938,7 @@ final class ZipReader: FormatReader {
         var specificReplacement = 0
 
         for index in 0..<location.entryCount {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard cursor.remaining >= 46 else {
                 throw KaitoError.malformed("ZIP central-directory entry count exceeds its data")
             }
@@ -2199,7 +2199,7 @@ final class ZipReader: FormatReader {
         var windowsNameCount = 0
 
         for index in 0..<entryCount {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard cursor.remaining >= 46,
                   try cursor.readUInt32LE() == centralHeaderSignature else {
                 throw KaitoError.malformed("invalid ZIP central-header signature")

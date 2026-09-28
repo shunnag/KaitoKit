@@ -38,7 +38,7 @@ final class XarReader: FormatReader {
         var metadata = toc.metadataSize
         var dateFormatter: DateFormatter?
         for (index, node) in toc.files.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let kind: EntryKind
             switch node.type {
             case "file": kind = .file
@@ -101,7 +101,7 @@ final class XarReader: FormatReader {
         // ID は TOC 全体で解決し、chain は既に解決した実体だけを継承するため cycle を作らない。
         var dependents: [Int: [Int]] = [:]
         for index in entries.indices {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard entries[index].kind == .hardlink else { continue }
             guard let link = toc.files[index].hardlink else { continue }
             let target = ids[link] ?? paths[link]
@@ -119,7 +119,7 @@ final class XarReader: FormatReader {
         var queue = entries.indices.filter { entries[$0].kind == .file }
         var cursor = 0
         while cursor < queue.count {
-            if cursor & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: cursor)
             let target = queue[cursor]
             cursor += 1
             for index in dependents[target] ?? [] {
@@ -214,9 +214,9 @@ final class XarReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else { throw KaitoError.notFound("xar entry index \(entry.index)") }
+        try recordIndex(of: entry, label: "xar")
         guard entry.kind != .directory, entry.kind != .symlink, entry.kind != .hardlink, let data = records[entry.index] else {
-            return try EntryStream(source: source, offset: heapStart, length: 0, limits: limits)
+            return try EntryStream.empty(entryIndex: entry.index, limits: limits)
         }
         let style = data.encoding ?? XarEncoding.stored.rawValue
         guard let encoding = XarEncoding(rawValue: style.lowercased()) else { throw KaitoError.unsupportedMethod("xar encoding \(style)") }

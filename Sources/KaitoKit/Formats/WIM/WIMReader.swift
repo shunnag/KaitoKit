@@ -57,7 +57,7 @@ final class WIMReader: FormatReader {
         var byHash: [[UInt8]: WIMLookupEntry] = [:]
         var metadata: [WIMLookupEntry] = []
         for index in 0..<entryCount {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let entry = WIMLookupEntry(tableBytes, index * WIMLookupEntry.size)
             if entry.header.isMetadata {
                 metadata.append(entry)
@@ -193,7 +193,7 @@ final class WIMReader: FormatReader {
         var directoryCount = 0
         var entryCount = 0
         while let node = stack.popLast() {
-            if directoryCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: directoryCount)
             guard node.offset != 0 else { continue }
             guard visited.insert(node.offset).inserted else { throw KaitoError.malformed("wim directory cycle") }
             directoryCount += 1
@@ -202,14 +202,14 @@ final class WIMReader: FormatReader {
             var offset = Int(node.offset)
             var children: [(offset: UInt64, parent: Int?, depth: Int)] = []
             while let entry = try directoryEntry(m, at: offset) {
-                if entryCount & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: entryCount)
                 entryCount &+= 1
                 guard pending.count < options.limits.maxEntryCount else { throw KaitoError.limitExceeded("wim entry count") }
                 try budget.charge(UInt64(256 + entry.name.utf8.count))
                 var streamOffset = entry.end
                 var streams: [StreamEntry] = []
                 for index in 0..<entry.streamCount {
-                    if index & 0x3ff == 0 { try Task.checkCancellation() }
+                    try checkCancellation(every: index)
                     let stream = try streamEntry(m, at: streamOffset)
                     streams.append(stream)
                     streamOffset = stream.end
@@ -261,7 +261,7 @@ final class WIMReader: FormatReader {
                                        specific: specific, record: record))
                 // 名前付き stream（alternate data stream）は `name:stream` として公開する。
                 for (index, stream) in streams.enumerated() {
-                    if index & 0x3ff == 0 { try Task.checkCancellation() }
+                    try checkCancellation(every: index)
                     guard !stream.name.isEmpty else { continue }
                     var streamSpecific = specific
                     streamSpecific["stream"] = stream.name
@@ -329,7 +329,7 @@ final class WIMReader: FormatReader {
         var entries: [ArchiveEntry] = []
         var records: [Record] = []
         for (index, item) in pending.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard !item.name.isEmpty, item.name != ".", item.name != "..", !item.name.utf8.contains(where: { $0 == 0 || $0 == 0x2F }) else {
                 throw KaitoError.malformed("wim name")
             }
@@ -354,13 +354,11 @@ final class WIMReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("wim entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "wim")
         let record = records[entry.index]
         if let reason = record.unsupported { throw KaitoError.unsupportedMethod(reason) }
         guard let resource = record.resource else {
-            return try EntryStream(source: source, offset: 0, length: 0, limits: limits)
+            return try EntryStream.empty(entryIndex: entry.index, limits: limits)
         }
         let inner: any Decompressor
         if resource.header.isCompressed {

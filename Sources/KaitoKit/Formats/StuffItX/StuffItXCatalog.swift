@@ -15,7 +15,7 @@ struct StuffItXCatalog {
         let input = try StuffItXBitReader(source: DataByteSource(bytes))
         var records: [Record] = []
         for index in 0..<count {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             var record = Record(), fields = 0
             while true {
                 let key = try input.p2()

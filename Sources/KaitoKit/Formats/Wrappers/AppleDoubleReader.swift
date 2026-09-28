@@ -79,7 +79,7 @@ final class AppleDoubleReader: FormatReader {
         var sidecarTargets: [Int: [String]] = [:]
         var underMacOSX = Set<Int>()
         for (index, entry) in source.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let components = entry.pathComponents
             guard !components.isEmpty else { continue }
             let macOSX = components[0] == "__MACOSX"
@@ -95,7 +95,7 @@ final class AppleDoubleReader: FormatReader {
         // ZIP の directory 名は末尾に `/` を持つので、`pathComponents` で照合する。
         var indexByPath: [String: Int] = [:]
         for (index, entry) in source.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard entry.kind != .other && sidecarTargets[entry.index] == nil else { continue }
             let key = entry.pathComponents.joined(separator: "/")
             if indexByPath[key] == nil { indexByPath[key] = entry.index }
@@ -104,7 +104,7 @@ final class AppleDoubleReader: FormatReader {
         var hidden = Set<Int>()
         var forks: [Int: (sidecar: Int, offset: UInt64, length: UInt64, entry: ArchiveEntry)] = [:]
         for (position, (index, target)) in sidecarTargets.enumerated() {
-            if position & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: position)
             let sidecar = source[index]
             let targetPath = target.joined(separator: "/")
             let targetIndex = indexByPath[targetPath]
@@ -162,7 +162,7 @@ final class AppleDoubleReader: FormatReader {
         var publishedIndices: [Int: Int] = [:]
         var nextIndex = 0
         for (index, entry) in source.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard !hidden.contains(entry.index) else { continue }
             publishedIndices[entry.index] = nextIndex
             nextIndex += forks[entry.index] == nil ? 1 : 2
@@ -170,7 +170,7 @@ final class AppleDoubleReader: FormatReader {
         var entries: [ArchiveEntry] = []
         var mappings: [Mapping] = []
         for (index, entry) in source.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard !hidden.contains(entry.index) else { continue }
             entries.append(entry.reindexed(entries.count, targetIndices: publishedIndices))
             mappings.append(.passthrough(entry.index))
@@ -213,9 +213,7 @@ final class AppleDoubleReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("archive entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "archive")
         switch mappings[entry.index] {
         case .passthrough(let index):
             return try inner.stream(for: try innerEntry(index), limits: limits)

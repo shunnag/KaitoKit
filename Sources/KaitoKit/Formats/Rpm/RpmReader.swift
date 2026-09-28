@@ -130,9 +130,7 @@ final class RpmReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("rpm entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "rpm")
         if let cpio {
             // cpio 側の同一性検査には RPM metadata を足す前の entry を渡す。
             return try cpio.stream(for: cpio.entries[entry.index], limits: limits)

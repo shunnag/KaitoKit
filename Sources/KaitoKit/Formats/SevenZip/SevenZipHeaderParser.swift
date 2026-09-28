@@ -112,7 +112,7 @@ enum SevenZipHeaderParser {
     ) throws {
         var count = 0
         while true {
-            if count & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: count)
             let type = try cursor.readUInt8()
             if type == SevenZipNID.end.rawValue { return }
             guard count < limits.maxMetadataRecordCount else {
@@ -164,7 +164,7 @@ enum SevenZipHeaderParser {
         var propertyCount = 0
 
         while true {
-            if propertyCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: propertyCount)
             let rawID = try cursor.readUInt8()
             if rawID == SevenZipNID.end.rawValue { break }
             guard propertyCount < limits.maxMetadataRecordCount else {
@@ -286,7 +286,7 @@ enum SevenZipHeaderParser {
         var streamIndex = 0
         editRecorder?.state.files.reserveCapacity(count)
         for index in 0..<count {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let isEmpty = emptyStreams[index]
             let isEmptyFile = isEmpty ? emptyFiles[emptyIndex] : false
             let isAnti = isEmpty ? antiFiles[emptyIndex] : false
@@ -345,7 +345,7 @@ enum SevenZipHeaderParser {
         names.reserveCapacity(count)
 
         for index in 0..<count {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             var raw: [UInt8] = []
             var terminated = false
             while values.remaining >= 2 {
@@ -389,7 +389,7 @@ enum SevenZipHeaderParser {
         var result = [Date?](repeating: nil, count: count)
         var raw = editRecorder == nil ? nil : [UInt64?](repeating: nil, count: count)
         for index in 0..<count {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard defined[index] else { continue }
             let value = try values.readUInt64LE()
             result[index] = fileTimeDate(value)
@@ -411,7 +411,7 @@ enum SevenZipHeaderParser {
         var values = try valueCursor(property: &property, externalStreams: externalStreams, editRecorder: editRecorder)
         var result = [UInt32?](repeating: nil, count: count)
         for index in 0..<count {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard defined[index] else { continue }
             result[index] = try values.readUInt32LE()
         }
@@ -431,7 +431,7 @@ enum SevenZipHeaderParser {
         var values = try valueCursor(property: &property, externalStreams: externalStreams, editRecorder: editRecorder)
         var result = [UInt64?](repeating: nil, count: count)
         for index in 0..<count {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard defined[index] else { continue }
             result[index] = try values.readUInt64LE()
         }

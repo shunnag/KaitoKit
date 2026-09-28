@@ -24,4 +24,14 @@ extension FormatReader {
 
     // 暗号を持たない形式は password 更新を無視する。
     func setPassword(_ password: String?) {}
+
+    /// `entries` に載っている entry だけを受け付け、その index を返す。他の reader の entry や
+    /// 古い一覧の entry は `.notFound("<label> entry index N")`。
+    @discardableResult
+    func recordIndex(of entry: ArchiveEntry, label: String) throws -> Int {
+        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
+            throw KaitoError.notFound("\(label) entry index \(entry.index)")
+        }
+        return entry.index
+    }
 }

@@ -38,7 +38,7 @@ final class CpioReader: FormatReader {
         var pending: [Pending] = []
         var headerCount = 0
         while offset < source.length {
-            if headerCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: headerCount)
             headerCount &+= 1
             do {
                 guard let start = try Self.skipNULRun(source: source, from: offset), start < source.length else { break }
@@ -120,7 +120,7 @@ final class CpioReader: FormatReader {
         metadata = 0
         let concatenated = pending.contains { $0.archiveIndex > 0 }
         for (index, item) in pending.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let record = item.record, header = record.header
             let name = resolve(item.name)
             let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "cpio path component count")
@@ -158,9 +158,7 @@ final class CpioReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("cpio entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "cpio")
         let record = records[entry.index]
         if record.incomplete {
             let copy = try CopyDecompressor(source: source, offset: record.offset, compressedSize: record.size)

@@ -135,7 +135,7 @@ final class HFSBTree {
         var number = firstLeafNode
         var visited = Set<UInt32>()
         while number != 0 {
-            if visited.count & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: visited.count)
             guard visited.insert(number).inserted else { throw KaitoError.malformed("hfs+ leaf chain cycle") }
             budget = try Checked.add(budget, UInt64(nodeSize))
             try Checked.size(budget, limit: limit)
@@ -143,7 +143,7 @@ final class HFSBTree {
             let (kind, next, records) = try self.records(in: data)
             guard kind == -1 else { throw KaitoError.malformed("hfs+ leaf chain reaches a non-leaf node") }
             for (index, record) in records.enumerated() {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 try body(record)
             }
             number = next

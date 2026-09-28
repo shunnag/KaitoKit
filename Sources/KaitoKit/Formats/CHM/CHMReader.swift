@@ -271,7 +271,7 @@ final class CHMReader: FormatReader {
         var entries: [ArchiveEntry] = []
         var locations: [Location] = []
         for (index, entry) in directory.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard entry.name.hasPrefix("/") && entry.name != "/" else { continue }
             guard entry.section <= UInt64(Int.max) else { throw KaitoError.malformed("chm section id exceeds Int") }
             guard entries.count < limits.maxEntryCount else { throw KaitoError.limitExceeded("chm entry count") }
@@ -335,7 +335,7 @@ final class CHMReader: FormatReader {
         var chunk = firstChunk
         var visited = 0
         while chunk >= 0 {
-            if visited & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: visited)
             guard Int(chunk) < chunkCount, visited < chunkCount else { throw KaitoError.malformed("chm listing chunk chain") }
             visited += 1
             let base = headerLength + Int(chunk) * chunkSize
@@ -347,7 +347,7 @@ final class CHMReader: FormatReader {
             var index = base + 0x14
             let end = base + chunkSize - freeLength
             for _ in 0..<count {
-                if entries.count & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: entries.count)
                 guard entries.count < limits.maxMetadataRecordCount else { throw KaitoError.limitExceeded("chm directory entries") }
                 let nameLength = try CHMBytes.encint(d, &index, end: end)
                 guard nameLength <= UInt64(end - index), nameLength <= 4096 else { throw KaitoError.malformed("chm entry name length") }
@@ -365,12 +365,10 @@ final class CHMReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("chm entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "chm")
         switch locations[entry.index] {
         case .empty:
-            return try EntryStream(source: DataByteSource(Data()), offset: 0, length: 0, limits: limits)
+            return try EntryStream.empty(entryIndex: entry.index, limits: limits)
         case .stored(let offset, let length):
             return try EntryStream(source: source, offset: offset, length: length, limits: limits)
         case .compressed(let section, let offset, let length):

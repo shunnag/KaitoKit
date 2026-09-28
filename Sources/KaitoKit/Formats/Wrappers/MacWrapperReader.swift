@@ -96,9 +96,7 @@ final class MacWrapperReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("\(format.rawValue) entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "\(format.rawValue)")
         let source: any ByteSource = entry.index == 0 ? envelope.data : envelope.resource!
         return try EntryStream(source: source, offset: 0, length: source.length, limits: limits)
     }

@@ -81,6 +81,7 @@ public struct SevenZipEditBindPair: Sendable, Equatable {
 public struct SevenZipEditFolder: Sendable, Equatable {
     /// coder。header に書かれた順。
     public let coders: [SevenZipEditCoder]
+    /// coder 間の結線。header に書かれた順。
     public let bindPairs: [SevenZipEditBindPair]
     /// pack から直接読む coder 入力の index（folder 全体の通し番号）。k 番目が pack `packIndices.lowerBound + k` を読む。
     public let packedInputs: [Int]
@@ -112,6 +113,7 @@ public struct SevenZipEditSubstream: Sendable, Equatable {
     public let folderIndex: Int
     /// folder の展開結果の中での開始位置。
     public let offset: UInt64
+    /// substream の byte 数。
     public let size: UInt64
     /// substream の CRC。substream が一つの folder で folder の CRC があれば、それを引き継ぐ。
     public let crc32: UInt32?
@@ -132,6 +134,7 @@ public struct SevenZipEditFile: Sendable, Equatable {
     public let attributes: UInt32?
     /// StartPos property の生値。
     public let startPosition: UInt64?
+    /// substream を持つ（empty stream でない）。
     public var hasStream: Bool { substreamIndex != nil }
 }
 

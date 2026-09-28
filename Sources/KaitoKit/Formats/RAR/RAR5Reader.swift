@@ -952,7 +952,7 @@ final class RAR5Reader: FormatReader {
                 source: source,
                 offset: offset,
                 compressedSize: compressedSize,
-                unpackedSize: unpackedSize,
+                expectedSize: unpackedSize,
                 dictionarySize: dictionarySize,
                 limits: limits,
                 solidState: solidState

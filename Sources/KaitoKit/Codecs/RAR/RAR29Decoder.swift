@@ -18,6 +18,14 @@ import Foundation
 /// VM programs are rejected at the exact feature that introduces them, so
 /// unsupported data can never be confused with successfully decoded output.
 ///
+/// `RAR29` names the unpack version (`UNP_VER == 29`) shared by RAR 2.9, 3.x
+/// and 4.x archives, which `RAR4Reader` and the error messages call RAR4.
+/// Messages prefixed `RAR3` concern the RARVM filter subsystem introduced in
+/// RAR 3.0.
+///
+/// A failure is latched: after `read(into:)` throws, every later read into a
+/// non-empty buffer throws the same error and `isFinished` stays false.
+///
 /// Performance invariants:
 /// - compressed input, the power-of-two window, and Huffman lookup tables are
 ///   once-allocated raw buffers;
@@ -191,7 +199,7 @@ final class RAR29Decoder: Decompressor {
         source: any ByteSource,
         offset: UInt64,
         compressedSize: UInt64,
-        uncompressedSize: UInt64,
+        expectedSize: UInt64,
         unpackVersion: UInt8,
         method: UInt8,
         dictionarySize: UInt64,
@@ -201,7 +209,7 @@ final class RAR29Decoder: Decompressor {
     ) throws {
         let end = try Checked.add(offset, compressedSize)
         guard end <= source.length else { throw KaitoError.truncated }
-        try Checked.size(uncompressedSize, limit: limits.maxEntrySize)
+        try Checked.size(expectedSize, limit: limits.maxEntrySize)
         // The decoder retains the complete packed stream in one raw buffer.
         // Bound that attacker-controlled allocation independently of the much
         // smaller declared output before converting it to `Int` or calling
@@ -264,7 +272,7 @@ final class RAR29Decoder: Decompressor {
         }
 
         self.inputCount = compressedCount
-        self.expectedSize = uncompressedSize
+        self.expectedSize = expectedSize
         self.solidState = state
         self.maximumFilterCount = limits.maxMetadataRecordCount
         self.maximumPPMdMemorySize = limits.maxDictionarySize

@@ -27,6 +27,9 @@ import Foundation
 ///   at block/symbol boundaries, while literal and match-copy loops do not throw;
 /// - matches stage a period in caller output, double it, then mirror the ring;
 ///   window cursors and output accounting stay local for the entire read.
+///
+/// A failure is latched: after `read(into:)` throws, every later read throws
+/// the same error and `isFinished` stays false.
 final class RAR5Decoder: Decompressor {
     private static let sentinelByteCount = 16
     /// Smallest window the version-zero grammar declares (dictionary exponent 0).
@@ -126,7 +129,6 @@ final class RAR5Decoder: Decompressor {
     private var filterOutput: UnsafeMutablePointer<UInt8>?
 
     private let bitLengthTable = RAR5HuffmanTable()
-    private let oldCodeLengths: UnsafeMutablePointer<UInt8>
     private let codeLengths: UnsafeMutablePointer<UInt8>
     private let bitCodeLengths: UnsafeMutablePointer<UInt8>
 
@@ -173,51 +175,6 @@ final class RAR5Decoder: Decompressor {
     }
 
     private var failure: DecodeFailure?
-    private var boundaryError: KaitoError?
-    private var failedMatch: (produced: UInt64, distance: Int, length: Int)?
-    private var failedFilterType = 0
-
-    private func error(for failure: DecodeFailure) -> KaitoError {
-        switch failure {
-        case .truncated: return .truncated
-        case .boundary: return boundaryError ?? .malformed("RAR5 block transition failed")
-        case .invalidMatch:
-            let match = failedMatch ?? (produced: produced, distance: 0, length: 0)
-            let describedExpectedSize = expectedSize.map(String.init) ?? "unknown"
-            return .malformed(
-                "RAR5 invalid LZ match at output \(match.produced): distance \(match.distance), length \(match.length), window \(solidState.windowSize), expected \(describedExpectedSize)"
-            )
-        case .unsupportedFilter: return .unsupportedMethod("RAR5 filter type \(failedFilterType)")
-        case .filterBehindOutput: return .malformed("RAR5 filter starts behind emitted output")
-        case .positionsDiverged: return .malformed("RAR5 raw and emitted positions diverged")
-        case .filterPrefillStalled: return .malformed("RAR5 filter prefill made no progress")
-        case .filterBeyondOutput: return .malformed("RAR5 filter begins beyond raw output")
-        case .filterInputStalled: return .malformed("RAR5 filter input made no progress")
-        case .standardFilterFailed: return .malformed("RAR5 standard filter failed")
-        case .missingFilterInput: return .malformed("RAR5 filter input buffer is unavailable")
-        case .missingFilterOutput: return .malformed("RAR5 filter output buffer is unavailable")
-        case .unflushedOutput: return .malformed("RAR5 output ended with unflushed raw bytes")
-        case .decoderStalled: return .malformed("RAR5 decoder made no progress")
-        case .filterBoundaryPassed: return .malformed("RAR5 filter boundary was passed")
-        case .missingBlock: return .malformed("RAR5 decoder has no active block")
-        case .blockTransitionFailed: return .malformed("RAR5 block transition failed")
-        case .mainCodeOverrun: return .malformed("RAR5 main Huffman code runs past its block")
-        case .outputSizeExceeded: return .malformed("RAR5 output exceeds its declared size")
-        case .filterDataOverrun: return .malformed("RAR5 filter data runs past its block")
-        case .invalidLastMatch: return .malformed("RAR5 invalid last-match repetition")
-        case .repeatLengthOverrun: return .malformed("RAR5 repeat length runs past its block")
-        case .invalidRepeatMatch: return .malformed("RAR5 invalid repeated-distance match")
-        case .matchOverrun: return .malformed("RAR5 match runs past its block")
-        case .invalidMainSymbol: return .malformed("RAR5 main Huffman symbol is out of range")
-        case .filterCountExceeded: return .limitExceeded("RAR5 filter count")
-        case .invalidFilterParameters: return .malformed("RAR5 filter parameters are invalid")
-        case .filterRangeOverflow: return .malformed("RAR5 filter range overflows")
-        case .filterRangeExceeded: return .malformed("RAR5 filter range exceeds output")
-        case .filterRangeOverlap: return .malformed("RAR5 filter ranges overlap or are out of order")
-        case .filterInputAllocation: return .limitExceeded("unable to allocate RAR5 filter input")
-        case .filterOutputAllocation: return .limitExceeded("unable to allocate RAR5 filter output")
-        }
-    }
 
     private var produced: UInt64 = 0
     private var emitted: UInt64 = 0
@@ -236,13 +193,13 @@ final class RAR5Decoder: Decompressor {
         source: any ByteSource,
         offset: UInt64,
         compressedSize: UInt64,
-        unpackedSize: UInt64?,
+        expectedSize: UInt64?,
         dictionarySize: UInt64,
         limits: ReadLimits,
         solidState suppliedSolidState: SolidState? = nil
     ) throws {
-        if let unpackedSize {
-            try Checked.size(unpackedSize, limit: limits.maxEntrySize)
+        if let expectedSize {
+            try Checked.size(expectedSize, limit: limits.maxEntrySize)
         }
         try Checked.size(compressedSize, limit: limits.maxEntrySize)
         try Checked.size(dictionarySize, limit: limits.maxDictionarySize)
@@ -283,16 +240,14 @@ final class RAR5Decoder: Decompressor {
         self.input = inputRaw.bindMemory(to: UInt8.self, capacity: allocationCount)
         self.inputCount = inputCount
         self.solidState = state
-        self.expectedSize = unpackedSize
+        self.expectedSize = expectedSize
         self.maximumFilterCount = limits.maxMetadataRecordCount
         self.filterInput = nil
         self.filterOutput = nil
-        self.oldCodeLengths = .allocate(capacity: Self.combinedTableCount)
         self.codeLengths = .allocate(capacity: Self.combinedTableCount)
         self.bitCodeLengths = .allocate(capacity: Self.bitLengthSymbolCount)
 
         input.initialize(repeating: 0, count: allocationCount)
-        oldCodeLengths.initialize(repeating: 0, count: Self.combinedTableCount)
         codeLengths.initialize(repeating: 0, count: Self.combinedTableCount)
         bitCodeLengths.initialize(repeating: 0, count: Self.bitLengthSymbolCount)
         do {
@@ -312,7 +267,7 @@ final class RAR5Decoder: Decompressor {
                 filled += actual
             }
             if inputCount == 0 {
-                guard unpackedSize == 0 else { throw KaitoError.truncated }
+                guard expectedSize == 0 else { throw KaitoError.truncated }
                 rawFinished = true
                 finished = true
             } else {
@@ -331,7 +286,6 @@ final class RAR5Decoder: Decompressor {
         free(UnsafeMutableRawPointer(input))
         if let filterInput { free(UnsafeMutableRawPointer(filterInput)) }
         if let filterOutput { free(UnsafeMutableRawPointer(filterOutput)) }
-        oldCodeLengths.deallocate()
         codeLengths.deallocate()
         bitCodeLengths.deallocate()
     }
@@ -909,7 +863,6 @@ final class RAR5Decoder: Decompressor {
         // RAR5 table descriptions are self-contained. A block without the
         // table flag reuses the last tables, but a present description does
         // not delta its lengths against the preceding block.
-        oldCodeLengths.update(repeating: 0, count: Self.combinedTableCount)
         var index = 0
         while index < Self.bitLengthSymbolCount {
             guard let length = bits.read(4) else { throw KaitoError.truncated }
@@ -1009,10 +962,6 @@ final class RAR5Decoder: Decompressor {
             count: Self.repeatLengthSymbolCount,
             requireSymbol: false
         )
-        oldCodeLengths.update(
-            from: UnsafePointer(codeLengths),
-            count: Self.combinedTableCount
-        )
     }
 
     private func decodeLength(
@@ -1107,7 +1056,54 @@ final class RAR5Decoder: Decompressor {
         }
     }
 
+    // MARK: - Failure reporting
 
+    // Details recorded next to `failure` on the failure path only.
+    private var boundaryError: KaitoError?
+    private var failedMatch: (produced: UInt64, distance: Int, length: Int)?
+    private var failedFilterType = 0
+
+    private func error(for failure: DecodeFailure) -> KaitoError {
+        switch failure {
+        case .truncated: return .truncated
+        case .boundary: return boundaryError ?? .malformed("RAR5 block transition failed")
+        case .invalidMatch:
+            let match = failedMatch ?? (produced: produced, distance: 0, length: 0)
+            let describedExpectedSize = expectedSize.map(String.init) ?? "unknown"
+            return .malformed(
+                "RAR5 invalid LZ match at output \(match.produced): distance \(match.distance), length \(match.length), window \(solidState.windowSize), expected \(describedExpectedSize)"
+            )
+        case .unsupportedFilter: return .unsupportedMethod("RAR5 filter type \(failedFilterType)")
+        case .filterBehindOutput: return .malformed("RAR5 filter starts behind emitted output")
+        case .positionsDiverged: return .malformed("RAR5 raw and emitted positions diverged")
+        case .filterPrefillStalled: return .malformed("RAR5 filter prefill made no progress")
+        case .filterBeyondOutput: return .malformed("RAR5 filter begins beyond raw output")
+        case .filterInputStalled: return .malformed("RAR5 filter input made no progress")
+        case .standardFilterFailed: return .malformed("RAR5 standard filter failed")
+        case .missingFilterInput: return .malformed("RAR5 filter input buffer is unavailable")
+        case .missingFilterOutput: return .malformed("RAR5 filter output buffer is unavailable")
+        case .unflushedOutput: return .malformed("RAR5 output ended with unflushed raw bytes")
+        case .decoderStalled: return .malformed("RAR5 decoder made no progress")
+        case .filterBoundaryPassed: return .malformed("RAR5 filter boundary was passed")
+        case .missingBlock: return .malformed("RAR5 decoder has no active block")
+        case .blockTransitionFailed: return .malformed("RAR5 block transition failed")
+        case .mainCodeOverrun: return .malformed("RAR5 main Huffman code runs past its block")
+        case .outputSizeExceeded: return .malformed("RAR5 output exceeds its declared size")
+        case .filterDataOverrun: return .malformed("RAR5 filter data runs past its block")
+        case .invalidLastMatch: return .malformed("RAR5 invalid last-match repetition")
+        case .repeatLengthOverrun: return .malformed("RAR5 repeat length runs past its block")
+        case .invalidRepeatMatch: return .malformed("RAR5 invalid repeated-distance match")
+        case .matchOverrun: return .malformed("RAR5 match runs past its block")
+        case .invalidMainSymbol: return .malformed("RAR5 main Huffman symbol is out of range")
+        case .filterCountExceeded: return .limitExceeded("RAR5 filter count")
+        case .invalidFilterParameters: return .malformed("RAR5 filter parameters are invalid")
+        case .filterRangeOverflow: return .malformed("RAR5 filter range overflows")
+        case .filterRangeExceeded: return .malformed("RAR5 filter range exceeds output")
+        case .filterRangeOverlap: return .malformed("RAR5 filter ranges overlap or are out of order")
+        case .filterInputAllocation: return .limitExceeded("unable to allocate RAR5 filter input")
+        case .filterOutputAllocation: return .limitExceeded("unable to allocate RAR5 filter output")
+        }
+    }
 }
 
 /// Raw MSB-first reader. The owner guarantees at least eight sentinel bytes

@@ -895,7 +895,7 @@ final class RAR4Reader: FormatReader {
                 source: source,
                 offset: offset,
                 compressedSize: compressedSize,
-                uncompressedSize: uncompressedSize,
+                expectedSize: uncompressedSize,
                 unpackVersion: unpackVersion,
                 method: method,
                 dictionarySize: dictionarySize,

@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 
 enum RAR5TestSupport {
-    static let executablePath = resolveRARExecutablePath()
+    static let executablePath = ExternalTool.rar.path
 
     struct BlockLayout {
         let offset: Int
@@ -12,33 +12,8 @@ enum RAR5TestSupport {
         let data: Range<Int>
     }
 
-    private static func resolveRARExecutablePath() -> String {
-        let environment = ProcessInfo.processInfo.environment
-        if let configured = environment["KAITOKIT_RAR_EXECUTABLE"],
-           !configured.isEmpty {
-            return configured
-        }
-        if let path = environment["PATH"] {
-            for directory in path.split(separator: ":", omittingEmptySubsequences: true) {
-                let candidate = URL(fileURLWithPath: String(directory), isDirectory: true)
-                    .appendingPathComponent("rar").path
-                if FileManager.default.isExecutableFile(atPath: candidate) {
-                    return candidate
-                }
-            }
-        }
-        for candidate in ["/opt/homebrew/bin/rar", "/usr/local/bin/rar"]
-        where FileManager.default.isExecutableFile(atPath: candidate) {
-            return candidate
-        }
-        return "/opt/homebrew/bin/rar"
-    }
-
     static func requireRAR() throws {
-        try ZipTestSupport.requireExecutable(
-            executablePath,
-            reason: "RAR fixture generator is unavailable at \(executablePath)"
-        )
+        try ExternalTool.rar.require(reason: "RAR fixture generator is unavailable at \(executablePath)")
     }
 
     static func makeGeneratedArchive(

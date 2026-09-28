@@ -107,25 +107,13 @@ enum LHATestSupport {
         return URL(fileURLWithPath: path, isDirectory: true)
     }
 
+    /// 実行できる `lha`（lhasa）の場所。`KAITOKIT_LHA_EXECUTABLE` が実行できない path を指すときも nil。
     static var lhasaExecutableURL: URL? {
-        let environment = ProcessInfo.processInfo.environment
-        if let override = environment["KAITOKIT_LHA_EXECUTABLE"], !override.isEmpty {
-            let url = URL(fileURLWithPath: override)
-            return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
+        guard let path = ExternalTool.lha.resolvedPath,
+              FileManager.default.isExecutableFile(atPath: path) else {
+            return nil
         }
-        for directory in (environment["PATH"] ?? "").split(separator: ":") {
-            let url = URL(fileURLWithPath: String(directory), isDirectory: true)
-                .appendingPathComponent("lha")
-            if FileManager.default.isExecutableFile(atPath: url.path) {
-                return url
-            }
-        }
-        for path in ["/opt/homebrew/bin/lha", "/usr/local/bin/lha"] {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return URL(fileURLWithPath: path)
-            }
-        }
-        return nil
+        return URL(fileURLWithPath: path)
     }
 
     static func makeArchive(entries: [HandLHAEntry]) throws -> Data {

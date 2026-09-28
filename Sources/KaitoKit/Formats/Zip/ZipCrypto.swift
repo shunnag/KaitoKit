@@ -195,7 +195,7 @@ final class ZipCryptoByteSource: ByteSource {
     }
 }
 
-// ZIP 従来暗号の一括復号ヘルパー。入力は 12 バイトヘッダを含む。
+// ZIP 従来暗号の暗号 header の大きさと検査値。
 enum ZipCrypto {
     static let headerSize = 12
 
@@ -210,6 +210,7 @@ enum ZipCrypto {
         return UInt8(truncatingIfNeeded: crc32 >> 24)
     }
 
+    // テスト専用の一括復号。入力は 12 バイトヘッダを含む。読取経路は ZipCryptoByteSource を使う。
     static func decrypt(
         payloadIncludingHeader payload: Data,
         password: String,

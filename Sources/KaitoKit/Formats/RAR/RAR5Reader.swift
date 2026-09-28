@@ -1149,7 +1149,7 @@ final class RAR5Reader: FormatReader {
                         hashKey: hashKey
                     )
                 }
-                guard RARConstantTime.equals(actualHash, Data(expectedHash.digest)) else {
+                guard ConstantTime.equals(actualHash, Data(expectedHash.digest)) else {
                     if mismatchIsWrongPassword, hashKey != nil {
                         throw KaitoError.wrongPassword
                     }

@@ -189,7 +189,7 @@ struct WinZipAESAuthenticationCheck: Sendable, Equatable {
     }
 
     func verify() throws {
-        guard ZipConstantTime.equals(computedCode, storedCode) else {
+        guard ConstantTime.equals(computedCode, storedCode) else {
             // verifier の 16 bit 衝突を含む誤パスワードもここで拒否する。
             throw KaitoError.wrongPassword
         }
@@ -390,7 +390,7 @@ enum WinZipAES {
               keys.salt == salt else {
             throw KaitoError.malformed("cached WinZip AES keys do not match the payload")
         }
-        guard ZipConstantTime.equals(keys.passwordVerifier, passwordVerifier) else {
+        guard ConstantTime.equals(keys.passwordVerifier, passwordVerifier) else {
             throw KaitoError.wrongPassword
         }
     }
@@ -556,7 +556,7 @@ final class WinZipAESByteSource: ByteSource {
             hmac.finalize().prefix(WinZipAESPayload.authenticationCodeSize)
         )
         if let storedAuthenticationCode,
-           !ZipConstantTime.equals(computed, storedAuthenticationCode) {
+           !ConstantTime.equals(computed, storedAuthenticationCode) {
             throw KaitoError.wrongPassword
         }
         guard copied == destination.count else { throw KaitoError.truncated }
@@ -573,7 +573,7 @@ final class WinZipAESByteSource: ByteSource {
         try state.withLock { state in
             if let computed = state.computedAuthenticationCode {
                 if let storedAuthenticationCode,
-                   !ZipConstantTime.equals(computed, storedAuthenticationCode) {
+                   !ConstantTime.equals(computed, storedAuthenticationCode) {
                     throw KaitoError.wrongPassword
                 }
                 return
@@ -613,7 +613,7 @@ final class WinZipAESByteSource: ByteSource {
             )
             state.computedAuthenticationCode = computed
             if let storedAuthenticationCode,
-               !ZipConstantTime.equals(computed, storedAuthenticationCode) {
+               !ConstantTime.equals(computed, storedAuthenticationCode) {
                 throw KaitoError.wrongPassword
             }
         }
@@ -769,7 +769,7 @@ struct WinZipAESCTR: Sendable {
     }
 }
 
-// CommonCrypto のポインタ境界をこの型だけに封じ込める。
+// CommonCrypto の呼出しは Core/CommonCryptoPrimitives。ここは WinZip AES の入力検査と error 文言。
 private enum ZipCommonCrypto {
     static func pbkdf2SHA1(
         password: Data,
@@ -780,108 +780,30 @@ private enum ZipCommonCrypto {
         guard iterations > 0, outputLength > 0 else {
             throw KaitoError.malformed("invalid PBKDF2 parameters")
         }
-
-        let passwordLength = password.count
-        var passwordStorage = [UInt8](password)
-        if passwordStorage.isEmpty {
-            passwordStorage.append(0)
+        do {
+            return try CommonCryptoPrimitives.pbkdf2SHA1(
+                password: password, salt: salt, iterations: iterations, outputLength: outputLength
+            )
+        } catch {
+            throw KaitoError.malformed("CommonCrypto PBKDF2 failed (\(error.status))")
         }
-        var saltStorage = [UInt8](salt)
-        if saltStorage.isEmpty {
-            saltStorage.append(0)
-        }
-        var output = [UInt8](repeating: 0, count: outputLength)
-
-        let status = passwordStorage.withUnsafeBytes { passwordBuffer in
-            saltStorage.withUnsafeBytes { saltBuffer in
-                output.withUnsafeMutableBytes { outputBuffer in
-                    // 各 storage はクロージャの間固定され、C 関数は呼び出し後にポインタを保持しない。
-                    CCKeyDerivationPBKDF(
-                        CCPBKDFAlgorithm(kCCPBKDF2),
-                        passwordBuffer.baseAddress?.assumingMemoryBound(to: CChar.self),
-                        passwordLength,
-                        saltBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self),
-                        salt.count,
-                        CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1),
-                        iterations,
-                        outputBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self),
-                        outputLength
-                    )
-                }
-            }
-        }
-        guard status == kCCSuccess else {
-            throw KaitoError.malformed("CommonCrypto PBKDF2 failed (\(status))")
-        }
-        return output
     }
 
     static func hmacSHA1(data: Data, key: Data) -> Data {
-        let dataLength = data.count
-        var dataStorage = [UInt8](data)
-        if dataStorage.isEmpty {
-            dataStorage.append(0)
-        }
-        var keyStorage = [UInt8](key)
-        if keyStorage.isEmpty {
-            keyStorage.append(0)
-        }
-        var digest = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
-
-        keyStorage.withUnsafeBytes { keyBuffer in
-            dataStorage.withUnsafeBytes { dataBuffer in
-                digest.withUnsafeMutableBytes { digestBuffer in
-                    // CCHmac は同期的に完了し、ポインタはこのクロージャ外に逃げない。
-                    CCHmac(
-                        CCHmacAlgorithm(kCCHmacAlgSHA1),
-                        keyBuffer.baseAddress,
-                        key.count,
-                        dataBuffer.baseAddress,
-                        dataLength,
-                        digestBuffer.baseAddress
-                    )
-                }
-            }
-        }
-        return Data(digest)
+        Data(CommonCryptoPrimitives.hmacSHA1(data: data, key: key))
     }
 
+    /// ECB は CTR の鍵流生成にのみ使う。
     static func aesECBEncrypt(blocks: [UInt8], key: Data) throws -> [UInt8] {
         guard !blocks.isEmpty, blocks.count.isMultiple(of: kCCBlockSizeAES128) else {
             throw KaitoError.malformed("AES-ECB input is not block aligned")
         }
-
-        let input = blocks
-        let keyStorage = [UInt8](key)
-        var output = [UInt8](repeating: 0, count: blocks.count)
-        var outputLength = 0
-        let outputCapacity = output.count
-
-        let status = keyStorage.withUnsafeBytes { keyBuffer in
-            input.withUnsafeBytes { inputBuffer in
-                output.withUnsafeMutableBytes { outputBuffer in
-                    // CCCrypt はこの呼び出し中だけ各領域を参照する。ECB は CTR の鍵流生成にのみ使う。
-                    CCCrypt(
-                        CCOperation(kCCEncrypt),
-                        CCAlgorithm(kCCAlgorithmAES),
-                        CCOptions(kCCOptionECBMode),
-                        keyBuffer.baseAddress,
-                        key.count,
-                        nil,
-                        inputBuffer.baseAddress,
-                        input.count,
-                        outputBuffer.baseAddress,
-                        outputCapacity,
-                        &outputLength
-                    )
-                }
-            }
-        }
-        guard status == kCCSuccess, outputLength == blocks.count else {
+        do {
+            return try CommonCryptoPrimitives.aesECBEncrypt(blocks: blocks, key: key)
+        } catch {
             throw KaitoError.malformed(
-                "CommonCrypto AES-ECB failed (\(status), \(outputLength) bytes)"
+                "CommonCrypto AES-ECB failed (\(error.status), \(error.outputLength) bytes)"
             )
         }
-        return output
     }
 }

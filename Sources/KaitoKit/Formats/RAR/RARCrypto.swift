@@ -285,10 +285,10 @@ struct RAR5DerivedKeys: Sendable, Equatable {
         let calculatedChecksum = Data(
             SHA256.hash(data: Data(storedValue[0..<8])).prefix(4)
         )
-        guard RARConstantTime.equals(recordedChecksum, calculatedChecksum) else {
+        guard ConstantTime.equals(recordedChecksum, calculatedChecksum) else {
             return false
         }
-        guard RARConstantTime.equals(passwordCheckValue, Data(storedValue)) else {
+        guard ConstantTime.equals(passwordCheckValue, Data(storedValue)) else {
             throw KaitoError.wrongPassword
         }
         return true
@@ -522,7 +522,7 @@ enum RAR5ChecksumMAC {
             UInt8(truncatingIfNeeded: checksum >> 16),
             UInt8(truncatingIfNeeded: checksum >> 24),
         ]
-        let digest = RARCommonCrypto.hmacSHA256(data: raw, key: hashKey)
+        let digest = CommonCryptoPrimitives.hmacSHA256(data: raw, key: hashKey)
         var result: UInt32 = 0
         for index in digest.indices {
             result ^= UInt32(digest[index]) << UInt32((index & 3) * 8)
@@ -534,24 +534,7 @@ enum RAR5ChecksumMAC {
         guard digest.count == 32 else {
             throw KaitoError.malformed("RAR5 BLAKE2sp digest is not 32 bytes")
         }
-        return Data(RARCommonCrypto.hmacSHA256(data: [UInt8](digest), key: hashKey))
-    }
-}
-
-enum RARConstantTime {
-    static func equals(_ lhs: Data, _ rhs: Data) -> Bool {
-        guard lhs.count == rhs.count else { return false }
-        var difference: UInt8 = 0
-        lhs.withUnsafeBytes { leftBytes in
-            rhs.withUnsafeBytes { rightBytes in
-                let left = leftBytes.bindMemory(to: UInt8.self)
-                let right = rightBytes.bindMemory(to: UInt8.self)
-                for index in 0..<left.count {
-                    difference |= left[index] ^ right[index]
-                }
-            }
-        }
-        return difference == 0
+        return Data(CommonCryptoPrimitives.hmacSHA256(data: [UInt8](digest), key: hashKey))
     }
 }
 
@@ -680,6 +663,7 @@ final class RARAESCBCByteSource: ByteSource {
     }
 }
 
+// CommonCrypto の呼出しは Core/CommonCryptoPrimitives。ここは RAR の AES 入力検査と error 文言。
 private enum RARCommonCrypto {
     static func decryptECB(blocks: [UInt8], key: Data) throws -> [UInt8] {
         guard !blocks.isEmpty,
@@ -687,54 +671,12 @@ private enum RARCommonCrypto {
               key.count == kCCKeySizeAES128 || key.count == kCCKeySizeAES256 else {
             throw KaitoError.malformed("invalid RAR AES-ECB input")
         }
-        var output = [UInt8](repeating: 0, count: blocks.count)
-        var outputLength = 0
-        let capacity = output.count
-        let status: CCCryptorStatus = key.withUnsafeBytes { keyBytes in
-            blocks.withUnsafeBytes { inputBytes in
-                output.withUnsafeMutableBytes { outputBytes in
-                    CCCrypt(
-                        CCOperation(kCCDecrypt),
-                        CCAlgorithm(kCCAlgorithmAES),
-                        CCOptions(kCCOptionECBMode),
-                        keyBytes.baseAddress,
-                        key.count,
-                        nil,
-                        inputBytes.baseAddress,
-                        blocks.count,
-                        outputBytes.baseAddress,
-                        capacity,
-                        &outputLength
-                    )
-                }
-            }
-        }
-        guard status == kCCSuccess, outputLength == blocks.count else {
+        do {
+            return try CommonCryptoPrimitives.aesECBDecrypt(blocks: blocks, key: key)
+        } catch {
             throw KaitoError.malformed(
-                "CommonCrypto RAR AES failure (\(status), \(outputLength) bytes)"
+                "CommonCrypto RAR AES failure (\(error.status), \(error.outputLength) bytes)"
             )
         }
-        return output
-    }
-
-    static func hmacSHA256(data: [UInt8], key: Data) -> [UInt8] {
-        var keyStorage = [UInt8](key)
-        if keyStorage.isEmpty { keyStorage.append(0) }
-        var output = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        keyStorage.withUnsafeBytes { keyBytes in
-            data.withUnsafeBytes { dataBytes in
-                output.withUnsafeMutableBytes { outputBytes in
-                    CCHmac(
-                        CCHmacAlgorithm(kCCHmacAlgSHA256),
-                        keyBytes.baseAddress,
-                        key.count,
-                        dataBytes.baseAddress,
-                        data.count,
-                        outputBytes.baseAddress
-                    )
-                }
-            }
-        }
-        return output
     }
 }

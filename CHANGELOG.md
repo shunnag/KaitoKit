@@ -50,6 +50,19 @@
     を投げるようになった（正しい `ByteSource` では起きない）。
   - `kaito` の usage 表示が `detect-encoding` の `--check-orthography` を含む。
   - CAB の path component は Character ではなく UTF-8 の `/` で分ける（結合文字が `/` に続く名前だけで違いが出る）。
+- 2026-09-29 の追加整理。公開 API・`@_spi`・復号結果は変えていない。
+  - 7z と RAR の AES-CBC random access 復号を `Core/AESCBCRandomAccess` に一つにした。RAR4 / RAR5 の solid coordinator・範囲
+    decompressor・password 判定を generic な `Formats/RAR/RARSolidCoordinator` に一つにした（error 文言は形式名の label で不変）。
+  - `FormatDetector` の EOCD 走査は `ZipEndRecords.findEndRecords` を使い、検出側は ZIP64 の番兵除外と基点 0 の判定だけを持つ。
+  - Deflate・bzip2・gzip・xz・brotli の wrapper が持っていた入力 buffer の補充を `Core/ChunkedSourceInput` に一つにした。
+  - LArc -lz5- の窓の seed と LZHUF の位置符号長を `Codecs/OkumuraLZSSSeeds` に置き、LArc・LZHUF・StuffIt LZAH が共有する。
+  - 圧縮単一 file の接尾辞の表を `Formats/SingleFile/CompressedNaming` に一つにし、`SingleFileReader` と `ArchiveReader` が同じ表を読む。
+  - RAR3 / RAR5 / Blake2 のテスト専用 API に印を付け、呼び手のない `Data` 版の鍵導出を二つ削った。
+- 挙動の変わる点:
+  - `.taz` の単一 entry の fallback 名が `x.taz` から `x.tar` になった（container の表と同じく tar の別名として扱う）。
+    `.tar.bz` は従来どおり単一 entry のまま（`.bz` は名前から除くだけで container の別名にはしない）。
+  - 要求より多い（または負の）byte 数を返す `ByteSource` に対して Deflate・bzip2 の wrapper が投げる error が
+    `.malformed("ByteSource returned an invalid byte count")` から `.truncated` になり、gzip・xz・brotli と同じになった（正しい `ByteSource` では起きない）。
 
 ## [0.11.0] - 2026-09-27
 

@@ -1,8 +1,5 @@
 import Foundation
 
-// 命名規則は KaitoKit の SplitVolumeSet / ZipSplitVolumeSet と共有する。
-// 出自は両 reader のコメントを参照。新たな外部実装は参照していない。
-
 /// URL から実際に組み立てた分割巻と、その組み立て時点の同一性。
 /// 名前や属性はスナップショットであり、現在のパスの存在・同一性を保証しない。
 public struct ArchiveVolumeSet: Sendable, Equatable {

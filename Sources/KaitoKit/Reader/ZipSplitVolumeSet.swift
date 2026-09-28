@@ -1,7 +1,6 @@
 import Foundation
 
-// APPNOTE 6.3.9 §4.4 / §8 と WinZip の公開文書に基づく。
-// 巻名・境界越しの読取は Info-ZIP 3.0 / 7zz 26.03 の実行結果でも確認した。
+// 出典: APPNOTE 6.3.9 §4.4 / §8 と WinZip の公開文書。巻名と境界越しの読取は Info-ZIP 3.0 / 7zz 26.03 の実行結果と一致する。
 struct ZipDiskLayout: Sendable {
     struct Disk: Sendable {
         let start: UInt64

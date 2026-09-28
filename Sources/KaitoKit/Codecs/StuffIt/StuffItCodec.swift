@@ -1,4 +1,6 @@
 // 指定レポート Ch.04・12 の圧縮 method 名前空間に基づく。
+// 「指定レポート Ch.xx」は利用者所有の StuffIt 形式再構築レポート（inbox/stuffit/、入力は同 SHA256SUMS で照合）の章番号。
+// 出自と slice ごとの入力範囲は Documentation/design.md の「StuffIt provenance map」と各 slice の段落に記録する。
 // XADMaster / The Unarchiver / stuffit-go 等の実装ソースは参照していない。
 import Foundation
 

@@ -461,8 +461,9 @@ final class ZstdTests: XCTestCase {
         let prefix = block(Array("abcdefgh".utf8), type: 0, last: false)
         XCTAssertEqual(try decode(frame(prefix + block(rleSequence()))), Data("abcdefghefg".utf8))
         let deepest = try ZstdHuffman(weights: Array(stride(from: 11, through: 1, by: -1)))
-        var reader = ZstdByteReader(bits((1...10).map { (1, $0) } + [(0, 11), (1, 11)]))
-        XCTAssertEqual(try deepest.decode(from: &reader, count: 12, fourStreams: false), Array(0...11))
+        try ZstdByteReader.withPaddedCopy(of: bits((1...10).map { (1, $0) } + [(0, 11), (1, 11)])) { reader in
+            XCTAssertEqual(try deepest.decode(from: &reader, count: 12, fourStreams: false), Array(0...11))
+        }
     }
 
     func testInvalidEntropyAndHistoryHaveTypedErrors() throws {
@@ -473,8 +474,9 @@ final class ZstdTests: XCTestCase {
             assertKaitoError { _ = try ZstdFSE(probabilities: probabilities, accuracyLog: 5) }
         }
         for bytes: [UInt8] in [[15], [0, 0, 0, 0, 0, 0, 0, 0], [0x10]] {
-            var reader = ZstdByteReader(bytes)
-            assertKaitoError { _ = try ZstdFSE.read(from: &reader, maximumLog: 6, maximumSymbol: 11) }
+            ZstdByteReader.withPaddedCopy(of: bytes) { reader in
+                assertKaitoError { _ = try ZstdFSE.read(from: &reader, maximumLog: 6, maximumSymbol: 11) }
+            }
         }
         let treeless = little(3 | (4 << 4) | (1 << 14), 3) + [0x15, 0]
         let invalid: [[UInt8]] = [
@@ -820,7 +822,7 @@ final class ZstdTests: XCTestCase {
                         var last = false
                         while !last {
                             let block = try header.blockHeader(input)
-                            try input.skip(UInt64(block.type == 1 ? 1 : block.size))
+                            try input.skip(UInt64(block.type == .rle ? 1 : block.size))
                             last = block.last
                         }
                         if header.checksum { try input.skip(4) }
@@ -867,30 +869,34 @@ final class ZstdTests: XCTestCase {
         // T8: 最初だけ T=0、次は T=64。旧 pair を参照すると第二表の記号 1/2 が 0/1 になってしまう。
         let table = ZstdHuffman()
         XCTAssertEqual(table.allocatedTableBytes, 0)
-        var reader = ZstdByteReader(firstDescription + firstStream)
-        try table.readTable(from: &reader)
-        let singleAllocation = table.allocatedTableBytes
-        XCTAssertFalse(table.pairTableBuilt)
-        XCTAssertEqual(try table.decode(from: &reader, count: first.count, fourStreams: false,
-                                        tuning: ZstdTuning(pairTableThreshold: 0)), first)
-        XCTAssertTrue(table.pairTableBuilt)
-        XCTAssertEqual(table.decodedSymbols, first.count)
-        let allocation = table.allocatedTableBytes
-        XCTAssertGreaterThan(allocation, singleAllocation)
-        reader = ZstdByteReader(secondDescription + secondStream)
-        try table.readTable(from: &reader)
-        XCTAssertFalse(table.pairTableBuilt)
-        XCTAssertEqual(table.decodedSymbols, 0)
-        XCTAssertEqual(table.allocatedTableBytes, allocation)
-        XCTAssertEqual(try table.decode(from: &reader, count: second.count, fourStreams: false,
-                                        tuning: ZstdTuning(pairTableThreshold: 64)), second)
+        let allocation = try ZstdByteReader.withPaddedCopy(of: firstDescription + firstStream) { reader -> Int in
+            try table.readTable(from: &reader)
+            let singleAllocation = table.allocatedTableBytes
+            XCTAssertFalse(table.pairTableBuilt)
+            XCTAssertEqual(try table.decode(from: &reader, count: first.count, fourStreams: false,
+                                            tuning: ZstdTuning(pairTableThreshold: 0)), first)
+            XCTAssertTrue(table.pairTableBuilt)
+            XCTAssertEqual(table.decodedSymbols, first.count)
+            let allocation = table.allocatedTableBytes
+            XCTAssertGreaterThan(allocation, singleAllocation)
+            return allocation
+        }
+        try ZstdByteReader.withPaddedCopy(of: secondDescription + secondStream) { reader in
+            try table.readTable(from: &reader)
+            XCTAssertFalse(table.pairTableBuilt)
+            XCTAssertEqual(table.decodedSymbols, 0)
+            XCTAssertEqual(table.allocatedTableBytes, allocation)
+            XCTAssertEqual(try table.decode(from: &reader, count: second.count, fourStreams: false,
+                                            tuning: ZstdTuning(pairTableThreshold: 64)), second)
+        }
         XCTAssertFalse(table.pairTableBuilt)
         XCTAssertEqual(table.decodedSymbols, second.count)
         // type 3 相当: 再読込せずに累計 64 記号へ到達してから構築する。
         let reused = (0..<56).map { UInt8(1 + ($0 & 1)) }
-        reader = ZstdByteReader(bits(reused.map { (Int($0) - 1, 1) }))
-        XCTAssertEqual(try table.decode(from: &reader, count: reused.count, fourStreams: false,
-                                        tuning: ZstdTuning(pairTableThreshold: 64)), reused)
+        try ZstdByteReader.withPaddedCopy(of: bits(reused.map { (Int($0) - 1, 1) })) { reader in
+            XCTAssertEqual(try table.decode(from: &reader, count: reused.count, fourStreams: false,
+                                            tuning: ZstdTuning(pairTableThreshold: 64)), reused)
+        }
         XCTAssertTrue(table.pairTableBuilt)
         XCTAssertEqual(table.decodedSymbols, 64)
         XCTAssertEqual(table.allocatedTableBytes, allocation)
@@ -916,11 +922,12 @@ final class ZstdTests: XCTestCase {
                 for tuning in ZstdTuning.huffmanTestVariants {
                     let table = try ZstdHuffman(weights: Array(stride(from: 11, through: 1, by: -1)))
                     // 先頭以前が非ゼロでも tail の lookahead は stream 外を符号に混ぜない。
-                    var reader = ZstdByteReader([0xff, 0xa5, 0x7e] + jumps + streams.flatMap { $0 })
-                    _ = try reader.take(3)
                     var output = [UInt8](repeating: 0xa5, count: count + ZstdScratchBuffer.backPad)
-                    try output.withUnsafeMutableBufferPointer {
-                        try table.decode(from: &reader, count: count, fourStreams: four, tuning: tuning, into: $0)
+                    try ZstdByteReader.withPaddedCopy(of: [0xff, 0xa5, 0x7e] + jumps + streams.flatMap { $0 }) { reader in
+                        _ = try reader.take(3)
+                        try output.withUnsafeMutableBufferPointer {
+                            try table.decode(from: &reader, count: count, fourStreams: four, tuning: tuning, into: $0)
+                        }
                     }
                     XCTAssertEqual(Array(output.prefix(count)), expected)
                     XCTAssertEqual(Array(output.suffix(ZstdScratchBuffer.backPad)), [UInt8](repeating: 0, count: 32))

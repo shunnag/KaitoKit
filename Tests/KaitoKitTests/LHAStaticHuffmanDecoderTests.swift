@@ -3,7 +3,7 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
-final class LZSStaticHuffmanDecoderTests: XCTestCase {
+final class LHAStaticHuffmanDecoderTests: XCTestCase {
     private enum TestError: Error {
         case noProgress
     }
@@ -618,7 +618,7 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
         var limits = ReadLimits()
         limits.maxDictionarySize = 4_095
         XCTAssertThrowsError(
-            try LZSStaticHuffmanDecoder(
+            try LHAStaticHuffmanDecoder(
                 method: "-lh4-",
                 source: DataByteSource(Data()),
                 offset: 0,
@@ -634,7 +634,7 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
 
         limits.maxDictionarySize = 1_048_575
         XCTAssertThrowsError(
-            try LZSStaticHuffmanDecoder(
+            try LHAStaticHuffmanDecoder(
                 method: "-lhx-",
                 source: DataByteSource(Data()),
                 offset: 0,
@@ -695,8 +695,8 @@ final class LZSStaticHuffmanDecoderTests: XCTestCase {
         outputSize: UInt64,
         lhark: Bool = false,
         limits: ReadLimits = ReadLimits()
-    ) throws -> LZSStaticHuffmanDecoder {
-        try LZSStaticHuffmanDecoder(
+    ) throws -> LHAStaticHuffmanDecoder {
+        try LHAStaticHuffmanDecoder(
             method: method,
             source: DataByteSource(packed),
             offset: 0,

@@ -1,4 +1,4 @@
-// 指定資料 Ch.07 §7。slice 2 の標準 RC4 を共有する。
+// 指定資料 Ch.07 §7。Formats/StuffIt/StuffItCrypto.swift の StuffItRC4（標準 RC4）を共有する。
 import Foundation
 
 final class StuffItXRC4Stored: Decompressor {

@@ -55,14 +55,14 @@ final class ZstdDifferentialTests: XCTestCase {
         XCTAssertEqual(try decode(encoded, chunk: chunk), reference)
     }
 
-    private func blockTypes(_ encoded: Data) throws -> Set<Int> {
+    private func blockTypes(_ encoded: Data) throws -> Set<ZstdFrameHeader.BlockType> {
         let input = try ZstdInput(source: DataByteSource(encoded), offset: 4, size: UInt64(encoded.count - 4))
         let header = try ZstdFrameHeader(input: input, limits: ReadLimits())
-        var types = Set<Int>()
+        var types = Set<ZstdFrameHeader.BlockType>()
         while true {
             let block = try header.blockHeader(input)
             types.insert(block.type)
-            try input.skip(UInt64(block.type == 1 ? 1 : block.size))
+            try input.skip(UInt64(block.type == .rle ? 1 : block.size))
             if block.last { return types }
         }
     }
@@ -81,8 +81,8 @@ final class ZstdDifferentialTests: XCTestCase {
             for (index, input) in [text, runs, random].enumerated() {
                 let encoded = try compress(input, tool: tool, options: options)
                 try compare(encoded, expected: input, tool: tool)
-                if index == 1 { XCTAssertTrue(try blockTypes(encoded).contains(1)) }
-                if index == 2 { XCTAssertTrue(try blockTypes(encoded).contains(0)) }
+                if index == 1 { XCTAssertTrue(try blockTypes(encoded).contains(.rle)) }
+                if index == 2 { XCTAssertTrue(try blockTypes(encoded).contains(.raw)) }
                 if options.contains("--long=27") {
                     let input = try ZstdInput(source: DataByteSource(encoded), offset: 4, size: UInt64(encoded.count - 4))
                     XCTAssertEqual(try ZstdFrameHeader(input: input, limits: ReadLimits()).windowSize, 1 << 27)
@@ -245,10 +245,9 @@ final class ZstdDifferentialTests: XCTestCase {
             for length in 1...80 {
                 var bytes = random
                 bytes[start + length - 1] = 0xa5
-                let owner = ZstdByteReader(bytes)
-                try withExtendedLifetime(owner) {
+                try ZstdScratchBuffer.withPaddedCopy(of: bytes) { padded in
                     for width in 0...31 {
-                        var reader = try ZstdPaddedBitReader(owner.bytes, range: start..<(start + length))
+                        var reader = try ZstdPaddedBitReader(padded, range: start..<(start + length))
                         var remaining = length * 8 - 1
                         XCTAssertEqual(reader.readUnchecked(0), 0)
                         while remaining > 0 {
@@ -278,9 +277,8 @@ final class ZstdDifferentialTests: XCTestCase {
             }
         }
         // s == F。64 ビット以上を過剰消費しても、前余白の外を読む前に必ず拒否する。
-        let owner = ZstdByteReader([1])
-        try withExtendedLifetime(owner) {
-            var reader = try ZstdPaddedBitReader(owner.bytes, range: 0..<1)
+        try ZstdScratchBuffer.withPaddedCopy(of: [1]) { padded in
+            var reader = try ZstdPaddedBitReader(padded, range: 0..<1)
             var overread = 0
             XCTAssertThrowsError(try {
                 for _ in 0..<10 {
@@ -293,9 +291,8 @@ final class ZstdDifferentialTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(overread, 62)
         }
         for bytes: [UInt8] in [[], [0]] {
-            let owner = ZstdByteReader(bytes)
-            try withExtendedLifetime(owner) {
-                XCTAssertThrowsError(try ZstdPaddedBitReader(owner.bytes, range: 0..<bytes.count)) {
+            try ZstdScratchBuffer.withPaddedCopy(of: bytes) { padded in
+                XCTAssertThrowsError(try ZstdPaddedBitReader(padded, range: 0..<bytes.count)) {
                     XCTAssertEqual($0 as? KaitoError, .malformed("zstd bitstream end marker"))
                 }
             }
@@ -372,50 +369,51 @@ final class ZstdDifferentialTests: XCTestCase {
             let blockHeader = Int(input.position)
             let block = try header.blockHeader(input)
             let blockStart = Int(input.position)
-            if block.type != 2 {
-                try input.skip(UInt64(block.type == 1 ? 1 : block.size))
+            if block.type != .compressed {
+                try input.skip(UInt64(block.type == .rle ? 1 : block.size))
                 if block.last { return nil }
                 continue
             }
-            var reader = ZstdByteReader(try input.read(block.size))
-            let first = try reader.byte(), type = first & 3, format = (first >> 2) & 3
-            var jump = 0..<0
-            if type < 2 {
-                let size: Int
-                if format & 1 == 0 { size = first >> 3 }
-                else if format == 1 { size = (first >> 4) | (try reader.byte() << 4) }
-                else { size = (first >> 4) | (Int(try reader.integer(2)) << 4) }
-                _ = try reader.take(type == 1 ? 1 : size)
-            } else {
-                let width = [10, 10, 14, 18][format]
-                let value = UInt64(first) | (try reader.integer([3, 3, 4, 5][format] - 1) << 8)
-                var section = try reader.subreader(Int(value >> (4 + width)))
-                if type == 2 { _ = try ZstdHuffman.read(from: &section) }
-                if format != 0 { jump = section.position..<(section.position + 6) }
-            }
-            let countStart = reader.position
-            let firstCount = try reader.byte()
-            if firstCount == 0 { return nil }
-            if firstCount == 255 { _ = try reader.take(2) }
-            else if firstCount >= 128 { _ = try reader.take(1) }
-            let countEnd = reader.position
-            let modes = try reader.byte()
-            let tableStart = reader.position
-            for (shift, log, symbol) in [(6, 9, 35), (4, 8, 31), (2, 9, 52)] {
-                switch (modes >> shift) & 3 {
-                case 1: _ = try reader.byte()
-                case 2: _ = try ZstdFSE.read(from: &reader, maximumLog: log, maximumSymbol: symbol)
-                default: break
+            return try ZstdByteReader.withPaddedCopy(of: input.read(block.size)) { reader -> MutationSections? in
+                let first = try reader.byte(), type = first & 3, format = (first >> 2) & 3
+                var jump = 0..<0
+                if type < 2 {
+                    let size: Int
+                    if format & 1 == 0 { size = first >> 3 }
+                    else if format == 1 { size = (first >> 4) | (try reader.byte() << 4) }
+                    else { size = (first >> 4) | (Int(try reader.integer(2)) << 4) }
+                    _ = try reader.take(type == 1 ? 1 : size)
+                } else {
+                    let width = [10, 10, 14, 18][format]
+                    let value = UInt64(first) | (try reader.integer([3, 3, 4, 5][format] - 1) << 8)
+                    var section = try reader.subreader(Int(value >> (4 + width)))
+                    if type == 2 { _ = try ZstdHuffman.read(from: &section) }
+                    if format != 0 { jump = section.position..<(section.position + 6) }
                 }
+                let countStart = reader.position
+                let firstCount = try reader.byte()
+                if firstCount == 0 { return nil }
+                if firstCount == 255 { _ = try reader.take(2) }
+                else if firstCount >= 128 { _ = try reader.take(1) }
+                let countEnd = reader.position
+                let modes = try reader.byte()
+                let tableStart = reader.position
+                for (shift, log, symbol) in [(6, 9, 35), (4, 8, 31), (2, 9, 52)] {
+                    switch (modes >> shift) & 3 {
+                    case 1: _ = try reader.byte()
+                    case 2: _ = try ZstdFSE.read(from: &reader, maximumLog: log, maximumSymbol: symbol)
+                    default: break
+                    }
+                }
+                func absolute(_ range: Range<Int>) -> Range<Int> {
+                    (blockStart + range.lowerBound)..<(blockStart + range.upperBound)
+                }
+                return MutationSections(header: blockHeader, end: blockStart + block.size,
+                                        literalSection: absolute(0..<countStart), jumpTable: absolute(jump),
+                                        sequenceCount: absolute(countStart..<countEnd),
+                                        tables: absolute(tableStart..<reader.position),
+                                        stream: absolute(reader.position..<reader.end), maximumBlockSize: header.maximumBlockSize)
             }
-            func absolute(_ range: Range<Int>) -> Range<Int> {
-                (blockStart + range.lowerBound)..<(blockStart + range.upperBound)
-            }
-            return MutationSections(header: blockHeader, end: blockStart + block.size,
-                                    literalSection: absolute(0..<countStart), jumpTable: absolute(jump),
-                                    sequenceCount: absolute(countStart..<countEnd),
-                                    tables: absolute(tableStart..<reader.position),
-                                    stream: absolute(reader.position..<reader.end), maximumBlockSize: header.maximumBlockSize)
         }
     }
 

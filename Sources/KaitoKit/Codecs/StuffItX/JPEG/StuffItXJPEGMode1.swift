@@ -1,4 +1,5 @@
-// stuffitx_jpeg_mode1.py の色 baseline、整数分布、二行キャッシュを移植。
+// mode-1 JPEG の復元: 3 成分 baseline の係数を整数分布の model と二行 cache で復号し、baseline の Huffman 符号で出力する。
+// 出典: stuffitx_jpeg_mode1.py の色 baseline、整数分布、二行キャッシュを移植。
 import Foundation
 
 @inline(__always) func jpegCat3(_ n: Int) -> Int { let a = abs(n); return a < 2 ? 0 : a < 6 ? 1 : 2 }
@@ -81,7 +82,8 @@ final class StuffItXJPEGMode1Blocks {
         guard row >= 0, row < l.height, col >= 0, col < l.width else { throw jpegMalformed("mode-1 coefficient coordinates or block limit") }
         let index = l.ring+(row & 1)*l.width+col, upper = l.ring+((row-1) & 1)*l.width+col
         guard tags.p[index] != row else { throw jpegMalformed("duplicate mode-1 block") }
-        // Python の cache は二行添字であり、上左が同じ走査中に置換される挙動も保持する。
+        // cache は二行 ring（参照実装と同じ添字）。4:2:0 の輝度では上左 block の slot が同じ MCU 行の走査中に
+        // 置き換わるため、置換前の DC を呼出側が保存して upperLeftOverride で渡す。
         let left = col > 0 ? UnsafePointer(cache.p+(index-1)*64) : nil
         let up = row > 0 ? UnsafePointer(cache.p+upper*64) : nil
         let ul = row > 0 && col > 0 ? UnsafePointer(cache.p+(upper-1)*64) : nil
@@ -147,7 +149,7 @@ final class StuffItXJPEGMode1 {
     var done: Bool { row == geometry.height }
     init(_ prefix: JPEGPrefix, _ decoder: StuffItXJPEGRange, _ output: JPEGOutput, _ limits: ReadLimits) throws {
         guard let frame = prefix.frame, let scan = prefix.scan else { throw jpegMalformed("mode-1 baseline JPEG required") }
-        guard frame.marker == 192 else { throw jpegUnsupported("mode-1 baseline JPEG required") }
+        guard frame.marker == JPEGMarker.sof0 else { throw jpegUnsupported("mode-1 baseline JPEG required") }
         let components = try JPEGGeometry.componentsByID(frame), ids = components.map(\.id)
         guard (ids == [0,1,2] || ids == [1,2,3]), scan.components.map(\.id).sorted() == ids else { throw jpegUnsupported("mode-1 measured three-component interleaved profile required") }
         guard scan.ss == 0, scan.se == 63, scan.ah == 0, scan.al == 0 else { throw jpegMalformed("unsupported mode-1 scan") }
@@ -155,7 +157,8 @@ final class StuffItXJPEGMode1 {
         let tables = try JPEGTableSet(prefix); restart = tables.restart
         for (c,p) in components.enumerated() {
             let selector = scan.components.first {$0.id == p.id}!.selector
-            guard let dc = tables.huffman[selector >> 4], let ac = tables.huffman[16+(selector & 15)] else { throw jpegMalformed("undefined mode-1 Huffman table") }
+            guard let dc = tables.huffman[JPEGTableSet.dcTableKey(selector)],
+                  let ac = tables.huffman[JPEGTableSet.acTableKey(selector)] else { throw jpegMalformed("undefined mode-1 Huffman table") }
             configuration.p[c] = JPEGBaselineComponent(hs:p.horizontal,vs:p.vertical,dc:dc,ac:ac)
         }
         blocks = StuffItXJPEGMode1Blocks(decoder,geometry); entropy = JPEGEntropyWriter(output)
@@ -177,7 +180,8 @@ final class StuffItXJPEGMode1 {
             }
             let unit = row*geometry.width+column+1
             if restart != 0 && unit < geometry.width*geometry.height && unit%restart == 0 {
-                try entropy.finish(); try entropy.output.append(255); try entropy.output.append(208+restarts%8)
+                try entropy.finish(); try entropy.output.append(JPEGMarker.prefix)
+                try entropy.output.append(JPEGMarker.rst.lowerBound+restarts%8)
                 restarts += 1; previousDC.p.update(repeating:0,count:3)
             }
         }

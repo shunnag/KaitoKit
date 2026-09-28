@@ -1,7 +1,24 @@
 import Foundation
 
 // RFC 8878 §3.1 のフレーム・ブロックと sequence 実行。
+//
+// 不変条件ラベル。Zstd の各ファイルのコメントにある D0–D11 / D-T はこの一覧を指す（検証の経緯と当時の行番号は
+// Documentation/verification/2026-09-26-zstd-p11.md の「現行 D0–D11 invariant index」）。
+// D0/D1  frame が所有する遅延確保の scratch（ZstdScratchBuffer）。必要量で倍増し、前 8 / 後 32 byte の余白を持つ。
+// D2     literal 領域: RLE は size + 32 byte を同じ値で埋め、raw は block 内の view、Huffman は再利用 buffer に書く。
+// D3     output 末尾の outputSlack（32 byte）は書込み専用の余白。match の各 chunk は現在位置より前だけを読む。
+// D4     sequence 表の cell は 8 byte（ZstdSequenceCell）。表は kind ごとの容量で一度だけ確保する。
+// D5     ZstdPaddedBitReader の word load は前余白の内側に収まり、refill は下限を検査する。
+// D6     sequence loop の状態は値とローカル変数だけ。copy 前に長さと履歴距離を検証する。
+// D7     block / literal / table の view は frame が所有し、復号中は無効化されない。
+// D8/D9  Huffman 表は frame 内で再利用する。type 2 は pair 表を無効化し、type 3 は表と使用量を保持する。
+// D10    Huffman の batch 復号は bit 数と出力余地の両方で反復数を決め、tail は同じ reader で厳密に終える。
+// D11    block の view は次の nextBlock か frame 解放まで有効。長さは確保前に、content size と checksum は返却前に検査する。
+// D-T    ZstdTuning: テストと計測が instance 単位で渡す経路選択。既定値が本番の経路。
 struct ZstdFrameHeader {
+    /// RFC 8878 §3.1.1.2 の Block_Type。値 3 は予約で、blockHeader が拒否する。
+    enum BlockType: Int { case raw = 0, rle = 1, compressed = 2 }
+
     static let magic: UInt64 = 0xfd2fb528
     let windowSize: Int
     let contentSize: UInt64?
@@ -50,11 +67,10 @@ struct ZstdFrameHeader {
         checksum = descriptor & 4 != 0
     }
 
-    func blockHeader(_ input: ZstdInput) throws -> (last: Bool, type: Int, size: Int) {
+    func blockHeader(_ input: ZstdInput) throws -> (last: Bool, type: BlockType, size: Int) {
         let raw = try input.integer(3)
         let size = Int(raw >> 3)
-        let type = Int((raw >> 1) & 3)
-        guard type != 3, size <= maximumBlockSize else {
+        guard let type = BlockType(rawValue: Int((raw >> 1) & 3)), size <= maximumBlockSize else {
             throw KaitoError.malformed("zstd block type or size")
         }
         return (raw & 1 != 0, type, size)
@@ -62,7 +78,14 @@ struct ZstdFrameHeader {
 }
 
 final class ZstdFrameDecoder {
+    /// RFC 8878 §3.1.1.3.1 の Literals_Block_Type。
+    private enum LiteralsType: Int { case raw, rle, compressed, treeless }
+    /// RFC 8878 §3.1.1.3.2.1 の LL / OF / ML 表の符号化 mode。
+    private enum SequenceMode: Int { case predefined, rle, fseCompressed, repeatPrevious }
+
     static let outputSlack = 32
+    /// sequence 表の記号数の最大（match length code 0...52）。FSE 分布の scratch はこの数だけ確保する。
+    private static let maximumSequenceSymbols = 53
     let header: ZstdFrameHeader
     private let tuning: ZstdTuning
     private let blockBuffer = ZstdScratchBuffer()
@@ -143,29 +166,28 @@ final class ZstdFrameDecoder {
         let output: UnsafeRawBufferPointer
         let total: UInt64
         switch block.type {
-        case 0, 1:
+        case .raw, .rle:
             // D11: 既知の再生長は確保前に検査。空 block は prepareBlock せず、RLE の byte は必ず消費する。
             total = try checkedProduced(block.size)
-            let repeated = block.type == 1 ? UInt8(try input.byte()) : 0
+            let repeated = block.type == .rle ? UInt8(try input.byte()) : 0
             if block.size == 0 {
                 output = UnsafeRawBufferPointer(start: nil, count: 0)
             } else {
                 let target = prepareBlock(block.size)
                 // prepareBlock が実長 + outputSlack を確保済み。raw/RLE は実長だけ書き、余白を読まない。
-                if block.type == 0 {
+                if block.type == .raw {
                     try input.read(block.size, into: UnsafeMutableRawPointer(target.baseAddress!))
                 } else {
                     target.baseAddress!.initialize(repeating: repeated, count: block.size)
                 }
                 output = UnsafeRawBufferPointer(start: target.baseAddress, count: block.size)
             }
-        case 2:
+        case .compressed:
             blockBuffer.reserve(block.size, maximum: header.maximumBlockSize)
             try input.read(block.size, into: blockBuffer.base)
             blockBuffer.pad(after: block.size)
             output = try compressedBlock(UnsafeRawBufferPointer(start: blockBuffer.base, count: block.size))
             total = try checkedProduced(output.count)
-        default: throw KaitoError.malformed("zstd reserved block")
         }
         produced = total
         if header.checksum { checksum.update(output) }
@@ -186,15 +208,16 @@ final class ZstdFrameDecoder {
 
     private func literals(_ reader: inout ZstdByteReader) throws -> UnsafeRawBufferPointer {
         let first = try reader.byte()
-        let type = first & 3
+        // 2 bit の全値が定義済み。
+        let type = LiteralsType(rawValue: first & 3)!
         let format = (first >> 2) & 3
-        if type <= 1 {
+        if type == .raw || type == .rle {
             let size: Int
             if format & 1 == 0 { size = first >> 3 }
             else if format == 1 { size = (first >> 4) | (try reader.byte() << 4) }
             else { size = (first >> 4) | (Int(try reader.integer(2)) << 4) }
             guard size <= header.maximumBlockSize else { throw KaitoError.malformed("zstd literals size") }
-            if type == 1 {
+            if type == .rle {
                 let byte = UInt8(try reader.byte())
                 literalBuffer.reserve(size, maximum: header.maximumBlockSize)
                 // D2: 有効 size バイトと直後の 32 バイトだけを同じ値で初期化する。
@@ -212,7 +235,7 @@ final class ZstdFrameDecoder {
         let compressedSize = Int(value >> (4 + width))
         guard size <= header.maximumBlockSize else { throw KaitoError.malformed("zstd literals size") }
         var section = try reader.subreader(compressedSize)
-        if type == 2 {
+        if type == .compressed {
             // D8/D9: 新しい表でも frame 所有の storage は再利用し、pair の有効性と使用量だけをリセットする。
             if huffman == nil { huffman = ZstdHuffman() }
             try huffman!.readTable(from: &section)
@@ -225,21 +248,21 @@ final class ZstdFrameDecoder {
         return UnsafeRawBufferPointer(start: literalBuffer.base, count: size)
     }
 
-    private func table(_ mode: Int, target: ZstdSequenceTable, predefined: [ZstdSequenceCell],
+    private func table(_ modeBits: Int, target: ZstdSequenceTable, predefined: [ZstdSequenceCell],
                        predefinedLog: Int, maximumLog: Int, bases: [Int], bits: [Int],
                        reader: inout ZstdByteReader) throws {
-        switch mode {
-        case 0: target.predefined(predefined, log: predefinedLog)
-        case 1: try target.rle(symbol: reader.byte(), bases: bases, bits: bits)
-        case 2:
-            if probabilities.isEmpty { probabilities = .allocate(capacity: 53) }
+        // 呼出側が 2 bit に切り出すので、全値が定義済み。
+        switch SequenceMode(rawValue: modeBits)! {
+        case .predefined: target.predefined(predefined, log: predefinedLog)
+        case .rle: try target.rle(symbol: reader.byte(), bases: bases, bits: bits)
+        case .fseCompressed:
+            if probabilities.isEmpty { probabilities = .allocate(capacity: Self.maximumSequenceSymbols) }
             let description = try ZstdFSE.readDistribution(from: &reader, maximumLog: maximumLog,
                                                           maximumSymbol: bases.count - 1, into: probabilities)
             try target.build(probabilities: probabilities, count: description.count,
                              log: description.accuracyLog, bases: bases, bits: bits)
-        case 3:
+        case .repeatPrevious:
             guard target.accuracyLog != nil else { throw KaitoError.malformed("zstd repeat FSE without table") }
-        default: throw KaitoError.malformed("zstd sequence mode")
         }
     }
 
@@ -357,7 +380,7 @@ final class ZstdFrameDecoder {
     private static func invalidSequence(literalLength: Int, matchLength: Int, offset: Int,
                                         literalsRemaining: Int, outputRemaining: Int,
                                         windowSize: Int, availableHistory: Int) throws -> Never {
-        // D6: 従来と同じ優先順でエラーを選び、いずれもコピー前に返す。
+        // D6: 長さ超過を履歴超過より先に報告する。いずれもコピー前に返す。
         if literalLength > literalsRemaining || literalLength + matchLength > outputRemaining {
             throw KaitoError.malformed("zstd sequence lengths")
         }

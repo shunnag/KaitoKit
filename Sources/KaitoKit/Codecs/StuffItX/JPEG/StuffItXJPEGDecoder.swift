@@ -1,4 +1,5 @@
-// stuffitx_jpeg_restore.py の dispatch と厳密な member 終端を Decompressor へ接続。
+// StuffIt X compression 7（JPEG）の Decompressor: jcodec mode 0 / 1 / 2 の dispatch、scan 後の marker と tail、
+// 厳密な member 終端。出典: stuffitx_jpeg_restore.py の dispatch を Decompressor へ接続。
 import Foundation
 
 final class StuffItXJPEGDecoder: Decompressor {
@@ -37,9 +38,9 @@ final class StuffItXJPEGDecoder: Decompressor {
             let range = try StuffItXJPEGRange(input), model = StuffItXJPEGHeaderModel()
             self.range = range; headerModel = model
             let prefix = try StuffItXJPEGEnvelope.firstScan(limit:limits.maxEntrySize) { try model.byte(range) }
-            if prefix.scan == nil && prefix.frame?.marker != 194 {
+            if prefix.scan == nil && prefix.frame?.marker != JPEGMarker.sof2 {
                 try output.append(prefix.header)
-            } else if mode == 2 && prefix.frame?.marker == 192 {
+            } else if mode == 2 && prefix.frame?.marker == JPEGMarker.sof0 {
                 baseline = try StuffItXJPEGBaseline(prefix,range,output,limits)
                 try output.append(prefix.header)
             } else if mode == 2 {
@@ -63,7 +64,7 @@ final class StuffItXJPEGDecoder: Decompressor {
             else if let mode1, !mode1.done { try mode1.step() }
             else if let progressive, !progressive.done { try progressive.step() }
             else if !scanEnded {
-                if progressive != nil { try output.append([255,217]); scanEnded = true }
+                if progressive != nil { try output.append([UInt8(JPEGMarker.prefix),UInt8(JPEGMarker.eoi)]); scanEnded = true }
                 else if baseline != nil || mode1 != nil { scanEnded = try postScan() }
                 else { scanEnded = true }
             } else { ended = try tail() }
@@ -80,8 +81,9 @@ final class StuffItXJPEGDecoder: Decompressor {
         guard let marker else { try output.append(token); return false }
         postMarkers += 1
         guard postMarkers <= 4096 else { throw jpegMalformed("JPEG marker limit") }
-        if marker == 216 || marker == 217 { try output.append([255,217]); return true }
-        guard ![0,1,192,194,218].contains(marker), !(208...215).contains(marker) else { throw jpegUnsupported("unsupported marker after baseline scan") }
+        if marker == JPEGMarker.soi || marker == JPEGMarker.eoi { try output.append([UInt8(JPEGMarker.prefix),UInt8(JPEGMarker.eoi)]); return true }
+        guard ![JPEGMarker.stuffedZero, JPEGMarker.tem, JPEGMarker.sof0, JPEGMarker.sof2, JPEGMarker.sos].contains(marker),
+              !JPEGMarker.rst.contains(marker) else { throw jpegUnsupported("unsupported marker after baseline scan") }
         try output.append(token)
         let high = try get(), low = try get(), length = high*256+low
         guard length >= 2 else { throw jpegMalformed("JPEG segment length") }

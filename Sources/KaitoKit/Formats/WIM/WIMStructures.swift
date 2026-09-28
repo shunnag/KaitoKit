@@ -13,7 +13,7 @@ enum WIMBytes {
     /// FILETIME（1601-01-01 からの 100 ns）。0 は未設定。
     static func fileTime(_ value: UInt64) -> Date? {
         guard value != 0, value < 0x8000_0000_0000_0000 else { return nil }
-        return Date(timeIntervalSince1970: Double(value) / 10_000_000 - 11_644_473_600)
+        return WindowsFileTime.date(ticks: value)
     }
 }
 

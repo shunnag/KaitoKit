@@ -85,7 +85,7 @@ final class DOSTimestampTests: XCTestCase {
               (0...59).contains(second),
               (0...59).contains(minute),
               (0...23).contains(hour) else {
-            throw KaitoError.malformed("invalid ZIP DOS timestamp")
+            throw KaitoError.malformed("invalid DOS timestamp")
         }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
@@ -97,7 +97,7 @@ final class DOSTimestampTests: XCTestCase {
             let validDays = calendar.range(of: .day, in: .month, for: monthStart),
             validDays.contains(day)
         else {
-            throw KaitoError.malformed("invalid ZIP DOS timestamp")
+            throw KaitoError.malformed("invalid DOS timestamp")
         }
         guard let result = calendar.date(from: DateComponents(
             year: year,
@@ -107,7 +107,7 @@ final class DOSTimestampTests: XCTestCase {
             minute: minute,
             second: second
         )) else {
-            throw KaitoError.malformed("invalid ZIP DOS timestamp")
+            throw KaitoError.malformed("invalid DOS timestamp")
         }
         return result
     }

@@ -31,7 +31,7 @@ struct StuffItEnvelope {
 /// Mac OS の日時（1904-01-01 からの秒、UTC 扱い）。0 は未設定。
 func macEpochDate(_ seconds: UInt64) -> Date? {
     guard seconds != 0 else { return nil }
-    return Date(timeIntervalSince1970: Double(seconds) - 2_082_844_800)
+    return MacEpoch.date(seconds: seconds)
 }
 
 enum StuffItWrapper {

@@ -10,6 +10,12 @@ enum CFBBytes {
     static func u16(_ b: [UInt8], _ o: Int) -> UInt16 { LittleEndian.uint16(b, at: o) }
     static func u32(_ b: [UInt8], _ o: Int) -> UInt32 { LittleEndian.uint32(b, at: o) }
     static func u64(_ b: [UInt8], _ o: Int) -> UInt64 { LittleEndian.uint64(b, at: o) }
+
+    /// §2.6.1 directory entry の Creation / Modified Time（FILETIME）。0 は未設定、符号 bit が立つ値は捨てる。
+    static func fileTime(_ value: UInt64) -> Date? {
+        guard value != 0, value < 0x8000_0000_0000_0000 else { return nil }
+        return WindowsFileTime.date(ticks: value)
+    }
 }
 
 /// §2.2 の header（512 byte）。
@@ -249,12 +255,12 @@ final class CFBReader: FormatReader {
                 var specific: [String: String] = [:]
                 if published != entry.name { specific["storedName"] = entry.name }
                 if let clsid = entry.clsidString { specific["clsid"] = clsid }
-                if entry.created != 0, let date = WIMBytes.fileTime(entry.created) { specific["created"] = ISO8601DateFormatter().string(from: date) }
+                if entry.created != 0, let date = CFBBytes.fileTime(entry.created) { specific["created"] = ISO8601DateFormatter().string(from: date) }
                 let name = path.joined(separator: "/")
                 entries.append(ArchiveEntry(index: entries.count,
                     rawName: RawName(bytes: Array(name.utf8), declaredEncoding: .utf8, isDirectoryHint: kind == .directory),
                     name: name, pathComponents: path, kind: kind, uncompressedSize: size, compressedSize: size,
-                    modificationDate: WIMBytes.fileTime(entry.modified), posixPermissions: nil, isEncrypted: false, solidGroup: -1,
+                    modificationDate: CFBBytes.fileTime(entry.modified), posixPermissions: nil, isEncrypted: false, solidGroup: -1,
                     crc32: nil, methodDescription: "stored", formatSpecific: specific))
                 records.append(Record(entry: entry))
                 if entry.type == .storage { pending.append((entry.child, path, depth + 1, false)) }

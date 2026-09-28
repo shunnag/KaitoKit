@@ -264,9 +264,9 @@ final class ARJReader: FormatReader {
     /// technote の time stamp: 上位 word が日付（1980 起点）、下位 word が時刻（2 秒単位）。
     static func dosDate(_ packed: UInt32) -> Date? {
         guard packed != 0 else { return nil }
-        let time = Int(packed & 0xFFFF), date = Int(packed >> 16)
-        let day = date & 0x1F, month = (date >> 5) & 0x0F, year = (date >> 9) + 1980
-        let second = (time & 0x1F) * 2, minute = (time >> 5) & 0x3F, hour = time >> 11
+        let dos = DOSDateTime(packed: packed)
+        let year = dos.year, month = dos.month, day = dos.day
+        let hour = dos.hour, minute = dos.minute, second = dos.second
         guard (1...31).contains(day), (1...12).contains(month), second <= 59, minute <= 59, hour <= 23 else { return nil }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone.current

@@ -66,7 +66,7 @@ final class StuffItReader: FormatReader {
             result.append(ArchiveEntry(index: result.count, rawName: RawName(bytes: record.rawName, isDirectoryHint: record.directory),
                 name: path.joined(separator: "/"), pathComponents: path, kind: record.directory ? .directory : .file,
                 uncompressedSize: record.size, compressedSize: record.stored,
-                modificationDate: Date(timeIntervalSince1970: Double(record.modified) - 2_082_844_800),
+                modificationDate: MacEpoch.date(seconds: record.modified),
                 posixPermissions: nil, isEncrypted: record.encrypted, solidGroup: -1, crc32: nil,
                 methodDescription: record.directory ? "Directory" : Self.methodName(record.method), formatSpecific: metadata))
         }

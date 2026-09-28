@@ -13,7 +13,7 @@ enum HFSBytes {
     /// HFS Plus の日時: 1904-01-01 00:00:00 UTC からの秒（createDate だけは local time だが公開は modification）。
     static func date(_ seconds: UInt32) -> Date? {
         guard seconds != 0 else { return nil }
-        return Date(timeIntervalSince1970: Double(seconds) - 2_082_844_800)
+        return MacEpoch.date(seconds: UInt64(seconds))
     }
 }
 

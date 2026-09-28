@@ -1453,14 +1453,9 @@ enum LHAHeaderParser {
 
     private static func dosDate(_ packed: UInt32) throws -> Date? {
         guard packed != 0 else { return nil }
-        let time = UInt16(truncatingIfNeeded: packed)
-        let date = UInt16(truncatingIfNeeded: packed >> 16)
-        let day = Int(date & 0x001F)
-        let month = Int((date >> 5) & 0x000F)
-        let year = Int((date >> 9) & 0x007F) + 1980
-        let second = Int(time & 0x001F) * 2
-        let minute = Int((time >> 5) & 0x003F)
-        let hour = Int((time >> 11) & 0x001F)
+        let dos = DOSDateTime(packed: packed)
+        let year = dos.year, month = dos.month, day = dos.day
+        let hour = dos.hour, minute = dos.minute, second = dos.second
         guard (1...31).contains(day),
               (1...12).contains(month),
               (0...59).contains(second),
@@ -1498,7 +1493,7 @@ enum LHAHeaderParser {
         // A zero FILETIME denotes an unavailable timestamp in this extension;
         // it must not turn a valid DOS base time into 1601-01-01.
         guard ticks != 0 else { return nil }
-        let seconds = Double(ticks) / 10_000_000.0 - 11_644_473_600.0
+        let seconds = WindowsFileTime.secondsSince1970(ticks: ticks)
         guard seconds.isFinite else {
             throw KaitoError.malformed("LHA Windows timestamp is out of range")
         }

@@ -27,7 +27,7 @@ struct StuffItXCatalog {
                 case 1: record.name = try input.string(limit: limits.maxMetadataSize)
                 case 2, 8:
                     let ticks = try input.packedBE(8)
-                    let date = Date(timeIntervalSince1970: Double(ticks) / 10_000_000 - 11_644_473_600)
+                    let date = WindowsFileTime.date(ticks: ticks)
                     if key == 2 { record.modified = date }
                     record.metadata[key == 2 ? "mtimeTicks" : "ctimeTicks"] = String(ticks)
                 case 3: record.metadata["catalog3"] = String(try input.packedBE(4))

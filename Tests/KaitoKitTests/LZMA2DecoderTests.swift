@@ -3,10 +3,6 @@ import Foundation
 import XCTest
 
 final class LZMA2DecoderTests: XCTestCase {
-    private enum TestError: Error {
-        case noProgress
-    }
-
     func testCompressedChunkWithTinyReads() throws {
         // xz 5.8.3: `xz --format=raw --lzma2=dict=64KiB` が
         // `abcabcabcabcabcabc` に生成した complete raw stream。
@@ -495,24 +491,8 @@ final class LZMA2DecoderTests: XCTestCase {
         )
     }
 
+    /// 終わらない decoder で止まらないよう、読む回数に上限を置く。
     private func drain(_ decoder: any Decompressor, bufferSize: Int) throws -> Data {
-        var result = Data()
-        var buffer = [UInt8](repeating: 0, count: bufferSize)
-        var iterations = 0
-        while !decoder.isFinished {
-            let count = try buffer.withUnsafeMutableBytes { storage in
-                // storage は固定長配列の全領域で、decoder はその範囲内だけを書く。
-                try decoder.read(into: storage)
-            }
-            guard count > 0 || decoder.isFinished else {
-                throw TestError.noProgress
-            }
-            result.append(contentsOf: buffer.prefix(count))
-            iterations += 1
-            guard iterations < 1_000_000 else {
-                throw TestError.noProgress
-            }
-        }
-        return result
+        try KaitoKitTests.drain(decoder, bufferSize: bufferSize, maxReads: 1_000_000)
     }
 }

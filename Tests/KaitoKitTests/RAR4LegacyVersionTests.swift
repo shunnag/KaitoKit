@@ -25,15 +25,15 @@ final class RAR4LegacyVersionTests: XCTestCase {
         ))
 
         var fields: [UInt8] = []
-        appendLittle(UInt32(1), to: &fields)
-        appendLittle(UInt32(1), to: &fields)
+        fields.appendLittleEndian(UInt32(1))
+        fields.appendLittleEndian(UInt32(1))
         fields.append(2)
-        appendLittle(UInt32(0), to: &fields)
-        appendLittle(UInt32(0), to: &fields)
+        fields.appendLittleEndian(UInt32(0))
+        fields.appendLittleEndian(UInt32(0))
         fields.append(unpackVersion)
         fields.append(0x31)
-        appendLittle(UInt16("legacy.bin".utf8.count), to: &fields)
-        appendLittle(UInt32(0x20), to: &fields)
+        fields.appendLittleEndian(UInt16("legacy.bin".utf8.count))
+        fields.appendLittleEndian(UInt32(0x20))
         fields.append(contentsOf: "legacy.bin".utf8)
         archive.append(contentsOf: makeHeader(
             type: 0x74,
@@ -47,17 +47,12 @@ final class RAR4LegacyVersionTests: XCTestCase {
 
     private func makeHeader(type: UInt8, flags: UInt16, fields: [UInt8]) -> [UInt8] {
         var body = [type]
-        appendLittle(flags, to: &body)
-        appendLittle(UInt16(7 + fields.count), to: &body)
+        body.appendLittleEndian(flags)
+        body.appendLittleEndian(UInt16(7 + fields.count))
         body.append(contentsOf: fields)
         var header: [UInt8] = []
-        appendLittle(UInt16(truncatingIfNeeded: CRC32.checksum(body)), to: &header)
+        header.appendLittleEndian(UInt16(truncatingIfNeeded: CRC32.checksum(body)))
         header.append(contentsOf: body)
         return header
-    }
-
-    private func appendLittle<T: FixedWidthInteger>(_ value: T, to bytes: inout [UInt8]) {
-        var little = value.littleEndian
-        withUnsafeBytes(of: &little) { bytes.append(contentsOf: $0) }
     }
 }

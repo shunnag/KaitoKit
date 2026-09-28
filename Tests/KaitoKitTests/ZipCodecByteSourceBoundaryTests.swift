@@ -200,21 +200,6 @@ final class ZipCodecByteSourceBoundaryTests: XCTestCase {
             dictionarySizeLimit: 1 << 20
         )
     }
-
-    private func drain(_ decoder: any Decompressor, bufferSize: Int) throws -> Data {
-        var result = Data()
-        var buffer = [UInt8](repeating: 0, count: bufferSize)
-        while !decoder.isFinished {
-            let count = try buffer.withUnsafeMutableBytes { storage in
-                try decoder.read(into: storage)
-            }
-            guard count > 0 || decoder.isFinished else {
-                throw KaitoError.malformed("codec test decoder made no progress")
-            }
-            result.append(contentsOf: buffer.prefix(count))
-        }
-        return result
-    }
 }
 
 private final class RangeCheckingShortByteSource: ByteSource, @unchecked Sendable {

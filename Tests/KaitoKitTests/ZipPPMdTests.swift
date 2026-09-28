@@ -153,7 +153,7 @@ final class ZipPPMdTests: XCTestCase {
             }()) { self.assertDecodeError($0) }
             if length < original.bytes.count - 1 {
                 // 大幅な切断はメタデータを整合させても decoder 自身が拒否する。
-                try assertCorrupt(truncated)
+                try assertCorruptArchive(truncated)
             }
         }
     }
@@ -163,7 +163,7 @@ final class ZipPPMdTests: XCTestCase {
         for position in 0..<16 {
             var changed = original
             changed.bytes[changed.bytes.count * position / 16] ^= 0xFF
-            try assertCorrupt(changed)
+            try assertCorruptArchive(changed)
         }
     }
 
@@ -281,9 +281,9 @@ final class ZipPPMdTests: XCTestCase {
                          localUncompressedSize: UInt32(packed.size)),
         ])
     }
-    private func assertCorrupt(_ packed: Packed, file: StaticString = #filePath, line: UInt = #line) throws {
+    private func assertCorruptArchive(_ packed: Packed, file: StaticString = #filePath, line: UInt = #line) throws {
         let reader = try ArchiveReader.open(data: archive(packed))
-        XCTAssertThrowsError(try reader.read(reader.entries[0]), file: file, line: line) { self.assertDecodeError($0) }
+        assertCorrupt({ try reader.read(reader.entries[0]) }, file: file, line: line)
     }
     private func assertDecodeError(_ error: Error, file: StaticString = #filePath, line: UInt = #line) {
         switch error as? KaitoError {

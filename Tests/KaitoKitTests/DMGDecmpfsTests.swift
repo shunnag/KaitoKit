@@ -344,12 +344,6 @@ final class DMGDecmpfsTests: XCTestCase {
         }
     }
 
-    private func assertMalformed(_ body: () throws -> Void, file: StaticString = #filePath, line: UInt = #line) {
-        XCTAssertThrowsError(try body(), file: file, line: line) {
-            guard case .malformed = $0 as? KaitoError else { return XCTFail("予期しないエラー: \($0)", file: file, line: line) }
-        }
-    }
-
     private func header(_ type: UInt32, _ size: UInt64) throws -> DecmpfsHeader {
         var bytes = Array("fpmc".utf8) + [UInt8](repeating: 0, count: 12)
         putLE(UInt64(type), &bytes, 4); putLE(size, &bytes, 8, width: 8)

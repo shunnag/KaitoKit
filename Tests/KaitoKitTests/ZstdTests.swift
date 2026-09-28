@@ -49,16 +49,6 @@ final class ZstdTests: XCTestCase {
                                entryIndex: 0, limits: limits).readAll()
     }
 
-    private func drain(_ stream: EntryStream, chunk: Int = 127) throws -> Data {
-        var result = Data()
-        var bytes = [UInt8](repeating: 0, count: chunk)
-        while true {
-            let count = try bytes.withUnsafeMutableBytes { try stream.read(into: $0) }
-            if count == 0 { return result }
-            result.append(contentsOf: bytes[..<count])
-        }
-    }
-
     func testEveryFixedFixtureListingSHAReopenAndSmallChunks() throws {
         let directory = try TestFixtures.makeTemporaryDirectory(label: "zstd")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -88,7 +78,7 @@ final class ZstdTests: XCTestCase {
                 XCTAssertEqual(UInt64(data.count), row.size, fixture.file)
                 XCTAssertEqual(data.sha256Hex, row.sha256, fixture.file)
                 XCTAssertEqual(try reopened.read(entry), data, fixture.file)
-                XCTAssertEqual(try drain(reader.stream(entry)), data, fixture.file)
+                XCTAssertEqual(try drain(reader.stream(entry), bufferSize: 127), data, fixture.file)
             }
         }
     }
@@ -775,7 +765,7 @@ final class ZstdTests: XCTestCase {
         let source = ShortSource(encoded)
         let decoder = try ZstdDecompressor(source: source, offset: 17, compressedSize: UInt64(encoded.count))
         let stream = try EntryStream(decompressor: decoder, length: nil, expectedCRC32: nil, entryIndex: 0, limits: ReadLimits())
-        XCTAssertEqual(try drain(stream, chunk: 31), try decode(encoded))
+        XCTAssertEqual(try drain(stream, bufferSize: 31), try decode(encoded))
         let truncated = try ZstdDecompressor(source: source, offset: 17, compressedSize: UInt64(encoded.count - 1))
         var buffer = [UInt8](repeating: 0, count: 131072)
         assertKaitoError {

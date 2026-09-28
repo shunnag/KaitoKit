@@ -67,7 +67,7 @@ final class ZipModernMethodTests: XCTestCase {
             for size in [ZipModernFixtures.payload.count - 1, ZipModernFixtures.payload.count + 1] {
                 var bytes = original
                 try ZipTestSupport.writeUInt32(UInt32(size), to: &bytes, at: central + 24)
-                try assertCorrupt(bytes)
+                try assertFirstEntryCorrupt(bytes)
             }
         }
     }
@@ -75,14 +75,14 @@ final class ZipModernMethodTests: XCTestCase {
     func testTruncatedAndCorruptedXZCannotConsumeTheNextMember() throws {
         let packed = try ZipModernFixtures.data("small-dictionary.xz")
         for length in [0, 1, 11, packed.count / 2, packed.count - 1] {
-            try assertCorrupt(makeXZ(Data(packed.prefix(length))))
+            try assertFirstEntryCorrupt(makeXZ(Data(packed.prefix(length))))
         }
         for offset in [0, 8, 16, packed.count - 10, packed.count - 1] {
             var bytes = packed
             bytes[offset] ^= 0x80
-            try assertCorrupt(makeXZ(bytes))
+            try assertFirstEntryCorrupt(makeXZ(bytes))
         }
-        try assertCorrupt(makeXZ(packed + Data([0x50, 0x4b, 0, 0])))
+        try assertFirstEntryCorrupt(makeXZ(packed + Data([0x50, 0x4b, 0, 0])))
     }
 
     func testAESEndAuthenticationIsNotBypassedByXZPreflight() throws {
@@ -222,14 +222,9 @@ final class ZipModernMethodTests: XCTestCase {
             HandZipEntry(name: "next.txt", uncompressedData: Data("must stay separate".utf8))])
     }
 
-    private func assertCorrupt(_ bytes: Data) throws {
+    private func assertFirstEntryCorrupt(_ bytes: Data) throws {
         let reader = try ArchiveReader.open(data: bytes)
-        XCTAssertThrowsError(try reader.read(reader.entries[0])) {
-            switch $0 as? KaitoError {
-            case .malformed, .truncated, .checksumMismatch: break
-            default: XCTFail("Unexpected error: \($0)")
-            }
-        }
+        assertCorrupt { try reader.read(reader.entries[0]) }
         if reader.entries.count > 1 {
             XCTAssertEqual(try reader.read(reader.entries[1]), Data("must stay separate".utf8))
         }

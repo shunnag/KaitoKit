@@ -1249,30 +1249,6 @@ final class ZipHardeningTests: XCTestCase {
         )
     }
 
-    private func assertMalformed<T>(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ operation: () throws -> T
-    ) {
-        XCTAssertThrowsError(try operation(), file: file, line: line) { error in
-            guard case KaitoError.malformed = error else {
-                return XCTFail("expected malformed, got \(error)", file: file, line: line)
-            }
-        }
-    }
-
-    private func assertLimitExceeded<T>(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ operation: () throws -> T
-    ) {
-        XCTAssertThrowsError(try operation(), file: file, line: line) { error in
-            guard case KaitoError.limitExceeded = error else {
-                return XCTFail("expected limitExceeded, got \(error)", file: file, line: line)
-            }
-        }
-    }
-
     private func assertSpanned<T>(
         file: StaticString = #filePath,
         line: UInt = #line,

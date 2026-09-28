@@ -3,10 +3,6 @@ import KaitoKit
 import XCTest
 
 final class Deflate64DecompressorTests: XCTestCase {
-    private enum TestError: Error {
-        case decoderMadeNoProgress
-    }
-
     func testStoredAndFixedBlocksStreamAcrossTinyBuffers() throws {
         var writer = Deflate64TestBitWriter()
 
@@ -272,27 +268,9 @@ final class Deflate64DecompressorTests: XCTestCase {
         }
     }
 
-    private func drain(
-        _ decoder: any Decompressor,
-        bufferSize: Int
-    ) throws -> Data {
-        var result = Data()
-        var buffer = [UInt8](repeating: 0, count: bufferSize)
-        var iterations = 0
-        while !decoder.isFinished {
-            let count = try buffer.withUnsafeMutableBytes { storage in
-                try decoder.read(into: storage)
-            }
-            guard count > 0 || decoder.isFinished else {
-                throw TestError.decoderMadeNoProgress
-            }
-            result.append(contentsOf: buffer.prefix(count))
-            iterations += 1
-            guard iterations < 10_000 else {
-                throw TestError.decoderMadeNoProgress
-            }
-        }
-        return result
+    /// 終わらない decoder で止まらないよう、読む回数に上限を置く。
+    private func drain(_ decoder: any Decompressor, bufferSize: Int) throws -> Data {
+        try KaitoKitTests.drain(decoder, bufferSize: bufferSize, maxReads: 10_000)
     }
 
     private static func fixedCodes() -> [Deflate64TestCode] {

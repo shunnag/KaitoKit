@@ -388,14 +388,6 @@ final class RawEntryRecordTests: XCTestCase {
     private func slice(_ bytes: Data, _ range: Range<UInt64>) -> Data {
         Data(bytes[Int(range.lowerBound)..<Int(range.upperBound)])
     }
-
-    private func assertMalformed<T>(_ operation: () throws -> T, file: StaticString = #filePath, line: UInt = #line) {
-        XCTAssertThrowsError(try operation(), file: file, line: line) { error in
-            guard case KaitoError.malformed = error else {
-                return XCTFail("Unexpected error: \(error)", file: file, line: line)
-            }
-        }
-    }
 }
 
 private struct RawRecordForbiddenPasswordProvider: PasswordProvider {

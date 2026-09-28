@@ -335,12 +335,6 @@ final class ZipStoredPayloadSPITests: XCTestCase {
         return Data(output.prefix(size))
     }
 
-    private func assertMalformed(_ body: () throws -> Void, file: StaticString = #filePath, line: UInt = #line) {
-        XCTAssertThrowsError(try body(), file: file, line: line) {
-            guard case .malformed = $0 as? KaitoError else { return XCTFail("\($0)", file: file, line: line) }
-        }
-    }
-
     private func assertIndexErrors(_ reader: ArchiveReader, material: ZipAESKeyMaterial) {
         for index in [-1, reader.entries.count] {
             XCTAssertThrowsError(try reader.zipStoredPayloadStream(at: index)) {

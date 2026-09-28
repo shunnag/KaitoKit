@@ -407,20 +407,15 @@ enum LHATestSupport {
     }
 
     static func appendUInt16LE(_ value: UInt16, to bytes: inout [UInt8]) {
-        bytes.append(UInt8(truncatingIfNeeded: value))
-        bytes.append(UInt8(truncatingIfNeeded: value >> 8))
+        bytes.appendLittleEndian(value)
     }
 
     static func appendUInt32LE(_ value: UInt32, to bytes: inout [UInt8]) {
-        bytes.append(UInt8(truncatingIfNeeded: value))
-        bytes.append(UInt8(truncatingIfNeeded: value >> 8))
-        bytes.append(UInt8(truncatingIfNeeded: value >> 16))
-        bytes.append(UInt8(truncatingIfNeeded: value >> 24))
+        bytes.appendLittleEndian(value)
     }
 
     static func appendUInt64LE(_ value: UInt64, to bytes: inout [UInt8]) {
-        appendUInt32LE(UInt32(truncatingIfNeeded: value), to: &bytes)
-        appendUInt32LE(UInt32(truncatingIfNeeded: value >> 32), to: &bytes)
+        bytes.appendLittleEndian(value)
     }
 
     private static func writeUInt16LE(

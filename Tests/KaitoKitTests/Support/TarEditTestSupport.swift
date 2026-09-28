@@ -25,15 +25,6 @@ enum TarEditTestSupport {
     static func bytes(_ source: any ByteSource) throws -> Data {
         Data(try readByteRange(source: source, offset: 0, count: Int(source.length)))
     }
-    static func drain(_ decoder: any Decompressor) throws -> Data {
-        var result = Data(), buffer = [UInt8](repeating: 0, count: 65_536)
-        while !decoder.isFinished {
-            let count = try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }
-            guard count > 0 || decoder.isFinished else { throw KaitoError.truncated }
-            result.append(contentsOf: buffer.prefix(count))
-        }
-        return result
-    }
     static func rawInflate(_ compressed: Data, dictionary: Data, expectedCount: Int) throws -> Data {
         var stream = z_stream()
         guard inflateInit2_(&stream, -15, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else { throw KaitoError.truncated }
@@ -81,9 +72,9 @@ enum TarEditTestSupport {
                 XCTAssertEqual(gzip.trailerOffset, UInt64(archive.count - 8), file: file, line: line)
                 XCTAssertEqual(gzip.trailerCRC32, GyoshukuFramingTestSupport.crc(image), file: file, line: line)
             case .bzip2:
-                decoded = try drain(Bzip2Decompressor(source: DataByteSource(compressed), offset: 0, compressedSize: UInt64(compressed.count)))
+                decoded = try drain(Bzip2Decompressor(source: DataByteSource(compressed), offset: 0, compressedSize: UInt64(compressed.count)), bufferSize: 65_536)
             case .xz(let xz):
-                decoded = try drain(XZDecompressor(source: DataByteSource(isolatedXZ(compressed, block: xz.blocks[index], flags: xz.streamFlags)), limits: ReadLimits()))
+                decoded = try drain(XZDecompressor(source: DataByteSource(isolatedXZ(compressed, block: xz.blocks[index], flags: xz.streamFlags)), limits: ReadLimits()), bufferSize: 65_536)
             }
             XCTAssertEqual(decoded, expected, "chunk \(index)", file: file, line: line)
         }

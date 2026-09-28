@@ -102,24 +102,24 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
         // central directory fails to parse. The ZIP32 interpretation remains
         // coherent and must therefore be used as the fallback.
         var comment = Data([0x50, 0x4B, 0x06, 0x06])
-        appendUInt64(44, to: &comment)
-        appendUInt16(45, to: &comment)
-        appendUInt16(45, to: &comment)
-        appendUInt32(0, to: &comment)
-        appendUInt32(0, to: &comment)
-        appendUInt64(1, to: &comment)
-        appendUInt64(1, to: &comment)
-        appendUInt64(UInt64(finalDirectorySize), to: &comment)
-        appendUInt64(UInt64(relativeDirectoryOffset), to: &comment)
+        ZipTestSupport.appendUInt64(44, to: &comment)
+        ZipTestSupport.appendUInt16(45, to: &comment)
+        ZipTestSupport.appendUInt16(45, to: &comment)
+        ZipTestSupport.appendUInt32(0, to: &comment)
+        ZipTestSupport.appendUInt32(0, to: &comment)
+        ZipTestSupport.appendUInt64(1, to: &comment)
+        ZipTestSupport.appendUInt64(1, to: &comment)
+        ZipTestSupport.appendUInt64(UInt64(finalDirectorySize), to: &comment)
+        ZipTestSupport.appendUInt64(UInt64(relativeDirectoryOffset), to: &comment)
         XCTAssertEqual(comment.count, falseZIP64Size)
 
         comment.append(contentsOf: [0x50, 0x4B, 0x06, 0x07])
-        appendUInt32(0, to: &comment)
-        appendUInt64(
+        ZipTestSupport.appendUInt32(0, to: &comment)
+        ZipTestSupport.appendUInt64(
             UInt64(layout.endRecordOffset - shiftedArchiveBase),
             to: &comment
         )
-        appendUInt32(1, to: &comment)
+        ZipTestSupport.appendUInt32(1, to: &comment)
         XCTAssertEqual(comment.count, insertedCommentSize)
 
         try ZipTestSupport.writeUInt16(
@@ -153,17 +153,17 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
 
         var trailer = Data(repeating: 0xA5, count: 56)
         trailer.append(contentsOf: [0x50, 0x4B, 0x06, 0x07])
-        appendUInt32(0, to: &trailer)
-        appendUInt64(0, to: &trailer)
-        appendUInt32(2, to: &trailer)
+        ZipTestSupport.appendUInt32(0, to: &trailer)
+        ZipTestSupport.appendUInt64(0, to: &trailer)
+        ZipTestSupport.appendUInt32(2, to: &trailer)
         trailer.append(contentsOf: [0x50, 0x4B, 0x05, 0x06])
-        appendUInt16(UInt16.max, to: &trailer)
-        appendUInt16(UInt16.max, to: &trailer)
-        appendUInt16(UInt16.max, to: &trailer)
-        appendUInt16(UInt16.max, to: &trailer)
-        appendUInt32(UInt32.max, to: &trailer)
-        appendUInt32(UInt32.max, to: &trailer)
-        appendUInt16(0, to: &trailer)
+        ZipTestSupport.appendUInt16(UInt16.max, to: &trailer)
+        ZipTestSupport.appendUInt16(UInt16.max, to: &trailer)
+        ZipTestSupport.appendUInt16(UInt16.max, to: &trailer)
+        ZipTestSupport.appendUInt16(UInt16.max, to: &trailer)
+        ZipTestSupport.appendUInt32(UInt32.max, to: &trailer)
+        ZipTestSupport.appendUInt32(UInt32.max, to: &trailer)
+        ZipTestSupport.appendUInt16(0, to: &trailer)
         XCTAssertEqual(trailer.count, 98)
         archive.append(trailer)
 
@@ -192,27 +192,27 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
         ])
 
         var trailer = Data([0x50, 0x4B, 0x06, 0x06])
-        appendUInt64(44, to: &trailer)
-        appendUInt16(45, to: &trailer)
-        appendUInt16(45, to: &trailer)
-        appendUInt32(0, to: &trailer)
-        appendUInt32(0, to: &trailer)
-        appendUInt64(UInt64.max, to: &trailer)
-        appendUInt64(UInt64.max, to: &trailer)
-        appendUInt64(0, to: &trailer)
-        appendUInt64(0, to: &trailer)
+        ZipTestSupport.appendUInt64(44, to: &trailer)
+        ZipTestSupport.appendUInt16(45, to: &trailer)
+        ZipTestSupport.appendUInt16(45, to: &trailer)
+        ZipTestSupport.appendUInt32(0, to: &trailer)
+        ZipTestSupport.appendUInt32(0, to: &trailer)
+        ZipTestSupport.appendUInt64(UInt64.max, to: &trailer)
+        ZipTestSupport.appendUInt64(UInt64.max, to: &trailer)
+        ZipTestSupport.appendUInt64(0, to: &trailer)
+        ZipTestSupport.appendUInt64(0, to: &trailer)
         trailer.append(contentsOf: [0x50, 0x4B, 0x06, 0x07])
-        appendUInt32(0, to: &trailer)
-        appendUInt64(0, to: &trailer)
-        appendUInt32(1, to: &trailer)
+        ZipTestSupport.appendUInt32(0, to: &trailer)
+        ZipTestSupport.appendUInt64(0, to: &trailer)
+        ZipTestSupport.appendUInt32(1, to: &trailer)
         trailer.append(contentsOf: [0x50, 0x4B, 0x05, 0x06])
-        appendUInt16(UInt16.max, to: &trailer)
-        appendUInt16(UInt16.max, to: &trailer)
-        appendUInt16(UInt16.max, to: &trailer)
-        appendUInt16(UInt16.max, to: &trailer)
-        appendUInt32(UInt32.max, to: &trailer)
-        appendUInt32(UInt32.max, to: &trailer)
-        appendUInt16(0, to: &trailer)
+        ZipTestSupport.appendUInt16(UInt16.max, to: &trailer)
+        ZipTestSupport.appendUInt16(UInt16.max, to: &trailer)
+        ZipTestSupport.appendUInt16(UInt16.max, to: &trailer)
+        ZipTestSupport.appendUInt16(UInt16.max, to: &trailer)
+        ZipTestSupport.appendUInt32(UInt32.max, to: &trailer)
+        ZipTestSupport.appendUInt32(UInt32.max, to: &trailer)
+        ZipTestSupport.appendUInt16(0, to: &trailer)
         XCTAssertEqual(trailer.count, 98)
         archive.append(trailer)
 
@@ -411,7 +411,7 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
 
         var prefix = Data([0x50, 0x4B, 0x05, 0x06])
         prefix.append(Data(repeating: 0, count: 16))
-        appendUInt16(UInt16(body.count), to: &prefix)
+        ZipTestSupport.appendUInt16(UInt16(body.count), to: &prefix)
         var archive = prefix
         archive.append(body)
 
@@ -431,13 +431,13 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
         // directory points into unrelated trailing bytes. Candidate selection
         // must retry the preceding coherent EOCD rather than hiding the ZIP.
         var falseEndRecord = Data([0x50, 0x4B, 0x05, 0x06])
-        appendUInt16(0, to: &falseEndRecord) // disk
-        appendUInt16(0, to: &falseEndRecord) // central-directory disk
-        appendUInt16(1, to: &falseEndRecord) // entries on disk
-        appendUInt16(1, to: &falseEndRecord) // total entries
-        appendUInt32(46, to: &falseEndRecord) // central-directory size
-        appendUInt32(0, to: &falseEndRecord) // relative offset
-        appendUInt16(0, to: &falseEndRecord) // comment size
+        ZipTestSupport.appendUInt16(0, to: &falseEndRecord) // disk
+        ZipTestSupport.appendUInt16(0, to: &falseEndRecord) // central-directory disk
+        ZipTestSupport.appendUInt16(1, to: &falseEndRecord) // entries on disk
+        ZipTestSupport.appendUInt16(1, to: &falseEndRecord) // total entries
+        ZipTestSupport.appendUInt32(46, to: &falseEndRecord) // central-directory size
+        ZipTestSupport.appendUInt32(0, to: &falseEndRecord) // relative offset
+        ZipTestSupport.appendUInt16(0, to: &falseEndRecord) // comment size
         archive.append(falseEndRecord)
 
         let reader = try ArchiveReader.open(data: archive)
@@ -452,13 +452,13 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
         ])
 
         var falseEndRecord = Data([0x50, 0x4B, 0x05, 0x06])
-        appendUInt16(1, to: &falseEndRecord)
-        appendUInt16(1, to: &falseEndRecord)
-        appendUInt16(0, to: &falseEndRecord)
-        appendUInt16(0, to: &falseEndRecord)
-        appendUInt32(0, to: &falseEndRecord)
-        appendUInt32(0, to: &falseEndRecord)
-        appendUInt16(0, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(1, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(1, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(0, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(0, to: &falseEndRecord)
+        ZipTestSupport.appendUInt32(0, to: &falseEndRecord)
+        ZipTestSupport.appendUInt32(0, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(0, to: &falseEndRecord)
         archive.append(falseEndRecord)
 
         let reader = try ArchiveReader.open(data: archive)
@@ -474,13 +474,13 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
         archive.append(Data(repeating: 0, count: 92))
 
         var falseEndRecord = Data([0x50, 0x4B, 0x05, 0x06])
-        appendUInt16(0, to: &falseEndRecord)
-        appendUInt16(0, to: &falseEndRecord)
-        appendUInt16(2, to: &falseEndRecord)
-        appendUInt16(2, to: &falseEndRecord)
-        appendUInt32(92, to: &falseEndRecord)
-        appendUInt32(0, to: &falseEndRecord)
-        appendUInt16(0, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(0, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(0, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(2, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(2, to: &falseEndRecord)
+        ZipTestSupport.appendUInt32(92, to: &falseEndRecord)
+        ZipTestSupport.appendUInt32(0, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(0, to: &falseEndRecord)
         archive.append(falseEndRecord)
 
         let reader = try ArchiveReader.open(
@@ -503,13 +503,13 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
         // skip that already-attempted offset so the older real EOCD still has
         // budget to parse.
         var falseEndRecord = Data([0x50, 0x4B, 0x05, 0x06])
-        appendUInt16(0, to: &falseEndRecord)
-        appendUInt16(0, to: &falseEndRecord)
-        appendUInt16(1, to: &falseEndRecord)
-        appendUInt16(1, to: &falseEndRecord)
-        appendUInt32(65_536, to: &falseEndRecord)
-        appendUInt32(0, to: &falseEndRecord)
-        appendUInt16(0, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(0, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(0, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(1, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(1, to: &falseEndRecord)
+        ZipTestSupport.appendUInt32(65_536, to: &falseEndRecord)
+        ZipTestSupport.appendUInt32(0, to: &falseEndRecord)
+        ZipTestSupport.appendUInt16(0, to: &falseEndRecord)
         archive.append(falseEndRecord)
 
         let reader = try ArchiveReader.open(
@@ -692,8 +692,8 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
         timestampWithTail.append(contentsOf: [0xAA, 0xBB, 0xCC])
 
         var malformedNTFSPayload = Data(repeating: 0, count: 4)
-        appendUInt16(1, to: &malformedNTFSPayload)
-        appendUInt16(24, to: &malformedNTFSPayload)
+        ZipTestSupport.appendUInt16(1, to: &malformedNTFSPayload)
+        ZipTestSupport.appendUInt16(24, to: &malformedNTFSPayload)
         malformedNTFSPayload.append(0)
         let malformedNTFS = try ZipTestSupport.extraField(
             identifier: 0x000A,
@@ -701,8 +701,8 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
         )
 
         var overrunTail = Data()
-        appendUInt16(0xCAFE, to: &overrunTail)
-        appendUInt16(20, to: &overrunTail)
+        ZipTestSupport.appendUInt16(0xCAFE, to: &overrunTail)
+        ZipTestSupport.appendUInt16(20, to: &overrunTail)
         overrunTail.append(0x01)
 
         let invalidFlaggedUTF8 = [0x82, 0xA0] + Array(".txt".utf8)
@@ -916,47 +916,18 @@ final class ZipCompatibilityRobustnessTests: XCTestCase {
         XCTAssertEqual(try ZipTestSupport.readUInt32(archive, at: end - 20), 0x0706_4B50)
     }
 
-    private func appendUInt16(_ value: UInt16, to data: inout Data) {
-        data.append(UInt8(truncatingIfNeeded: value))
-        data.append(UInt8(truncatingIfNeeded: value >> 8))
-    }
-
-    private func appendUInt32(_ value: UInt32, to data: inout Data) {
-        data.append(UInt8(truncatingIfNeeded: value))
-        data.append(UInt8(truncatingIfNeeded: value >> 8))
-        data.append(UInt8(truncatingIfNeeded: value >> 16))
-        data.append(UInt8(truncatingIfNeeded: value >> 24))
-    }
-
-    private func appendUInt64(_ value: UInt64, to data: inout Data) {
-        appendUInt32(UInt32(truncatingIfNeeded: value), to: &data)
-        appendUInt32(UInt32(truncatingIfNeeded: value >> 32), to: &data)
-    }
-
     private func appendPrefixClaimingEndRecord(to archive: inout Data) throws {
         guard archive.count <= Int(UInt32.max) else {
             throw ZipTestSupportError.fixture("candidate directory exceeds ZIP32")
         }
         var endRecord = Data([0x50, 0x4B, 0x05, 0x06])
-        appendUInt16(0, to: &endRecord)
-        appendUInt16(0, to: &endRecord)
-        appendUInt16(1, to: &endRecord)
-        appendUInt16(1, to: &endRecord)
-        appendUInt32(UInt32(archive.count), to: &endRecord)
-        appendUInt32(0, to: &endRecord)
-        appendUInt16(0, to: &endRecord)
+        ZipTestSupport.appendUInt16(0, to: &endRecord)
+        ZipTestSupport.appendUInt16(0, to: &endRecord)
+        ZipTestSupport.appendUInt16(1, to: &endRecord)
+        ZipTestSupport.appendUInt16(1, to: &endRecord)
+        ZipTestSupport.appendUInt32(UInt32(archive.count), to: &endRecord)
+        ZipTestSupport.appendUInt32(0, to: &endRecord)
+        ZipTestSupport.appendUInt16(0, to: &endRecord)
         archive.append(endRecord)
-    }
-
-    private func assertMalformed(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ operation: () throws -> Any
-    ) {
-        XCTAssertThrowsError(try operation(), file: file, line: line) { error in
-            guard case KaitoError.malformed = error else {
-                return XCTFail("expected malformed, got \(error)", file: file, line: line)
-            }
-        }
     }
 }

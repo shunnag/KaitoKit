@@ -175,13 +175,13 @@ final class SevenZipFilterTests: XCTestCase {
         for index in 0..<100 {
             expected.append(0x41)
             expected.append(0xE8)
-            appendUInt32LE(UInt32(bitPattern: Int32(index * 3 - 100)), to: &expected)
+            expected.appendLittleEndian(UInt32(bitPattern: Int32(index * 3 - 100)))
             expected.append(0x42)
             expected.append(0xE9)
-            appendUInt32LE(UInt32(200 - index), to: &expected)
+            expected.appendLittleEndian(UInt32(200 - index))
             expected.append(0x43)
             expected.append(contentsOf: [0x0F, 0x85])
-            appendUInt32LE(UInt32(index * 7), to: &expected)
+            expected.appendLittleEndian(UInt32(index * 7))
         }
 
         let decoder = try BCJ2Decompressor(
@@ -431,13 +431,6 @@ final class SevenZipFilterTests: XCTestCase {
         bytes[offset + 1] = UInt8(truncatingIfNeeded: value >> 8)
         bytes[offset + 2] = UInt8(truncatingIfNeeded: value >> 16)
         bytes[offset + 3] = UInt8(truncatingIfNeeded: value >> 24)
-    }
-
-    private func appendUInt32LE(_ value: UInt32, to bytes: inout [UInt8]) {
-        bytes.append(UInt8(truncatingIfNeeded: value))
-        bytes.append(UInt8(truncatingIfNeeded: value >> 8))
-        bytes.append(UInt8(truncatingIfNeeded: value >> 16))
-        bytes.append(UInt8(truncatingIfNeeded: value >> 24))
     }
 
     private func base64(_ string: String) throws -> [UInt8] {

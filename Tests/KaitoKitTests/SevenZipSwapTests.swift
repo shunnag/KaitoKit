@@ -21,7 +21,7 @@ final class SevenZipSwapTests: XCTestCase {
                         let decoder = try SwapFilterDecompressor(
                             input: SwapTestInput(encoded, chunk: inputChunk), width: width,
                             expectedSize: UInt64(encoded.count))
-                        XCTAssertEqual(try drain(decoder, chunk: outputChunk), Data(0..<UInt8(encoded.count)),
+                        XCTAssertEqual(try drain(decoder, bufferSize: outputChunk), Data(0..<UInt8(encoded.count)),
                                        "Swap\(width), length \(encoded.count), \(inputChunk)/\(outputChunk)")
                     }
                 }
@@ -37,7 +37,7 @@ final class SevenZipSwapTests: XCTestCase {
                 XCTAssertEqual(try decoder.read(into: UnsafeMutableRawBufferPointer(start: nil, count: 0)), 0)
                 XCTAssertEqual(input.reads, 0)
                 let expected: [UInt8] = bytes.isEmpty ? [] : (width == 2 ? [2, 3, 0, 1, 9] : [0, 1, 2, 3, 9])
-                XCTAssertEqual(try drain(decoder, chunk: 1), Data(expected))
+                XCTAssertEqual(try drain(decoder, bufferSize: 1), Data(expected))
                 XCTAssertTrue(input.isFinished, "The upstream end check must run after a partial unit, too")
                 XCTAssertTrue(decoder.isFinished)
             }
@@ -49,11 +49,11 @@ final class SevenZipSwapTests: XCTestCase {
             for (bytes, declared): ([UInt8], UInt64) in [([0, 1], 3), ([0, 1, 2], 2), ([0], 0)] {
                 let decoder = try SwapFilterDecompressor(input: SwapTestInput(bytes, chunk: 1),
                                                          width: width, expectedSize: declared)
-                XCTAssertThrowsError(try drain(decoder, chunk: 1))
+                XCTAssertThrowsError(try drain(decoder, bufferSize: 1))
             }
             let input = SwapTestInput([], chunk: 1)
             let huge = try SwapFilterDecompressor(input: input, width: width, expectedSize: UInt64.max)
-            XCTAssertThrowsError(try drain(huge, chunk: 1)) { XCTAssertEqual($0 as? KaitoError, .truncated) }
+            XCTAssertThrowsError(try drain(huge, bufferSize: 1)) { XCTAssertEqual($0 as? KaitoError, .truncated) }
             XCTAssertEqual(input.maximumRequested, 256 * 1_024)
         }
         for width in [0, 1, 3, 8, Int.max] {
@@ -185,16 +185,6 @@ final class SevenZipSwapTests: XCTestCase {
                 finalOutputIndex: 0, unpackSizes: [size], digest: SevenZipDigest(value: nil)),
             packedRanges: [0: SevenZipPackRange(offset: 0, size: 5, digest: SevenZipDigest(value: nil))],
             limits: ReadLimits(), password: nil, keyCache: SevenZipAESKeyCache(), maximumAESCyclesPower: 24)
-    }
-
-    private func drain(_ decoder: any Decompressor, chunk: Int) throws -> Data {
-        var output = Data(), buffer = [UInt8](repeating: 0, count: chunk)
-        while !decoder.isFinished {
-            let count = try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }
-            guard count > 0 || decoder.isFinished else { throw KaitoError.malformed("Swap test stalled") }
-            output.append(contentsOf: buffer.prefix(count))
-        }
-        return output
     }
 
     private func read(_ stream: EntryStream, chunk: Int) throws -> Data {

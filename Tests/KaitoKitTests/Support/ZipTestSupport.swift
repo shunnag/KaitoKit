@@ -833,20 +833,15 @@ enum ZipTestSupport {
     }
 
     static func appendUInt16(_ value: UInt16, to data: inout Data) {
-        data.append(UInt8(truncatingIfNeeded: value))
-        data.append(UInt8(truncatingIfNeeded: value >> 8))
+        data.appendLittleEndian(value)
     }
 
     static func appendUInt32(_ value: UInt32, to data: inout Data) {
-        for shift in stride(from: 0, to: 32, by: 8) {
-            data.append(UInt8(truncatingIfNeeded: value >> UInt32(shift)))
-        }
+        data.appendLittleEndian(value)
     }
 
     static func appendUInt64(_ value: UInt64, to data: inout Data) {
-        for shift in stride(from: 0, to: 64, by: 8) {
-            data.append(UInt8(truncatingIfNeeded: value >> UInt64(shift)))
-        }
+        data.appendLittleEndian(value)
     }
 
     private static func replace(_ bytes: [UInt8], in data: inout Data, at offset: Int) throws {

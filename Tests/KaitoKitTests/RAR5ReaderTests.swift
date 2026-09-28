@@ -1204,7 +1204,7 @@ final class RAR5ReaderTests: XCTestCase {
         var covered = size
         covered += body
         var archive = Data(RAR5Reader.signature)
-        appendLittle(CRC32.checksum(covered), to: &archive)
+        archive.appendLittleEndian(CRC32.checksum(covered))
         archive.append(contentsOf: covered)
 
         assertOpenThrows(archive, category: "malformed", containing: "header-size vint")
@@ -1838,12 +1838,6 @@ final class RAR5ReaderTests: XCTestCase {
                 file: file,
                 line: line
             )
-        }
-    }
-
-    private func appendLittle(_ value: UInt32, to data: inout Data) {
-        for shift in stride(from: 0, to: 32, by: 8) {
-            data.append(UInt8(truncatingIfNeeded: value >> shift))
         }
     }
 }

@@ -408,16 +408,4 @@ final class CoreInfrastructureTests: XCTestCase {
             XCTAssertLessThanOrEqual(end, source.length, file: file, line: line)
         }
     }
-
-    private func assertMalformed<T>(
-        _ operation: () throws -> T,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        XCTAssertThrowsError(try operation(), file: file, line: line) { error in
-            guard case KaitoError.malformed = error else {
-                return XCTFail("expected malformed, got \(error)", file: file, line: line)
-            }
-        }
-    }
 }

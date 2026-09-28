@@ -485,7 +485,7 @@ final class RAR4ReaderTests: XCTestCase {
 
         let opaqueData = Data([0xde, 0xad, 0xbe, 0xef])
         var unknownFields: [UInt8] = []
-        appendLittle(UInt32(opaqueData.count), to: &unknownFields)
+        unknownFields.appendLittleEndian(UInt32(opaqueData.count))
         unknownFields.append(contentsOf: [0x12, 0x34])
         archive.append(contentsOf: makeHeader(
             type: 0x7c,
@@ -559,7 +559,7 @@ final class RAR4ReaderTests: XCTestCase {
     func testZeroHeaderSizeCannotPreventForwardProgress() throws {
         var archive = Data(RAR4Reader.signature)
         let body: [UInt8] = [0x73, 0, 0, 0, 0]
-        appendLittle(UInt16(truncatingIfNeeded: CRC32.checksum(body)), to: &archive)
+        archive.appendLittleEndian(UInt16(truncatingIfNeeded: CRC32.checksum(body)))
         archive.append(contentsOf: body)
 
         XCTAssertThrowsError(
@@ -880,15 +880,15 @@ final class RAR4ReaderTests: XCTestCase {
     private func makeFileHeader(_ file: FileFixture) -> [UInt8] {
         let crc = CRC32.checksum(file.contents)
         var fields: [UInt8] = []
-        appendLittle(UInt32(file.contents.count), to: &fields)
-        appendLittle(UInt32(file.contents.count), to: &fields)
+        fields.appendLittleEndian(UInt32(file.contents.count))
+        fields.appendLittleEndian(UInt32(file.contents.count))
         fields.append(2) // Windows
-        appendLittle(crc, to: &fields)
-        appendLittle(UInt32(0), to: &fields) // no DOS timestamp
+        fields.appendLittleEndian(crc)
+        fields.appendLittleEndian(UInt32(0)) // no DOS timestamp
         fields.append(29)
         fields.append(file.method)
-        appendLittle(UInt16(file.name.count), to: &fields)
-        appendLittle(UInt32(0x20), to: &fields)
+        fields.appendLittleEndian(UInt16(file.name.count))
+        fields.appendLittleEndian(UInt32(0x20))
         fields.append(contentsOf: file.name)
         return makeHeader(
             type: 0x74,
@@ -903,23 +903,13 @@ final class RAR4ReaderTests: XCTestCase {
         fields: [UInt8]
     ) -> [UInt8] {
         var body: [UInt8] = [type]
-        appendLittle(flags, to: &body)
-        appendLittle(UInt16(7 + fields.count), to: &body)
+        body.appendLittleEndian(flags)
+        body.appendLittleEndian(UInt16(7 + fields.count))
         body.append(contentsOf: fields)
         var result: [UInt8] = []
-        appendLittle(UInt16(truncatingIfNeeded: CRC32.checksum(body)), to: &result)
+        result.appendLittleEndian(UInt16(truncatingIfNeeded: CRC32.checksum(body)))
         result.append(contentsOf: body)
         return result
-    }
-
-    private func appendLittle<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
-        var little = value.littleEndian
-        withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
-    }
-
-    private func appendLittle<T: FixedWidthInteger>(_ value: T, to bytes: inout [UInt8]) {
-        var little = value.littleEndian
-        withUnsafeBytes(of: &little) { bytes.append(contentsOf: $0) }
     }
 
 

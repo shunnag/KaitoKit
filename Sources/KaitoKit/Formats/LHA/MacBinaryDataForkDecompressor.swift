@@ -15,9 +15,18 @@ import Foundation
 /// authenticating the complete LHA output (header, padding, and resource fork).
 /// A Macintosh OS marker alone is not enough: MacLHA can also store an
 /// unwrapped file, so the 128-byte prefix is validated heuristically first.
+///
+/// This filter lives with the LHA reader rather than in `Codecs/` or beside
+/// the other Mac envelopes: it implements no compression algorithm, and its
+/// contract is LHA's. It drains the complete envelope under the member's
+/// CRC16, and `LHAReader.stream` wraps it in `RecoveryDecompressor` for
+/// recovered members. Field offsets and the header CRC come from
+/// `MacBinaryHeader`; the acceptance rules below are MacLHA-specific.
 final class MacBinaryDataForkDecompressor: Decompressor {
-    private static let headerSize = 128
     private static let drainChunkSize = 64 * 1_024
+    /// Reserved in MacBinary I and zero there; checked only when the header
+    /// CRC field is zero (see `macBinaryLayout`).
+    private static let macBinaryIReservedRange = 101..<126
 
     private let input: any Decompressor
     private let inputSize: UInt64
@@ -52,7 +61,7 @@ final class MacBinaryDataForkDecompressor: Decompressor {
 
         let prefixSize = try Checked.toInt(min(
             inputSize,
-            UInt64(Self.headerSize)
+            UInt64(MacBinaryHeader.size)
         ))
         var bytes = [UInt8](repeating: 0, count: prefixSize)
         var bytesRead = 0
@@ -229,23 +238,23 @@ final class MacBinaryDataForkDecompressor: Decompressor {
         header: [UInt8],
         inputSize: UInt64
     ) -> (dataOffset: UInt64, dataSize: UInt64)? {
-        guard header.count == headerSize,
-              header[0] == 0,
-              (1...63).contains(Int(header[1])),
-              header[74] == 0,
-              header[82] == 0 else {
+        let filenameLengthRange = 1...MacBinaryHeader.maximumFilenameLength
+        guard header.count == MacBinaryHeader.size,
+              MacBinaryHeader.requiredZeroOffsets.allSatisfy({ header[$0] == 0 }),
+              filenameLengthRange.contains(Int(header[MacBinaryHeader.filenameLengthOffset])) else {
             return nil
         }
 
-        let filenameLength = Int(header[1])
-        guard !header[2..<(2 + filenameLength)].contains(0) else {
+        let filenameLength = Int(header[MacBinaryHeader.filenameLengthOffset])
+        let filenameEnd = MacBinaryHeader.filenameOffset + filenameLength
+        guard !header[MacBinaryHeader.filenameOffset..<filenameEnd].contains(0) else {
             return nil
         }
 
         // MacBinary II/III authenticates bytes 0...123 with CRC-CCITT.  A
         // zero field denotes the older MacBinary I header emitted by MacLHA.
-        let storedHeaderCRC = bigUInt16(header, at: 124)
-        let computedHeaderCRC = macBinaryHeaderCRC(header[..<124])
+        let storedHeaderCRC = MacBinaryHeader.storedCRC(header)
+        let computedHeaderCRC = MacBinaryHeader.computedCRC(header)
         if storedHeaderCRC == computedHeaderCRC {
             // A conforming CRC-CCITT can itself be zero. Compare before using
             // a zero stored field as the legacy MacBinary I discriminator.
@@ -254,20 +263,20 @@ final class MacBinaryDataForkDecompressor: Decompressor {
             // distinguishing a CRC-less MacBinary I header from arbitrary
             // binary data. Bytes 101...125 were reserved/zero in version I;
             // a shorter significant name is followed by its zero-filled tail.
-            let hasNameTerminator = filenameLength == 63
-                || header[2 + filenameLength] == 0
+            let hasNameTerminator = filenameLength == MacBinaryHeader.maximumFilenameLength
+                || header[filenameEnd] == 0
             guard hasNameTerminator,
-                  header[101..<126].allSatisfy({ $0 == 0 }) else {
+                  header[macBinaryIReservedRange].allSatisfy({ $0 == 0 }) else {
                 return nil
             }
         } else {
             return nil
         }
 
-        let secondaryHeaderSize = UInt64(bigUInt16(header, at: 120))
-        let dataSize = UInt64(bigUInt32(header, at: 83))
-        let resourceSize = UInt64(bigUInt32(header, at: 87))
-        let commentSize = UInt64(bigUInt16(header, at: 99))
+        let secondaryHeaderSize = UInt64(BigEndian.uint16(header, at: MacBinaryHeader.secondaryHeaderSizeOffset))
+        let dataSize = UInt64(BigEndian.uint32(header, at: MacBinaryHeader.dataForkSizeOffset))
+        let resourceSize = UInt64(BigEndian.uint32(header, at: MacBinaryHeader.resourceForkSizeOffset))
+        let commentSize = UInt64(BigEndian.uint16(header, at: MacBinaryHeader.commentSizeOffset))
 
         guard let paddedSecondary = paddedBlockSize(secondaryHeaderSize),
               let paddedData = paddedBlockSize(dataSize),
@@ -275,7 +284,7 @@ final class MacBinaryDataForkDecompressor: Decompressor {
               let paddedComment = paddedBlockSize(commentSize) else {
             return nil
         }
-        let dataOffset = UInt64(headerSize).addingReportingOverflow(
+        let dataOffset = UInt64(MacBinaryHeader.size).addingReportingOverflow(
             paddedSecondary
         )
         guard !dataOffset.overflow else { return nil }
@@ -292,35 +301,12 @@ final class MacBinaryDataForkDecompressor: Decompressor {
         return (dataOffset.partialValue, dataSize)
     }
 
+    /// `size` rounded up to a multiple of `MacBinaryHeader.blockSize`, or nil
+    /// on overflow.
     private static func paddedBlockSize(_ size: UInt64) -> UInt64? {
-        let addition = size.addingReportingOverflow(127)
+        let mask = UInt64(MacBinaryHeader.blockSize - 1)
+        let addition = size.addingReportingOverflow(mask)
         guard !addition.overflow else { return nil }
-        return addition.partialValue & ~UInt64(127)
-    }
-
-    private static func bigUInt16(_ bytes: [UInt8], at offset: Int) -> UInt16 {
-        (UInt16(bytes[offset]) << 8) | UInt16(bytes[offset + 1])
-    }
-
-    private static func bigUInt32(_ bytes: [UInt8], at offset: Int) -> UInt32 {
-        (UInt32(bytes[offset]) << 24)
-            | (UInt32(bytes[offset + 1]) << 16)
-            | (UInt32(bytes[offset + 2]) << 8)
-            | UInt32(bytes[offset + 3])
-    }
-
-    private static func macBinaryHeaderCRC(
-        _ bytes: ArraySlice<UInt8>
-    ) -> UInt16 {
-        var crc: UInt16 = 0
-        for byte in bytes {
-            crc ^= UInt16(byte) << 8
-            for _ in 0..<8 {
-                crc = (crc & 0x8000) != 0
-                    ? (crc << 1) ^ 0x1021
-                    : crc << 1
-            }
-        }
-        return crc
+        return addition.partialValue & ~mask
     }
 }

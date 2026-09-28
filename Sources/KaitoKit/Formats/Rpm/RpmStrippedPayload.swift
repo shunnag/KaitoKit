@@ -69,17 +69,7 @@ struct RpmStrippedPayload {
             }
             guard magic == Self.magic else { throw KaitoError.malformed("rpm stripped magic") }
             let bytes = try readByteRange(source: source, offset: offset, count: 16)
-            var index: UInt64 = 0
-            for byte in bytes[6..<14] {
-                let digit: UInt64
-                switch byte {
-                case 48...57: digit = UInt64(byte - 48)
-                case 65...70: digit = UInt64(byte - 55)
-                case 97...102: digit = UInt64(byte - 87)
-                default: throw KaitoError.malformed("rpm stripped index")
-                }
-                index = try Checked.add(Checked.mul(index, 16), digit)
-            }
+            let index = try ASCIIDigits.unsigned(bytes[6..<14], radix: 16, label: "rpm stripped index")
             guard bytes[14] == 0, bytes[15] == 0, index < UInt64(files.count) else {
                 throw KaitoError.malformed("rpm stripped index")
             }

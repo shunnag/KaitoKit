@@ -30,12 +30,7 @@ struct ArHeader {
                                field: String = "field") throws -> UInt64? {
         let digits = bytes.drop(while: { $0 == 32 }).reversed().drop(while: { $0 == 32 }).reversed()
         guard !digits.isEmpty else { return nil }
-        var value: UInt64 = 0
-        for byte in digits {
-            guard byte >= 48, UInt64(byte - 48) < radix else { throw KaitoError.malformed("ar header \(field)") }
-            value = try Checked.add(Checked.mul(value, radix), UInt64(byte - 48))
-        }
-        return value
+        return try ASCIIDigits.unsigned(digits, radix: radix, label: "ar header \(field)")
     }
 
     func nameForm() throws -> NameForm {

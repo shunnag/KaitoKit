@@ -46,19 +46,7 @@ struct CpioHeader {
         guard UInt64(bytes.count) >= variant.headerSize else { throw KaitoError.truncated }
         self.variant = variant
         func number(_ offset: Int, _ width: Int, _ radix: UInt64) throws -> UInt64 {
-            var value: UInt64 = 0
-            for byte in bytes[offset..<offset + width] {
-                let digit: UInt64
-                switch byte {
-                case 48...57: digit = UInt64(byte - 48)
-                case 65...70: digit = UInt64(byte - 65 + 10)
-                case 97...102: digit = UInt64(byte - 97 + 10)
-                default: throw KaitoError.malformed("cpio header field")
-                }
-                guard digit < radix else { throw KaitoError.malformed("cpio header field") }
-                value = try Checked.add(Checked.mul(value, radix), digit)
-            }
-            return value
+            try ASCIIDigits.unsigned(bytes[offset..<offset + width], radix: radix, label: "cpio header field")
         }
         func word(_ offset: Int) -> UInt32 {
             let a = UInt32(bytes[offset]), b = UInt32(bytes[offset + 1])

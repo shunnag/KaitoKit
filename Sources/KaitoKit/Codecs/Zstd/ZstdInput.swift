@@ -41,30 +41,6 @@ final class ZstdInput {
         return result
     }
 
-    func read(_ count: Int) throws -> [UInt8] {
-        guard count >= 0, UInt64(count) <= remaining else { throw KaitoError.truncated }
-        var result: [UInt8] = []
-        result.reserveCapacity(count)
-        while result.count < count {
-            if bufferOffset == buffer.count {
-                let amount = count - result.count
-                if amount >= Self.readAhead {
-                    // 本文の大きな残り要求は先読みを挟まず、一括して取得する。
-                    result.append(contentsOf: try readByteRange(source: source, offset: position, count: amount))
-                    position += UInt64(amount)
-                } else {
-                    result.append(try byte())
-                }
-            } else {
-                let amount = min(count - result.count, buffer.count - bufferOffset)
-                result.append(contentsOf: buffer[bufferOffset..<(bufferOffset + amount)])
-                bufferOffset += amount
-                position += UInt64(amount)
-            }
-        }
-        return result
-    }
-
     func read(_ count: Int, into destination: UnsafeMutableRawPointer) throws {
         // 呼出側は count バイトを確保済み。入力範囲を検査してから source に触れる。
         guard count >= 0, UInt64(count) <= remaining else { throw KaitoError.truncated }

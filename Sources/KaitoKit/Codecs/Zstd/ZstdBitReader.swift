@@ -135,35 +135,19 @@ struct ZstdPaddedBitReader {
 
 // ブロック内の前向き view。部分領域を独立した上限付き reader にできる。
 struct ZstdByteReader {
+    // frame 所有の scratch を借用する。寿命は所有側（D7）が保証する。
     let bytes: UnsafeRawBufferPointer
-    // 配列 API の互換 wrapper のみ所有する。本番はフレームの scratch を借用する。
-    fileprivate let owner: ZstdScratchBuffer?
     private(set) var position: Int
     let end: Int
 
-    init(_ bytes: [UInt8]) {
-        let owner = ZstdScratchBuffer()
-        owner.reserve(bytes.count, maximum: bytes.count)
-        bytes.withUnsafeBytes { source in
-            if !source.isEmpty { owner.base.copyMemory(from: source.baseAddress!, byteCount: source.count) }
-        }
-        owner.pad(after: bytes.count)
-        self.owner = owner
-        self.bytes = UnsafeRawBufferPointer(start: owner.base, count: bytes.count)
-        position = 0
-        end = bytes.count
-    }
-
     init(_ bytes: UnsafeRawBufferPointer) {
         self.bytes = bytes
-        owner = nil
         position = 0
         end = bytes.count
     }
 
-    private init(bytes: UnsafeRawBufferPointer, range: Range<Int>, owner: ZstdScratchBuffer?) {
+    private init(bytes: UnsafeRawBufferPointer, range: Range<Int>) {
         self.bytes = bytes
-        self.owner = owner
         position = range.lowerBound
         end = range.upperBound
     }
@@ -189,20 +173,18 @@ struct ZstdByteReader {
     }
 
     mutating func subreader(_ count: Int) throws -> Self {
-        Self(bytes: bytes, range: try take(count), owner: owner)
+        Self(bytes: bytes, range: try take(count))
     }
 }
 
 // FSE 分布だけは最下位ビットから前向きに読む。各読取りで境界を確認する。
 struct ZstdForwardBits {
     let bytes: UnsafeRawBufferPointer
-    private let owner: ZstdScratchBuffer?
     let end: Int
     var position: Int
 
     init(_ reader: ZstdByteReader) {
         bytes = reader.bytes
-        owner = reader.owner
         end = reader.end * 8
         position = reader.position * 8
     }

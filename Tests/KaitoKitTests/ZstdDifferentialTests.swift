@@ -12,6 +12,7 @@ extension ZstdTuning {
 }
 
 final class ZstdDifferentialTests: XCTestCase {
+    // ExternalTool.zstd に寄せると KAITO_ZSTD と KAITO_REQUIRE_ZSTD を読み、CI では skip が失敗に変わる。その方針が決まるまで PATH だけを探して skip する。
     private func tool() throws -> String {
         let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
             + ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]

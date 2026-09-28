@@ -76,6 +76,7 @@ final class CabLZXTests: XCTestCase {
         }
     }
 
+    // cabextract と python3 は ExternalTool に無い。ExternalTool へ寄せて CI で必須にするかは未決定なので、ここで探して無ければ skip する。
     private func executable(_ name: String) throws -> URL {
         let directories = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
             + (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)

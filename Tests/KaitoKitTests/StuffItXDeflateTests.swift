@@ -47,10 +47,10 @@ final class StuffItXDeflateTests: XCTestCase {
     }
     func testAllWindowParameters() throws {
         for e: UInt8 in 10...25 {
-            XCTAssertEqual(try StuffItXCodecTests.decode(Data([e,1,0,0,255,255]),method:3,size:0),Data())
+            XCTAssertEqual(try StuffItXTestSupport.decode(Data([e,1,0,0,255,255]),method:3,size:0),Data())
         }
         for e: UInt8 in [0,9,26,31,255] {
-            XCTAssertThrowsError(try StuffItXCodecTests.decode(Data([e,1,0,0,255,255]),method:3,size:0))
+            XCTAssertThrowsError(try StuffItXTestSupport.decode(Data([e,1,0,0,255,255]),method:3,size:0))
         }
     }
     func testDistancesThrough64KiB() throws { try distanceEdges(last:31,history:65_536,exponent:16) }
@@ -62,23 +62,23 @@ final class StuffItXDeflateTests: XCTestCase {
         for history in [1,1025] {
             var w = dynamic(10); seed(history,&w)
             word(257,9,&w); word(20,6,&w); w.bits(0,9); word(256,9,&w); w.align()
-            XCTAssertThrowsError(try StuffItXCodecTests.decode(w.data,method:3,size:history+3)) {
+            XCTAssertThrowsError(try StuffItXTestSupport.decode(w.data,method:3,size:history+3)) {
                 guard case KaitoError.malformed = $0 else { return XCTFail("\($0)") }
             }
         }
     }
     func testGrammarAndCompletionRejections() throws {
         for bytes: [UInt8] in [[15,7],[15,1,1,0,255,255,65],[15,1,0,0,255],[15,1,0,0,255,255,0]] {
-            XCTAssertThrowsError(try StuffItXCodecTests.decode(Data(bytes),method:3,size:0))
+            XCTAssertThrowsError(try StuffItXTestSupport.decode(Data(bytes),method:3,size:0))
         }
         for symbol in [286,287] {
             var w = Writer(data:Data([15])); w.bits(1,1); w.bits(1,2); word(symbol - 88,8,&w); w.align()
-            XCTAssertThrowsError(try StuffItXCodecTests.decode(w.data,method:3,size:1))
+            XCTAssertThrowsError(try StuffItXTestSupport.decode(w.data,method:3,size:1))
         }
         var w = dynamic(); word(65,9,&w); word(256,9,&w); w.align()
-        XCTAssertEqual(try StuffItXCodecTests.decode(w.data,method:3,size:1),Data([65]))
-        XCTAssertThrowsError(try StuffItXCodecTests.decode(w.data.dropLast(),method:3,size:1))
-        XCTAssertThrowsError(try StuffItXCodecTests.decode(w.data,method:3,size:1,limits:ReadLimits(maxDictionarySize:1024)))
+        XCTAssertEqual(try StuffItXTestSupport.decode(w.data,method:3,size:1),Data([65]))
+        XCTAssertThrowsError(try StuffItXTestSupport.decode(w.data.dropLast(),method:3,size:1))
+        XCTAssertThrowsError(try StuffItXTestSupport.decode(w.data,method:3,size:1,limits:ReadLimits(maxDictionarySize:1024)))
     }
     func testNonfinalHuffmanHeaderContinuesAtCurrentBit() throws {
         var w = Writer(data:Data([10]))
@@ -86,6 +86,6 @@ final class StuffItXDeflateTests: XCTestCase {
             w.bits(final,1); w.bits(1,2); word(48 + 65,8,&w); word(0,7,&w)
         }
         w.align()
-        XCTAssertEqual(try StuffItXCodecTests.decode(w.data,method:3,size:2,chunk:1),Data([65,65]))
+        XCTAssertEqual(try StuffItXTestSupport.decode(w.data,method:3,size:2,chunk:1),Data([65,65]))
     }
 }

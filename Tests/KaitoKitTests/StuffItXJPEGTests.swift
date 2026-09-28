@@ -8,7 +8,7 @@ final class StuffItXJPEGTests: XCTestCase {
     static let root = TestFixtures.repositoryRoot
     static func decode(_ data: Data, chunk: Int = 65536, limits: ReadLimits = ReadLimits()) throws -> Data {
         let decoder = try StuffItXCodec.make(method: 7, source: DataByteSource(data), size: nil, limits: limits)
-        return try StuffItXCodecTests.collect(decoder, chunk: chunk)
+        return try StuffItXTestSupport.collect(decoder, chunk: chunk)
     }
     func testStoredAndWZ() throws {
         let wire = StuffItTestSupport.hex("0006ffd8ffd96162")
@@ -61,10 +61,10 @@ final class StuffItXJPEGTests: XCTestCase {
         let first = try Self.vectors()["cases"] as! [[String:Any]], wire = StuffItTestSupport.hex(first[0]["input"] as! String)
         // 初期化後の係数・tail 読み取りで起きる入力不足も、そのまま伝播させる。
         let short = try StuffItXJPEGDecoder(source:DataByteSource(wire.dropLast()),size:nil,limits:ReadLimits())
-        expect(.truncated) { try StuffItXCodecTests.collect(short,chunk:7) }
+        expect(.truncated) { try StuffItXTestSupport.collect(short,chunk:7) }
         expect(.malformed("StuffIt X JPEG JPEG encoded extent mismatch")) { try Self.decode(wire+Data([0])) }
         let wrongSize = try StuffItXJPEGDecoder(source:DataByteSource(wire),size:0,limits:ReadLimits())
-        expect(.malformed("StuffIt X JPEG output extent mismatch")) { try StuffItXCodecTests.collect(wrongSize,chunk:7) }
+        expect(.malformed("StuffIt X JPEG output extent mismatch")) { try StuffItXTestSupport.collect(wrongSize,chunk:7) }
 
         var tables = try JPEGTableSet(JPEGPrefix())
         expect(.truncated) { try tables.segment(219,[0]) }
@@ -319,7 +319,7 @@ final class StuffItXJPEGTests: XCTestCase {
                 algorithms += StuffItXCryptoTests.records(cipher)
                 let element = StuffItXElement(offset:0,flag:false,type:1,attributes:[:],algorithms:algorithms,extra:nil,data:[0..<UInt64(payload.count)],checksums:[UInt64(payload.count)..<UInt64(payload.count+checksum.count)],framedSize:UInt64(payload.count))
                 let coordinator = StuffItXStreamCoordinator(source:DataByteSource(payload+checksum),element:element,size:UInt64(expected.count),limits:ReadLimits(),password:"password")
-                XCTAssertEqual(try StuffItXCodecTests.collect(coordinator.stream(offset:0,length:UInt64(expected.count)),chunk:1),expected)
+                XCTAssertEqual(try StuffItXTestSupport.collect(coordinator.stream(offset:0,length:UInt64(expected.count)),chunk:1),expected)
                 var bad = checksum; bad[0] ^= 1
                 let corrupt = StuffItXStreamCoordinator(source:DataByteSource(payload+bad),element:element,size:UInt64(expected.count),limits:ReadLimits(),password:"password")
                 XCTAssertThrowsError(try corrupt.stream(offset:0,length:UInt64(expected.count))) { XCTAssertEqual($0 as? KaitoError,.checksumMismatch(entry:-1)) }
@@ -329,7 +329,7 @@ final class StuffItXJPEGTests: XCTestCase {
         let crypto = try StuffItXCrypto(password:"password",algorithms:StuffItXCryptoTests.records(ciphers))
         let input = try crypto.decrypt(DataByteSource(Data(StuffItXCryptoTests.seal(Array(encoded),ciphers:ciphers))))
         let decoder = try StuffItXCodec.make(method:7,source:input,size:UInt64(expected.count),limits:ReadLimits())
-        XCTAssertEqual(try StuffItXCodecTests.collect(decoder,chunk:7),expected)
+        XCTAssertEqual(try StuffItXTestSupport.collect(decoder,chunk:7),expected)
     }
     func testHistoricalArchives() throws {
         guard ProcessInfo.processInfo.environment["STUFFITX_JPEG_CORPUS"] == "1" else { throw XCTSkip("外部歴史的書庫は明示実行") }
@@ -353,7 +353,7 @@ final class StuffItXJPEGTests: XCTestCase {
                 unencrypted = Data(try readByteRange(source:framed,offset:0,count:Int(framed.length)))
                 try unencrypted!.write(to:Self.root.appendingPathComponent(".build/jpeg-historical-2009.jc"))
                 let decoder = try StuffItXJPEGDecoder(source:DataByteSource(unencrypted!),size:220,limits:ReadLimits())
-                _ = try StuffItXCodecTests.collect(decoder,chunk:1)
+                _ = try StuffItXTestSupport.collect(decoder,chunk:1)
                 XCTAssertEqual(decoder.range?.code,0x00acb00f); XCTAssertEqual(decoder.range?.range,0x0159601f)
             }
         }

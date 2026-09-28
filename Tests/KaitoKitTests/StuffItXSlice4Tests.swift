@@ -28,7 +28,7 @@ final class StuffItXSlice4Tests: XCTestCase {
             for chunk in [1, 4096] {
                 let decoder = try StuffItXBrimstoneDecoder(input: StuffItXBitReader(source: DataByteSource(input)), size: UInt64(expected.count), limits: ReadLimits())
                 do {
-                    let output = try StuffItXCodecTests.collect(decoder, chunk: chunk)
+                    let output = try StuffItXTestSupport.collect(decoder, chunk: chunk)
                     XCTAssertEqual(output, expected, "\(vector.name), first difference \(zip(output, expected).enumerated().first { $0.element.0 != $0.element.1 }?.offset ?? -1)")
                     if let events = vector.model_events {
                         XCTAssertEqual(decoder.model.restartCount, events["restarts"], vector.name)
@@ -80,30 +80,30 @@ final class StuffItXSlice4Tests: XCTestCase {
     func testBrimstoneBoundsAndTermination() throws {
         for prefix in [[31,4], [12,0], [0,4]] {
             let data = Data(prefix.map(UInt8.init)) + Data(repeating: 0, count: 4)
-            XCTAssertThrowsError(try StuffItXCodecTests.decode(data, method: 0, size: 1))
+            XCTAssertThrowsError(try StuffItXTestSupport.decode(data, method: 0, size: 1))
         }
-        XCTAssertThrowsError(try StuffItXCodecTests.decode(Data([12,4,0,0,0,0]), method: 0, size: 1, limits: ReadLimits(maxDictionarySize: 4095)))
+        XCTAssertThrowsError(try StuffItXTestSupport.decode(Data([12,4,0,0,0,0]), method: 0, size: 1, limits: ReadLimits(maxDictionarySize: 4095)))
         let vector = try XCTUnwrap(Self.vectors(100).first { $0.name == "brimstone-zero-history-adaptation-root-escape" })
         let input = Data([20,4]) + StuffItTestSupport.hex(vector.input_hex)
         // order 1 の初期 root の escape 区間を独立に選ぶ。正規化用 octet も供給する。
         let code = (UInt32.max / 385) * 384
         let empty = Data([12,1]) + Data((0..<4).reversed().map { UInt8(truncatingIfNeeded: code >> ($0 * 8)) }) + Data([0])
         let decoder = try StuffItXCodec.make(method: 0, source: DataByteSource(empty), size: nil, limits: ReadLimits())
-        XCTAssertEqual(try StuffItXCodecTests.collect(decoder, chunk: 7), Data())
-        XCTAssertThrowsError(try StuffItXCodecTests.decode(input, method: 0, size: vector.output_hex.count / 2 + 1))
+        XCTAssertEqual(try StuffItXTestSupport.collect(decoder, chunk: 7), Data())
+        XCTAssertThrowsError(try StuffItXTestSupport.decode(input, method: 0, size: vector.output_hex.count / 2 + 1))
     }
     func testIronNativeVectorsAndLegacyProfileDifference() throws {
         let legacy = try Self.vectors(106)
         XCTAssertEqual(legacy.count, 4)
         for vector in legacy {
             // 元の宣言上限 (16,32,64) の期待値は保存し、native と混同しない。
-            XCTAssertThrowsError(try StuffItXCodecTests.decode(StuffItTestSupport.hex(vector.input_hex), method: 6, size: vector.output_hex.count / 2), vector.name)
+            XCTAssertThrowsError(try StuffItXTestSupport.decode(StuffItTestSupport.hex(vector.input_hex), method: 6, size: vector.output_hex.count / 2), vector.name)
         }
         let vectors = try JSONDecoder().decode([Vector].self, from: Data(contentsOf: Self.fixtures.appendingPathComponent("slice4-iron-native-vectors.json")))
         XCTAssertEqual(vectors.count, 8)
         for vector in vectors {
             for chunk in [1, 7, 4096] {
-                XCTAssertEqual(try StuffItXCodecTests.decode(StuffItTestSupport.hex(vector.input_hex), method: 6, size: vector.output_hex.count / 2, chunk: chunk), StuffItTestSupport.hex(vector.output_hex), vector.name)
+                XCTAssertEqual(try StuffItXTestSupport.decode(StuffItTestSupport.hex(vector.input_hex), method: 6, size: vector.output_hex.count / 2, chunk: chunk), StuffItTestSupport.hex(vector.output_hex), vector.name)
             }
         }
     }
@@ -117,7 +117,7 @@ final class StuffItXSlice4Tests: XCTestCase {
             for chunk in [1, 7, 4096] {
                 let expected = StuffItTestSupport.hex(vector.output_hex)
                 let decoder = try StuffItXEnglish(decoder: Self.copy(StuffItTestSupport.hex(vector.input_hex)), size: UInt64(expected.count))
-                XCTAssertEqual(try StuffItXCodecTests.collect(decoder, chunk: chunk), expected, vector.name)
+                XCTAssertEqual(try StuffItXTestSupport.collect(decoder, chunk: chunk), expected, vector.name)
             }
         }
     }
@@ -130,16 +130,16 @@ final class StuffItXSlice4Tests: XCTestCase {
             for chunk in [1, 7, 4096] {
                 let data = StuffItTestSupport.hex(vector.input_hex)
                 let decoder = try StuffItXX86(decoder: Self.copy(data), size: UInt64(data.count))
-                XCTAssertEqual(try StuffItXCodecTests.collect(decoder, chunk: chunk), StuffItTestSupport.hex(native), vector.name)
+                XCTAssertEqual(try StuffItXTestSupport.collect(decoder, chunk: chunk), StuffItTestSupport.hex(native), vector.name)
             }
         }
         for count in 0...5 {
             let data = Data([0xe8,6,0,0,0].prefix(count))
             let decoder = try StuffItXX86(decoder: Self.copy(data), size: UInt64(count))
-            XCTAssertEqual(try StuffItXCodecTests.collect(decoder, chunk: 1), data)
+            XCTAssertEqual(try StuffItXTestSupport.collect(decoder, chunk: 1), data)
         }
         let decoder = try StuffItXX86(decoder: Self.copy(Data([0xe8,6,0,0,0,0])), size: 6)
-        XCTAssertEqual(try StuffItXCodecTests.collect(decoder, chunk: 1), Data([0xe8,0,0,0,0,0]))
+        XCTAssertEqual(try StuffItXTestSupport.collect(decoder, chunk: 1), Data([0xe8,0,0,0,0,0]))
     }
     func testDictionaryAndReproducibleGeneration() throws {
         let words = try StuffItXEnglishDictionary.words.get()

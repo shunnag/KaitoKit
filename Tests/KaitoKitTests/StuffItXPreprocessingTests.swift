@@ -20,13 +20,13 @@ final class StuffItXPreprocessingTests: XCTestCase {
         let coordinator = try coordinator(intermediate, final: final, preprocessing: method, compression: compression)
         for i in final.indices {
             let stream = try coordinator.stream(offset: UInt64(i), length: 1)
-            XCTAssertEqual(try StuffItXCodecTests.collect(stream, chunk: 1), Data([final[i]]))
+            XCTAssertEqual(try StuffItXTestSupport.collect(stream, chunk: 1), Data([final[i]]))
         }
         XCTAssertFalse(coordinator.hasRetainedDecoderState)
-        XCTAssertEqual(try StuffItXCodecTests.collect(coordinator.stream(offset: 0, length: UInt64(final.count)), chunk: 7), final)
+        XCTAssertEqual(try StuffItXTestSupport.collect(coordinator.stream(offset: 0, length: UInt64(final.count)), chunk: 7), final)
         let bad = try self.coordinator(intermediate, final: final, preprocessing: method, compression: compression,
                                        digest: StuffItXReaderTests.checksum(intermediate))
-        XCTAssertThrowsError(try StuffItXCodecTests.collect(bad.stream(offset: 0, length: UInt64(final.count)), chunk: 1)) {
+        XCTAssertThrowsError(try StuffItXTestSupport.collect(bad.stream(offset: 0, length: UInt64(final.count)), chunk: 1)) {
             XCTAssertEqual($0 as? KaitoError, .checksumMismatch(entry: -1))
         }
     }
@@ -50,15 +50,15 @@ final class StuffItXPreprocessingTests: XCTestCase {
                             ("0102030402",2),("0102030402",4)] {
             XCTAssertThrowsError(try {
                 let decoder = try StuffItXEnglish(decoder: StuffItXSlice4Tests.copy(StuffItTestSupport.hex(hex)), size: UInt64(size))
-                _ = try StuffItXCodecTests.collect(decoder, chunk: 1)
+                _ = try StuffItXTestSupport.collect(decoder, chunk: 1)
             }())
         }
         let decoder = try StuffItXEnglish(decoder: StuffItXSlice4Tests.copy(Data([1,1,1,1,1,65])), size: 1)
-        XCTAssertEqual(try StuffItXCodecTests.collect(decoder, chunk: 1), Data([65]))
+        XCTAssertEqual(try StuffItXTestSupport.collect(decoder, chunk: 1), Data([65]))
         let capitals = try StuffItXEnglish(decoder: StuffItXSlice4Tests.copy(Data([1,2,3,3,3])), size: 3)
-        XCTAssertEqual(try StuffItXCodecTests.collect(capitals, chunk: 1), Data("tHE".utf8))
+        XCTAssertEqual(try StuffItXTestSupport.collect(capitals, chunk: 1), Data("tHE".utf8))
         let empty = try StuffItXEnglish(decoder: StuffItXSlice4Tests.copy(Data([1,2,3,4])), size: 0)
-        XCTAssertEqual(try StuffItXCodecTests.collect(empty, chunk: 1), Data())
+        XCTAssertEqual(try StuffItXTestSupport.collect(empty, chunk: 1), Data())
     }
     func testX86HistoryClosure() {
         var states: Set<UInt32> = [0], before = Set<UInt32>(), accepted = Set<UInt32>()

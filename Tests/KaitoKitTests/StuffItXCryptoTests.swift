@@ -73,7 +73,7 @@ final class StuffItXCryptoTests: XCTestCase {
             XCTAssertEqual(try Self.collect(decrypted, chunk: chunk), Self.aesPlaintext)
         }
         let cyanide = try StuffItXCodec.make(method: 1, source: decrypted, size: 12, limits: ReadLimits())
-        let data = try StuffItXCodecTests.collect(cyanide, chunk: 1)
+        let data = try StuffItXTestSupport.collect(cyanide, chunk: 1)
         XCTAssertEqual(data.count, 12); XCTAssertEqual(CRC32.checksum(data), 0x6ec18ffe)
         let wrong = try StuffItXCrypto(password: "wrong", algorithms: Self.records([(0, 32)]))
         XCTAssertThrowsError(try wrong.decrypt(framed)) { XCTAssertEqual($0 as? KaitoError, .wrongPassword) }
@@ -243,14 +243,14 @@ final class StuffItXCryptoTests: XCTestCase {
         let coordinator = StuffItXStreamCoordinator(source: source, element: element, size: 5, limits: ReadLimits(), password: "password")
         XCTAssertNil(coordinator.crypto)
         let tail = try coordinator.stream(offset: 3, length: 2)
-        XCTAssertEqual(try StuffItXCodecTests.collect(tail, chunk: 1), Data("DE".utf8))
+        XCTAssertEqual(try StuffItXTestSupport.collect(tail, chunk: 1), Data("DE".utf8))
         let retained = try XCTUnwrap(coordinator.crypto)
         let head = try coordinator.stream(offset: 0, length: 3)
         XCTAssertTrue(coordinator.crypto === retained)
-        XCTAssertEqual(try StuffItXCodecTests.collect(head, chunk: 1), Data("ABC".utf8))
+        XCTAssertEqual(try StuffItXTestSupport.collect(head, chunk: 1), Data("ABC".utf8))
         coordinator.setPassword("wrong")
         XCTAssertNil(coordinator.crypto)
-        XCTAssertThrowsError(try StuffItXCodecTests.collect(head, chunk: 1))
+        XCTAssertThrowsError(try StuffItXTestSupport.collect(head, chunk: 1))
         XCTAssertThrowsError(try coordinator.stream(offset: 0, length: 3)) { XCTAssertEqual($0 as? KaitoError, .wrongPassword) }
     }
 
@@ -296,7 +296,7 @@ final class StuffItXCryptoTests: XCTestCase {
                 }
                 let coordinator = StuffItXStreamCoordinator(source: source, element: element, size: size,
                                                             limits: ReadLimits(), password: "password")
-                let data = try StuffItXCodecTests.collect(coordinator.stream(offset: 0, length: size), chunk: 113)
+                let data = try StuffItXTestSupport.collect(coordinator.stream(offset: 0, length: size), chunk: 113)
                 XCTAssertEqual(UInt64(data.count), size)
                 if element.type == 1 {
                     XCTAssertTrue(element.algorithms.contains { $0.key == 2 && $0.value == 0 }); verified += 1

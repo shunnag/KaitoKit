@@ -179,10 +179,10 @@ final class StuffItXReaderTests: XCTestCase {
         let old = try coordinator.stream(offset: 0, length: 3)
         XCTAssertTrue(coordinator.hasRetainedDecoderState)
         let next = try coordinator.stream(offset: 3, length: 2)
-        XCTAssertThrowsError(try StuffItXCodecTests.collect(old, chunk: 1))
-        XCTAssertEqual(try StuffItXCodecTests.collect(next, chunk: 1), Data("DE".utf8))
+        XCTAssertThrowsError(try StuffItXTestSupport.collect(old, chunk: 1))
+        XCTAssertEqual(try StuffItXTestSupport.collect(next, chunk: 1), Data("DE".utf8))
         XCTAssertFalse(coordinator.hasRetainedDecoderState)
-        XCTAssertEqual(try StuffItXCodecTests.collect(coordinator.stream(offset: 0, length: 5), chunk: 1), Data("ABCDE".utf8))
+        XCTAssertEqual(try StuffItXTestSupport.collect(coordinator.stream(offset: 0, length: 5), chunk: 1), Data("ABCDE".utf8))
     }
     func testPackedCatalogFieldsAndLinkMarker() throws {
         var w = Writer()

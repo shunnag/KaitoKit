@@ -43,7 +43,7 @@ final class StuffItXFixtureTests: XCTestCase {
                     XCTAssertEqual(try readByteRange(source: framed, offset: 10, count: 1), [255])
                     fullTailCounts += 1
                 }
-                let bytes = try StuffItXCodecTests.collect(coordinator.stream(offset: 0, length: stream.output), chunk: 7)
+                let bytes = try StuffItXTestSupport.collect(coordinator.stream(offset: 0, length: stream.output), chunk: 7)
                 XCTAssertEqual(UInt64(bytes.count), stream.output)
                 XCTAssertEqual(bytes.sha256Hex, stream.sha256)
                 matches += 1

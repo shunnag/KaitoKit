@@ -3,6 +3,9 @@ import Foundation
 @_spi(TarEditLayout) @testable import KaitoKit
 import XCTest
 
+/// 圧縮 tar を splice（CompressedTarSplice）で開く時間を、編集前の base と編集後の全体を普通に開く時間と比べ、`KAITOKIT-PROBE` 行で出す。
+/// KAITOKIT_TAR_SPLICE_PROBE は prototype corpus の 75 件の segment manifest（作り方は Tests/README.md）、
+/// KAITOKIT_TAR_SPLICE_PROBE_LARGE=1 はその場で作る 4 GiB + 1 MiB の tgz / tbz / txz への追記。どちらも無ければ skip。
 final class TarEditScaleProbeTests: XCTestCase {
     struct Item: Decodable {
         struct Segment: Decodable {

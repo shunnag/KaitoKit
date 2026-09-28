@@ -3,6 +3,9 @@ import Foundation
 @_spi(SevenZipEditLayout) internal import KaitoKit
 import XCTest
 
+/// 凍結した 10 万 entry 以上の 7z（KAITOKIT_7Z_SCALE_DIR の g_k100.7z / z_k100.7z）を、SevenZipEditLayout の記録あり・なしを
+/// 交互に 5 回ずつ毎回別 process で開かせ、open 時間の中央値の比（1.10 以下）と RSS の増分（1 entry 128 byte 以下）を `7Z-LAYOUT` 行で出す。
+/// release でだけ測る（debug build では skip）。
 final class SevenZipEditLayoutScaleProbeTests: XCTestCase {
     private struct Sample: Codable {
         let milliseconds: Double

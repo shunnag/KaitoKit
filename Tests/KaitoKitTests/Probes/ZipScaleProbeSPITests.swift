@@ -2,6 +2,8 @@ import Foundation
 @_spi(ZipRawLayout) internal import KaitoKit
 import XCTest
 
+/// ZipScaleProbeTests と同じ 500,000 entry の ZIP（KAITOKIT_ZIP_SCALE_PROBE、無ければ skip）で、SPI の
+/// `zipRawRecordLayout(at:)` を全 entry に引く時間と読み出し回数・byte 数を `KAITOKIT-PROBE` 行で出す。
 final class ZipScaleProbeSPITests: XCTestCase {
     func testScale() throws {
         let url = try ZipScaleProbeSource.corpus()

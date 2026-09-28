@@ -146,26 +146,4 @@ enum SingleFileMaterializer {
         }
         throw KaitoError.io(EEXIST)
     }
-
-    private static func writeAll(
-        _ bytes: UnsafeRawBufferPointer,
-        to descriptor: Int32
-    ) throws {
-        guard !bytes.isEmpty else { return }
-        guard let baseAddress = bytes.baseAddress else {
-            throw KaitoError.malformed("temporary-file buffer has no storage")
-        }
-
-        var written = 0
-        while written < bytes.count {
-            let result = Darwin.write(
-                descriptor,
-                baseAddress.advanced(by: written),
-                bytes.count - written
-            )
-            if result < 0, errno == EINTR { continue }
-            guard result > 0 else { throw KaitoError.io(errno) }
-            written += result
-        }
-    }
 }

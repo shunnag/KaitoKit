@@ -269,7 +269,8 @@ struct ExtractionResult {
     let fileIdentity: ExtractedFileIdentity?
 }
 
-enum Extractor {
+// KaitoKitCompat が dirfd の再配置と path の判定を共有するため package。
+package enum Extractor {
     private static let copyBufferSize = 256 * 1024
 
     static func extract(
@@ -678,7 +679,9 @@ enum Extractor {
         restoreOriginalMode = false
     }
 
-    private static func safeComponents(
+    /// entry 名を展開先の path component に分ける。絶対 path・NUL・`..` は拒み、`.` は除く。
+    /// `allowArchiveRoot` が false のときは `.` だけの名前も拒む。
+    package static func safeComponents(
         for name: String,
         allowArchiveRoot: Bool
     ) throws -> [String] {
@@ -721,21 +724,9 @@ enum Extractor {
                 try stream.read(into: storage)
             }
             if count == 0 { break }
-
-            var written = 0
-            while written < count {
-                let result: Int = buffer.withUnsafeBytes { storage in
-                    // 不変条件: written..<count は直前に読み込んだ配列要素だけを指す。
-                    guard let base = storage.baseAddress else { return -1 }
-                    return Darwin.write(
-                        descriptor,
-                        base.advanced(by: written),
-                        count - written
-                    )
-                }
-                if result < 0, errno == EINTR { continue }
-                guard result > 0 else { throw KaitoError.io(errno) }
-                written += result
+            try buffer.withUnsafeBytes { storage in
+                // 不変条件: ..<count は直前に読み込んだ配列要素だけを指す。
+                try writeAll(UnsafeRawBufferPointer(rebasing: storage[..<count]), to: descriptor)
             }
         }
     }

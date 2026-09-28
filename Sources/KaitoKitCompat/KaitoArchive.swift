@@ -134,20 +134,8 @@ enum KaitoArchiveFileRelocator {
             if count < 0, errno == EINTR { continue }
             guard count >= 0 else { throw KaitoError.io(errno) }
             if count == 0 { return }
-
-            var written = 0
-            while written < count {
-                let result: Int = buffer.withUnsafeBytes { storage in
-                    guard let baseAddress = storage.baseAddress else { return -1 }
-                    return Darwin.write(
-                        target,
-                        baseAddress.advanced(by: written),
-                        count - written
-                    )
-                }
-                if result < 0, errno == EINTR { continue }
-                guard result > 0 else { throw KaitoError.io(errno) }
-                written += result
+            try buffer.withUnsafeBytes { storage in
+                try writeAll(UnsafeRawBufferPointer(rebasing: storage[..<count]), to: target)
             }
         }
     }
@@ -684,7 +672,7 @@ public final class KaitoArchive {
         below staging: Int32
     ) throws {
         for entry in extractionChain {
-            let components = try safePathComponents(for: entry.name)
+            let components = try Extractor.safeComponents(for: entry.name, allowArchiveRoot: false)
             for count in 1..<components.count {
                 let directory = try ExtractionDirectoryAccess.open(
                     Array(components.prefix(count)),
@@ -728,7 +716,7 @@ public final class KaitoArchive {
         named name: String,
         below destination: URL
     ) throws {
-        let components = try safePathComponents(for: name)
+        let components = try Extractor.safeComponents(for: name, allowArchiveRoot: false)
         let leaf = components[components.count - 1]
 
         let root = try ExtractionDirectoryAccess.openRoot(at: destination.path)
@@ -766,23 +754,6 @@ public final class KaitoArchive {
         try sourceParent.restoreMode()
         try parent.restoreMode()
         try root.restoreMode()
-    }
-
-    private func safePathComponents(for name: String) throws -> [String] {
-        let rawComponents = name.utf8
-            .split(separator: 0x2F, omittingEmptySubsequences: true)
-            .map { String(decoding: $0, as: UTF8.self) }
-        guard !name.isEmpty,
-              name.utf8.first != 0x2F,
-              !name.utf8.contains(0),
-              !rawComponents.contains("..") else {
-            throw KaitoError.malformed("entry path is malformed")
-        }
-        let components = rawComponents.filter { $0 != "." }
-        guard !components.isEmpty else {
-            throw KaitoError.malformed("entry path is empty")
-        }
-        return components
     }
 
     private static func open(

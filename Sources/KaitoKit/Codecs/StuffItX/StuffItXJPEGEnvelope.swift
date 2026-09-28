@@ -9,6 +9,29 @@ import Foundation
     .unsupportedMethod("StuffIt X JPEG \(reason)")
 }
 
+/// JPEG（ITU-T T.81 表 B.1）の marker。`prefix` 以外は 0xFF に続く第二 byte の値。
+enum JPEGMarker {
+    static let prefix = 0xFF
+    /// 第二 byte としての 0xFF（fill byte）。
+    static let fill = 0xFF
+    /// FF 00 は entropy 符号内の 0xFF の escape で、marker ではない。
+    static let stuffedZero = 0x00
+    static let tem = 0x01
+    static let sof0 = 0xC0  // baseline DCT
+    static let sof2 = 0xC2  // progressive DCT
+    static let dht = 0xC4
+    static let jpg = 0xC8
+    static let dac = 0xCC
+    /// SOF0–SOF15 の範囲。DHT・JPG・DAC もこの範囲に含まれるので、SOF の判定では除く。
+    static let sofRange = 0xC0...0xCF
+    static let rst = 0xD0...0xD7
+    static let soi = 0xD8
+    static let eoi = 0xD9
+    static let sos = 0xDA
+    static let dqt = 0xDB
+    static let dri = 0xDD
+}
+
 // 固定長領域の寿命を所有する。ホットループでは p を直接参照する。
 final class JPEGStorage<T> {
     let p: UnsafeMutablePointer<T>
@@ -164,13 +187,13 @@ enum StuffItXJPEGEnvelope {
             guard UInt64(result.header.count) < limit else { throw KaitoError.limitExceeded("StuffIt X JPEG header") }
             let value = try next(); result.header.append(UInt8(value)); return value
         }
-        guard try get() == 255, try get() == 216 else { throw jpegMalformed("JPEG SOI required") }
-        result.segments.append(JPEGSegment(marker: 216, offset: 0, end: 2))
+        guard try get() == JPEGMarker.prefix, try get() == JPEGMarker.soi else { throw jpegMalformed("JPEG SOI required") }
+        result.segments.append(JPEGSegment(marker: JPEGMarker.soi, offset: 0, end: 2))
         var tokens: UInt64 = 0
         while tokens < (wire ? limit : 4096) {
             tokens += 1
             let start = result.header.count
-            if try get() != 255 {
+            if try get() != JPEGMarker.prefix {
                 if wire { result.literals += 1; continue }
                 throw jpegMalformed("JPEG marker prefix required")
             }
@@ -181,12 +204,13 @@ enum StuffItXJPEGEnvelope {
             } else {
                 while marker == 255 { marker = try get() }
             }
-            if wire && allowComplete && (marker == 216 || marker == 217) {
-                result.header[result.header.count - 1] = 217
-                result.segments.append(JPEGSegment(marker: 217, offset: start, end: result.header.count))
+            if wire && allowComplete && (marker == JPEGMarker.soi || marker == JPEGMarker.eoi) {
+                result.header[result.header.count - 1] = UInt8(JPEGMarker.eoi)
+                result.segments.append(JPEGSegment(marker: JPEGMarker.eoi, offset: start, end: result.header.count))
                 return result
             }
-            guard ![0,1,216,217].contains(marker), !(208...215).contains(marker) else {
+            guard ![JPEGMarker.stuffedZero, JPEGMarker.tem, JPEGMarker.soi, JPEGMarker.eoi].contains(marker),
+                  !JPEGMarker.rst.contains(marker) else {
                 throw jpegUnsupported("unsupported marker before first scan")
             }
             let length = try get() * 256 + get()
@@ -195,7 +219,7 @@ enum StuffItXJPEGEnvelope {
             for _ in 0..<(length - 2) { body.append(try get()) }
             guard result.segments.count < 4096 else { throw jpegMalformed("JPEG segment count") }
             result.segments.append(JPEGSegment(marker: marker, offset: start, end: result.header.count, length: length))
-            if marker == 192 || marker == 194 {
+            if marker == JPEGMarker.sof0 || marker == JPEGMarker.sof2 {
                 guard result.frame == nil, body.count >= 6, body.count == 6 + 3 * body[5] else { throw jpegMalformed("JPEG frame layout") }
                 var components: [JPEGComponent] = []
                 for i in stride(from: 6, to: body.count, by: 3) {
@@ -208,10 +232,12 @@ enum StuffItXJPEGEnvelope {
                 guard width > 0, height > 0 else { throw jpegMalformed("JPEG frame dimensions or precision") }
                 guard body[0] == 8 else { throw jpegUnsupported("JPEG frame dimensions or precision") }
                 result.frame = JPEGFrame(marker: marker, width: width, height: height, components: components)
-            } else if marker == 218 {
+            } else if marker == JPEGMarker.sos {
                 guard let frame = result.frame else {
                     // 未対応の SOF がある場合と、SOF 自体が欠けた破損を区別する。
-                    if result.segments.contains(where: { (192...207).contains($0.marker) && ![196,200,204].contains($0.marker) }) {
+                    if result.segments.contains(where: {
+                        JPEGMarker.sofRange.contains($0.marker) && ![JPEGMarker.dht, JPEGMarker.jpg, JPEGMarker.dac].contains($0.marker)
+                    }) {
                         throw jpegUnsupported("unsupported JPEG frame marker")
                     }
                     throw jpegMalformed("JPEG scan layout")

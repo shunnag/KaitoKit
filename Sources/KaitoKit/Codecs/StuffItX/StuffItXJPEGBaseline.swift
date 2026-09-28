@@ -57,7 +57,7 @@ struct JPEGTableSet {
         for s in prefix.segments where s.length > 0 {
             let body = Array(prefix.header[(s.end-s.length+2)..<s.end])
             try segment(s.marker,body)
-            if (s.marker == 192 || s.marker == 194), let frame = prefix.frame {
+            if (s.marker == JPEGMarker.sof0 || s.marker == JPEGMarker.sof2), let frame = prefix.frame {
                 frameProfiles = try JPEGGeometry.componentsByID(frame).map {
                     let value = quantization[$0.quantization] == nil ? 0 : try scaled($0.quantization)[2]
                     return value < 12 ? 0 : value < 48 ? 1 : 5
@@ -65,13 +65,16 @@ struct JPEGTableSet {
             }
         }
     }
+    /// DHT の表番号（class << 4 | id）。scan の selector は上位 4 bit が DC、下位 4 bit が AC の表 id。
+    @inline(__always) static func dcTableKey(_ selector: Int) -> Int { selector >> 4 }
+    @inline(__always) static func acTableKey(_ selector: Int) -> Int { 16 + (selector & 15) }
     mutating func segment(_ marker: Int, _ body: [UInt8]) throws {
         var position = 0
         func byte() throws -> Int {
             guard position < body.count else { throw KaitoError.truncated }
             defer { position += 1 }; return Int(body[position])
         }
-        if marker == 219 {
+        if marker == JPEGMarker.dqt {
             while position < body.count {
                 let key = try byte()
                 guard key & 15 <= 3, key >> 4 <= 1 else { throw jpegMalformed("quantization table selector") }
@@ -81,7 +84,7 @@ struct JPEGTableSet {
                 guard table.allSatisfy({$0 > 0}) else { throw jpegMalformed("zero quantization value") }
                 quantization[key] = table
             }
-        } else if marker == 196 {
+        } else if marker == JPEGMarker.dht {
             while position < body.count {
                 let key = try byte()
                 guard [0,1,2,3,16,17,18,19].contains(key) else { throw jpegMalformed("Huffman table selector") }
@@ -90,7 +93,7 @@ struct JPEGTableSet {
                 for _ in 0..<counts.reduce(0,+) { values.append(try byte()) }
                 huffman[key] = try JPEGHuffman(counts,values)
             }
-        } else if marker == 221 {
+        } else if marker == JPEGMarker.dri {
             guard body.count == 2 else { throw jpegMalformed("restart interval length") }
             restart = Int(body[0])*256+Int(body[1])
         }
@@ -165,14 +168,15 @@ final class StuffItXJPEGBaseline {
     var done: Bool { row == geometry.height }
     init(_ prefix: JPEGPrefix, _ decoder: StuffItXJPEGRange, _ output: JPEGOutput, _ limits: ReadLimits) throws {
         guard let frame = prefix.frame, let scan = prefix.scan else { throw jpegMalformed("mode-2 baseline JPEG required") }
-        guard frame.marker == 192 else { throw jpegUnsupported("mode-2 baseline JPEG required") }
+        guard frame.marker == JPEGMarker.sof0 else { throw jpegUnsupported("mode-2 baseline JPEG required") }
         guard scan.ss == 0, scan.se == 63, scan.ah == 0, scan.al == 0 else { throw jpegMalformed("unsupported baseline scan") }
         geometry = try JPEGGeometry(frame,limits:limits)
         guard scan.components.map(\.id).sorted() == geometry.components.map(\.id) else { throw jpegUnsupported("single interleaved scan required") }
         let tables = try JPEGTableSet(prefix); restart = tables.restart
         for (c,properties) in geometry.components.enumerated() {
             let selector = scan.components.first { $0.id == properties.id }!.selector
-            guard let dc = tables.huffman[selector >> 4], let ac = tables.huffman[16+(selector & 15)] else { throw jpegMalformed("undefined Huffman table") }
+            guard let dc = tables.huffman[JPEGTableSet.dcTableKey(selector)],
+                  let ac = tables.huffman[JPEGTableSet.acTableKey(selector)] else { throw jpegMalformed("undefined Huffman table") }
             configuration.p[c] = JPEGBaselineComponent(hs:properties.horizontal,vs:properties.vertical,profile:tables.frameProfiles[c],dc:dc,ac:ac)
             let q = try tables.scaled(properties.quantization)
             guard q.allSatisfy({$0 > 0 && $0 <= 32767}) else { throw jpegMalformed("scaled quantization table") }
@@ -196,7 +200,8 @@ final class StuffItXJPEGBaseline {
             }
             let unit = row*geometry.width+column+1
             if restart != 0 && unit < geometry.width*geometry.height && unit%restart == 0 {
-                try entropy.finish(); try entropy.output.append(255); try entropy.output.append(208+restarts%8)
+                try entropy.finish(); try entropy.output.append(JPEGMarker.prefix)
+                try entropy.output.append(JPEGMarker.rst.lowerBound+restarts%8)
                 restarts += 1; previousDC.p.update(repeating:0,count:3)
             }
         }
@@ -240,7 +245,7 @@ final class JPEGDelayedBits {
     }
     func restart(_ index: Int) throws {
         if count < 8 { let n = 8-count; try put((1 << n)-1,n) }
-        try flush(); try output.append(255); try output.append(208+index%8)
+        try flush(); try output.append(JPEGMarker.prefix); try output.append(JPEGMarker.rst.lowerBound+index%8)
     }
 }
 
@@ -273,7 +278,7 @@ final class JPEGScanEncoder {
         for i in 0..<count { try bits.put(source[i],1) }; correctionBits += count
     }
     func block(_ co: UnsafePointer<Int32>, _ component: Int, _ selector: Int) throws {
-        let key = scan.ss != 0 ? 16+(selector & 15) : selector >> 4
+        let key = scan.ss != 0 ? JPEGTableSet.acTableKey(selector) : JPEGTableSet.dcTableKey(selector)
         guard let table = tables.huffman[key] else { throw jpegMalformed("undefined progressive Huffman table") }
         if scan.ss == 0 {
             if scan.ah == 0 {
@@ -329,7 +334,8 @@ final class JPEGScanEncoder {
     }
     func finish(_ savedByte: Int) throws {
         if scan.ss != 0 {
-            guard let selector = scan.components.last?.selector, let table = tables.huffman[16+(selector & 15)] else { throw jpegMalformed("undefined progressive Huffman table") }
+            guard let selector = scan.components.last?.selector,
+                  let table = tables.huffman[JPEGTableSet.acTableKey(selector)] else { throw jpegMalformed("undefined progressive Huffman table") }
             try flushEOB(table)
         }
         try bits.finish(savedByte)
@@ -374,7 +380,7 @@ final class StuffItXJPEGProgressive {
     }
     init(_ prefix: JPEGPrefix, _ decoder: StuffItXJPEGRange, _ model: StuffItXJPEGHeaderModel, _ output: JPEGOutput, _ limits: ReadLimits) throws {
         guard let frame = prefix.frame else { throw jpegMalformed("mode-2 progressive JPEG required") }
-        guard frame.marker == 194 else { throw jpegUnsupported("mode-2 progressive JPEG required") }
+        guard frame.marker == JPEGMarker.sof2 else { throw jpegUnsupported("mode-2 progressive JPEG required") }
         self.frame = frame; self.decoder = decoder; self.model = model; self.output = output
         geometry = try JPEGGeometry(frame,limits:limits); tables = try JPEGTableSet(prefix)
         blocks = try StuffItXJPEGBlocks(decoder,geometry:geometry,keepAll:true,limits:limits)
@@ -411,18 +417,19 @@ final class StuffItXJPEGProgressive {
                 }
                 markers += 1
                 guard markers <= 4096 else { throw jpegMalformed("progressive marker count limit") }
-                if marker == 216 || marker == 217 { body = nil; break }
-                guard ![0,1,192,194,255].contains(marker), !(208...215).contains(marker) else { throw jpegUnsupported("unsupported progressive inter-scan marker") }
+                if marker == JPEGMarker.soi || marker == JPEGMarker.eoi { body = nil; break }
+                guard ![JPEGMarker.stuffedZero, JPEGMarker.tem, JPEGMarker.sof0, JPEGMarker.sof2, JPEGMarker.fill].contains(marker),
+                      !JPEGMarker.rst.contains(marker) else { throw jpegUnsupported("unsupported progressive inter-scan marker") }
                 let high = try get(), low = try get(), length = high*256+low
                 guard length >= 2 else { throw jpegMalformed("progressive header length limit") }
                 totalHeader += UInt64(length+2); try Checked.size(totalHeader,limit:limits.maxEntrySize)
                 var data: [UInt8] = []; data.reserveCapacity(length-2)
                 for _ in 0..<(length-2) { data.append(UInt8(try get())) }
-                let bytes = [255,UInt8(marker),UInt8(high),UInt8(low)]+data
-                if marker == 196 { before = bytes }
-                else if marker == 218 { before += bytes }
+                let bytes = [UInt8(JPEGMarker.prefix),UInt8(marker),UInt8(high),UInt8(low)]+data
+                if marker == JPEGMarker.dht { before = bytes }
+                else if marker == JPEGMarker.sos { before += bytes }
                 else { try output.append(bytes) }
-                if marker == 218 { body = data; break }
+                if marker == JPEGMarker.sos { body = data; break }
                 try tables.segment(marker,data)
             }
         }

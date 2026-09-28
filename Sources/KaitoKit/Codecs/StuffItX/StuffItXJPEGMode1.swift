@@ -148,7 +148,7 @@ final class StuffItXJPEGMode1 {
     var done: Bool { row == geometry.height }
     init(_ prefix: JPEGPrefix, _ decoder: StuffItXJPEGRange, _ output: JPEGOutput, _ limits: ReadLimits) throws {
         guard let frame = prefix.frame, let scan = prefix.scan else { throw jpegMalformed("mode-1 baseline JPEG required") }
-        guard frame.marker == 192 else { throw jpegUnsupported("mode-1 baseline JPEG required") }
+        guard frame.marker == JPEGMarker.sof0 else { throw jpegUnsupported("mode-1 baseline JPEG required") }
         let components = try JPEGGeometry.componentsByID(frame), ids = components.map(\.id)
         guard (ids == [0,1,2] || ids == [1,2,3]), scan.components.map(\.id).sorted() == ids else { throw jpegUnsupported("mode-1 measured three-component interleaved profile required") }
         guard scan.ss == 0, scan.se == 63, scan.ah == 0, scan.al == 0 else { throw jpegMalformed("unsupported mode-1 scan") }
@@ -156,7 +156,8 @@ final class StuffItXJPEGMode1 {
         let tables = try JPEGTableSet(prefix); restart = tables.restart
         for (c,p) in components.enumerated() {
             let selector = scan.components.first {$0.id == p.id}!.selector
-            guard let dc = tables.huffman[selector >> 4], let ac = tables.huffman[16+(selector & 15)] else { throw jpegMalformed("undefined mode-1 Huffman table") }
+            guard let dc = tables.huffman[JPEGTableSet.dcTableKey(selector)],
+                  let ac = tables.huffman[JPEGTableSet.acTableKey(selector)] else { throw jpegMalformed("undefined mode-1 Huffman table") }
             configuration.p[c] = JPEGBaselineComponent(hs:p.horizontal,vs:p.vertical,dc:dc,ac:ac)
         }
         blocks = StuffItXJPEGMode1Blocks(decoder,geometry); entropy = JPEGEntropyWriter(output)
@@ -178,7 +179,8 @@ final class StuffItXJPEGMode1 {
             }
             let unit = row*geometry.width+column+1
             if restart != 0 && unit < geometry.width*geometry.height && unit%restart == 0 {
-                try entropy.finish(); try entropy.output.append(255); try entropy.output.append(208+restarts%8)
+                try entropy.finish(); try entropy.output.append(JPEGMarker.prefix)
+                try entropy.output.append(JPEGMarker.rst.lowerBound+restarts%8)
                 restarts += 1; previousDC.p.update(repeating:0,count:3)
             }
         }

@@ -1309,7 +1309,6 @@ final class ZipReader: FormatReader {
         // An empty EOCD carries no central-directory evidence with which to
         // distinguish a real archive from an EOCD-shaped trailing sequence.
         // Let candidate ordering continue toward an older evidenced archive.
-        guard entryCount != 0 || size != 0 else { return false }
         guard entryCount != 0, size != 0 else { return false }
 
         let directoryStart: UInt64

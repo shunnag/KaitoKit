@@ -3,6 +3,8 @@
 // XADMaster / The Unarchiver / stuffit-go 等の実装ソースは参照していない。
 import Foundation
 
+/// StuffIt method 13: 64 KiB 窓の LZ77。literal/length 木二本（直前が match かどうかで切り替える）と距離木の
+/// canonical Huffman で、表は preset 5 種から選ぶか 37 記号の meta 符号で読む。
 final class StuffItMethod13: Decompressor {
     private let input: StuffItPackedInput
     private let first: StuffItPrefixTree

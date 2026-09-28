@@ -21,6 +21,10 @@ final class LZXDecoder {
     private var decodedSize: UInt64 = 0
     private var declaredSize: UInt64 = 0
 
+    /// CAB の CFDATA frame と WIM の既定 block の展開サイズ。最終 frame だけはこれより短くてよい。
+    private static let frameSize = 32_768
+    /// E8 変換は folder 先頭から 1 GiB 未満で始まる frame にだけ施す（design.md の読み替え項目 6）。
+    private static let e8TranslationLimit: UInt64 = 0x4000_0000
     private static let slotCounts = [30, 32, 34, 36, 38, 42, 50]
     private static let footerBits = (0..<50).map { max(0, min(17, $0 / 2 - 1)) }
     private static let basePositions: [Int] = {
@@ -53,12 +57,12 @@ final class LZXDecoder {
     }
 
     func decodeFrame(input: [UInt8], outputSize: Int) throws -> [UInt8] {
-        guard (1...32768).contains(outputSize), decodedSize <= expectedSize,
+        guard (1...Self.frameSize).contains(outputSize), decodedSize <= expectedSize,
               UInt64(outputSize) <= expectedSize - decodedSize else {
             throw KaitoError.malformed("cab LZX frame size")
         }
-        let frameSize = folderContinues ? 32768 : min(32768, expectedSize - decodedSize)
-        guard UInt64(outputSize) == frameSize else {
+        let requiredSize = folderContinues ? UInt64(Self.frameSize) : min(UInt64(Self.frameSize), expectedSize - decodedSize)
+        guard UInt64(outputSize) == requiredSize else {
             throw KaitoError.malformed("cab LZX short intermediate frame")
         }
         var bits = LZXBitReader(input)
@@ -109,6 +113,7 @@ final class LZXDecoder {
                             throw KaitoError.malformed("cab LZX match exceeds block or frame")
                         }
                         let offset = try matchOffset(slot: slot, bits: &bits)
+                        // LZX の match offset は最大で window サイズ - 3。
                         guard offset > 0, offset <= history, offset <= windowSize - 3 else {
                             throw KaitoError.malformed("cab LZX match exceeds history")
                         }
@@ -156,7 +161,7 @@ final class LZXDecoder {
         blockType = try bits.read(3)
         guard (1...3).contains(blockType) else { throw KaitoError.malformed("cab LZX block type") }
         if wimVariant {
-            blockRemaining = try bits.read(1) == 1 ? 32768 : try bits.read(16)
+            blockRemaining = try bits.read(1) == 1 ? Self.frameSize : try bits.read(16)
         } else {
             blockRemaining = try bits.read(24)
         }
@@ -172,6 +177,7 @@ final class LZXDecoder {
             try bits.beginRaw()
             for index in 0..<3 {
                 let offset = try bits.readRawOffset()
+                // 繰返し offset も match と同じく最大で window サイズ - 3。
                 guard offset > 0, offset <= windowSize - 3 else { throw KaitoError.malformed("cab LZX repeated offset") }
                 repeated[index] = offset
             }
@@ -245,10 +251,10 @@ final class LZXDecoder {
     }
 
     private func translate(_ bytes: inout [UInt8]) {
-        guard translationSize != 0, decodedSize < 0x40000000, bytes.count > 10 else { return }
+        guard translationSize != 0, decodedSize < Self.e8TranslationLimit, bytes.count > 10 else { return }
         var index = 0
         while index < bytes.count - 10 {
-            if bytes[index] != 0xe8 { index += 1; continue }
+            if bytes[index] != 0xe8 { index += 1; continue }  // 0xE8 = x86 CALL rel32
             let pointer = Int64(decodedSize) + Int64(index)
             let word = UInt32(bytes[index + 1]) | UInt32(bytes[index + 2]) << 8
                 | UInt32(bytes[index + 3]) << 16 | UInt32(bytes[index + 4]) << 24

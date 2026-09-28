@@ -254,6 +254,8 @@ struct ZstdForwardBits {
 
 // ByteSource の指定範囲だけを読む。skip は圧縮データや metadata を確保しない。
 final class ZstdInput {
+    // 先読みの単位。これ以上の本文の残り要求は先読みせず source から直接読む。
+    private static let readAhead = 4 * 1_024
     private let source: any ByteSource
     let end: UInt64
     private(set) var position: UInt64
@@ -272,7 +274,7 @@ final class ZstdInput {
     func byte() throws -> UInt8 {
         if bufferOffset == buffer.count {
             guard position < end else { throw KaitoError.truncated }
-            let count = Int(min(4 * 1_024, remaining))
+            let count = Int(min(UInt64(Self.readAhead), remaining))
             buffer = try readByteRange(source: source, offset: position, count: count)
             bufferOffset = 0
         }
@@ -295,7 +297,7 @@ final class ZstdInput {
         while result.count < count {
             if bufferOffset == buffer.count {
                 let amount = count - result.count
-                if amount >= 4 * 1_024 {
+                if amount >= Self.readAhead {
                     // 本文の大きな残り要求は先読みを挟まず、一括して取得する。
                     result.append(contentsOf: try readByteRange(source: source, offset: position, count: amount))
                     position += UInt64(amount)
@@ -327,7 +329,7 @@ final class ZstdInput {
                 bufferOffset += amount
                 position += UInt64(amount)
                 filled += amount
-            } else if count - filled >= 4 * 1_024 {
+            } else if count - filled >= Self.readAhead {
                 // readByteRange と同じく short read を完了まで続け、不正な返却長は拒否する。
                 while filled < count {
                     let remaining = count - filled
@@ -339,7 +341,7 @@ final class ZstdInput {
                     position += UInt64(actual)
                 }
             } else {
-                let amount = Int(min(4 * 1_024, remaining))
+                let amount = Int(min(UInt64(Self.readAhead), remaining))
                 buffer = try readByteRange(source: source, offset: position, count: amount)
                 bufferOffset = 0
             }

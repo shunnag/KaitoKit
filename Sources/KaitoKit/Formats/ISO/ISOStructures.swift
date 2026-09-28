@@ -108,14 +108,3 @@ struct ISOVolume {
         return ISOSection(offset: offset, length: length)
     }
 }
-
-// 二つの木の走査・discard した候補にも共通の予算を使う。
-final class ISOMetadataBudget {
-    let limits: ReadLimits
-    private var total: UInt64 = 0
-    init(_ limits: ReadLimits) { self.limits = limits }
-    func charge(_ bytes: UInt64) throws {
-        total = try Checked.add(total, bytes)
-        try Checked.size(total, limit: limits.maxTotalMetadataSize)
-    }
-}

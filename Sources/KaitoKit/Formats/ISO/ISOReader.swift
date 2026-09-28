@@ -46,7 +46,7 @@ final class ISOReader: FormatReader {
         // BIN/CUE などの生 sector image は user data だけの 2048 byte block に写してから読む。
         let source = try RawSectorByteSource.wrapUnlessPlainImage(source) ?? source
         self.source = source
-        let budget = ISOMetadataBudget(options.limits)
+        let budget = MetadataBudget(options.limits)
         var primary: [UInt8]?
         var supplementary: [UInt8]?
         for index in 0..<64 {
@@ -144,7 +144,7 @@ final class ISOReader: FormatReader {
         b.count >= 7 && Array(b[1..<6]) == Array("CD001".utf8) && [0, 1, 2, 3, 255].contains(b[0])
     }
 
-    private static func prepare(_ b: [UInt8], source: any ByteSource, budget: ISOMetadataBudget) throws -> Tree {
+    private static func prepare(_ b: [UInt8], source: any ByteSource, budget: MetadataBudget) throws -> Tree {
         let volume = try ISOVolume(b, sourceLength: source.length)
         let records = try directory(volume.root, volume: volume, source: source, budget: budget)
         let skip = records.first.flatMap { $0.identifier == [0] ? ISORockRidge.skip(in: $0.systemUse) : nil }
@@ -152,7 +152,7 @@ final class ISOReader: FormatReader {
     }
 
     private static func directory(_ record: ISODirectoryRecord, volume: ISOVolume,
-                                  source: any ByteSource, budget: ISOMetadataBudget) throws -> [ISODirectoryRecord] {
+                                  source: any ByteSource, budget: MetadataBudget) throws -> [ISODirectoryRecord] {
         let range = try volume.range(lba: record.lba, ea: record.ea, length: UInt64(record.length))
         try Checked.size(range.length, limit: budget.limits.maxMetadataSize)
         try budget.charge(range.length)
@@ -180,7 +180,7 @@ final class ISOReader: FormatReader {
     }
 
     private static func walk(_ tree: Tree, joliet: Bool, source: any ByteSource,
-                             budget: ISOMetadataBudget) throws -> (entries: [Pending], hasNM: Bool) {
+                             budget: MetadataBudget) throws -> (entries: [Pending], hasNM: Bool) {
         let volume = tree.volume
         var result: [Pending] = []
         var stack = [Node(record: volume.root, parent: nil, depth: 0, ancestors: [])]
@@ -315,7 +315,7 @@ final class ISOReader: FormatReader {
     }
 
     private static func finalize(_ pending: [Pending], joliet: Bool, options: ReaderOptions,
-                                 budget: ISOMetadataBudget) throws -> ([ArchiveEntry], [Record], String.Encoding?) {
+                                 budget: MetadataBudget) throws -> ([ArchiveEntry], [Record], String.Encoding?) {
         let names = joliet ? [] : pending.map(\.bytes).filter {
             if case .fixed = options.encodingPolicy { return true }
             return !EncodingDetector.isStrictUTF8($0)

@@ -25,7 +25,7 @@ final class CabReader: FormatReader {
         guard header.folderCount <= limits.maxEntryCount, header.fileCount <= limits.maxEntryCount else {
             throw KaitoError.limitExceeded("cab entry count")
         }
-        var budget = CabMetadataBudget(limits: limits)
+        let budget = MetadataBudget(limits)
         try budget.charge(36)
         var folderReserve: UInt64 = 0, dataReserve: UInt64 = 0
         if header.flags & 4 != 0 {

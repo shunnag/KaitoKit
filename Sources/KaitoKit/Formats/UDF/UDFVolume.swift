@@ -1,7 +1,5 @@
 import Foundation
 
-typealias UDFMetadataBudget = ISOMetadataBudget
-
 /// 論理 volume を構成する partition（3/8.8 の partition reference number 順）。
 struct UDFPartition {
     enum Kind {
@@ -39,7 +37,7 @@ struct UDFSparingEntry {
 final class UDFVolume {
     let source: any ByteSource
     let blockSize: Int
-    let budget: UDFMetadataBudget
+    let budget: MetadataBudget
     private(set) var partitions: [UDFPartition] = []
     private(set) var fileSetLocation = UDFAllocation(length: 0, type: 0, block: 0, partition: 0)
     private(set) var revision: UInt16 = 0
@@ -80,7 +78,7 @@ final class UDFVolume {
 
     init(source: any ByteSource, limits: ReadLimits) throws {
         self.source = source
-        self.budget = UDFMetadataBudget(limits)
+        self.budget = MetadataBudget(limits)
         guard try Self.hasRecognitionSequence(source: source, pureOnly: false) else {
             throw KaitoError.unsupportedFormat
         }

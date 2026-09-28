@@ -97,22 +97,6 @@ struct CabDataBlock {
     }
 }
 
-struct CabMetadataBudget {
-    let limits: ReadLimits
-    private(set) var total: UInt64 = 0
-
-    mutating func charge(_ size: UInt64) throws {
-        total = try Checked.add(total, size)
-        try Checked.size(total, limit: limits.maxTotalMetadataSize)
-    }
-
-    mutating func array(count: Int, stride: Int) throws {
-        let size = try Checked.mul(UInt64(count), UInt64(stride))
-        try Checked.size(size, limit: limits.maxMetadataSize)
-        try charge(size)
-    }
-}
-
 struct CabCursor {
     let source: any ByteSource
     let end: UInt64

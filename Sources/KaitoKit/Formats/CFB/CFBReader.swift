@@ -156,7 +156,8 @@ final class CFBReader: FormatReader {
         guard source.length >= UInt64(sectorSize * 3) else { throw KaitoError.truncated }
         let sectorCount = (source.length - UInt64(sectorSize)) / UInt64(sectorSize)
         guard sectorCount <= UInt64(CFBHeader.maxRegularSector) else { throw KaitoError.malformed("cfb sector count") }
-        var budget = CFBMetadataBudget(limits: options.limits)
+        // DIFAT / FAT / directory / mini FAT の読み取り量の合算を `maxMetadataSize` で抑える。
+        let budget = MetadataBudget(options.limits, totalLimit: options.limits.maxMetadataSize)
 
         // §2.5: DIFAT（header の 109 個 + DIFAT sector 列）が FAT sector の位置を並べる。
         var fatSectors: [UInt32] = []
@@ -165,7 +166,7 @@ final class CFBReader: FormatReader {
         var difatSeen = 0
         while difatLocation <= CFBHeader.maxRegularSector {
             guard difatSeen < Int(header.difatSectorCount), difatSeen < 1 << 16 else { throw KaitoError.malformed("cfb difat chain") }
-            let b = try Self.sector(difatLocation, source: source, sectorSize: sectorSize, sectorCount: sectorCount, budget: &budget)
+            let b = try Self.sector(difatLocation, source: source, sectorSize: sectorSize, sectorCount: sectorCount, budget: budget)
             for index in 0..<(sectorSize / 4 - 1) {
                 let location = CFBBytes.u32(b, index * 4)
                 if location <= CFBHeader.maxRegularSector { fatSectors.append(location) }
@@ -180,7 +181,7 @@ final class CFBReader: FormatReader {
         var fat: [UInt32] = []
         fat.reserveCapacity(fatSectors.count * (sectorSize / 4))
         for location in fatSectors {
-            let b = try Self.sector(location, source: source, sectorSize: sectorSize, sectorCount: sectorCount, budget: &budget)
+            let b = try Self.sector(location, source: source, sectorSize: sectorSize, sectorCount: sectorCount, budget: budget)
             for index in 0..<(sectorSize / 4) { fat.append(CFBBytes.u32(b, index * 4)) }
         }
         self.fat = fat
@@ -194,7 +195,7 @@ final class CFBReader: FormatReader {
         try Checked.size(UInt64(directorySectors.count) * UInt64(entriesPerSector), limit: UInt64(options.limits.maxMetadataRecordCount))
         for (position, location) in directorySectors.enumerated() {
             if position & 0x3ff == 0 { try Task.checkCancellation() }
-            let b = try Self.sector(location, source: source, sectorSize: sectorSize, sectorCount: sectorCount, budget: &budget)
+            let b = try Self.sector(location, source: source, sectorSize: sectorSize, sectorCount: sectorCount, budget: budget)
             for index in 0..<entriesPerSector {
                 directory.append(try CFBDirectoryEntry(b, index * CFBDirectoryEntry.size, majorVersion: header.majorVersion))
             }
@@ -208,7 +209,7 @@ final class CFBReader: FormatReader {
             let miniFATSectors = try Self.chain(from: header.firstMiniFATSector, fat: fat, sectorCount: sectorCount,
                                                 maximumSectors: UInt64(header.miniFATSectorCount), label: "mini fat")
             for location in miniFATSectors {
-                let b = try Self.sector(location, source: source, sectorSize: sectorSize, sectorCount: sectorCount, budget: &budget)
+                let b = try Self.sector(location, source: source, sectorSize: sectorSize, sectorCount: sectorCount, budget: budget)
                 for index in 0..<(sectorSize / 4) { miniFAT.append(CFBBytes.u32(b, index * 4)) }
             }
         }
@@ -312,7 +313,7 @@ final class CFBReader: FormatReader {
     }
 
     private static func sector(_ location: UInt32, source: any ByteSource, sectorSize: Int, sectorCount: UInt64,
-                               budget: inout CFBMetadataBudget) throws -> [UInt8] {
+                               budget: MetadataBudget) throws -> [UInt8] {
         guard location <= CFBHeader.maxRegularSector, UInt64(location) < sectorCount else { throw KaitoError.truncated }
         try budget.charge(UInt64(sectorSize))
         return try readByteRange(source: source, offset: UInt64(location + 1) * UInt64(sectorSize), count: sectorSize)
@@ -397,16 +398,5 @@ final class CFBReader: FormatReader {
         }
         return try EntryStream(decompressor: ByteRunDecompressor(source: source, runs: runs), length: size,
                                expectedCRC32: nil, entryIndex: entry.index, limits: limits)
-    }
-}
-
-/// metadata（DIFAT / FAT / directory / mini FAT）の読み取り量を `maxMetadataSize` で抑える。
-struct CFBMetadataBudget {
-    let limits: ReadLimits
-    private var total: UInt64 = 0
-    init(limits: ReadLimits) { self.limits = limits }
-    mutating func charge(_ bytes: UInt64) throws {
-        total = try Checked.add(total, bytes)
-        try Checked.size(total, limit: limits.maxMetadataSize)
     }
 }

@@ -43,7 +43,7 @@ final class WIMReader: FormatReader {
         guard header.totalParts <= 1 || header.partNumber == 1 else {
             throw KaitoError.unsupportedMethod("WIM spanned part \(header.partNumber) of \(header.totalParts) (open the first part)")
         }
-        let budget = ISOMetadataBudget(options.limits)
+        let budget = MetadataBudget(options.limits)
         // lookup table: 50 byte の entry 列（part 1 では他 part の resource も含む）。
         let table = header.lookupTable
         guard !table.isEmpty, !table.isCompressed else { throw KaitoError.malformed("wim lookup table header") }
@@ -90,7 +90,7 @@ final class WIMReader: FormatReader {
     /// （install.wim の metadata は数十 MB）。buffer は image を辿った後に捨てるので累積予算には entry 由来の
     /// 費用だけを加え、buffer 自体は image ごとの上限で抑える。
     private static func readResource(_ resource: WIMResourceHeader, source: any ByteSource, chunkSize: UInt32,
-                                     compression: WIMCompression, limits: ReadLimits, budget: ISOMetadataBudget) throws -> [UInt8] {
+                                     compression: WIMCompression, limits: ReadLimits, budget: MetadataBudget) throws -> [UInt8] {
         try Checked.size(resource.originalSize, limit: limits.maxTotalMetadataSize)
         if !resource.isCompressed {
             guard resource.packedSize == resource.originalSize else { throw KaitoError.malformed("wim stored resource size") }
@@ -178,7 +178,7 @@ final class WIMReader: FormatReader {
     }
 
     private static func walk(metadata m: [UInt8], image: Int, root: Int?, byHash: [[UInt8]: WIMLookupEntry], header: WIMHeader,
-                             source: any ByteSource, options: ReaderOptions, budget: ISOMetadataBudget, into pending: inout [Pending]) throws {
+                             source: any ByteSource, options: ReaderOptions, budget: MetadataBudget, into pending: inout [Pending]) throws {
         guard m.count >= 8 else { throw KaitoError.truncated }
         // SECURITYBLOCK_DISK: total length、entry 数、entry 長 …、descriptor 本体。root DIRENTRY はその直後の 8 byte 境界。
         let securityLength = Int(WIMBytes.u32(m, 0))
@@ -293,7 +293,7 @@ final class WIMReader: FormatReader {
     /// reparse resource（REPARSE_DATA_BUFFER: tag、data length、reserved、本体）から link 先を読む。
     /// symbolic link は Flags bit 0（SYMLINK_FLAG_RELATIVE）、junction は常に絶対。`\??\` を外し `\` を `/` にする。
     private static func reparseTarget(tag: UInt32, hash: [UInt8], byHash: [[UInt8]: WIMLookupEntry], header: WIMHeader, source: any ByteSource,
-                                      options: ReaderOptions, budget: ISOMetadataBudget, zeroHash: [UInt8]) throws -> (path: String, absolute: Bool)? {
+                                      options: ReaderOptions, budget: MetadataBudget, zeroHash: [UInt8]) throws -> (path: String, absolute: Bool)? {
         guard tag == reparseTagSymbolicLink || tag == reparseTagMountPoint, hash != zeroHash,
               let resource = byHash[hash], resource.partNumber == header.partNumber,
               resource.header.originalSize >= 16, resource.header.originalSize <= 65536 else { return nil }
@@ -323,7 +323,7 @@ final class WIMReader: FormatReader {
     }
 
     private static func finalize(_ pending: [Pending], compression: WIMCompression, options: ReaderOptions,
-                                 budget: ISOMetadataBudget) throws -> ([ArchiveEntry], [Record]) {
+                                 budget: MetadataBudget) throws -> ([ArchiveEntry], [Record]) {
         var paths: [Int: [String]] = [:]
         var entries: [ArchiveEntry] = []
         var records: [Record] = []

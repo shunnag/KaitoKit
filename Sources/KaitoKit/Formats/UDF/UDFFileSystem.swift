@@ -47,7 +47,7 @@ final class UDFFileSystem {
     let entries: [ArchiveEntry]
     private let records: [Record]
     private let options: ReaderOptions
-    private var budget: UDFMetadataBudget { volume.budget }
+    private var budget: MetadataBudget { volume.budget }
 
     var revisionDescription: String {
         String(format: "%X.%02X", volume.revision >> 8, volume.revision & 0xFF)
@@ -402,7 +402,7 @@ final class UDFFileSystem {
     // MARK: - finalize
 
     private static func finalize(_ pending: [Pending], revision: UInt16, options: ReaderOptions,
-                                 budget: UDFMetadataBudget) throws -> ([ArchiveEntry], [Record]) {
+                                 budget: MetadataBudget) throws -> ([ArchiveEntry], [Record]) {
         var paths: [Int: [String]] = [:]
         var seen: [String: Int] = [:]
         var duplicates: [Int: Int] = [:]

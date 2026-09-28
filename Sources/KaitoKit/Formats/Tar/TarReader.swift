@@ -61,11 +61,8 @@ final class TarReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entry.index >= 0, entry.index < records.count,
-              entries[entry.index] == entry else {
-            throw KaitoError.notFound("tar entry index \(entry.index)")
-        }
-        let record = records[entry.index]
+        // entries と records は parse が同じ順に一つずつ積むので、entries の index で records も引ける。
+        let record = records[try recordIndex(of: entry, label: "tar")]
         if let sparse = record.sparse {
             return try EntryStream(
                 decompressor: TarSparseDecompressor(source: source, dataOffset: record.dataOffset, map: sparse),

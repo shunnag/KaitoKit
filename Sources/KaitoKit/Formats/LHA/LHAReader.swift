@@ -87,12 +87,9 @@ final class LHAReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entry.index >= 0,
-              entry.index < records.count,
-              entries[entry.index] == entry else {
-            throw KaitoError.notFound("LHA entry index \(entry.index)")
-        }
-        let record = records[entry.index]
+        // The parser publishes entries and records in lockstep, so an entry
+        // index also selects its record.
+        let record = records[try recordIndex(of: entry, label: "LHA")]
         let rawDecoded = try makeDecompressor(
             record: record,
             entry: entry,

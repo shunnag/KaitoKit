@@ -12,7 +12,7 @@ extension EncodingDetector {
         var violations = NameEncodingScorer.orthography(checked, language: language).violations.map {
             (rule: $0.rule, offset: $0.offset, scalar: $0.scalar)
         }
-        // 第4回レビュー E: 文字得点を置換する無母音規則も、同じ判定関数で自己検査へ出す。
+        // 文字得点を置換する無母音規則も、同じ判定関数で自己検査へ出す（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
         if language == "th" {
             let excessive = NameEncodingScorer.excessiveLetters(filtered)
             for i in filtered.indices where excessive[i] && filtered[i].script == .thai {

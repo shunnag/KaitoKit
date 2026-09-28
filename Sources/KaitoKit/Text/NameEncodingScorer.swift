@@ -6,12 +6,14 @@ enum NameEncodingScorer {
 
     /// 採点の調整値。値を変えるときは name-encoding の検証記録の測定をやり直す。
     enum Tuning {
-        // 設計書「採点 2」と変更履歴 c: 小差の Han 候補は言語で一度だけ決め、その後日本語経路へ委ねる。
+        // 設計書「採点 2」: 区点配置で第1水準・常用域（得点 2）の外にある文字の得点。
         static let secondTierScore = 0.5
+        // 小差の Han 候補は言語で一度だけ決め、その後日本語経路へ委ねる（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
         static let hanTieThreshold = 0.4
-        // 第3回レビュー: 非 ASCII の証拠が増えるにつれて事前確率の重みを減らす。
+        // 非 ASCII の証拠が増えるにつれて事前確率の重みを減らす（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
         static let priorWeight = 3.5
         static let languagePriorBonus = 1.0
+        // 候補ごとの事前確率。同点時の順位も兼ねる。
         static let priors: [String: Double] = [
             "windows-1252": 1, "cp932": 0.8, "euc-jp": 0.8,
             "windows-1250": 0.6, "windows-1251": 0.6, "gb18030": 0.6,
@@ -171,7 +173,7 @@ enum NameEncodingScorer {
         static let icelandic: AlphabetFlags = [.thorn, .eth, .yAcute]
     }
     static let vowels = Set("aeiouyæœøıAEIOUYÆŒØаеиоуыэюяёіїєАЕИОУЫЭЮЯЁІЇЄαεηιουωΑΕΗΙΟΥΩ".unicodeScalars.map(\.value))
-    // 第4回レビュー E2: 言語名の解決は一度だけ。BMP の所属マスクは候補をまたいで共有する。
+    // 言語名の解決は一度だけ。BMP の所属マスクは候補をまたいで共有する（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
     static let exemplarLanguages = exemplars.keys.sorted()
     static let exemplarSets = exemplarLanguages.map { exemplars[$0]! }
     static let basicTraits: [Traits] = (0...0xFFFF).map { makeTraits(UInt32($0)) }
@@ -235,7 +237,7 @@ enum NameEncodingScorer {
         entries.map { $0?.first ?? basicTraits[0] }
     }
 
-    // 第4回レビュー A、E2: byte 数と、1対1復号で不変の反復区間は候補をまたいで一度だけ調べる。
+    // byte 数と、1対1復号で不変の反復区間は候補をまたいで一度だけ調べる（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
     struct ByteEvidence {
         let count: Int
         let present: SIMD4<UInt64>
@@ -378,7 +380,7 @@ enum NameEncodingScorer {
         if p.bad { return uniform(-4) }
         if p.number { return uniform(0.5) }
         if p.scalar == 0xE03 || p.scalar == 0xE05 { return uniform(-2) }
-        // 第4回レビュー B: 記号・修飾文字の値は位置規則に任せ、文字集合や頻度と重ねない。
+        // 記号・修飾文字の値は位置規則に任せ、文字集合や頻度と重ねない（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
         if !p.letter && !p.mark || p.category == .modifierLetter { return uniform(0) }
         let union = (p.mainMask | p.auxiliaryMask) & language.unionMask != 0
         var values = SIMD16<Int16>.zero
@@ -420,7 +422,7 @@ enum NameEncodingScorer {
         let candidateLanguage = languageData[candidateIndex]
         let vietnamese = candidate.name == "windows-1258"
         if vietnamese, requireVietnameseEvidence, !vietnameseEvidence(text) { return nil }
-        // 設計書変更履歴と Task B: 採点だけ NFC、呼出側へ返す scalar 列は保存する。
+        // 採点だけ NFC、呼出側へ返す scalar 列は保存する（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
         let scoringText = vietnamese ? String(text.unicodeScalars.prefix(Tuning.scoringScalarLimit)).precomposedStringWithCanonicalMapping : text
         let single = candidate.form == .single && !vietnamese
         // 表に展開文字があっても、入力がその byte を含まなければ平坦な表を使える。
@@ -496,7 +498,7 @@ enum NameEncodingScorer {
             if tooLong { fixed = -2 }
             if candidate.isCJK, offset < zones.count, !p.bad {
                 if p.script == .han, p.letter {
-                    // 設計書「採点 2」と第4回レビュー C: 漢字の集合と区分類は同じ文字の妥当性を測る。
+                    // 設計書「採点 2」: 漢字の集合と区分類は同じ文字の妥当性を測る（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
                     // 二つの尺度を平均し、全音節を含むハングル main の二重加点も避ける。
                     // Han は開いた集合で、CLDR の代表字外にも人名・地名の正字があるため所属の下限は +0.5。
                     fixed = zones[offset].vendorIdeograph ? zones[offset].score : (zones[offset].score + max(0.5, contribution.value)) / 2
@@ -514,7 +516,7 @@ enum NameEncodingScorer {
             }
             if offset < zones.count { total += zones[offset].latinIntrusion }
             total += latinStressEvidence(ruleProperties, at: offset)
-            // 第5回レビュー: ハングル main は重ねず、公知の頻出音節だけを他言語と同じ頻度証拠にする。
+            // ハングル main は重ねず、公知の頻出音節だけを他言語と同じ頻度証拠にする（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
             if !tooLong {
                 bonuses &+= contribution.bonuses
             }
@@ -553,7 +555,7 @@ enum NameEncodingScorer {
                       hanOnly: sawHan && hanOnly, scalarCount: count, byteCount: byteEvidence.count, languageScores: languageScores)
     }
 
-    // 第4回レビュー追補: 1〜3 scalar の20回以上の反復は言語的証拠を持たず、区間外だけを通常採点する。
+    // 1〜3 scalar の20回以上の反復は言語的証拠を持たず、区間外だけを通常採点する（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
     static func repeatedScalars(_ properties: [Traits]) -> [Bool] {
         if properties.count < 20 { return [Bool](repeating: false, count: properties.count) }
         return repeatedMask(properties.map(\.scalar))
@@ -582,10 +584,10 @@ enum NameEncodingScorer {
         alphabetic(script) || script == .hebrew || script == .arabic
     }
 
-    // 第4回レビュー B: 開き引用符・分離アクセント・演算記号を一般カテゴリと隣接文字で区別する。
+    // 開き引用符・分離アクセント・演算記号を一般カテゴリと隣接文字で区別する（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
     static func symbolScore(_ properties: [Traits], at offset: Int) -> Double? {
         let p = properties[offset]
-        // 第4回レビュー E2: 通常の文字と句読点は隣接 scalar を読む前に確定する。
+        // 通常の文字と句読点は隣接 scalar を読む前に確定する。
         if p.scalar < 128 {
             switch p.scalar {
             case 0x28, 0x29, 0x5B, 0x5D, 0x7B, 0x7D, 0x60, 0x7E, 0x5E, 0x7C, 0x5C, 0x2B, 0x3D, 0x3C, 0x3E, 0x24, 0x25, 0x26, 0x40, 0x23, 0x2A: break
@@ -635,7 +637,7 @@ enum NameEncodingScorer {
         }
     }
 
-    // 第4回レビュー E: 分かち書きする文字体系の語長と、タイ文字の無母音 run を別に扱う。
+    // 分かち書きする文字体系の語長と、タイ文字の無母音 run を別に扱う（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
     static func excessiveLetters(_ properties: [Traits]) -> [Bool] {
         var result = [Bool](repeating: false, count: properties.count)
         var alphabetLength = 0
@@ -920,7 +922,7 @@ enum NameEncodingScorer {
     }
     static let vietnameseVowels = Set("aăâeêioôơuưyAĂÂEÊIOÔƠUƯY".unicodeScalars.map(\.value))
 
-    // 訂正6: タイ文字の main はほぼ全文字を含むため、通常の分布と語中の稀な表記を別の証拠にする。
+    // タイ文字の main はほぼ全文字を含むため、通常の分布と語中の稀な表記を別の証拠にする。
     // 分布だけ15字へ広げ、通常の名前の子音も数える。文字得点の頻出 bonus は変更しない。
     // 集合の出典と比較: Documentation/verification/2026-09-14-name-encoding-thai-rule.md。
     static let thaiFrequentFlags: [Bool] = {
@@ -976,7 +978,7 @@ enum NameEncodingScorer {
         return value == 0x401 ? 0x451 : value
     }
 
-    // C-B: 正書法は候補の union ではなく、書庫で選ばれる個々の言語に結び付ける。
+    // 正書法は候補の union ではなく、書庫で選ばれる個々の言語に結び付ける（Documentation/verification/2026-09-14-name-encoding-languages.md）。
     // Unicode Standard §9: 同じ基底字母に複数の結合記号が付くことは許す。
     static func additionalOrthography(_ properties: [Traits], language: String, context suppliedContext: LanguageRuleContext? = nil,
                                       recordViolations: Bool = true) -> Orthography {

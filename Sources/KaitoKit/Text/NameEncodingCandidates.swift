@@ -93,7 +93,7 @@ enum NameEncodingCandidates {
             return true
         }
 
-        // 第4回レビュー D: ASCII の綴りに lead/trail が食い込む交差復号を byte 境界で検出する。
+        // ASCII の綴りに lead/trail が食い込む交差復号を byte 境界で検出する（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
         func latinIntrusions(_ bytes: [UInt8]) -> [Double] { zones(bytes).map(\.latinIntrusion) }
 
         // 設計書「採点 2」: 区点配置だけを使い、記事名由来の統計は持たない。
@@ -155,7 +155,7 @@ enum NameEncodingCandidates {
         0x9F: 0x06BA, 0xAA: 0x06BE, 0xC0: 0x06C1, 0xFF: 0x06D2,
     ]
 
-    // 設計書「採点 6」と変更履歴 c: 同点時の既定順位。HKSCS は CP950 復号失敗時だけ参加する。
+    // 設計書「採点 6」: 同点時の既定順位。HKSCS は CP950 復号失敗時だけ参加する（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
     static let all: [Candidate] = [
         Candidate("cp932", ["ja"], .cp932), Candidate("euc-jp", ["ja"], .eucJP),
         Candidate("gb18030", ["zh"], .gb18030), Candidate("cp950", ["zh-Hant"], .big5),
@@ -173,7 +173,7 @@ enum NameEncodingCandidates {
         Candidate("windows-1253", ["el"]), Candidate("windows-1254", ["tr"]),
         Candidate("windows-1255", ["he"]), Candidate("windows-1256", ["ar", "fa"]),
         Candidate("windows-1257", ["lt", "lv", "et"]),
-        // C-B: CF で扱える候補のみ。CP861 は CF の表が CP775 と同じため除外。
+        // CF で扱える候補のみ。CP861 は CF の表が CP775 と同じため除外（Documentation/verification/2026-09-14-name-encoding-languages.md）。
         Candidate("iso-8859-8", ["he"]),
         Candidate("cp862", ["he"]),
         Candidate("x-mac-hebrew", ["he"]),

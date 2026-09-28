@@ -709,7 +709,7 @@ public enum EncodingDetector {
             return (.utf8, string, 1.0)
         }
 
-        // 設計書変更履歴 c、f: 先に全候補の勝者を固定し、日本語の時だけ既存経路へ委ねる。
+        // 先に全候補の勝者を固定し、日本語の時だけ既存経路へ委ねる（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
         let ranked = NameEncodingScorer.ranked(
             NameEncodingScorer.allScores(bytes, fromWindows: fromWindows),
             likelyLanguage: likelyLanguage, fromWindows: fromWindows
@@ -717,7 +717,8 @@ public enum EncodingDetector {
         if let winner = ranked.first {
             let candidate = NameEncodingCandidates.all[winner.candidateIndex]
             if !candidate.isJapanese {
-                // C-B の補完・方向制御除去は採点専用。返す名前は既存の CF 復号を通す。
+                // CP1256 の補完と Mac Arabic / Farsi の方向制御の除去は採点専用。返す名前は既存の CF 復号を通す
+                // （Documentation/verification/2026-09-14-name-encoding-languages.md）。
                 let string: String
                 if candidate.name == "windows-1256" || candidate.name == "x-mac-arabic" || candidate.name == "x-mac-farsi" {
                     string = decode(bytes: bytes, as: candidate.encoding) ?? replacementDecode(bytes, encoding: candidate.encoding)
@@ -734,7 +735,7 @@ public enum EncodingDetector {
         return (japanese.encoding, japanese.string, NameEncodingScorer.confidence(ranked))
     }
 
-    // 設計書変更履歴 c、f: 既存の日本語決定処理を保持し、新候補の勝者が日本語の時だけ呼ぶ。
+    // 既存の日本語決定処理を保持し、新候補の勝者が日本語の時だけ呼ぶ（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
     private static func automaticallyDetectJapanese(
         bytes: [UInt8], likelyLanguage: String?, fromWindows: Bool
     ) -> EncodingDetection {
@@ -1057,7 +1058,7 @@ public enum EncodingDetector {
         for index in selected.keys.sorted() {
             let count = selected[index]!
             let results = NameEncodingScorer.allScores(frequencies[index].bytes, fromWindows: fromWindows, includeHKSCS: true, archive: true)
-            // 第4回レビュー A: 全候補で同じ byte 尺度を使い、復号不能名も分母から落とさない。
+            // 全候補で同じ byte 尺度を使い、復号不能名も分母から落とさない（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
             let n = frequencies[index].bytes.reduce(0) { $0 + ($1 >= 128 ? 1 : 0) }
             var values = [SIMD16<Double>](repeating: SIMD16(repeating: -3 * Double(n)), count: candidates.count)
             for result in results {
@@ -1076,7 +1077,7 @@ public enum EncodingDetector {
             guard decoded[i] > 0 else { return nil }
             if candidates[i].name == "windows-1258", !vietnameseEvidence { return nil }
             if candidates[i].name == "big5-hkscs", decoded[NameEncodingCandidates.cp950Index] == weight { return nil }
-            // 第5回レビュー: 名前ごとの最大ではなく、同じ言語の証拠を全 sample で合算してから選ぶ。
+            // 名前ごとの最大ではなく、同じ言語の証拠を全 sample で合算してから選ぶ（Documentation/verification/2026-09-14-name-encoding-multilingual.md）。
             let best = candidates[i].languages.indices.reduce(-Double.infinity) { max($0, totals[i][$1]) }
             return NameEncodingScorer.Result(candidateIndex: i, string: "", score: best / Double(max(1, evidenceCounts[i])), hanOnly: hanOnly[i], byteCount: evidenceCounts[i])
         }

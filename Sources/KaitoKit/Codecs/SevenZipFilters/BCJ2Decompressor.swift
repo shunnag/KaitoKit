@@ -9,6 +9,7 @@ import Foundation
 /// unspecified and the instance must be discarded.
 final class BCJ2Decompressor: Decompressor {
     private static let outputChunkSize = 256 * 1_024
+    private static let probabilityBits: UInt32 = 11
     private static let probabilityTotal: UInt32 = 1 << 11
     private static let probabilityMoveBits: UInt32 = 5
     private static let rangeTop: UInt32 = 1 << 24
@@ -191,7 +192,7 @@ final class BCJ2Decompressor: Decompressor {
         }
 
         let probability = UInt32(probabilities[probabilityIndex])
-        let bound = (range >> 11) * probability
+        let bound = (range >> Self.probabilityBits) * probability
         if code < bound {
             range = bound
             let updated = probability

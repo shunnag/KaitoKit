@@ -20,7 +20,8 @@ public final class LZMADecoder: Decompressor {
     private static let matchBatchCapacity = 256
     fileprivate static let probabilityInitialValue: UInt16 = 1 << 10
     fileprivate static let maximumPositionStates = 1 << 4
-    private static let maximumLZMA2LiteralProbabilities = 0x300 << 4
+    // LZMA2 は lc + lp <= 4 なので literal coder は最大 16 個。
+    private static let maximumLZMA2LiteralProbabilities = LZMAProperties.literalCoderSize << 4
 
     private var rangeDecoder: LZMARangeDecoder?
     private var expectedSize: UInt64?
@@ -869,6 +870,9 @@ private enum LZMAProbabilityOffset {
 }
 
 private struct LZMAProperties {
+    /// 一つの literal coder の確率数（通常の 8 bit 木 0x100 と、matched literal の 0x200）。
+    static let literalCoderSize = 0x300
+
     let literalContextBits: Int
     let literalPositionBits: Int
     let positionBits: Int
@@ -898,7 +902,7 @@ private struct LZMAProperties {
             UInt64(literalPositionBits)
         )
         let contextCount = try Checked.shiftLeft(1, by: shift)
-        let probabilityCount = try Checked.mul(0x300, contextCount)
+        let probabilityCount = try Checked.mul(UInt64(Self.literalCoderSize), contextCount)
         return try Checked.toInt(probabilityCount)
     }
 }
@@ -1013,6 +1017,12 @@ private struct LZMARangeDecoder {
 }
 
 private struct LZMAHotRangeState {
+    // lzma-specification.txt の kNumBitModelTotalBits、kBitModelTotal、kNumMoveBits、kTopValue。
+    static let probabilityBits: UInt32 = 11
+    static let probabilityTotal: UInt32 = 1 << 11
+    static let probabilityMoveBits: UInt32 = 5
+    static let rangeTop: UInt32 = 1 << 24
+
     let inputBase: UnsafeMutablePointer<UInt8>
     let inputCount: Int
     var inputPosition: Int
@@ -1034,16 +1044,16 @@ private struct LZMAHotRangeState {
         store probabilityPointer: UnsafeMutablePointer<UInt16>
     ) -> UInt32 {
         var probability = probability
-        let bound = (range >> 11) &* probability
+        let bound = (range >> Self.probabilityBits) &* probability
         let bit: UInt32
         if code < bound {
             range = bound
-            probability &+= (2_048 &- probability) >> 5
+            probability &+= (Self.probabilityTotal &- probability) >> Self.probabilityMoveBits
             bit = 0
         } else {
             range &-= bound
             code &-= bound
-            probability &-= probability >> 5
+            probability &-= probability >> Self.probabilityMoveBits
             bit = 1
         }
         probabilityPointer.pointee = UInt16(truncatingIfNeeded: probability)
@@ -1073,7 +1083,7 @@ private struct LZMAHotRangeState {
 
     @inline(__always)
     private mutating func normalize() {
-        if range < 0x0100_0000 {
+        if range < Self.rangeTop {
             range <<= 8
             code = (code << 8) | UInt32(nextByte())
         }
@@ -1085,6 +1095,24 @@ private struct LZMAHotRangeState {
         inputPosition &+= 1
         return byte
     }
+}
+
+// LZMA の 12 状態（lzma-specification.txt の UpdateState_*）。0...6 は直前の symbol が
+// literal、7...11 は直前が match / rep。遷移は次のとおり。
+//   literal:   s < 4 → 0、s < 10 → s - 3、それ以外 → s - 6
+//   match:     s < 7 → 7、それ以外 → 10
+//   rep:       s < 7 → 8、それ以外 → 11
+//   short rep: s < 7 → 9、それ以外 → 11
+// s >= 7 の literal は rep0 の位置の byte と照合しながら復号する（matched literal）。
+private enum LZMAState {
+    /// 直前の symbol が literal である state の数（kNumLitStates）。
+    static let literalStateCount = 7
+    static let matchAfterLiteral = 7
+    static let matchAfterMatch = 10
+    static let repAfterLiteral = 8
+    static let repAfterMatch = 11
+    static let shortRepAfterLiteral = 9
+    static let shortRepAfterMatch = 11
 }
 
 private enum LZMABatchStop {
@@ -1194,7 +1222,9 @@ private func decodeLZMANewMatchBatch(
         let length = Int(UInt32(truncatingIfNeeded: packedMatch))
         generated &+= length
         modelPosition &+= UInt64(length)
-        localState = localState < 7 ? 7 : 10
+        localState = localState < LZMAState.literalStateCount
+            ? LZMAState.matchAfterLiteral
+            : LZMAState.matchAfterMatch
     }
 
     return LZMAMatchBatchResult(
@@ -1242,10 +1272,10 @@ private func decodeLZMALiteralRun(
         let previousPart = UInt64(localPreviousByte >> literalPreviousShift)
         let context = (positionPart << literalContextShift) | previousPart
         let literalBase = LZMAProbabilityOffset.literals
-            &+ Int(truncatingIfNeeded: context) &* 0x300
+            &+ Int(truncatingIfNeeded: context) &* LZMAProperties.literalCoderSize
 
         var symbol = 1
-        if localState >= 7 {
+        if localState >= LZMAState.literalStateCount {
             let byteDistance = Int(rep0) &+ 1
             guard byteDistance <= localDictionaryBytesAvailable,
                   byteDistance <= dictionaryCount else {
@@ -1300,6 +1330,7 @@ private func decodeLZMALiteralRun(
         localPreviousByte = byte
         localProcessedPosition &+= 1
         localOutputPosition &+= 1
+        // literal 後の遷移（LZMAState の表）。
         if localState < 4 {
             localState = 0
         } else if localState < 10 {
@@ -1414,7 +1445,9 @@ private func decodeLZMARepeatedMatchSymbol(
                 by: LZMAProbabilityOffset.isRep0Long &+ statePositionIndex
             )
         ) == 0 {
-            localState = localState < 7 ? 9 : 11
+            localState = localState < LZMAState.literalStateCount
+                ? LZMAState.shortRepAfterLiteral
+                : LZMAState.shortRepAfterMatch
             matchLength = 1
         } else {
             matchLength = 2 &+ decodeLZMALength(
@@ -1426,7 +1459,9 @@ private func decodeLZMARepeatedMatchSymbol(
                 positionState: positionState,
                 decoder: &localDecoder
             )
-            localState = localState < 7 ? 8 : 11
+            localState = localState < LZMAState.literalStateCount
+                ? LZMAState.repAfterLiteral
+                : LZMAState.repAfterMatch
         }
     } else {
         let distance: UInt32
@@ -1456,7 +1491,9 @@ private func decodeLZMARepeatedMatchSymbol(
             positionState: positionState,
             decoder: &localDecoder
         )
-        localState = localState < 7 ? 8 : 11
+        localState = localState < LZMAState.literalStateCount
+            ? LZMAState.repAfterLiteral
+            : LZMAState.repAfterMatch
     }
 
     return LZMARepeatedMatchResult(

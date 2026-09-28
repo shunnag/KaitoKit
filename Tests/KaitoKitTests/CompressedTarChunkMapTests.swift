@@ -5,7 +5,7 @@ import XCTest
 final class CompressedTarChunkMapTests: XCTestCase {
     func testRepeatedEmptyBlocksKeepCoverageAndCombineDigest() throws {
         let image = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "file", contents: Data(repeating: 65, count: 160_000))])
-        let encoded = try GyoshukuFramingTestSupport.gzip(image, chunkSize: 65_536)
+        let encoded = try CompressedTarFramingTestSupport.gzip(image, chunkSize: 65_536)
         var bytes = encoded.data
         bytes.insert(contentsOf: [0, 0, 0, 255, 255, 0, 0, 0, 255, 255], at: encoded.chunks[0].compressed.upperBound)
         bytes.insert(contentsOf: [0, 0, 0, 255, 255], at: 10)
@@ -23,10 +23,10 @@ final class CompressedTarChunkMapTests: XCTestCase {
         })
         for body in [random, Data(repeating: 0, count: random.count), Data(repeating: 65, count: random.count)] {
             let image = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "body", contents: body)])
-            var variants: [(String, GyoshukuFramingTestSupport.Encoded)] = []
-            for size in [65_536, 131_072, 1_048_576] { variants.append(("tgz", try GyoshukuFramingTestSupport.gzip(image, chunkSize: size))) }
-            for level in [1, 9] { variants.append(("tbz", try GyoshukuFramingTestSupport.bzip2(image, level: level))) }
-            for size in [262_144, 16 * 1_048_576] { variants.append(("txz", try GyoshukuFramingTestSupport.xz(image, chunkSize: size))) }
+            var variants: [(String, CompressedTarFramingTestSupport.Encoded)] = []
+            for size in [65_536, 131_072, 1_048_576] { variants.append(("tgz", try CompressedTarFramingTestSupport.gzip(image, chunkSize: size))) }
+            for level in [1, 9] { variants.append(("tbz", try CompressedTarFramingTestSupport.bzip2(image, level: level))) }
+            for size in [262_144, 16 * 1_048_576] { variants.append(("txz", try CompressedTarFramingTestSupport.xz(image, chunkSize: size))) }
             for (suffix, encoded) in variants {
                 let snapshot = try TarEditTestSupport.snapshot(encoded.data, suffix: suffix)
                 let chunks = try XCTUnwrap(snapshot.chunkMap, "\(suffix): \(String(describing: snapshot.chunkMapUnavailableReason))").chunks

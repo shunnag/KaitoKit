@@ -134,6 +134,13 @@ final class ZipRawRecordLayoutTests: XCTestCase {
         }
         return false
     }
+
+    // 旧名: MetadataParsingTests
+    func testZIPFlagsMatchPrintfForEveryValue() {
+        for flags in UInt16.min...UInt16.max {
+            XCTAssertEqual(ZipReader.flagsDescription(flags), String(format: "0x%04x", flags))
+        }
+    }
 }
 
 struct ZipLayoutForbiddenPasswordProvider: PasswordProvider {

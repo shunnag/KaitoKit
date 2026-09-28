@@ -922,6 +922,16 @@ final class RAR4ReaderTests: XCTestCase {
             Data(base64Encoded: encoded, options: .ignoreUnknownCharacters)
         )
     }
+
+    // 旧名: RealToolRegressionTests
+    func testRealRAR3AudioFilterMatchesDeterministicPCM() throws {
+        let url = ZipTestSupport.repositoryRoot.appendingPathComponent("Tests/Fixtures/rar4/kaito-audio.rar.b64")
+        let encoded = try String(contentsOf: url, encoding: .utf8)
+        let data = try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters))
+        let reader = try ArchiveReader.open(data: data)
+        let expected = Data((0..<65_536).map { UInt8(truncatingIfNeeded: $0 * 3 + $0 / 79) })
+        XCTAssertEqual(try reader.read(reader.entries[0]), expected)
+    }
 }
 
 private final class RAR4ReadTrackingByteSource: ByteSource, @unchecked Sendable {

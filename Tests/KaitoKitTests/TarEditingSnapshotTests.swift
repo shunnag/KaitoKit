@@ -10,8 +10,8 @@ final class TarEditingSnapshotTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let tar = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "file", contents: Data(repeating: 65, count: 1024))])
         let variants: [(String, TarContainer, Data)] = [
-            ("tar", .plain, tar), ("tgz", .gzip, try GyoshukuFramingTestSupport.gzip(tar).data),
-            ("tbz", .bzip2, try GyoshukuFramingTestSupport.bzip2(tar).data), ("txz", .xz, try GyoshukuFramingTestSupport.xz(tar).data)]
+            ("tar", .plain, tar), ("tgz", .gzip, try CompressedTarFramingTestSupport.gzip(tar).data),
+            ("tbz", .bzip2, try CompressedTarFramingTestSupport.bzip2(tar).data), ("txz", .xz, try CompressedTarFramingTestSupport.xz(tar).data)]
         for (suffix, container, bytes) in variants {
             for disk in [false, true] {
                 let url = directory.appendingPathComponent("archive." + suffix); try bytes.write(to: url)
@@ -76,7 +76,7 @@ final class TarEditingSnapshotTests: XCTestCase {
 
     func testSplitCpioOtherCodecsAndIdentityChangesDuringOpen() throws {
         let tar = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "file", contents: Data([1]))])
-        let compressed = try GyoshukuFramingTestSupport.gzip(tar).data
+        let compressed = try CompressedTarFramingTestSupport.gzip(tar).data
         var options = ReaderOptions(); options.recordsTarEditLayout = true
         let directory = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -87,7 +87,7 @@ final class TarEditingSnapshotTests: XCTestCase {
         XCTAssertEqual(split.volumeSet?.volumes.count, 3); XCTAssertNil(split.tarEditingSnapshot())
         var cpio = CpioArchiveBuilder(); cpio.record(); cpio.trailer()
         XCTAssertNil(try ArchiveReader.open(data: cpio.data, options: options).tarEditingSnapshot())
-        let cpgz = try GyoshukuFramingTestSupport.gzip(cpio.data).data
+        let cpgz = try CompressedTarFramingTestSupport.gzip(cpio.data).data
         XCTAssertNil(try ArchiveReader.open(source: DataByteSource(cpgz), sourceURL: URL(fileURLWithPath: "/x.cpgz"), options: options).tarEditingSnapshot())
         for input in try TarGoldenCorpus.inputs() where input.origin == "existing" && ["tar.zst", "tar.lz", "tar.br", "tar.lz4", "tar.Z"].contains(input.suffix) {
             let snapshot = try TarEditTestSupport.snapshot(TarGoldenCorpus.decoded(input), suffix: input.suffix)

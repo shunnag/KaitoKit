@@ -3,7 +3,10 @@ import KaitoKit
 import Synchronization
 import XCTest
 
-// b518014 にこのファイルだけを写して測れる公開 API の probe。
+/// 500,000 entry の ZIP（KAITOKIT_ZIP_SCALE_PROBE）を開く時間を local header の遅延読み（lazy）と一括読み（eager）で、
+/// 続けて全 entry の `rawRecord(of:)` を引く時間を測り、中央値と読み出し回数・byte 数を `KAITOKIT-PROBE` 行で出す
+/// （KAITOKIT_ZIP_SCALE_PROBE_OPEN_ONLY=1 なら lazy の open だけを 15 回）。公開 API だけを使うので、
+/// このファイルと Support/ZipScaleProbeSource.swift を過去の版へ写して同じ条件で比べられる。
 final class ZipScaleProbeTests: XCTestCase {
     func testScale() throws {
         let url = try ZipScaleProbeSource.corpus()

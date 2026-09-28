@@ -45,12 +45,12 @@ enum TarEditTestSupport {
     }
     static func isolatedXZ(_ bytes: Data, block: XZBlockMap.Block, flags: UInt16) -> Data {
         let f = Data([UInt8(truncatingIfNeeded: flags), UInt8(truncatingIfNeeded: flags >> 8)])
-        var result = Data([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0]) + f + GyoshukuFramingTestSupport.le(GyoshukuFramingTestSupport.crc(f)) + bytes
-        var index = Data([0, 1]) + GyoshukuFramingTestSupport.vli(block.unpaddedSize) + GyoshukuFramingTestSupport.vli(block.imageRange.upperBound - block.imageRange.lowerBound)
+        var result = Data([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0]) + f + CompressedTarFramingTestSupport.le(CompressedTarFramingTestSupport.crc(f)) + bytes
+        var index = Data([0, 1]) + CompressedTarFramingTestSupport.vli(block.unpaddedSize) + CompressedTarFramingTestSupport.vli(block.imageRange.upperBound - block.imageRange.lowerBound)
         while index.count % 4 != 0 { index.append(0) }
-        index.append(GyoshukuFramingTestSupport.le(GyoshukuFramingTestSupport.crc(index))); result.append(index)
-        let footer = GyoshukuFramingTestSupport.le(UInt32(index.count / 4 - 1)) + f
-        result.append(GyoshukuFramingTestSupport.le(GyoshukuFramingTestSupport.crc(footer)) + footer + Data([0x59, 0x5a]))
+        index.append(CompressedTarFramingTestSupport.le(CompressedTarFramingTestSupport.crc(index))); result.append(index)
+        let footer = CompressedTarFramingTestSupport.le(UInt32(index.count / 4 - 1)) + f
+        result.append(CompressedTarFramingTestSupport.le(CompressedTarFramingTestSupport.crc(footer)) + footer + Data([0x59, 0x5a]))
         return result
     }
     static func verify(_ snapshot: TarEditingSnapshot, file: StaticString = #filePath, line: UInt = #line) throws {
@@ -62,15 +62,15 @@ enum TarEditTestSupport {
             let expected = Data(image[Int(chunk.imageRange.lowerBound)..<Int(chunk.imageRange.upperBound)])
             XCTAssertEqual(chunk.imageRange.lowerBound, imageOffset, file: file, line: line)
             imageOffset = chunk.imageRange.upperBound
-            XCTAssertEqual(chunk.compressedCRC32, GyoshukuFramingTestSupport.crc(compressed), file: file, line: line)
+            XCTAssertEqual(chunk.compressedCRC32, CompressedTarFramingTestSupport.crc(compressed), file: file, line: line)
             let decoded: Data
             switch map {
             case .gzip(let gzip):
                 let lower = Int(chunk.imageRange.lowerBound)
                 decoded = try rawInflate(compressed, dictionary: Data(image[max(0, lower - 32_768)..<lower]), expectedCount: expected.count)
-                XCTAssertEqual(gzip.points[index].crc32, GyoshukuFramingTestSupport.crc(Data(image.prefix(lower))), file: file, line: line)
+                XCTAssertEqual(gzip.points[index].crc32, CompressedTarFramingTestSupport.crc(Data(image.prefix(lower))), file: file, line: line)
                 XCTAssertEqual(gzip.trailerOffset, UInt64(archive.count - 8), file: file, line: line)
-                XCTAssertEqual(gzip.trailerCRC32, GyoshukuFramingTestSupport.crc(image), file: file, line: line)
+                XCTAssertEqual(gzip.trailerCRC32, CompressedTarFramingTestSupport.crc(image), file: file, line: line)
             case .bzip2:
                 decoded = try drain(Bzip2Decompressor(source: DataByteSource(compressed), offset: 0, compressedSize: UInt64(compressed.count)), bufferSize: 65_536)
             case .xz(let xz):

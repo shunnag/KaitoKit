@@ -4,7 +4,9 @@ import ImageIO
 @testable import KaitoKit
 import XCTest
 
-final class FormatDetectorM5Tests: XCTestCase {
+/// FormatDetector の署名表・SFX の探索・拡張子の手がかり・LZMA_Alone の判定と、署名に似た入力の拒否を検査する。
+final class FormatDetectorTests: XCTestCase {
+    // 旧名: FormatDetectorM5Tests
     func testTarDetectionRequiresMemberEvidenceAndPreservesEmptyExtensionHint() throws {
         for size in [1_024, 64 * 1_024] {
             assertUnsupported(Data(repeating: 0, count: size))
@@ -296,6 +298,73 @@ final class FormatDetectorM5Tests: XCTestCase {
         XCTAssertGreaterThanOrEqual(exercised, 200)
     }
 
+    // 旧名: CodecAndFormatTests（ここから 4 件）
+    func testFormatDetectorRecognizesEverySignatureFamily() throws {
+        try assertFormat(.zip, bytes: [0x50, 0x4B, 0x03, 0x04])
+        try assertFormat(.zip, bytes: [0x50, 0x4B, 0x05, 0x06])
+        try assertFormat(.zip, bytes: [0x50, 0x4B, 0x07, 0x08])
+        try assertFormat(
+            .rar,
+            bytes: [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00]
+        )
+        try assertFormat(
+            .rar,
+            bytes: [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00]
+        )
+        try assertFormat(.sevenZip, bytes: [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])
+        try assertFormat(.lha, data: makeLHAHeader(method: "-lh5-"))
+        try assertFormat(.lha, data: makeLHAHeader(method: "-lz4-"))
+        try assertFormat(.lha, data: makeLHAHeader(method: "-pm1-"))
+        try assertFormat(.gzip, bytes: [0x1F, 0x8B])
+        try assertFormat(.bzip2, data: Data("BZh9".utf8))
+        try assertFormat(.xz, bytes: [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00])
+        try assertFormat(.compress, bytes: [0x1F, 0x9D])
+
+        var ustar = Data(repeating: 0, count: 512)
+        ustar.replaceSubrange(257..<263, with: Data("ustar\0".utf8))
+        assertUnsupported(ustar)
+        try assertFormat(.tar, data: TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "member"),
+        ]))
+    }
+
+    func testFormatDetectorDoesNotTreatAnArbitraryPrefixAsZipSFX() throws {
+        var archive = Data("executable-prefix-without-a-ZIP-signature".utf8)
+        archive.append(contentsOf: [0x50, 0x4B, 0x05, 0x06])
+        archive.append(Data(repeating: 0, count: 18))
+
+        XCTAssertThrowsError(try FormatDetector.detect(data: archive))
+        XCTAssertThrowsError(
+            try FormatDetector.detect(
+                data: archive,
+                options: ReaderOptions(scanForSFXInData: true)
+            )
+        )
+    }
+
+    func testFormatDetectorAcceptsChecksumOnlyTarAndRejectsCorruption() throws {
+        let valid = try makeChecksumOnlyTarHeader()
+        XCTAssertEqual(try FormatDetector.detect(data: valid), .tar)
+
+        var corrupt = valid
+        corrupt[0] ^= 0x01
+        assertUnsupported(corrupt)
+        assertUnsupported(Data(repeating: 0, count: 512))
+
+        let emptyTar = Data(repeating: 0, count: 1_024)
+        assertUnsupported(emptyTar)
+        XCTAssertThrowsError(try ArchiveReader.open(data: emptyTar))
+    }
+
+    func testFormatDetectorRejectsInvalidNearSignatures() {
+        assertUnsupported(Data([0x50, 0x4B, 0x03]))
+        assertUnsupported(Data("BZh0".utf8))
+
+        var implausibleLHA = makeLHAHeader(method: "-lh5-")
+        implausibleLHA[0] = 4
+        assertUnsupported(implausibleLHA)
+    }
+
     private func makePE(marker: [UInt8], at markerOffset: Int) -> Data {
         precondition(markerOffset >= 128)
         var bytes = [UInt8](
@@ -348,5 +417,60 @@ final class FormatDetectorM5Tests: XCTestCase {
                 line: line
             )
         }
+    }
+
+    private func assertFormat(
+        _ expected: ArchiveFormat,
+        bytes: [UInt8],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        try assertFormat(expected, data: Data(bytes), file: file, line: line)
+    }
+
+    private func assertFormat(
+        _ expected: ArchiveFormat,
+        data: Data,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertEqual(
+            try FormatDetector.detect(data: data),
+            expected,
+            file: file,
+            line: line
+        )
+    }
+
+    private func makeLHAHeader(method: String) -> Data {
+        var result = Data(repeating: 0, count: 24)
+        result[0] = 22
+        result.replaceSubrange(2..<7, with: Data(method.utf8))
+        return result
+    }
+
+    private func makeChecksumOnlyTarHeader() throws -> Data {
+        var header = [UInt8](repeating: 0, count: 512)
+        header.replaceSubrange(0..<11, with: Array("payload.bin".utf8))
+        header[156] = Character("0").asciiValue ?? 0x30
+        for index in 148..<156 {
+            header[index] = 0x20
+        }
+
+        let checksum = header.reduce(UInt64(0)) { partial, byte in
+            partial + UInt64(byte)
+        }
+        let digits = Array(String(checksum, radix: 8).utf8)
+        guard digits.count <= 6 else {
+            throw FixtureError.invalidHex
+        }
+        let field = [UInt8](repeating: 0x30, count: 6 - digits.count)
+            + digits + [0, 0x20]
+        header.replaceSubrange(148..<156, with: field)
+        return Data(header)
+    }
+
+    private enum FixtureError: Error {
+        case invalidHex
     }
 }

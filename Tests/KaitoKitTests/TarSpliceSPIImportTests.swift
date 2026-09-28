@@ -5,7 +5,7 @@ import XCTest
 final class TarSpliceSPIImportTests: XCTestCase {
     func testSpliceContractWithoutTestableImport() throws {
         let image = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "spi", contents: Data([1]))])
-        let bytes = try GyoshukuFramingTestSupport.gzip(image).data
+        let bytes = try CompressedTarFramingTestSupport.gzip(image).data
         var options = ReaderOptions(); options.recordsTarEditLayout = true
         let source = DataByteSource(bytes), hint = URL(fileURLWithPath: "/spi.tgz")
         let base = try XCTUnwrap(ArchiveReader.open(source: source, sourceURL: hint, options: options).tarEditingSnapshot())

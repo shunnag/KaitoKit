@@ -209,12 +209,4 @@ final class ReopenSharingTests: XCTestCase {
             }
         }
     }
-
-    func testDocumentationRecordsK9SharingAndTimings() throws {
-        let root = TestFixtures.repositoryRoot
-        let changelog = try String(contentsOf: root.appendingPathComponent("CHANGELOG.md"), encoding: .utf8)
-        let record = try String(contentsOf: root.appendingPathComponent("Documentation/verification/2026-09-19-release-review.md"), encoding: .utf8)
-        XCTAssertTrue(changelog.contains("（K9）"), "Unreleased must document K9 parsed-state sharing")
-        XCTAssertTrue(record.contains("## K9."), "verification record must cover K9 and reopen timings")
-    }
 }

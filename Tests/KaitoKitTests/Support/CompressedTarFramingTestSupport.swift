@@ -4,8 +4,12 @@ import Foundation
 import XCTest
 import zlib
 
-// GK c0df9fb の枠組み。reader の内部実装に依存しない符号化側の oracle。
-enum GyoshukuFramingTestSupport {
+/// 圧縮 tar の chunk の区切りを、reader の内部実装に依存せず符号化側で決める oracle。
+/// gzip は chunk ごとに直前 32 KiB を辞書にした raw deflate、bzip2 は chunk ごとに独立した stream、
+/// xz は chunk ごとの block と index で包み、各 chunk の圧縮側と展開側の範囲（`Encoded.chunks`）を返す。
+/// CRC-32・little endian・xz の VLI の小さな helper も持つ。
+enum CompressedTarFramingTestSupport {
+    // 旧名: GyoshukuFramingTestSupport（GyoshukuKit の枠組みを写したため利用側の名前が付いていた）
     struct Chunk {
         let compressed: Range<Int>
         let image: Range<Int>

@@ -9,9 +9,9 @@ final class TarEditDifferentialFuzzTests: XCTestCase {
             HandTarEntry(name: "f\($0)", contents: Data((0..<1024).map { UInt8(truncatingIfNeeded: $0 * 37) }))
         })
         var seeds: [(String, Data)] = [
-            ("tar.gz", try GyoshukuFramingTestSupport.gzip(image, chunkSize: 2048).data),
-            ("tar.bz2", try GyoshukuFramingTestSupport.bzip2(image, level: 1, chunkSize: 2048).data),
-            ("tar.xz", try GyoshukuFramingTestSupport.xz(image, chunkSize: 2048).data)]
+            ("tar.gz", try CompressedTarFramingTestSupport.gzip(image, chunkSize: 2048).data),
+            ("tar.bz2", try CompressedTarFramingTestSupport.bzip2(image, level: 1, chunkSize: 2048).data),
+            ("tar.xz", try CompressedTarFramingTestSupport.xz(image, chunkSize: 2048).data)]
         let root = TarGoldenCorpus.repository.appendingPathComponent("Tests/Fixtures/tar-edit")
         for (name, ext) in [("third-gzip.tar.gz", "tar.gz"), ("third-bzip2.tar.bz2", "tar.bz2"),
                             ("third-bsdtar.tar.xz", "tar.xz"), ("third-xz-crc32.tar.xz", "tar.xz"), ("third-xz-crc64.tar.xz", "tar.xz")] {

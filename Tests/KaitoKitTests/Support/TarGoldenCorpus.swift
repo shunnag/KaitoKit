@@ -82,7 +82,7 @@ enum TarGoldenCorpus {
     private static func gzipHeader(seed: UInt8) -> Data {
         var bytes = Data([0x1f, 0x8b, 8, 0x1e, 0, 0, 0, 0, 0, 3, 3, 0, 1, 2, 3])
             + Data("archive.tar\0".utf8) + Data(repeating: seed, count: 270_000) + Data([0])
-        bytes.append(GyoshukuFramingTestSupport.le(GyoshukuFramingTestSupport.crc(bytes)).prefix(2))
+        bytes.append(CompressedTarFramingTestSupport.le(CompressedTarFramingTestSupport.crc(bytes)).prefix(2))
         return bytes
     }
     static func methods(_ input: Input) -> [String] {
@@ -189,9 +189,9 @@ enum TarGoldenCorpus {
         }
         for (name, tar) in try TarGoldenInputSupport.tarInputs() {
             try save(name, tar, "tar")
-            for (codec, encoded) in [("gz", try GyoshukuFramingTestSupport.gzip(tar, chunkSize: 65_536).data),
-                                     ("bz2", try GyoshukuFramingTestSupport.bzip2(tar, level: 1, chunkSize: 4096).data),
-                                     ("xz", try GyoshukuFramingTestSupport.xz(tar, chunkSize: 4096).data)] {
+            for (codec, encoded) in [("gz", try CompressedTarFramingTestSupport.gzip(tar, chunkSize: 65_536).data),
+                                     ("bz2", try CompressedTarFramingTestSupport.bzip2(tar, level: 1, chunkSize: 4096).data),
+                                     ("xz", try CompressedTarFramingTestSupport.xz(tar, chunkSize: 4096).data)] {
                 try save(name + "-" + codec, encoded, "tar." + codec)
             }
         }

@@ -27,11 +27,11 @@ enum TarSpliceTestSupport {
         try ArchiveReader.openSplicedCompressedTar(output: DataByteSource(result.bytes), sourceURL: hint(codec),
             base: base, splice: result.splice, options: options, storagePolicy: policy)
     }
-    static func encode(_ image: Data, _ codec: Codec, chunkSize: Int = 16_384) throws -> GyoshukuFramingTestSupport.Encoded {
+    static func encode(_ image: Data, _ codec: Codec, chunkSize: Int = 16_384) throws -> CompressedTarFramingTestSupport.Encoded {
         switch codec {
-        case .tgz: try GyoshukuFramingTestSupport.gzip(image, chunkSize: chunkSize)
-        case .tbz: try GyoshukuFramingTestSupport.bzip2(image, chunkSize: chunkSize)
-        case .txz: try GyoshukuFramingTestSupport.xz(image, chunkSize: chunkSize)
+        case .tgz: try CompressedTarFramingTestSupport.gzip(image, chunkSize: chunkSize)
+        case .tbz: try CompressedTarFramingTestSupport.bzip2(image, chunkSize: chunkSize)
+        case .txz: try CompressedTarFramingTestSupport.xz(image, chunkSize: chunkSize)
         }
     }
     static func corpus() throws -> Data {
@@ -144,7 +144,7 @@ enum TarSpliceTestSupport {
         case .tgz: return 10..<UInt64(bytes.count - 8)
         case .tbz: return 0..<UInt64(bytes.count)
         case .txz:
-            let indexLength = Int(GyoshukuFramingTestSupport.uint32(bytes, bytes.count - 8) + 1) * 4
+            let indexLength = Int(CompressedTarFramingTestSupport.uint32(bytes, bytes.count - 8) + 1) * 4
             return 12..<UInt64(bytes.count - 12 - indexLength)
         }
     }
@@ -158,21 +158,21 @@ enum TarSpliceTestSupport {
     }
     static func xzRecords(_ bytes: Data) throws -> [(UInt64, UInt64)] {
         var offset = Int(payload(bytes, .txz).upperBound) + 1
-        let count = try GyoshukuFramingTestSupport.readVLI(bytes, &offset)
-        return try (0..<count).map { _ in (try GyoshukuFramingTestSupport.readVLI(bytes, &offset), try GyoshukuFramingTestSupport.readVLI(bytes, &offset)) }
+        let count = try CompressedTarFramingTestSupport.readVLI(bytes, &offset)
+        return try (0..<count).map { _ in (try CompressedTarFramingTestSupport.readVLI(bytes, &offset), try CompressedTarFramingTestSupport.readVLI(bytes, &offset)) }
     }
     static func appendTail(_ output: inout Data, image: Data, codec: Codec, records: [(UInt64, UInt64)], flags: Data) {
         if codec == .tgz {
-            output.append(GyoshukuFramingTestSupport.le(GyoshukuFramingTestSupport.crc(image)))
-            output.append(GyoshukuFramingTestSupport.le(UInt32(truncatingIfNeeded: image.count)))
+            output.append(CompressedTarFramingTestSupport.le(CompressedTarFramingTestSupport.crc(image)))
+            output.append(CompressedTarFramingTestSupport.le(UInt32(truncatingIfNeeded: image.count)))
         } else if codec == .txz {
-            var index = Data([0]) + GyoshukuFramingTestSupport.vli(UInt64(records.count))
-            for (packed, unpacked) in records { index.append(GyoshukuFramingTestSupport.vli(packed)); index.append(GyoshukuFramingTestSupport.vli(unpacked)) }
+            var index = Data([0]) + CompressedTarFramingTestSupport.vli(UInt64(records.count))
+            for (packed, unpacked) in records { index.append(CompressedTarFramingTestSupport.vli(packed)); index.append(CompressedTarFramingTestSupport.vli(unpacked)) }
             while index.count % 4 != 0 { index.append(0) }
-            index.append(GyoshukuFramingTestSupport.le(GyoshukuFramingTestSupport.crc(index)))
+            index.append(CompressedTarFramingTestSupport.le(CompressedTarFramingTestSupport.crc(index)))
             output.append(index)
-            let footer = GyoshukuFramingTestSupport.le(UInt32(index.count / 4 - 1)) + flags
-            output.append(GyoshukuFramingTestSupport.le(GyoshukuFramingTestSupport.crc(footer)) + footer + Data([0x59, 0x5a]))
+            let footer = CompressedTarFramingTestSupport.le(UInt32(index.count / 4 - 1)) + flags
+            output.append(CompressedTarFramingTestSupport.le(CompressedTarFramingTestSupport.crc(footer)) + footer + Data([0x59, 0x5a]))
         }
     }
     static func rawGzip(_ bytes: Data, dictionary: Data, final: Bool, level: Int32 = 6, flush: Int32 = Z_SYNC_FLUSH) throws -> Data {

@@ -9,7 +9,7 @@ final class TarEditLayoutSPIImportTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("custom.tgz")
         let tar = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "file", contents: Data([1]))])
-        try GyoshukuFramingTestSupport.gzip(tar).data.write(to: url)
+        try CompressedTarFramingTestSupport.gzip(tar).data.write(to: url)
         let source = try ExternalTarIdentitySource(url: url)
         var options = ReaderOptions(); options.recordsTarEditLayout = true
         let snapshot = try XCTUnwrap(ArchiveReader.open(source: source, sourceURL: url, options: options).tarEditingSnapshot())

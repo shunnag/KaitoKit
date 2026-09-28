@@ -31,13 +31,9 @@ private final class MetadataCancellingSource: ByteSource {
     }
 }
 
-final class MetadataParsingTests: XCTestCase {
-    func testZIPFlagsMatchPrintfForEveryValue() {
-        for flags in UInt16.min...UInt16.max {
-            XCTAssertEqual(ZipReader.flagsDescription(flags), String(format: "0x%04x", flags))
-        }
-    }
-
+/// 大きな書庫のメタデータを読む途中の中断（ZIP の central directory・ZIP64・tar の header 走査）が再試行や変換をされず、すぐ止まることを検査する。
+final class MetadataParseCancellationTests: XCTestCase {
+    // 旧名: MetadataParsingTests（printf 形式の flag の検査は ZipRawRecordLayoutTests へ移した）
     func testLargeZIPOpenPropagatesCancellation() async throws {
         let data = try ZipTestSupport.makeZIP64ManyEmptyArchive(entryCount: 200_000)
         let layout = try ZipTestSupport.layout(of: data)

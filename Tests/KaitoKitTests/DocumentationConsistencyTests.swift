@@ -1,7 +1,9 @@
 import Foundation
 import XCTest
 
-final class ReleaseReviewDocumentationTests: XCTestCase {
+/// README・CHANGELOG・Documentation/verification の記述が、リリースごとの review の修正（R1…・K1…）と一致しているかを文字列で検査する。
+final class DocumentationConsistencyTests: XCTestCase {
+    // 旧名: ReleaseReviewDocumentationTests
     private func document(_ path: String) throws -> String {
         try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
     }
@@ -142,5 +144,14 @@ final class ReleaseReviewDocumentationTests: XCTestCase {
             XCTAssertTrue(record.contains("## K\(item)."), "verification record must cover K\(item)")
         }
         XCTAssertTrue(record.contains("RAR4") && record.contains("accepted limitation"))
+    }
+
+    // 旧名: ReopenSharingTests
+    func testDocumentationRecordsK9SharingAndTimings() throws {
+        let root = TestFixtures.repositoryRoot
+        let changelog = try String(contentsOf: root.appendingPathComponent("CHANGELOG.md"), encoding: .utf8)
+        let record = try String(contentsOf: root.appendingPathComponent("Documentation/verification/2026-09-19-release-review.md"), encoding: .utf8)
+        XCTAssertTrue(changelog.contains("（K9）"), "Unreleased must document K9 parsed-state sharing")
+        XCTAssertTrue(record.contains("## K9."), "verification record must cover K9 and reopen timings")
     }
 }

@@ -2,7 +2,8 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
-final class ZipCompatibilityRobustnessTests: XCTestCase {
+final class ZipEndRecordHardeningTests: XCTestCase {
+    // 旧名: ZipCompatibilityRobustnessTests
     func testNewestEmptyArchiveAtEOFWinsBeyondStandardSearchWindow() throws {
         let older = try ZipTestSupport.makeArchive(entries: [
             HandZipEntry(

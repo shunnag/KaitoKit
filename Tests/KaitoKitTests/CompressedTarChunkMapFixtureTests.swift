@@ -2,7 +2,9 @@ import Foundation
 @_spi(TarEditLayout) internal import KaitoKit
 import XCTest
 
-final class GyoshukuFixtureMapTests: XCTestCase {
+/// Tests/Fixtures/tar-edit の圧縮 tar（tgz / tbz / txz）の chunk map と EOF をまたぐ chunk を、expected-maps.json（符号化側で記録した区切り）と照合する。
+final class CompressedTarChunkMapFixtureTests: XCTestCase {
+    // 旧名: GyoshukuFixtureMapTests
     func testPrototypeMapsAndEOFStraddles() throws {
         struct Row: Decodable {
             let c0: UInt64, c1: UInt64, u0: UInt64
@@ -58,9 +60,9 @@ final class GyoshukuFixtureMapTests: XCTestCase {
             let reader = try ArchiveReader.open(data: archive)
             let tar = try reader.read(XCTUnwrap(reader.entries.first))
             let actual: Data
-            if name.hasSuffix("tgz") { actual = try GyoshukuFramingTestSupport.gzip(tar).data }
-            else if name.hasSuffix("tbz") { actual = try GyoshukuFramingTestSupport.bzip2(tar).data }
-            else { actual = try GyoshukuFramingTestSupport.xz(tar).data }
+            if name.hasSuffix("tgz") { actual = try CompressedTarFramingTestSupport.gzip(tar).data }
+            else if name.hasSuffix("tbz") { actual = try CompressedTarFramingTestSupport.bzip2(tar).data }
+            else { actual = try CompressedTarFramingTestSupport.xz(tar).data }
             XCTAssertEqual(actual, archive, name)
         }
     }

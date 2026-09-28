@@ -3,7 +3,9 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
-final class RealToolRegressionTests: XCTestCase {
+/// 名前の安全性の回帰: 先頭の結合文字・CP932 の 2 byte 目・symlink の親参照と pivot・EUC の証拠不足を、TarTestSupport / LHATestSupport で作った書庫で検査する。
+final class NameSafetyRegressionTests: XCTestCase {
+    // 旧名: RealToolRegressionTests（RAR3 の audio filter の検査は RAR4ReaderTests へ移した）
     func testLeadingCombiningScalarsExtractWithoutFalseTraversal() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }
@@ -149,15 +151,6 @@ final class RealToolRegressionTests: XCTestCase {
             let output = try reader.extract(reader.entries[0], to: temporary)
             XCTAssertEqual(try Data(contentsOf: output), payload)
         }
-    }
-
-    func testRealRAR3AudioFilterMatchesDeterministicPCM() throws {
-        let url = ZipTestSupport.repositoryRoot.appendingPathComponent("Tests/Fixtures/rar4/kaito-audio.rar.b64")
-        let encoded = try String(contentsOf: url, encoding: .utf8)
-        let data = try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters))
-        let reader = try ArchiveReader.open(data: data)
-        let expected = Data((0..<65_536).map { UInt8(truncatingIfNeeded: $0 * 3 + $0 / 79) })
-        XCTAssertEqual(try reader.read(reader.entries[0]), expected)
     }
 
     func testShortAndUnknownLevelZeroUnixExtensionsStayBounded() throws {

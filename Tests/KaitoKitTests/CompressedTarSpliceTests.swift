@@ -138,7 +138,7 @@ final class CompressedTarSpliceTests: XCTestCase {
                 try reject(bad, honest, .checksumMismatch)
                 bad = bytes
                 bad[7] = 4
-                bad.replaceSubrange(8..<12, with: GyoshukuFramingTestSupport.le(GyoshukuFramingTestSupport.crc(Data(bad[6..<8]))))
+                bad.replaceSubrange(8..<12, with: CompressedTarFramingTestSupport.le(CompressedTarFramingTestSupport.crc(Data(bad[6..<8]))))
                 try reject(bad, honest, .framingMismatch)
                 // 正しい CRC の Index でも walk のサイズと違えば拒否する。
                 var records = try S.xzRecords(bytes); records[0].1 += 512
@@ -245,7 +245,7 @@ final class CompressedTarSpliceTests: XCTestCase {
                 bytes.insert(contentsOf: [0, 0, 0, 255, 255, 0, 0, 0, 255, 255], at: encoded.chunks[0].compressed.upperBound)
                 bytes.insert(contentsOf: [0, 0, 0, 255, 255], at: 10)
             } else {
-                bytes.insert(contentsOf: try GyoshukuFramingTestSupport.bzip2(Data()).data, at: encoded.chunks[0].compressed.upperBound)
+                bytes.insert(contentsOf: try CompressedTarFramingTestSupport.bzip2(Data()).data, at: encoded.chunks[0].compressed.upperBound)
             }
             let result = S.Output(name: "empty boundaries", bytes: bytes,
                                   splice: .init(segments: [.encoded(output: S.payload(bytes, codec))]), image: image)
@@ -294,11 +294,11 @@ final class CompressedTarSpliceTests: XCTestCase {
         let directory = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("base.tgz")
-        let image = try S.corpus(), bytes = try GyoshukuFramingTestSupport.gzip(image, chunkSize: 16_384, level: 0).data
+        let image = try S.corpus(), bytes = try CompressedTarFramingTestSupport.gzip(image, chunkSize: 16_384, level: 0).data
         try bytes.write(to: url)
         let base = try XCTUnwrap(ArchiveReader.open(url: url, options: S.options()).tarEditingSnapshot())
         var changed = image; changed[513] ^= 1
-        let rewritten = try GyoshukuFramingTestSupport.gzip(changed, chunkSize: 16_384, level: 0).data
+        let rewritten = try CompressedTarFramingTestSupport.gzip(changed, chunkSize: 16_384, level: 0).data
         XCTAssertEqual(bytes.count, rewritten.count)
         var info = stat(); XCTAssertEqual(stat(url.path, &info), 0)
         let handle = try FileHandle(forWritingTo: url)
@@ -322,7 +322,7 @@ final class CompressedTarSpliceTests: XCTestCase {
 
     func testMidVerificationCancellationClosesStaging() async throws {
         let image = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "large", contents: Data(count: 70 * 1_048_576))])
-        let bytes = try GyoshukuFramingTestSupport.gzip(image).data
+        let bytes = try CompressedTarFramingTestSupport.gzip(image).data
         let original = try XCTUnwrap(S.full(bytes, .tgz, options: S.options(disk: true)).tarEditingSnapshot())
         let cancelling = SpliceCancellingSource(original.image)
         let base = TarEditingSnapshot(container: original.container, image: cancelling, archive: original.archive,

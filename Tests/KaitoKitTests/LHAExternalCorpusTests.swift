@@ -2,7 +2,9 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
-final class LHACompatibilityCorpusTests: XCTestCase {
+/// 外部の LHA corpus（KAITOKIT_LHA_CORPUS、無ければ skip）で、各実装の directory・相対名・level 3・symlink・MorphOS / OS/2 の拡張を安全に展開できることを検査する。
+final class LHAExternalCorpusTests: XCTestCase {
+    // 旧名: LHACompatibilityCorpusTests
     func testDirectoryAndRelativeNameCorpusArchivesExtractSafely() throws {
         var fixtures = try [
             "lhmelt_16536/h0_subdir.lzh",

@@ -11,8 +11,9 @@ final class ZipReader: FormatReader {
         case aes(WinZipAESMetadata)
     }
 
-    // 1 byte の検査値を誤通過した password は、復号後の破損と区別できない。
-    private final class ZipCryptoDecompressor: Decompressor {
+    // ZipCrypto の 1 byte 検査値を誤通過した password は、復号後の破損と区別できない。
+    // そのため展開中の構造的な失敗（malformed・truncated・checksumMismatch）を wrongPassword として返す。
+    private final class ZipPasswordAmbiguousDecompressor: Decompressor {
         private let base: any Decompressor
         private var remaining: UInt64?
 
@@ -42,11 +43,11 @@ final class ZipReader: FormatReader {
                 }
                 return count
             } catch {
-                throw Self.translate(error)
+                throw Self.asWrongPassword(error)
             }
         }
 
-        static func translate(_ error: Error) -> Error {
+        static func asWrongPassword(_ error: Error) -> Error {
             guard let kaito = error as? KaitoError else { return error }
             switch kaito {
             case .malformed, .truncated, .checksumMismatch:
@@ -311,10 +312,10 @@ final class ZipReader: FormatReader {
                 source: source, offset: local.dataOffset, compressedSize: 0
             )
         } catch {
-            throw zipCryptoErrorsAreWrongPassword ? ZipCryptoDecompressor.translate(error) : error
+            throw zipCryptoErrorsAreWrongPassword ? ZipPasswordAmbiguousDecompressor.asWrongPassword(error) : error
         }
         if zipCryptoErrorsAreWrongPassword {
-            decompressor = ZipCryptoDecompressor(decompressor, expectedSize: entry.uncompressedSize)
+            decompressor = ZipPasswordAmbiguousDecompressor(decompressor, expectedSize: entry.uncompressedSize)
         }
         // Recovery bounds unencrypted stored payload.size to available source bytes,
         // so CopyDecompressor can preserve bulk reads without recovery wrapping.
@@ -651,7 +652,7 @@ final class ZipReader: FormatReader {
                 )
                 return (decrypted, 0, decrypted.length, nil)
             } catch {
-                throw isIncomplete ? error : ZipCryptoDecompressor.translate(error)
+                throw isIncomplete ? error : ZipPasswordAmbiguousDecompressor.asWrongPassword(error)
             }
 
         case let .aes(metadata):

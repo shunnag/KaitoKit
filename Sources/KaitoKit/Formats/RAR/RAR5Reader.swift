@@ -352,30 +352,15 @@ final class RAR5Reader: FormatReader {
         )
 
         let outputLength: UInt64? = record.unpackedSize
-        let expectedCRC = entry.crc32
         var decompressor: any Decompressor
         if record.compression.method == 0 {
-            if record.encryption == nil, let outputLength,
-               outputLength != record.packedSize {
-                throw KaitoError.malformed("RAR5 stored sizes differ")
-            }
-            if record.encryption != nil, outputLength == nil {
-                throw KaitoError.unsupportedMethod(
-                    "RAR5 encrypted stored entry with unknown unpacked size"
-                )
-            }
-            let logicalStoredSize = outputLength ?? record.packedSize
-            guard logicalStoredSize <= record.packedSize else {
-                throw KaitoError.malformed(
-                    "RAR5 encrypted stored entry exceeds its ciphertext"
-                )
-            }
+            let storedSize = try Self.logicalStoredSize(record)
             decompressor = try CopyDecompressor(
                 source: prepared.source,
                 offset: prepared.offset,
                 compressedSize: entry.isIncomplete
-                    ? min(logicalStoredSize, record.availablePackedSize ?? record.packedSize)
-                    : logicalStoredSize
+                    ? min(storedSize, record.availablePackedSize ?? record.packedSize)
+                    : storedSize
             )
         } else {
             do {
@@ -401,42 +386,22 @@ final class RAR5Reader: FormatReader {
             }
         }
 
-        var completionCheck: (() throws -> Void)?
-        // A successfully verified password-check value disambiguates a later
-        // payload digest failure: it is corruption, not a bad password. Older
-        // records without that independent check necessarily remain ambiguous.
-        let mismatchIsWrongPassword = prepared.mismatchIsWrongPassword
-        if options.verifyRAR5Blake2sp,
-           !entry.isIncomplete,
-           let recordHash = record.hash,
-           recordHash.type == 0 {
-            let hashing = try RAR5Blake2spDecompressor(
-                base: decompressor,
-                expected: recordHash.digest,
-                hashKey: prepared.hashKey,
-                entryIndex: entry.index,
-                mismatchIsWrongPassword: mismatchIsWrongPassword
-            )
-            decompressor = hashing
-            completionCheck = { try hashing.verify() }
-        }
-        let crc32Transform: ((UInt32) -> UInt32)? = prepared.hashKey.map { key in
-            { checksum in RAR5ChecksumMAC.crc32(checksum, hashKey: key) }
-        }
         // Incomplete unencrypted stored payloads are already bounded to available
         // bytes by CopyDecompressor, so preserve bulk reads without recovery wrapping.
-        return try EntryStream(
-            decompressor: entry.isIncomplete
-                && !(record.compression.method == 0 && record.encryption == nil)
-                ? RecoveryDecompressor(decompressor, maximumOutputSize: outputLength)
-                : decompressor,
-            length: entry.isIncomplete ? nil : outputLength,
-            expectedCRC32: entry.isIncomplete ? nil : expectedCRC,
+        if entry.isIncomplete,
+           !(record.compression.method == 0 && record.encryption == nil) {
+            decompressor = RecoveryDecompressor(decompressor, maximumOutputSize: outputLength)
+        }
+        // A recovered incomplete entry has no digest, size or CRC to verify.
+        return try Self.makeVerifiedEntryStream(
+            decompressor: decompressor,
+            record: record,
             entryIndex: entry.index,
-            limits: limits,
-            completionCheck: completionCheck,
-            checksumMismatchIsWrongPassword: mismatchIsWrongPassword,
-            crc32Transform: crc32Transform
+            prepared: prepared,
+            verifiesBlake2sp: options.verifyRAR5Blake2sp && !entry.isIncomplete,
+            length: entry.isIncomplete ? nil : outputLength,
+            expectedCRC32: entry.isIncomplete ? nil : entry.crc32,
+            limits: limits
         )
     }
 
@@ -570,23 +535,9 @@ final class RAR5Reader: FormatReader {
             keyCache: keyCache
         )
 
-        var decompressor: any Decompressor
+        let decompressor: any Decompressor
         if record.compression.method == 0 {
-            if record.encryption == nil, let outputLength = record.unpackedSize,
-               outputLength != record.packedSize {
-                throw KaitoError.malformed("RAR5 stored sizes differ")
-            }
-            if record.encryption != nil, record.unpackedSize == nil {
-                throw KaitoError.unsupportedMethod(
-                    "RAR5 encrypted stored entry with unknown unpacked size"
-                )
-            }
-            let logicalStoredSize = record.unpackedSize ?? record.packedSize
-            guard logicalStoredSize <= record.packedSize else {
-                throw KaitoError.malformed(
-                    "RAR5 encrypted stored entry exceeds its ciphertext"
-                )
-            }
+            let storedSize = try logicalStoredSize(record)
             // A stored member is part of archive ordering but does not feed or
             // replace the continuing LZ dictionary. Black-box vectors include
             // a stored payload larger than the dictionary followed by a match
@@ -594,7 +545,7 @@ final class RAR5Reader: FormatReader {
             decompressor = try CopyDecompressor(
                 source: prepared.source,
                 offset: prepared.offset,
-                compressedSize: logicalStoredSize
+                compressedSize: storedSize
             )
         } else {
             decompressor = try makeCompressedDecompressor(
@@ -608,15 +559,65 @@ final class RAR5Reader: FormatReader {
                 mismatchIsWrongPassword: prepared.mismatchIsWrongPassword
             )
         }
+        return try makeVerifiedEntryStream(
+            decompressor: decompressor,
+            record: record,
+            entryIndex: entry.index,
+            prepared: prepared,
+            verifiesBlake2sp: options.verifyRAR5Blake2sp,
+            length: record.unpackedSize,
+            expectedCRC32: entry.crc32,
+            limits: limits
+        )
+    }
+
+    /// Output size of a stored (method 0) member. An unencrypted payload must
+    /// match its declared size; an encrypted one must declare a size that fits
+    /// within its AES-padded ciphertext.
+    private static func logicalStoredSize(_ record: Record) throws -> UInt64 {
+        if record.encryption == nil, let outputLength = record.unpackedSize,
+           outputLength != record.packedSize {
+            throw KaitoError.malformed("RAR5 stored sizes differ")
+        }
+        if record.encryption != nil, record.unpackedSize == nil {
+            throw KaitoError.unsupportedMethod(
+                "RAR5 encrypted stored entry with unknown unpacked size"
+            )
+        }
+        let size = record.unpackedSize ?? record.packedSize
+        guard size <= record.packedSize else {
+            throw KaitoError.malformed(
+                "RAR5 encrypted stored entry exceeds its ciphertext"
+            )
+        }
+        return size
+    }
+
+    /// Adds the checks shared by independent and solid members: the optional
+    /// BLAKE2sp digest and the password-dependent CRC transform. A successfully
+    /// verified password-check value disambiguates a later payload digest
+    /// failure: it is corruption, not a bad password. Older records without
+    /// that independent check necessarily remain ambiguous.
+    private static func makeVerifiedEntryStream(
+        decompressor base: any Decompressor,
+        record: Record,
+        entryIndex: Int,
+        prepared: PreparedPayload,
+        verifiesBlake2sp: Bool,
+        length: UInt64?,
+        expectedCRC32: UInt32?,
+        limits: ReadLimits
+    ) throws -> EntryStream {
+        var decompressor = base
         var completionCheck: (() throws -> Void)?
-        if options.verifyRAR5Blake2sp,
+        if verifiesBlake2sp,
            let recordHash = record.hash,
            recordHash.type == 0 {
             let hashing = try RAR5Blake2spDecompressor(
                 base: decompressor,
                 expected: recordHash.digest,
                 hashKey: prepared.hashKey,
-                entryIndex: entry.index,
+                entryIndex: entryIndex,
                 mismatchIsWrongPassword: prepared.mismatchIsWrongPassword
             )
             decompressor = hashing
@@ -627,9 +628,9 @@ final class RAR5Reader: FormatReader {
         }
         return try EntryStream(
             decompressor: decompressor,
-            length: record.unpackedSize,
-            expectedCRC32: entry.crc32,
-            entryIndex: entry.index,
+            length: length,
+            expectedCRC32: expectedCRC32,
+            entryIndex: entryIndex,
             limits: limits,
             completionCheck: completionCheck,
             checksumMismatchIsWrongPassword: prepared.mismatchIsWrongPassword,

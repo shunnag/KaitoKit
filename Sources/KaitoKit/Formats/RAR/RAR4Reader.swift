@@ -326,56 +326,14 @@ final class RAR4Reader: FormatReader {
                 limits: limits
             )
         }
-        try Checked.size(record.packedSize, limit: limits.maxEntrySize)
-        try Self.validatePackedParts(record, entryIndex: entry.index)
-        let packedSource: any ByteSource
-        let packedOffset: UInt64
-        if record.packedSegments.count == 1,
-           let segment = record.packedSegments.first {
-            packedSource = segment.source
-            packedOffset = segment.offset
-        } else if record.packedSize == 0 {
-            packedSource = DataByteSource(data: Data())
-            packedOffset = 0
-        } else {
-            packedSource = try ConcatenatedByteSource(
-                segments: record.packedSegments,
-                maximumLength: record.packedSize,
-                maximumSegmentCount: limits.maxVolumeCount,
-                label: "RAR split stream"
-            )
-            packedOffset = 0
-        }
-
-        let compressedSource: any ByteSource
-        let compressedOffset: UInt64
-        if record.isEncrypted {
-            guard let password else { throw KaitoError.passwordRequired }
-            guard let salt = record.salt else {
-                throw KaitoError.unsupportedMethod(
-                    "RAR4 encrypted file data without a RAR3 salt"
-                )
-            }
-            let derived = try keyCache.key(
-                password: password, salt: salt,
-                unixScalars: passwordEncodings.unixScalars ?? false
-            )
-            compressedSource = try RARAESCBCByteSource(
-                source: packedSource,
-                ciphertextOffset: packedOffset,
-                ciphertextSize: record.packedSize,
-                // RAR does not retain the pre-padding packed byte count.  The
-                // compression end marker (or stored logical size below) keeps
-                // consumers from observing decrypted AES padding.
-                plaintextSize: record.packedSize,
-                key: derived.key,
-                initializationVector: derived.initializationVector
-            )
-            compressedOffset = 0
-        } else {
-            compressedSource = packedSource
-            compressedOffset = packedOffset
-        }
+        let payload = try Self.preparePayload(
+            record,
+            entryIndex: entry.index,
+            limits: limits,
+            password: password,
+            keyCache: keyCache,
+            unixScalars: passwordEncodings.unixScalars ?? false
+        )
 
         let decompressor: any Decompressor
         switch record.method {
@@ -391,14 +349,14 @@ final class RAR4Reader: FormatReader {
                 )
             }
             decompressor = try CopyDecompressor(
-                source: compressedSource,
-                offset: compressedOffset,
+                source: payload.source,
+                offset: payload.offset,
                 compressedSize: record.unpackedSize
             )
         case RAR4Method.compressed:
             decompressor = try Self.makeCompressedDecompressor(
-                source: compressedSource,
-                offset: compressedOffset,
+                source: payload.source,
+                offset: payload.offset,
                 compressedSize: record.packedSize,
                 uncompressedSize: record.unpackedSize,
                 unpackVersion: record.unpackVersion,
@@ -583,8 +541,50 @@ final class RAR4Reader: FormatReader {
               record.unpackVersion == 29 else {
             throw KaitoError.unsupportedMethod("RAR4 unsupported solid stream member")
         }
+        let payload = try preparePayload(
+            record,
+            entryIndex: entry.index,
+            limits: limits,
+            password: password,
+            keyCache: keyCache,
+            unixScalars: unixScalars
+        )
+        let decompressor = try makeCompressedDecompressor(
+            source: payload.source,
+            offset: payload.offset,
+            compressedSize: record.packedSize,
+            uncompressedSize: record.unpackedSize,
+            unpackVersion: record.unpackVersion,
+            method: record.method,
+            dictionarySize: record.dictionarySize,
+            isSolid: record.firstFlags & FileFlag.solid != 0,
+            limits: limits,
+            solidState: state,
+            mismatchIsWrongPassword: record.isEncrypted
+        )
+        return try EntryStream(
+            decompressor: decompressor,
+            length: record.unpackedSize,
+            expectedCRC32: record.crc32,
+            entryIndex: entry.index,
+            limits: limits,
+            checksumMismatchIsWrongPassword: record.isEncrypted
+        )
+    }
+
+    /// Builds the bounded packed view shared by independent and solid decoders.
+    /// The declared packed size is limit-checked and every split part's CRC is
+    /// verified before a decoder reads; encrypted data becomes one AES-CBC view.
+    private static func preparePayload(
+        _ record: Record,
+        entryIndex: Int,
+        limits: ReadLimits,
+        password: String?,
+        keyCache: RAR3KeyCache,
+        unixScalars: Bool
+    ) throws -> (source: any ByteSource, offset: UInt64) {
         try Checked.size(record.packedSize, limit: limits.maxEntrySize)
-        try validatePackedParts(record, entryIndex: entry.index)
+        try validatePackedParts(record, entryIndex: entryIndex)
 
         let packed: (source: any ByteSource, offset: UInt64)
         if record.packedSegments.count == 1,
@@ -604,54 +604,29 @@ final class RAR4Reader: FormatReader {
             )
         }
 
-        let compressed: (source: any ByteSource, offset: UInt64)
-        if record.isEncrypted {
-            guard let password else { throw KaitoError.passwordRequired }
-            guard let salt = record.salt else {
-                throw KaitoError.unsupportedMethod(
-                    "RAR4 encrypted file data without a RAR3 salt"
-                )
-            }
-            let derived = try keyCache.key(
-                password: password, salt: salt,
-                unixScalars: unixScalars
+        guard record.isEncrypted else { return packed }
+        guard let password else { throw KaitoError.passwordRequired }
+        guard let salt = record.salt else {
+            throw KaitoError.unsupportedMethod(
+                "RAR4 encrypted file data without a RAR3 salt"
             )
-            compressed = (
-                try RARAESCBCByteSource(
-                    source: packed.source,
-                    ciphertextOffset: packed.offset,
-                    ciphertextSize: record.packedSize,
-                    plaintextSize: record.packedSize,
-                    key: derived.key,
-                    initializationVector: derived.initializationVector
-                ),
-                0
-            )
-        } else {
-            compressed = packed
         }
-
-        let decompressor = try makeCompressedDecompressor(
-            source: compressed.source,
-            offset: compressed.offset,
-            compressedSize: record.packedSize,
-            uncompressedSize: record.unpackedSize,
-            unpackVersion: record.unpackVersion,
-            method: record.method,
-            dictionarySize: record.dictionarySize,
-            isSolid: record.firstFlags & FileFlag.solid != 0,
-            limits: limits,
-            solidState: state,
-            mismatchIsWrongPassword: record.isEncrypted
+        let derived = try keyCache.key(
+            password: password, salt: salt,
+            unixScalars: unixScalars
         )
-        return try EntryStream(
-            decompressor: decompressor,
-            length: record.unpackedSize,
-            expectedCRC32: record.crc32,
-            entryIndex: entry.index,
-            limits: limits,
-            checksumMismatchIsWrongPassword: record.isEncrypted
+        let decrypted = try RARAESCBCByteSource(
+            source: packed.source,
+            ciphertextOffset: packed.offset,
+            ciphertextSize: record.packedSize,
+            // RAR does not retain the pre-padding packed byte count. The
+            // compression end marker (or a stored member's declared size)
+            // keeps consumers from observing decrypted AES padding.
+            plaintextSize: record.packedSize,
+            key: derived.key,
+            initializationVector: derived.initializationVector
         )
+        return (decrypted, 0)
     }
 
     private static func makeCompressedDecompressor(

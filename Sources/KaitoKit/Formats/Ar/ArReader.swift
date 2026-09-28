@@ -136,28 +136,13 @@ final class ArReader: FormatReader {
             offset = min(layout.next, source.length)
             if incomplete { break }
         }
-        let names = pending.map(\.name).filter {
-            if case .fixed = options.encodingPolicy { return true }
-            return !EncodingDetector.isStrictUTF8($0)
-        }
-        let encoding = EncodingDetector.detectArchiveEncoding(names: names, policy: options.encodingPolicy,
-            maximumBatchByteCount: Int(clamping: limits.maxMetadataSize))
-        var decoded: [[UInt8]: String] = [:]
-        if let encoding {
-            let strings = EncodingDetector.decodeArchiveNames(names, as: encoding,
-                maximumBatchByteCount: Int(clamping: limits.maxMetadataSize))
-            for (bytes, string) in zip(names, strings) { if let string { decoded[bytes] = string } }
-        }
-        func resolve(_ bytes: [UInt8]) -> String {
-            decoded[bytes] ?? EncodingDetector.resolveUndeclaredName(bytes: bytes, policy: options.encodingPolicy,
-                archiveEncoding: encoding).string
-        }
+        let names = ArchiveNameResolver(undeclaredNames: pending.map(\.name), policy: options.encodingPolicy, limits: limits)
         var entries: [ArchiveEntry] = []
         // 表と pending を保持したまま復号名・component を追加するため、合算で制限する。
         for (index, item) in pending.enumerated() {
             try checkCancellation(every: index)
             let record = item.record, header = record.header
-            let name = resolve(item.name)
+            let name = names.resolve(item.name)
             let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "ar path component count")
             var specific = ["nameForm": item.nameForm, "headerOffset": String(record.headerOffset)]
             if let uid = header.uid { specific["uid"] = String(uid) }
@@ -176,7 +161,7 @@ final class ArReader: FormatReader {
         }
         self.entries = entries
         records = pending.map(\.record)
-        nameEncoding = encoding
+        nameEncoding = names.archiveEncoding
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {

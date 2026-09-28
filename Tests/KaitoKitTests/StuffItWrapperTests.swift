@@ -15,7 +15,7 @@ final class StuffItWrapperTests: XCTestCase {
             h[121] = 1
             if version == 3 { h.replaceSubrange(102..<106, with: "mBIN".utf8) }
             let crc = usb ? h.withUnsafeBytes { CRC16.update(UnsafeRawBufferPointer(rebasing: $0[..<124]), initial: 0xffff, folding: false) } ^ 0xffff
-                          : StuffItWrapper.xmodem(h[..<124])
+                          : MacEnvelopeParser.xmodem(h[..<124])
             StuffItContainerTests.put(UInt64(crc), 2, 124, &h)
         } else { h.removeLast(128) }
         return Data(h) + data + Data(repeating: 0, count: (128 - data.count % 128) % 128) + resource
@@ -37,10 +37,10 @@ final class StuffItWrapperTests: XCTestCase {
         h[0] = 1; h[1] = 65
         StuffItContainerTests.put(UInt64(data.count), 4, 13, &h)
         StuffItContainerTests.put(UInt64(resource.count), 4, 17, &h)
-        StuffItContainerTests.put(UInt64(StuffItWrapper.xmodem(h[..<21])), 2, 21, &h)
+        StuffItContainerTests.put(UInt64(MacEnvelopeParser.xmodem(h[..<21])), 2, 21, &h)
         var decoded = h + data + [0, 0] + resource + [0, 0]
-        StuffItContainerTests.put(UInt64(StuffItWrapper.xmodem(data)) ^ (corruptFork ? 1 : 0), 2, 23 + data.count, &decoded)
-        StuffItContainerTests.put(UInt64(StuffItWrapper.xmodem(resource)), 2, decoded.count - 2, &decoded)
+        StuffItContainerTests.put(UInt64(MacEnvelopeParser.xmodem(data)) ^ (corruptFork ? 1 : 0), 2, 23 + data.count, &decoded)
+        StuffItContainerTests.put(UInt64(MacEnvelopeParser.xmodem(resource)), 2, decoded.count - 2, &decoded)
         let escaped = decoded.flatMap { $0 == 0x90 ? [UInt8(0x90), 0] : [$0] }
         let alphabet = Array("!\"#$%&'()*+,-012345689@ABCDEFGHIJKLMNPQRSTUVXYZ[`abcdefhijklmpqr".utf8)
         var result = Array("(This file must be converted with BinHex 4.0)\r\n\r\n:".utf8)

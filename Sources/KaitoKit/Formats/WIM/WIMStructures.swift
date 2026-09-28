@@ -3,7 +3,7 @@ import Foundation
 
 // Microsoft "Windows Imaging File Format (WIM)"（2007 年の公開 whitepaper）と [MS-XCA] / [MS-PATCH] の
 // 公開仕様に基づくクリーンルーム実装。whitepaper に無い点（LZX chunk の header、DIRENTRY の 102 byte 固定部、
-// chunk の生格納）は黒箱で確定した。2026-09-21 の検証記録を参照。
+// chunk の生格納）は黒箱で確定した。検証記録は Documentation/verification/2026-09-21-wim.md。
 
 enum WIMBytes {
     static func u16(_ b: [UInt8], _ o: Int) -> UInt16 { LittleEndian.uint16(b, at: o) }

@@ -450,7 +450,7 @@ final class UDFFileSystem {
                 guard !link.utf8.contains(0) else { throw KaitoError.malformed("udf link") }
             }
             let path = components.joined(separator: "/")
-            let size: UInt64? = item.kind == .file ? item.record.length : (item.kind == .directory ? 0 : item.record.length)
+            let size: UInt64? = item.kind == .directory ? 0 : item.record.length
             entries.append(ArchiveEntry(index: entries.count,
                 rawName: RawName(bytes: Array(path.utf8), declaredEncoding: .utf8, isDirectoryHint: item.kind == .directory),
                 name: path, pathComponents: components, kind: item.kind,

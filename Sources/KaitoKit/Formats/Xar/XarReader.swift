@@ -142,7 +142,7 @@ final class XarReader: FormatReader {
         let text = mtime.trimmingCharacters(in: .whitespacesAndNewlines)
         let plain = text.hasSuffix("Z") ? String(text.dropLast()) : text
         // 5,110 項目の open 標本の 68% を占めた ICU 解析を、暦が一致する定型日時だけで省く。
-        // 1582 年以前の混合暦と 5 桁以上の年は、従来の formatter にそのまま委ねる。
+        // 1582 年以前の混合暦と 5 桁以上の年は、下の DateFormatter（ICU）にそのまま委ねる。
         if plain.utf8.count == 19 {
             let bytes = Array(plain.utf8)
             if bytes[4] == 45, bytes[7] == 45, bytes[10] == 84, bytes[13] == 58, bytes[16] == 58,

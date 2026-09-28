@@ -2,7 +2,7 @@ import Foundation
 import Compression
 private import zlib
 
-/// com.apple.decmpfs。形式の出自と黒箱観察は 2026-09-22-hfsplus-decmpfs.md。
+/// com.apple.decmpfs。形式の出自と黒箱観察は Documentation/verification/2026-09-22-hfsplus-decmpfs.md。
 struct DecmpfsHeader {
     let compressionType: UInt32
     let uncompressedSize: UInt64

@@ -140,7 +140,7 @@ struct ISORockRidge {
                         let size = UInt64(ISOBytes.number(b, 8, width: 4))
                         result.zisofs = ISOZisofsInfo(blockSizeLog2: Int(b[7]), uncompressedSize: size)
                     } else {
-                        // version 2 / 他 algorithm（zisofs2）や壊れた entry は従来どおり読まない。
+                        // version 2 / 他 algorithm（zisofs2）や壊れた entry は展開しない（読み出しは unsupportedMethod）。
                         result.unsupported = "zisofs"
                     }
                 default: break

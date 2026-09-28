@@ -1,10 +1,3 @@
-// CAB のチェックサムはエントリーと交差する CFDATA だけで検査する。先行フレームは履歴の復元に使う。
-protocol CabFolderDecoder: AnyObject {
-    var position: UInt64 { get }
-    func skip(to offset: UInt64, entryIndex: Int) throws
-    func read(into buffer: UnsafeMutableRawBufferPointer, entryIndex: Int) throws -> Int
-}
-
 final class LZXFolderDecompressor: CabFolderDecoder {
     private let source: any ByteSource
     private let blocks: [CabDataBlock]

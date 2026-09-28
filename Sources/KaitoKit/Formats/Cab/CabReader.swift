@@ -99,26 +99,14 @@ final class CabReader: FormatReader {
             }
         }
         // 宣言付き UTF-8 は archive-wide 推定へ混ぜず、未宣言名は cpio と同じ経路で解決する。
-        let names = files.filter { $0.attributes & 0x80 == 0 }.map(\.name).filter {
-            if case .fixed = options.encodingPolicy { return true }
-            return !EncodingDetector.isStrictUTF8($0)
-        }
-        let encoding = EncodingDetector.detectArchiveEncoding(names: names, policy: options.encodingPolicy,
-            maximumBatchByteCount: Int(clamping: limits.maxMetadataSize))
-        var decoded: [[UInt8]: String] = [:]
-        if let encoding {
-            let strings = EncodingDetector.decodeArchiveNames(names, as: encoding,
-                maximumBatchByteCount: Int(clamping: limits.maxMetadataSize))
-            for (bytes, string) in zip(names, strings) { if let string { decoded[bytes] = string } }
-        }
+        let names = ArchiveNameResolver(undeclaredNames: files.filter { $0.attributes & 0x80 == 0 }.map(\.name),
+                                        policy: options.encodingPolicy, limits: limits)
         var entries: [ArchiveEntry] = []
         var dosTimestampDecoder = DOSTimestampDecoder()
         for (index, file) in files.enumerated() {
             try checkCancellation(every: index)
             let declared: String.Encoding? = file.attributes & 0x80 != 0 ? .utf8 : nil
-            let resolved = declared == .utf8 ? String(decoding: file.name, as: UTF8.self)
-                : decoded[file.name] ?? EncodingDetector.resolveUndeclaredName(bytes: file.name,
-                    policy: options.encodingPolicy, archiveEncoding: encoding).string
+            let resolved = declared == .utf8 ? String(decoding: file.name, as: UTF8.self) : names.resolve(file.name)
             let name = resolved.replacingOccurrences(of: "\\", with: "/")
             let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "cab path component count")
             try budget.charge(Checked.mul(UInt64(parts.count), UInt64(MemoryLayout<String>.stride)))
@@ -141,7 +129,7 @@ final class CabReader: FormatReader {
                 methodDescription: "cab (\(method))", formatSpecific: specific))
         }
         self.entries = entries; self.folders = folders; self.files = files
-        self.blocks = blocks; self.folderSizes = folderSizes; nameEncoding = encoding
+        self.blocks = blocks; self.folderSizes = folderSizes; nameEncoding = names.archiveEncoding
         hasNextCabinet = header.flags & 2 != 0
     }
 

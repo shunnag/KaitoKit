@@ -161,7 +161,7 @@ final class BrotliTests: XCTestCase {
         let long = try Data(contentsOf: directory.appendingPathComponent("long.txt.br"))
         XCTAssertGreaterThan(long.count, BrotliDecompressor.chunkSize, "stream must span more than one input chunk")
         XCTAssertEqual(try decode(long), Data(bytes))
-        XCTAssertTrue(BrotliDecompressor.isPlausibleStream(source: DataByteSource(long), limits: ReadLimits()))
+        XCTAssertTrue(BrotliDecompressor.detect(source: DataByteSource(long), limits: ReadLimits()))
         XCTAssertEqual(try decode(long, chunk: 600_001).count, 600_000)
         XCTAssertEqual(try decode(long, chunk: 4_097).count, 600_000)
         // 2 つ目以降の入力 chunk の後ろに付いた末尾ゴミも END 時点の消費位置で検出する。
@@ -175,11 +175,11 @@ final class BrotliTests: XCTestCase {
         // 試し復号の範囲より後ろで壊れていても検出は通り、読み取りで失敗するか出力が変わる。
         var damaged = long
         damaged[long.count - 100] ^= 0xFF
-        XCTAssertTrue(BrotliDecompressor.isPlausibleStream(source: DataByteSource(damaged), limits: ReadLimits()))
+        XCTAssertTrue(BrotliDecompressor.detect(source: DataByteSource(damaged), limits: ReadLimits()))
         _ = try? decode(damaged)
         // 試し復号は先頭 64 KiB を FINALIZE なしで走らせるので、切り詰めた stream も検出は通る。
         let cut = Data(long.prefix(70_000))
-        XCTAssertTrue(BrotliDecompressor.isPlausibleStream(source: DataByteSource(cut), limits: ReadLimits()))
+        XCTAssertTrue(BrotliDecompressor.detect(source: DataByteSource(cut), limits: ReadLimits()))
         XCTAssertThrowsError(try decode(cut))
     }
 

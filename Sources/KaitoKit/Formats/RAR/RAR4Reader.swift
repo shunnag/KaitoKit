@@ -434,7 +434,7 @@ final class RAR4Reader: FormatReader {
         if let signatureOffset {
             resolvedSignatureOffset = signatureOffset
         } else {
-            guard let match = try FormatDetector.findRARSignature(source: source),
+            guard let match = try RARSignatureScanner.find(source: source),
                   match.version == .rar4 else {
                 throw KaitoError.unsupportedFormat
             }
@@ -1232,6 +1232,7 @@ final class RAR4Reader: FormatReader {
         var retainedMetadataSize: UInt64 = 0
         var encryptedHeaderWasValidated = false
         var blockCount = 0
+        var timestamps = DOSTimestampDecoder()
 
         while offset < source.length {
             try checkCancellation(every: blockCount)
@@ -1336,7 +1337,8 @@ final class RAR4Reader: FormatReader {
                     headerOffset: offset,
                     dataOffset: headerEnd,
                     mainHeader: mainHeader,
-                    limits: limits
+                    limits: limits,
+                    timestamps: &timestamps
                 )
                 dataSize = parsed.record.packedSize
                 guard pendingEntries.count < limits.maxEntryCount else {
@@ -1424,7 +1426,8 @@ final class RAR4Reader: FormatReader {
         headerOffset: UInt64,
         dataOffset: UInt64,
         mainHeader: MainHeader,
-        limits: ReadLimits
+        limits: ReadLimits,
+        timestamps: inout DOSTimestampDecoder
     ) throws -> (entry: PendingEntry, record: Record) {
         guard header.count >= 32 else {
             throw KaitoError.malformed("short RAR4 file header")
@@ -1479,12 +1482,13 @@ final class RAR4Reader: FormatReader {
             salt = nil
         }
 
-        var modificationDate = try dosDate(dosTime)
+        var modificationDate = try dosDate(dosTime, decoder: &timestamps)
         if flags & FileFlag.extendedTime != 0 {
             modificationDate = try parseExtendedTimes(
                 header,
                 cursor: &cursor,
-                baseModificationDate: modificationDate
+                baseModificationDate: modificationDate,
+                timestamps: &timestamps
             )
         }
 
@@ -2003,7 +2007,8 @@ final class RAR4Reader: FormatReader {
     private static func parseExtendedTimes(
         _ header: [UInt8],
         cursor: inout Int,
-        baseModificationDate: Date?
+        baseModificationDate: Date?,
+        timestamps: inout DOSTimestampDecoder
     ) throws -> Date? {
         guard header.count - cursor >= 2 else {
             throw KaitoError.malformed("truncated RAR4 extended-time flags")
@@ -2024,7 +2029,7 @@ final class RAR4Reader: FormatReader {
                 guard header.count - cursor >= 4 else {
                     throw KaitoError.malformed("truncated RAR4 extended timestamp")
                 }
-                date = try dosDate(littleUInt32(header, at: cursor))
+                date = try dosDate(littleUInt32(header, at: cursor), decoder: &timestamps)
                 cursor += 4
             }
 
@@ -2046,43 +2051,22 @@ final class RAR4Reader: FormatReader {
         return modificationDate
     }
 
-    private static func dosDate(_ packed: UInt32) throws -> Date? {
+    /// Decodes a packed DOS timestamp (date in the high word). Zero means the
+    /// field is unset. The shared decoder treats a zero date word as unset as
+    /// well, but RAR4 rejects a zero date carrying a nonzero time (day 0).
+    private static func dosDate(
+        _ packed: UInt32,
+        decoder: inout DOSTimestampDecoder
+    ) throws -> Date? {
         guard packed != 0 else { return nil }
-        let time = UInt16(truncatingIfNeeded: packed)
         let date = UInt16(truncatingIfNeeded: packed >> 16)
-        let day = Int(date & 0x001f)
-        let month = Int((date >> 5) & 0x000f)
-        let year = Int((date >> 9) & 0x007f) + 1980
-        let second = Int(time & 0x001f) * 2
-        let minute = Int((time >> 5) & 0x003f)
-        let hour = Int((time >> 11) & 0x001f)
-        guard (1...31).contains(day),
-              (1...12).contains(month),
-              (0...59).contains(second),
-              (0...59).contains(minute),
-              (0...23).contains(hour) else {
-            throw KaitoError.malformed("invalid RAR4 DOS timestamp")
+        guard date != 0 else {
+            throw KaitoError.malformed("invalid DOS timestamp")
         }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
-        guard let monthStart = calendar.date(from: DateComponents(
-            year: year,
-            month: month,
-            day: 1
-        )),
-            let validDays = calendar.range(of: .day, in: .month, for: monthStart),
-            validDays.contains(day),
-            let result = calendar.date(from: DateComponents(
-                year: year,
-                month: month,
-                day: day,
-                hour: hour,
-                minute: minute,
-                second: second
-            )) else {
-            throw KaitoError.malformed("invalid RAR4 DOS timestamp")
-        }
-        return result
+        return try decoder.modificationDate(
+            date: date,
+            time: UInt16(truncatingIfNeeded: packed)
+        )
     }
 
     private static func pendingMetadataCost(_ entry: PendingEntry) throws -> UInt64 {

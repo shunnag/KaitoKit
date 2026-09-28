@@ -1933,19 +1933,16 @@ final class RAR5Reader: FormatReader {
         _ block: Block,
         limits: ReadLimits
     ) throws {
+        // Parse with the file-header layout so quick-open, comment and future
+        // service records cannot desynchronize scanning. The three leading
+        // fields are read before the directory check, as their errors win.
         var cursor = block.specific
-        _ = try cursor.readVInt() // service file flags
+        let flags = RAR5FileFlags(rawValue: try cursor.readVInt())
         _ = try cursor.readVInt() // unpacked size
         _ = try cursor.readVInt() // reserved attributes
-        // Remaining optional fields depend on flags. Reparse with the file layout
-        // so quick-open, comments and future services cannot desynchronize scanning.
-        cursor = block.specific
-        let flags = RAR5FileFlags(rawValue: try cursor.readVInt())
         guard !flags.contains(.directory) else {
             throw KaitoError.malformed("RAR5 service header has the directory flag")
         }
-        _ = try cursor.readVInt()
-        _ = try cursor.readVInt()
         if flags.contains(.unixTime) { _ = try cursor.readUInt32LE() }
         if flags.contains(.crc32) { _ = try cursor.readUInt32LE() }
         let compression = try RAR5CompressionInfo(rawValue: cursor.readVInt())

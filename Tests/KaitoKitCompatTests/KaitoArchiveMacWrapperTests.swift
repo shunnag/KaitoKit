@@ -4,10 +4,8 @@ import XCTest
 
 final class KaitoArchiveMacWrapperTests: XCTestCase {
     func testWrapperFormatsNameThemselvesAndExposeTheResourceFork() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         for (file, formatName) in [("readme.txt.bin", "MacBinary"), ("readme.txt.as", "AppleSingle"), ("readme.txt.hqx", "BinHex")] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/macwrappers/\(file).b64"), encoding: .utf8)
-            let archive = try XCTUnwrap(KaitoArchive(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))), file)
+            let archive = try XCTUnwrap(KaitoArchive(data: try CompatFixtures.base64("macwrappers/\(file)")), file)
             XCTAssertEqual(archive.formatName(), formatName, file)
             XCTAssertEqual(archive.numberOfEntries(), 2, file)
             XCTAssertEqual(archive.name(ofEntry: 0), "readme.txt", file)

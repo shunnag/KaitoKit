@@ -8,14 +8,13 @@ import XCTest
 
 final class KaitoArchiveXarTests: XCTestCase {
     func testSingleEntryExtractionFollowsForwardReferencesAndChains() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let temporary = root.deletingLastPathComponent().appendingPathComponent(".build/xar-compat-\(UUID().uuidString)")
+        let temporary = CompatFixtures.repositoryRoot.appendingPathComponent(".build/xar-compat-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: temporary) }
         for (name, indices, expected) in [
             ("xar-plain.xar", [1], "1ddc234bae1b3930239b3d8625224117828d8a576bb8951087cbe6097387fb1e"),
             ("xar-links.xar", [1, 2], "86d7bb82c5856157d89466dc8fc8d52b8e14742702359f500dd09f0f912bb77c")
         ] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/\(name).b64"), encoding: .utf8)
+            let text = try CompatFixtures.text("container/\(name).b64")
             let bytes = try XCTUnwrap(Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)))
             let archive = try XCTUnwrap(KaitoArchive(data: bytes))
             for index in indices {
@@ -29,11 +28,10 @@ final class KaitoArchiveXarTests: XCTestCase {
     }
 
     func testStableFormatNameForEveryFixture() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         for (name, count) in [("xar-plain.xar", 10), ("xar-stored.xar", 10), ("xar-bzip2.xar", 10),
                               ("xar-sha512.xar", 10), ("xar-lzma.xar", 1), ("xar-xz.xar", 1),
                               ("xar-links.xar", 5), ("xar-subdoc.xar", 2), ("xar-pkg.pkg", 3)] {
-            let text = try String(contentsOf: root.appendingPathComponent("Fixtures/container/\(name).b64"), encoding: .utf8)
+            let text = try CompatFixtures.text("container/\(name).b64")
             let bytes = try XCTUnwrap(Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)))
             let archive = try XCTUnwrap(KaitoArchive(data: bytes))
             XCTAssertEqual(archive.formatName(), "XAR", name)

@@ -1,5 +1,58 @@
 import Foundation
 
+// Bit readers and range decoders in KaitoKit
+//
+// Each codec owns its reader: the hot loops depend on the reader's backing and on
+// how it reports reading past the input, so the readers are deliberately not
+// unified. Each line gives the type, then bit order; backing; behaviour past the
+// input; user. The types document the details.
+//
+// Bit readers
+// - LSBFirstBitReader (public): LSB first; [UInt8]; missing bits read as zero and
+//   set a sticky `overrun`; public API, no user inside KaitoKit.
+// - MSBFirstBitReader (public): MSB first; [UInt8] or a borrowed pointer; missing
+//   bits read as zero and set a sticky `overrun`; LZHUFDecoder, LArcDecoder.
+// - LHAStaticBitCursor: MSB first; pointer plus 8 sentinel bytes; sticky `overrun`
+//   with the cursor clamped; the LHA static-Huffman decoder.
+// - RAR29RawBitCursor: MSB first; pointer plus 8 sentinel bytes; `peek` never
+//   fails, consuming past the end sets a sticky `overrun`; RAR29Decoder.
+// - RAR5RawBitReader: MSB first; pointer plus 8 sentinel bytes; `read` returns nil
+//   because the symbol loop keeps failures in a tag; RAR5Decoder.
+// - RAR3MemoryBitCursor: MSB first; [UInt8] filter payload; throws; RAR29Decoder
+//   filter tokens.
+// - LZXBitReader: 16-bit little-endian words, MSB first; [UInt8] of one frame;
+//   zero-padded peek, consuming past the end throws; LZXDecoder.
+// - XpressHuffmanDecoder (inline): 16-bit little-endian words, MSB first; [UInt8]
+//   of one block; zero words past the end, overrun checked once per block; XPRESS.
+// - ZstdBitReader, ZstdPaddedBitReader: backward from the end marker; borrowed
+//   buffer (the padded one has 8 front bytes); checked reads throw, unchecked reads
+//   rely on validated widths and `refill` rejects underflow; zstd.
+// - ZstdForwardBits: LSB first, forward; borrowed buffer; throws; zstd FSE tables.
+// - ZipLegacyBitReader: LSB first; ByteSource through a 64 KiB buffer; throws;
+//   ZIP Shrink, Reduce and Implode.
+// - Deflate64Decompressor (inline): LSB first; ByteSource; throws; Deflate64.
+// - StuffItPackedInput: LSB or MSB first per method; ByteSource through a 16 KiB
+//   buffer; a refill error is deferred until its bits are consumed; StuffIt codecs.
+// - StuffItXBitReader: LSB first; ByteSource through a 16 KiB buffer; throws;
+//   StuffIt X.
+//
+// Range decoders
+// - LZMARangeDecoder with LZMAHotRangeState: LZMA binary coder with 11-bit
+//   probabilities; pointer plus a zero sentinel; overrun is deferred and checked at
+//   batch boundaries; LZMADecoder, LZMA2Decoder.
+// - BCJ2Decompressor (inline): the same binary coder; its fourth input stream;
+//   throws; 7z BCJ2.
+// - SevenZipPPMdRangeDecoder: 7z's PPMd coder (zero marker byte, no `low`);
+//   ByteSource through a 64 KiB buffer; throws; PPMd7Decoder.
+// - RARPPMdRangeDecoder: RAR's carry-less coder with `low`; packed block in memory;
+//   throws; RAR29Decoder PPMd blocks.
+// - PPMdVarIRangeDecoder: Shkarin's carry-less coder with `low` and `scale`;
+//   ByteSource through a 64 KiB buffer; throws; PPMdVarIDecoder (ZIP method 98).
+// - StuffItArsenicArithmetic: StuffIt Arsenic arithmetic coder; StuffItPackedInput;
+//   errors surface through StuffItPackedInput; StuffIt Arsenic.
+// - StuffItXRangeDecoder: StuffIt X range coder; StuffItXBitReader; throws;
+//   StuffIt X.
+
 /// A bit reader whose first bit is the least-significant bit of each byte.
 ///
 /// Reads may request from zero through 32 bits. Reading beyond the supplied

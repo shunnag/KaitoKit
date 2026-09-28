@@ -25,38 +25,75 @@ final class StuffItXReader: FormatReader {
         let kind: UInt64
     }
 
+    /// 要素列の索引: object（type 2 = file、4 = directory）、fork（type 3）、stream（type 1）。
+    private struct Index {
+        var objects: [StuffItXElement] = []
+        var objectIndex: [UInt64: Int] = [:]
+        var forks: [Fork] = []
+        var streams: [UInt64: StuffItXElement] = [:]
+        var streamOrder: [UInt64] = []
+    }
+
     init(source: any ByteSource, resourceFork: (any ByteSource)? = nil, options: ReaderOptions) throws {
         self.source = source; archiveResourceFork = resourceFork
         let limits = options.limits
         var password = options.password
         let elements = try StuffItXElementParser(source: source, limits: limits).parse()
-        var objects: [StuffItXElement] = [], objectIndex: [UInt64: Int] = [:]
-        var forks: [Fork] = [], streams: [UInt64: StuffItXElement] = [:], streamOrder: [UInt64] = []
+        let index = try Self.index(elements, limits: limits)
+        var metadataSize: UInt64 = 0
+        let (records, comment) = try Self.readCatalogs(elements, objectCount: index.objects.count, source: source,
+                                                       options: options, password: &password, metadataSize: &metadataSize)
+        archiveComment = comment
+        let encoding = EncodingDetector.detectArchiveEncoding(names: records.map(\.name), policy: options.encodingPolicy,
+                                                               maximumBatchByteCount: try Checked.toInt(limits.maxMetadataSize))
+        nameEncoding = encoding
+        let names = records.map { EncodingDetector.resolveUndeclaredName(bytes: $0.name, policy: options.encodingPolicy,
+                                                                         archiveEncoding: encoding).string }
+        let paths = try Self.resolvePaths(index, names: names, limits: limits, metadataSize: &metadataSize)
+        var builder = try EntryBuilder(index: index, records: records, paths: paths, comment: comment,
+                                       rootVersion: elements.first(where: { $0.type == 7 })?.extra, limits: limits)
+        try builder.appendStreamEntries()
+        try builder.appendUnreferencedObjects()
+        entries = builder.entries; intervals = builder.intervals; descriptors = builder.descriptors
+        unavailableStreams = builder.unavailableStreams; auxiliaryStreams = builder.auxiliaryStreams
+        resolvedPassword = password
+    }
+
+    private static func index(_ elements: [StuffItXElement], limits: ReadLimits) throws -> Index {
+        var result = Index()
         for (index, element) in elements.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             switch element.type {
             case 2, 4:
-                guard let id = element.attributes[1], objectIndex[id] == nil else { throw KaitoError.malformed("StuffIt X object ID") }
-                guard objects.count < limits.maxEntryCount else { throw KaitoError.limitExceeded("StuffIt X objects") }
-                objectIndex[id] = objects.count; objects.append(element)
+                guard let id = element.attributes[1], result.objectIndex[id] == nil else { throw KaitoError.malformed("StuffIt X object ID") }
+                guard result.objects.count < limits.maxEntryCount else { throw KaitoError.limitExceeded("StuffIt X objects") }
+                result.objectIndex[id] = result.objects.count; result.objects.append(element)
             case 3:
                 guard let owner = element.attributes[2], let stream = element.attributes[3],
                       let slot = element.attributes[4], let length = element.attributes[5], let kind = element.extra else {
                     throw KaitoError.malformed("StuffIt X fork attributes")
                 }
                 try Checked.size(length, limit: limits.maxEntrySize)
-                forks.append(Fork(owner: owner, stream: stream, slot: slot, length: length, kind: kind))
+                result.forks.append(Fork(owner: owner, stream: stream, slot: slot, length: length, kind: kind))
             case 1:
-                guard let id = element.attributes[1], streams[id] == nil else { throw KaitoError.malformed("StuffIt X stream ID") }
-                streams[id] = element; streamOrder.append(id)
+                guard let id = element.attributes[1], result.streams[id] == nil else { throw KaitoError.malformed("StuffIt X stream ID") }
+                result.streams[id] = element; result.streamOrder.append(id)
             default: break
             }
         }
-        var records = [StuffItXCatalog.Record](repeating: .init(), count: objects.count)
+        return result
+    }
+
+    /// type 5 の要素を復号する。直前の type 9 が指すものは書庫 comment、それ以外は唯一の file catalog。
+    /// 暗号化された catalog は password を一度だけ問い合わせ、以後の stream にも使う。
+    private static func readCatalogs(_ elements: [StuffItXElement], objectCount: Int, source: any ByteSource,
+                                     options: ReaderOptions, password: inout String?,
+                                     metadataSize: inout UInt64) throws -> (records: [StuffItXCatalog.Record], comment: String?) {
+        let limits = options.limits
+        var records = [StuffItXCatalog.Record](repeating: .init(), count: objectCount)
         var catalogSeen = false, comment: String?
-        var metadataSize: UInt64 = 0
         for (index, element) in elements.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard element.type == 5 else { continue }
             guard let size = element.attributes[5] else { throw KaitoError.malformed("StuffIt X catalog length") }
             try Checked.size(size, limit: limits.maxMetadataSize)
@@ -76,19 +113,20 @@ final class StuffItXReader: FormatReader {
                 comment = try StuffItXCatalog.parse(decoded, count: 1, commentOnly: true, limits: limits)[0].metadata["comment"]
             } else {
                 guard !catalogSeen else { throw KaitoError.unsupportedMethod("StuffIt X additional file catalog") }
-                records = try StuffItXCatalog.parse(decoded, count: objects.count, limits: limits); catalogSeen = true
+                records = try StuffItXCatalog.parse(decoded, count: objectCount, limits: limits); catalogSeen = true
             }
         }
-        guard catalogSeen || objects.isEmpty else { throw KaitoError.malformed("StuffIt X missing catalog") }
-        archiveComment = comment
-        let encoding = EncodingDetector.detectArchiveEncoding(names: records.map(\.name), policy: options.encodingPolicy,
-                                                               maximumBatchByteCount: try Checked.toInt(limits.maxMetadataSize))
-        nameEncoding = encoding
-        let names = records.map { EncodingDetector.resolveUndeclaredName(bytes: $0.name, policy: options.encodingPolicy,
-                                                                         archiveEncoding: encoding).string }
+        guard catalogSeen || objectCount == 0 else { throw KaitoError.malformed("StuffIt X missing catalog") }
+        return (records, comment)
+    }
+
+    /// object ごとに親（attribute 2）を root まで辿り、path component 列を作る。辿った途中の object も同時に埋める。
+    private static func resolvePaths(_ index: Index, names: [String], limits: ReadLimits,
+                                     metadataSize: inout UInt64) throws -> [Int: [String]] {
+        let objects = index.objects, objectIndex = index.objectIndex
         var paths: [Int: [String]] = [:]
         for i in objects.indices {
-            if i & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: i)
             var chain: [Int] = [], seen = Set<Int>(), current: Int? = i
             while let j = current, paths[j] == nil {
                 guard seen.insert(j).inserted else { throw KaitoError.malformed("StuffIt X parent cycle") }
@@ -111,29 +149,112 @@ final class StuffItXReader: FormatReader {
                 paths[j] = base
             }
         }
-        var byStream: [UInt64: [Fork]] = [:], auxiliaries: [UInt64: [String]] = [:]
-        var auxiliaryStreams: [UInt64: [UInt64]] = [:], encryptedAuxiliaryOwners = Set<UInt64>()
-        for (index, fork) in forks.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
-            guard objectIndex[fork.owner] != nil else { throw KaitoError.malformed("StuffIt X missing fork owner") }
-            guard streams[fork.stream] != nil else { throw KaitoError.unsupportedMethod("StuffIt X missing or segmented stream \(fork.stream)") }
-            byStream[fork.stream, default: []].append(fork)
-            if fork.kind > 1 {
-                auxiliaries[fork.owner, default: []].append("kind=\(fork.kind),stream=\(fork.stream),slot=\(fork.slot),forkLength=\(fork.length),streamLength=\(streams[fork.stream]?.attributes[5] ?? 0)")
-                if fork.kind == 3 {
-                    auxiliaryStreams[fork.owner, default: []].append(fork.stream)
-                    if streams[fork.stream]!.algorithms.contains(where: { $0.key == 4 }) {
-                        encryptedAuxiliaryOwners.insert(fork.owner)
+        return paths
+    }
+
+    /// fork を stream ごとにまとめ、solid slot の offset を決めて entry を作る。stream の記述子
+    /// （復号に使う要素と展開後の長さ）と、補助 fork（kind > 1）の所有者も集める。
+    private struct EntryBuilder {
+        let objects: [StuffItXElement]
+        let objectIndex: [UInt64: Int]
+        let streams: [UInt64: StuffItXElement]
+        let streamOrder: [UInt64]
+        let records: [StuffItXCatalog.Record]
+        let paths: [Int: [String]]
+        let comment: String?
+        let rootVersion: UInt64?
+        let limits: ReadLimits
+        let byStream: [UInt64: [Fork]]
+        let auxiliaries: [UInt64: [String]]
+        let auxiliaryStreams: [UInt64: [UInt64]]
+        let encryptedAuxiliaryOwners: Set<UInt64>
+        private(set) var entries: [ArchiveEntry] = []
+        private(set) var intervals: [(stream: UInt64?, offset: UInt64, length: UInt64)] = []
+        private(set) var descriptors: [UInt64: (StuffItXElement, UInt64)] = [:]
+        private(set) var unavailableStreams = Set<UInt64>()
+        private var referenced = Set<UInt64>()
+        private var total: UInt64 = 0
+
+        init(index: Index, records: [StuffItXCatalog.Record], paths: [Int: [String]], comment: String?,
+             rootVersion: UInt64?, limits: ReadLimits) throws {
+            objects = index.objects; objectIndex = index.objectIndex
+            streams = index.streams; streamOrder = index.streamOrder
+            self.records = records; self.paths = paths; self.comment = comment
+            self.rootVersion = rootVersion; self.limits = limits
+            var byStream: [UInt64: [Fork]] = [:], auxiliaries: [UInt64: [String]] = [:]
+            var auxiliaryStreams: [UInt64: [UInt64]] = [:], encryptedAuxiliaryOwners = Set<UInt64>()
+            for (index, fork) in index.forks.enumerated() {
+                try checkCancellation(every: index)
+                guard objectIndex[fork.owner] != nil else { throw KaitoError.malformed("StuffIt X missing fork owner") }
+                guard streams[fork.stream] != nil else { throw KaitoError.unsupportedMethod("StuffIt X missing or segmented stream \(fork.stream)") }
+                byStream[fork.stream, default: []].append(fork)
+                if fork.kind > 1 {
+                    auxiliaries[fork.owner, default: []].append("kind=\(fork.kind),stream=\(fork.stream),slot=\(fork.slot),forkLength=\(fork.length),streamLength=\(streams[fork.stream]?.attributes[5] ?? 0)")
+                    if fork.kind == 3 {
+                        auxiliaryStreams[fork.owner, default: []].append(fork.stream)
+                        if streams[fork.stream]!.algorithms.contains(where: { $0.key == 4 }) {
+                            encryptedAuxiliaryOwners.insert(fork.owner)
+                        }
                     }
                 }
             }
+            self.byStream = byStream; self.auxiliaries = auxiliaries
+            self.auxiliaryStreams = auxiliaryStreams; self.encryptedAuxiliaryOwners = encryptedAuxiliaryOwners
         }
-        var descriptors: [UInt64: (StuffItXElement, UInt64)] = [:], unavailableStreams = Set<UInt64>()
-        var result: [ArchiveEntry] = [], intervals: [(UInt64?, UInt64, UInt64)] = []
-        var referenced = Set<UInt64>(), total: UInt64 = 0
-        func append(owner: UInt64, fork: Fork?, offset: UInt64 = 0, solid: Bool = false) throws {
+
+        /// stream の出現順に、その stream の fork を slot 順で entry にする。slot が 2 個以上なら solid。
+        mutating func appendStreamEntries() throws {
+            for (index, id) in streamOrder.enumerated() {
+                try checkCancellation(every: index)
+                guard let element = streams[id] else { continue }
+                let streamForks = byStream[id] ?? []
+                var slots: [UInt64: Fork] = [:]
+                for (index, fork) in streamForks.enumerated() {
+                    try checkCancellation(every: index)
+                    if let previous = slots[fork.slot] {
+                        guard previous.length == fork.length, previous.kind == fork.kind else { throw KaitoError.malformed("StuffIt X shared slot disagreement") }
+                    } else { slots[fork.slot] = fork }
+                }
+                let auxiliaryOnly = !streamForks.isEmpty && streamForks.allSatisfy { $0.kind == 3 }
+                var offsets: [UInt64: UInt64] = [:], sum: UInt64 = 0
+                for i in 0..<slots.count {
+                    try checkCancellation(every: i)
+                    guard let fork = slots[UInt64(i)] else { throw KaitoError.malformed("StuffIt X sparse slots") }
+                    offsets[UInt64(i)] = sum; sum = try Checked.add(sum, fork.length)
+                }
+                if auxiliaryOnly {
+                    guard let declared = element.attributes[5] else { throw KaitoError.malformed("StuffIt X auxiliary length") }
+                    try Checked.size(declared, limit: limits.maxEntrySize)
+                    sum = declared
+                } else if streamForks.contains(where: { $0.kind > 1 }) {
+                    unavailableStreams.insert(id)
+                }
+                try Checked.size(sum, limit: limits.maxTotalUncompressedSize)
+                descriptors[id] = (element, sum)
+                if auxiliaryOnly {
+                    total = try Checked.add(total, sum)
+                    try Checked.size(total, limit: limits.maxTotalUncompressedSize)
+                }
+                for (index, fork) in streamForks.sorted(by: { $0.slot < $1.slot }).enumerated() {
+                    try checkCancellation(every: index)
+                    guard fork.kind <= 1 else { continue }
+                    try append(owner: fork.owner, fork: fork, offset: offsets[fork.slot]!, solid: slots.count > 1)
+                }
+            }
+        }
+
+        /// data / resource fork の entry にならなかった object（directory、空の file など）を fork 無しの entry にする。
+        mutating func appendUnreferencedObjects() throws {
+            for (index, object) in objects.enumerated() {
+                try checkCancellation(every: index)
+                let id = object.attributes[1]!
+                if !referenced.contains(id) { try append(owner: id, fork: nil) }
+            }
+        }
+
+        private mutating func append(owner: UInt64, fork: Fork?, offset: UInt64 = 0, solid: Bool = false) throws {
             guard let j = objectIndex[owner], let path = paths[j] else { throw KaitoError.malformed("StuffIt X object path") }
-            guard result.count < limits.maxEntryCount else { throw KaitoError.limitExceeded("StuffIt X entries") }
+            guard entries.count < limits.maxEntryCount else { throw KaitoError.limitExceeded("StuffIt X entries") }
             let object = objects[j], record = records[j], stream = fork.flatMap { streams[$0.stream] }
             let size = fork?.length ?? 0, resource = fork?.kind == 1
             let components = path + (resource ? ["..namedfork", "rsrc"] : [])
@@ -141,7 +262,7 @@ final class StuffItXReader: FormatReader {
             total = try Checked.add(total, size); try Checked.size(total, limit: limits.maxTotalUncompressedSize)
             var metadata = record.metadata
             metadata["container"] = "stuffitx"
-            if let version = elements.first(where: { $0.type == 7 })?.extra { metadata["rootVersion"] = String(version) }
+            if let version = rootVersion { metadata["rootVersion"] = String(version) }
             metadata["objectID"] = String(owner)
             if let order = object.attributes[7] { metadata["catalogOrder"] = String(order) }
             if let auxiliary = auxiliaries[owner] { metadata["auxiliaryForks"] = auxiliary.joined(separator: ";") }
@@ -158,7 +279,7 @@ final class StuffItXReader: FormatReader {
                 compressed = estimate < Double(UInt64.max) ? UInt64(estimate) : nil
             } else { compressed = size == 0 ? 0 : nil }
             let group = solid ? try Checked.toInt(fork!.stream) : -1
-            result.append(ArchiveEntry(index: result.count, rawName: RawName(bytes: record.name, isDirectoryHint: object.type == 4),
+            entries.append(ArchiveEntry(index: entries.count, rawName: RawName(bytes: record.name, isDirectoryHint: object.type == 4),
                 name: components.joined(separator: "/"), pathComponents: components,
                 kind: object.type == 4 ? .directory : (record.link && !resource ? .symlink : .file),
                 uncompressedSize: size, compressedSize: compressed, modificationDate: record.modified,
@@ -168,50 +289,6 @@ final class StuffItXReader: FormatReader {
                 formatSpecific: metadata))
             intervals.append((fork?.stream, offset, size)); referenced.insert(owner)
         }
-        for (index, id) in streamOrder.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
-            guard let element = streams[id] else { continue }
-            let streamForks = byStream[id] ?? []
-            var slots: [UInt64: Fork] = [:]
-            for (index, fork) in streamForks.enumerated() {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
-                if let previous = slots[fork.slot] {
-                    guard previous.length == fork.length, previous.kind == fork.kind else { throw KaitoError.malformed("StuffIt X shared slot disagreement") }
-                } else { slots[fork.slot] = fork }
-            }
-            let auxiliaryOnly = !streamForks.isEmpty && streamForks.allSatisfy { $0.kind == 3 }
-            var offsets: [UInt64: UInt64] = [:], sum: UInt64 = 0
-            for i in 0..<slots.count {
-                if i & 0x3ff == 0 { try Task.checkCancellation() }
-                guard let fork = slots[UInt64(i)] else { throw KaitoError.malformed("StuffIt X sparse slots") }
-                offsets[UInt64(i)] = sum; sum = try Checked.add(sum, fork.length)
-            }
-            if auxiliaryOnly {
-                guard let declared = element.attributes[5] else { throw KaitoError.malformed("StuffIt X auxiliary length") }
-                try Checked.size(declared, limit: limits.maxEntrySize)
-                sum = declared
-            } else if streamForks.contains(where: { $0.kind > 1 }) {
-                unavailableStreams.insert(id)
-            }
-            try Checked.size(sum, limit: limits.maxTotalUncompressedSize)
-            descriptors[id] = (element, sum)
-            if auxiliaryOnly {
-                total = try Checked.add(total, sum)
-                try Checked.size(total, limit: limits.maxTotalUncompressedSize)
-            }
-            for (index, fork) in streamForks.sorted(by: { $0.slot < $1.slot }).enumerated() {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
-                guard fork.kind <= 1 else { continue }
-                try append(owner: fork.owner, fork: fork, offset: offsets[fork.slot]!, solid: slots.count > 1)
-            }
-        }
-        for (index, object) in objects.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
-            let id = object.attributes[1]!
-            if !referenced.contains(id) { try append(owner: id, fork: nil) }
-        }
-        entries = result; self.intervals = intervals; self.descriptors = descriptors; self.unavailableStreams = unavailableStreams
-        self.auxiliaryStreams = auxiliaryStreams; resolvedPassword = password
     }
 
     private static func collect(_ decoder: any Decompressor, size: UInt64) throws -> Data {

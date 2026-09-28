@@ -28,7 +28,7 @@ struct ISORockRidge {
     }
 
     static func parse(_ initial: [UInt8], skip: Int?, source: any ByteSource,
-                      volume: ISOVolume, budget: ISOMetadataBudget, isRoot: Bool = false) throws -> Self {
+                      volume: ISOVolume, budget: MetadataBudget, isRoot: Bool = false) throws -> Self {
         guard let skip else { return Self() }
         // LEN_SKP は他 record 用。SP 自身は root の実際の位置 (0 / XA の 14) から読む。
         let areaStart = isRoot ? (start(in: initial) ?? skip) : skip
@@ -140,7 +140,7 @@ struct ISORockRidge {
                         let size = UInt64(ISOBytes.number(b, 8, width: 4))
                         result.zisofs = ISOZisofsInfo(blockSizeLog2: Int(b[7]), uncompressedSize: size)
                     } else {
-                        // version 2 / 他 algorithm（zisofs2）や壊れた entry は従来どおり読まない。
+                        // version 2 / 他 algorithm（zisofs2）や壊れた entry は展開しない（読み出しは unsupportedMethod）。
                         result.unsupported = "zisofs"
                     }
                 default: break

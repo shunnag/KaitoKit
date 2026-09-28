@@ -1,6 +1,8 @@
 // 指定レポート Ch.12 の符号付き block・固定符号割当・PackBits に基づく。
 import Foundation
 
+/// StuffIt method 6: 符号付き長さの block 列。正の block は固定符号割当の Huffman 符号を 256 entry の変換表で
+/// byte に戻し、負の block は生 byte を持つ。得た中間 byte 列を PackBits として展開する。
 final class StuffItMethod6: Decompressor {
     private let source: any ByteSource
     private let end: UInt64

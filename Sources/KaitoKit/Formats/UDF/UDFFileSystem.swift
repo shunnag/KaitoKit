@@ -2,7 +2,7 @@ import Foundation
 
 /// file の本文を構成する区間。未記録・未割当の extent は #00（4/12）。
 enum UDFDataExtent {
-    case recorded(ISOSection)
+    case recorded(ByteRange)
     case zero(UInt64)
     case inline([UInt8])
 
@@ -47,7 +47,7 @@ final class UDFFileSystem {
     let entries: [ArchiveEntry]
     private let records: [Record]
     private let options: ReaderOptions
-    private var budget: UDFMetadataBudget { volume.budget }
+    private var budget: MetadataBudget { volume.budget }
 
     var revisionDescription: String {
         String(format: "%X.%02X", volume.revision >> 8, volume.revision & 0xFF)
@@ -218,7 +218,7 @@ final class UDFFileSystem {
         var result: [UDFFileIdentifier] = []
         var offset = 0
         while offset < bytes.count {
-            if result.count & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: result.count)
             let blockIndex = offset / volume.blockSize
             guard blockIndex < blocks.count else { throw KaitoError.malformed("udf directory block index") }
             guard let identifier = try UDFFileIdentifier.parse(bytes, offset: offset, location: blocks[blockIndex]) else { break }
@@ -238,14 +238,14 @@ final class UDFFileSystem {
         var stack = [root]
         var directoryCount = 0
         while let node = stack.popLast() {
-            if directoryCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: directoryCount)
             directoryCount += 1
             guard directoryCount <= 65536 else { throw KaitoError.limitExceeded("udf directory count") }
             var ancestors = node.ancestors
             ancestors.insert(UInt64(node.partition) << 32 | UInt64(node.icbBlock))
             var children: [Node] = []
             for (index, identifier) in try directoryEntries(node, volume: volume).enumerated() {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 guard !identifier.isParent && !identifier.isDeleted else { continue }
                 guard result.count < volume.budget.limits.maxEntryCount else { throw KaitoError.limitExceeded("udf entry count") }
                 guard identifier.icb.length > 0 else { throw KaitoError.malformed("udf file identifier without an ICB") }
@@ -329,7 +329,7 @@ final class UDFFileSystem {
                         parent: owner, depth: 0, ancestors: [])
         var others = 0
         for (index, identifier) in try directoryEntries(node, volume: volume).enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard !identifier.isParent && !identifier.isDeleted else { continue }
             if identifier.isMetadataStream || identifier.name != resourceForkStreamName {
                 others += 1
@@ -402,14 +402,14 @@ final class UDFFileSystem {
     // MARK: - finalize
 
     private static func finalize(_ pending: [Pending], revision: UInt16, options: ReaderOptions,
-                                 budget: UDFMetadataBudget) throws -> ([ArchiveEntry], [Record]) {
+                                 budget: MetadataBudget) throws -> ([ArchiveEntry], [Record]) {
         var paths: [Int: [String]] = [:]
         var seen: [String: Int] = [:]
         var duplicates: [Int: Int] = [:]
         var kept: [Int] = []
         let revisionText = String(format: "%X.%02X", revision >> 8, revision & 0xFF)
         for (index, item) in pending.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             if let parent = item.parent, paths[parent] == nil { continue }
             var components = item.parent.flatMap { paths[$0] } ?? []
             if item.name == "..namedfork/rsrc" {
@@ -435,7 +435,7 @@ final class UDFFileSystem {
         var entries: [ArchiveEntry] = []
         var records: [Record] = []
         for (position, index) in kept.enumerated() {
-            if position & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: position)
             let item = pending[index]
             let components = paths[index]!
             var specific = item.specific
@@ -450,7 +450,7 @@ final class UDFFileSystem {
                 guard !link.utf8.contains(0) else { throw KaitoError.malformed("udf link") }
             }
             let path = components.joined(separator: "/")
-            let size: UInt64? = item.kind == .file ? item.record.length : (item.kind == .directory ? 0 : item.record.length)
+            let size: UInt64? = item.kind == .directory ? 0 : item.record.length
             entries.append(ArchiveEntry(index: entries.count,
                 rawName: RawName(bytes: Array(path.utf8), declaredEncoding: .utf8, isDirectoryHint: item.kind == .directory),
                 name: path, pathComponents: components, kind: item.kind,

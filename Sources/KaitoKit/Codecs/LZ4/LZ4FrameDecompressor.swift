@@ -6,6 +6,10 @@ final class LZ4FrameDecompressor: Decompressor {
     static let magic: UInt64 = 0x184d2204
     static let legacyMagic: UInt64 = 0x184c2102
     private static let legacyBlockSize = 8 * 1_024 * 1_024
+    // Matches reach back at most 64 KiB, so that much history is kept between dependent blocks.
+    fileprivate static let historySize = 65_536
+    // The high bit of a block-size word marks a block stored without compression.
+    private static let uncompressedBlockFlag: UInt64 = 0x8000_0000
     // An all-literal block adds one length byte per 255 bytes plus its token.
     // Match sequences do not exceed that bound. Keep a small framing margin.
     private static let maximumLegacyCompressedSize = legacyBlockSize + legacyBlockSize / 255 + 16
@@ -17,7 +21,7 @@ final class LZ4FrameDecompressor: Decompressor {
     private var blockCount = 0
     private var produced: UInt64 = 0
     private var frameProduced: UInt64 = 0
-    private var checksum = LZ4XXH32()
+    private var checksum = XXH32()
     private var history: [UInt8] = []
     private var pending: [UInt8] = []
     private var pendingOffset = 0
@@ -78,13 +82,13 @@ final class LZ4FrameDecompressor: Decompressor {
                     try Self.charge(&blockCount, limits: limits)
                     let count = try header.blockSize(word)
                     let encoded = try input.read(count)
-                    if header.blockChecksum, try input.integer(4) != UInt64(LZ4XXH32.digest(encoded)) {
+                    if header.blockChecksum, try input.integer(4) != UInt64(XXH32.digest(encoded)) {
                         throw KaitoError.checksumMismatch(entry: 0)
                     }
                     let remaining = limits.maxEntrySize - produced
                     let maximum = Int(min(UInt64(header.maximumBlockSize), remaining))
                     let output: [UInt8]
-                    if word & 0x80000000 != 0 {
+                    if word & Self.uncompressedBlockFlag != 0 {
                         try Checked.size(UInt64(count), limit: remaining)
                         output = encoded
                     } else {
@@ -97,10 +101,10 @@ final class LZ4FrameDecompressor: Decompressor {
                     }
                     if header.contentChecksum { checksum.update(output[...]) }
                     if !header.independent {
-                        if output.count >= 65_536 {
-                            history = Array(output.suffix(65_536))
+                        if output.count >= Self.historySize {
+                            history = Array(output.suffix(Self.historySize))
                         } else {
-                            let retained = min(history.count, 65_536 - output.count)
+                            let retained = min(history.count, Self.historySize - output.count)
                             history = Array(history.suffix(retained)) + output
                         }
                     }
@@ -130,7 +134,7 @@ final class LZ4FrameDecompressor: Decompressor {
                         continue
                     }
                     if magic == Self.legacyMagic {
-                        try Checked.size(65_536, limit: limits.maxDictionarySize)
+                        try Checked.size(UInt64(Self.historySize), limit: limits.maxDictionarySize)
                         legacy = true
                         continue
                     }
@@ -142,7 +146,7 @@ final class LZ4FrameDecompressor: Decompressor {
                     }
                     header = next
                     frameProduced = 0
-                    checksum = LZ4XXH32()
+                    checksum = XXH32()
                     history.removeAll(keepingCapacity: false)
                 }
             }
@@ -176,7 +180,7 @@ final class LZ4FrameDecompressor: Decompressor {
                 continue
             }
             if magic == Self.legacyMagic {
-                try Checked.size(65_536, limit: limits.maxDictionarySize)
+                try Checked.size(UInt64(Self.historySize), limit: limits.maxDictionarySize)
                 known = false
                 while let count = try nextLegacyBlockSize(input) {
                     try charge(&blocks, limits: limits)
@@ -240,20 +244,21 @@ private struct LZ4FrameHeader {
             dictionary = bytes.enumerated().reduce(UInt64(0)) { $0 | UInt64($1.element) << (8 * $1.offset) }
         } else { dictionary = nil }
         let check = try input.integer(1)
-        guard check == UInt64((LZ4XXH32.digest(descriptor) >> 8) & 255) else {
+        guard check == UInt64((XXH32.digest(descriptor) >> 8) & 255) else {
             throw KaitoError.checksumMismatch(entry: 0)
         }
         if let dictionary {
             throw KaitoError.unsupportedMethod("LZ4 external dictionary \(dictionary)")
         }
-        try Checked.size(min(65_536, contentSize ?? 65_536), limit: limits.maxDictionarySize)
+        let historySize = UInt64(LZ4FrameDecompressor.historySize)
+        try Checked.size(min(historySize, contentSize ?? historySize), limit: limits.maxDictionarySize)
         if let contentSize {
             try Checked.size(contentSize, limit: limits.maxEntrySize)
         }
     }
 
     func blockSize(_ word: UInt64) throws -> Int {
-        let count = word & 0x7fffffff
+        let count = word & 0x7fffffff  // the low 31 bits; the high bit is uncompressedBlockFlag
         guard count <= UInt64(maximumBlockSize) else { throw KaitoError.malformed("LZ4 block size") }
         return Int(count)
     }

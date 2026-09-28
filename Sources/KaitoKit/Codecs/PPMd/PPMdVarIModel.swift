@@ -2,6 +2,10 @@ import Foundation
 
 // Dmitry Shkarin の公開ドメイン Model.cpp（var.I rev.1、2002-04-28）の復号側。
 // 原典の 12 バイト context と 6 バイト state を、検証付き arena offset で表す。
+//
+// PPMd variant I rev.1 の model で、ZIP method 98（PPMdVarIDecoder）だけが使う。割り当ては
+// PPMdVarISuballocator、range coder は PPMdVarIRangeDecoder。7z と RAR が使う variant H は
+// 別系統の PPMd7Model、PPMd7Suballocator、PPMd7RangeDecoding。
 final class PPMdVarIModel {
     typealias Offset = PPMdVarISuballocator.Offset
     private struct State {
@@ -53,6 +57,14 @@ final class PPMdVarIModel {
     }()
     private static let nsToBS = (0..<256).map { $0 < 2 ? 2 * $0 : ($0 < 11 ? 4 : 6) }
     private static let expEscape = [25, 14, 9, 7, 5, 5, 4, 4, 4, 3, 3, 3, 2, 2, 2, 2]
+    /// 原典の STATE（Symbol、Freq、Successor）の byte 数。context は suballocator の 1 unit（12 byte）。
+    private static let stateSize = 6
+    // BinSumm は行が qTable[Freq - 1]、列が suffix の state 数・直前の成功・Flags・run の組。
+    // SEE は行が qTable[NumStats + 2] - 3、列が escape の特徴 bit と Flags。
+    private static let binarySummaryRows = 25
+    private static let binarySummaryColumns = 64
+    private static let seeRows = 24
+    private static let seeColumns = 32
     private let arena: PPMdVarISuballocator
     private let maximumOrder: Int
     private var restoreMethod: Int
@@ -72,6 +84,8 @@ final class PPMdVarIModel {
     private let unmasked: UnsafeMutablePointer<Offset>
     private var needsNormalization = false
 
+    // Test hook: 以下の四つは ZipPPMdTests と PPMdVarIMemoryTests が復元方式と arena の解放を
+    // 確かめるために読む。本番の呼出元はない。
     internal private(set) var restartCount = 0
     internal private(set) var cutOffCount = 0
     internal private(set) var freezeCount = 0
@@ -85,12 +99,12 @@ final class PPMdVarIModel {
         self.restoreMethod = restoreMethod
         arena = try PPMdVarISuballocator(memorySize: memorySize)
         charMask = .allocate(capacity: 256)
-        binSumm = .allocate(capacity: 25 * 64)
-        see = .allocate(capacity: 24 * 32)
+        binSumm = .allocate(capacity: Self.binarySummaryRows * Self.binarySummaryColumns)
+        see = .allocate(capacity: Self.seeRows * Self.seeColumns)
         unmasked = .allocate(capacity: 256)
         charMask.initialize(repeating: 0, count: 256)
-        binSumm.initialize(repeating: 0, count: 25 * 64)
-        see.initialize(repeating: SEE(0), count: 24 * 32)
+        binSumm.initialize(repeating: 0, count: Self.binarySummaryRows * Self.binarySummaryColumns)
+        see.initialize(repeating: SEE(0), count: Self.seeRows * Self.seeColumns)
         unmasked.initialize(repeating: 0, count: 256)
         // 確保後の例外は全プロパティの初期化後に発生させ、失敗時も解放処理を通す。
         try startModelRare()
@@ -99,9 +113,9 @@ final class PPMdVarIModel {
     deinit {
         charMask.deinitialize(count: 256)
         charMask.deallocate()
-        binSumm.deinitialize(count: 25 * 64)
+        binSumm.deinitialize(count: Self.binarySummaryRows * Self.binarySummaryColumns)
         binSumm.deallocate()
-        see.deinitialize(count: 24 * 32)
+        see.deinitialize(count: Self.seeRows * Self.seeColumns)
         see.deallocate()
         unmasked.deinitialize(count: 256)
         unmasked.deallocate()
@@ -158,16 +172,16 @@ final class PPMdVarIModel {
         previousSuccess = 0
         let initialBinEscape = [0x3CDD, 0x1F3F, 0x59BF, 0x48F3, 0x64A1, 0x5ABC, 0x6632, 0x6051]
         var i = 0
-        for m in 0..<25 {
+        for m in 0..<Self.binarySummaryRows {
             while i < Self.qTable.count, Self.qTable[i] == m { i += 1 }
-            for k in 0..<64 {
-                binSumm[m * 64 + k] = UInt16((1 << 14) - initialBinEscape[k & 7] / (i + 1))
+            for k in 0..<Self.binarySummaryColumns {
+                binSumm[m * Self.binarySummaryColumns + k] = UInt16((1 << 14) - initialBinEscape[k & 7] / (i + 1))
             }
         }
         i = 0
-        for m in 0..<24 {
+        for m in 0..<Self.seeRows {
             while i + 3 < Self.qTable.count, Self.qTable[i + 3] == m + 3 { i += 1 }
-            for k in 0..<32 { see[m * 32 + k] = SEE(2 * i + 5) }
+            for k in 0..<Self.seeColumns { see[m * Self.seeColumns + k] = SEE(2 * i + 5) }
         }
     }
 
@@ -178,8 +192,8 @@ final class PPMdVarIModel {
         let suffixCount = try numStats(suffix(c))
         let row = Self.qTable[s.frequency - 1]
         let column = try Self.nsToBS[suffixCount] + previousSuccess + flags(c) + Int((runLength >> 26) & 0x20)
-        guard row < 25, (0..<64).contains(column) else { throw malformed("invalid binary index") }
-        let index = row * 64 + column
+        guard row < Self.binarySummaryRows, (0..<Self.binarySummaryColumns).contains(column) else { throw malformed("invalid binary index") }
+        let index = row * Self.binarySummaryColumns + column
         let probability = Int(binSumm[index])
         if try decoder.shiftThreshold() < probability {
             try decoder.remove(low: 0, high: probability)
@@ -218,7 +232,7 @@ final class PPMdVarIModel {
         }
         previousSuccess = 0
         for i in 1...n {
-            let p = base + Offset(i * 6), f = Int(arena.uncheckedGet8(Int(p) + 1))
+            let p = base + Offset(i * Self.stateSize), f = Int(arena.uncheckedGet8(Int(p) + 1))
             high += f
             if count < high {
                 try decoder.remove(low: high - f, high: high)
@@ -227,7 +241,7 @@ final class PPMdVarIModel {
             }
         }
         try decoder.remove(low: high, high: total)
-        for i in 0...n { charMask[Int(arena.uncheckedGet8(Int(base) + i * 6))] = escapeCount }
+        for i in 0...n { charMask[Int(arena.uncheckedGet8(Int(base) + i * Self.stateSize))] = escapeCount }
         numberMasked = n
         foundState = 0
     }
@@ -237,7 +251,7 @@ final class PPMdVarIModel {
         let f = try frequency(p) + 4
         try setFrequency(p, f)
         try setSum(c, sum(c) + 4)
-        let previous = try arena.advance(p, -6)
+        let previous = try arena.advance(p, -Self.stateSize)
         if f > (try frequency(previous)) {
             try swap(p, previous)
             foundState = previous
@@ -262,10 +276,10 @@ final class PPMdVarIModel {
         let row = Self.qTable[n + 2] - 3
         let column = try (sum(c) > 11 * (n + 1) ? 1 : 0)
             + 2 * (2 * n < t + numberMasked ? 1 : 0) + flags(c)
-        guard (0..<24).contains(row), (0..<32).contains(column) else {
+        guard (0..<Self.seeRows).contains(row), (0..<Self.seeColumns).contains(column) else {
             throw malformed("invalid SEE index")
         }
-        let i = row * 32 + column
+        let i = row * Self.seeColumns + column
         return (i, see[i].mean())
     }
 
@@ -276,7 +290,7 @@ final class PPMdVarIModel {
         guard expected > 0 else { throw malformed("no unmasked states") }
         var count = 0, high = 0
         for i in 0...n {
-            let p = base + Offset(i * 6), s = uncheckedState(Int(p))
+            let p = base + Offset(i * Self.stateSize), s = uncheckedState(Int(p))
             if charMask[Int(s.symbol)] != escapeCount {
                 // n は一バイト、count は処理済みの状態数以下なので書込み添字は 0...255。
                 unmasked[count] = p
@@ -316,11 +330,11 @@ final class PPMdVarIModel {
 
     private func rescale(_ c: Offset) throws {
         var base = try stats(c), n = try numStats(c)
-        guard foundState >= base, (foundState - base).isMultiple(of: 6),
-              Int(foundState - base) / 6 <= n else { throw malformed("missing rescale state") }
+        guard foundState >= base, (foundState - base).isMultiple(of: Offset(Self.stateSize)),
+              Int(foundState - base) / Self.stateSize <= n else { throw malformed("missing rescale state") }
         var p = foundState
         while p != base {
-            let previous = try arena.advance(p, -6)
+            let previous = try arena.advance(p, -Self.stateSize)
             try swap(p, previous)
             p = previous
         }
@@ -338,7 +352,7 @@ final class PPMdVarIModel {
             try writeState(p, s)
             var destination = p
             while destination > base {
-                let previous = try arena.advance(destination, -6)
+                let previous = try arena.advance(destination, -Self.stateSize)
                 if s.frequency <= (try frequency(previous)) { break }
                 try copyState(previous, destination)
                 destination = previous
@@ -539,7 +553,7 @@ final class PPMdVarIModel {
             if try numStats(pc) != 0 {
                 let base = try stats(pc)
                 if p != base {
-                    let previous = try arena.advance(p, -6)
+                    let previous = try arena.advance(p, -Self.stateSize)
                     if try frequency(p) >= frequency(previous) { try swap(p, previous); p = previous }
                 }
                 let f = try frequency(p), delta = f < 124 - 9 ? 2 : 0
@@ -784,6 +798,8 @@ final class PPMdVarIModel {
 
     // context: NumStats@0、Flags@1、SummFreq@2、Stats@4、Suffix@8。
     // 単一 state: Symbol@2、Freq@3、Successor@4。
+    // 識別子は原典に合わせる: c = context の offset、p = state の offset、n = NumStats、
+    // f = Freq、pc / pc1 = suffix を辿る context の cursor。
     @inline(__always)
     private func numStats(_ c: Offset) throws -> Int {
         try arena.requireUnit(c)
@@ -802,7 +818,7 @@ final class PPMdVarIModel {
         let n = try numStats(c)
         // numStats が検証した 12 バイトの文脈内に、4 バイトの参照が収まる。
         let p = arena.uncheckedGet32(Int(c) + 4)
-        try arena.requireUnit(p, count: 6 * (n + 1))
+        try arena.requireUnit(p, count: Self.stateSize * (n + 1))
         return p
     }
     @inline(__always)
@@ -826,7 +842,7 @@ final class PPMdVarIModel {
     @inline(__always)
     private func at(_ base: Offset, _ index: Int) throws -> Offset {
         guard (0...255).contains(index) else { throw malformed("invalid state index") }
-        return try arena.advance(base, index * 6)
+        return try arena.advance(base, index * Self.stateSize)
     }
     @inline(__always)
     private func symbol(_ p: Offset) throws -> UInt8 { try arena.get8(p) }
@@ -843,7 +859,7 @@ final class PPMdVarIModel {
     }
     private func state(_ p: Offset) throws -> State {
         guard p >= arena.unitsStart else { throw malformed("state outside unit area") }
-        let i = try arena.checkedInt(p, count: 6)
+        let i = try arena.checkedInt(p, count: Self.stateSize)
         return uncheckedState(i)
     }
     // 呼出元の checkedInt または stats が検証した 6 バイトだけを読む。
@@ -853,14 +869,14 @@ final class PPMdVarIModel {
               successor: arena.uncheckedGet32(i + 2))
     }
     private func writeState(_ p: Offset, _ value: State) throws {
-        let i = try arena.checkedInt(p, count: 6)
+        let i = try arena.checkedInt(p, count: Self.stateSize)
         arena.uncheckedPut8(value.symbol, i)
         guard (0...255).contains(value.frequency) else { throw malformed("invalid state frequency") }
         arena.uncheckedPut8(UInt8(value.frequency), i + 1)
         arena.uncheckedPut32(value.successor, i + 2)
     }
     private func copyState(_ source: Offset, _ destination: Offset) throws {
-        try arena.copy(from: source, to: destination, count: 6)
+        try arena.copy(from: source, to: destination, count: Self.stateSize)
     }
     private func swap(_ a: Offset, _ b: Offset) throws {
         if a == b { return }
@@ -872,7 +888,7 @@ final class PPMdVarIModel {
         let n = try numStats(c), base = try n == 0 ? oneState(c) : stats(c)
         // 複数状態は stats の全範囲検査、単一状態は oneState の文脈検査に含まれる。
         for i in 0...n {
-            let p = base + Offset(i * 6)
+            let p = base + Offset(i * Self.stateSize)
             if arena.uncheckedGet8(Int(p)) == symbol { return p }
         }
         throw malformed("suffix symbol is missing")

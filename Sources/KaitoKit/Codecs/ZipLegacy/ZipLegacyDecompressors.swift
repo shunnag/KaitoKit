@@ -6,7 +6,8 @@ import Foundation
 //（2026-09-21 の検証記録）。Info-ZIP / 7-Zip / deark / PKZIP の実装ソースは開いていない。
 
 /// 圧縮範囲を LSB 先頭で読む bit reader。入力が尽きたら truncated。
-struct ZipLegacyBitReader {
+/// 同じ LSB 先頭の streaming 読みは Deflate64 の inline reservoir にもある（一覧: Core/BitReader.swift の先頭）。
+private struct ZipLegacyBitReader {
     private let source: any ByteSource
     private let end: UInt64
     private var offset: UInt64
@@ -55,7 +56,7 @@ struct ZipLegacyBitReader {
     mutating func readBit() throws -> Int { try read(1) }
 }
 
-/// 展開後 byte を呼び出し側の buffer へ順に渡す共通の枝。`produce` が 1 byte ずつ生成する。
+/// 宣言された展開後サイズと生成済み byte 数だけを持つ進捗カウンタ。`isFinished` は宣言サイズへの到達。
 private struct OutputPump {
     let expectedSize: UInt64
     var produced: UInt64 = 0
@@ -65,6 +66,7 @@ private struct OutputPump {
 // MARK: - Shrink (method 1)
 
 /// §5.1: 動的 LZW（9〜13 bit）。code 256 の後の 1 = code size 拡大、2 = 葉の部分クリア。
+/// 失敗は latch しない。`read(into:)` が throw した後の状態は未規定なので、instance を破棄する。
 final class ShrinkDecompressor: Decompressor {
     private static let maximumBits = 13
     private var reader: ZipLegacyBitReader
@@ -210,6 +212,7 @@ final class ShrinkDecompressor: Decompressor {
 // MARK: - Reduce (methods 2-5)
 
 /// §5.2: follower set による確率的復号と、DLE（144）による RLE の 2 段。
+/// 失敗は latch しない。`read(into:)` が throw した後の状態は未規定なので、instance を破棄する。
 final class ReduceDecompressor: Decompressor {
     private var reader: ZipLegacyBitReader
     private var pump: OutputPump
@@ -317,7 +320,7 @@ final class ReduceDecompressor: Decompressor {
 // MARK: - Implode (method 6)
 
 /// §5.3.7〜5.3.8 の Shannon-Fano 木。bit 長の並びから code を作り、LSB 先頭で 1 bit ずつ読んで照合する。
-struct ImplodeTree {
+private struct ImplodeTree {
     private var codeToSymbol: [Int: Int] = [:]      // (length << 16 | code) → symbol
     private let maximumLength: Int
 
@@ -364,6 +367,8 @@ struct ImplodeTree {
     }
 }
 
+/// §5.3: 2 本または 3 本の Shannon-Fano 木と 4 KiB / 8 KiB の窓による LZ77。
+/// 失敗は latch しない。`read(into:)` が throw した後の状態は未規定なので、instance を破棄する。
 final class ImplodeDecompressor: Decompressor {
     private var reader: ZipLegacyBitReader
     private var pump: OutputPump

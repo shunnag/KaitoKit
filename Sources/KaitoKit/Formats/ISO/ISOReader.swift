@@ -4,7 +4,7 @@ import Foundation
 // 公開仕様だけを参照したクリーンルーム実装。
 final class ISOReader: FormatReader {
     private struct Record {
-        var sections: [ISOSection]
+        var sections: [ByteRange]
         var totalLength: UInt64
         var unsupported: String?
         var zisofs: ISOZisofsInfo? = nil
@@ -46,7 +46,7 @@ final class ISOReader: FormatReader {
         // BIN/CUE などの生 sector image は user data だけの 2048 byte block に写してから読む。
         let source = try RawSectorByteSource.wrapUnlessPlainImage(source) ?? source
         self.source = source
-        let budget = ISOMetadataBudget(options.limits)
+        let budget = MetadataBudget(options.limits)
         var primary: [UInt8]?
         var supplementary: [UInt8]?
         for index in 0..<64 {
@@ -61,9 +61,9 @@ final class ISOReader: FormatReader {
         }
         guard let primary else { throw KaitoError.unsupportedFormat }
         // hybrid: CD001 の集合の後ろに ECMA-167 の認識列があれば UDF の木を優先する（長い名前、symlink、
-        // 権限を持ち、DVD-Video などでは UDF 側が正）。UDF 側の構造が読めなければ従来の木へ戻す。
+        // 権限を持ち、DVD-Video などでは UDF 側が正）。UDF 側の構造が読めなければ ISO 9660 の木を使う。
         // 上限超過は利用者の設定なので握りつぶさない。
-        if try UDFVolume.hasRecognitionSequence(source: source, pureOnly: false) {
+        if try UDFVolume.detectRecognitionSequence(source: source, pureOnly: false) {
             do {
                 let fileSystem = try UDFFileSystem(source: source, options: options)
                 udf = fileSystem
@@ -120,9 +120,7 @@ final class ISOReader: FormatReader {
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
         if let udf { return try udf.stream(for: entry, limits: limits) }
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("iso entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "iso")
         let record = records[entry.index]
         if let reason = record.unsupported { throw KaitoError.unsupportedMethod("ISO 9660 \(reason)") }
         if let zisofs = record.zisofs, record.sections.count == 1 {
@@ -144,7 +142,7 @@ final class ISOReader: FormatReader {
         b.count >= 7 && Array(b[1..<6]) == Array("CD001".utf8) && [0, 1, 2, 3, 255].contains(b[0])
     }
 
-    private static func prepare(_ b: [UInt8], source: any ByteSource, budget: ISOMetadataBudget) throws -> Tree {
+    private static func prepare(_ b: [UInt8], source: any ByteSource, budget: MetadataBudget) throws -> Tree {
         let volume = try ISOVolume(b, sourceLength: source.length)
         let records = try directory(volume.root, volume: volume, source: source, budget: budget)
         let skip = records.first.flatMap { $0.identifier == [0] ? ISORockRidge.skip(in: $0.systemUse) : nil }
@@ -152,7 +150,7 @@ final class ISOReader: FormatReader {
     }
 
     private static func directory(_ record: ISODirectoryRecord, volume: ISOVolume,
-                                  source: any ByteSource, budget: ISOMetadataBudget) throws -> [ISODirectoryRecord] {
+                                  source: any ByteSource, budget: MetadataBudget) throws -> [ISODirectoryRecord] {
         let range = try volume.range(lba: record.lba, ea: record.ea, length: UInt64(record.length))
         try Checked.size(range.length, limit: budget.limits.maxMetadataSize)
         try budget.charge(range.length)
@@ -162,7 +160,7 @@ final class ISOReader: FormatReader {
         var result: [ISODirectoryRecord] = []
         var recordCount = 0
         while pos < bytes.count {
-            if recordCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: recordCount)
             recordCount &+= 1
             let length = Int(bytes[pos])
             let remaining = 2048 - Int((range.offset + UInt64(pos)) % 2048)
@@ -180,7 +178,7 @@ final class ISOReader: FormatReader {
     }
 
     private static func walk(_ tree: Tree, joliet: Bool, source: any ByteSource,
-                             budget: ISOMetadataBudget) throws -> (entries: [Pending], hasNM: Bool) {
+                             budget: MetadataBudget) throws -> (entries: [Pending], hasNM: Bool) {
         let volume = tree.volume
         var result: [Pending] = []
         var stack = [Node(record: volume.root, parent: nil, depth: 0, ancestors: [])]
@@ -188,7 +186,7 @@ final class ISOReader: FormatReader {
         var directoryCount = 0
         var recordCount = 0
         while let node = stack.popLast() {
-            if directoryCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: directoryCount)
             let directoryRecords: [ISODirectoryRecord]
             if let retained = node.directoryRecords {
                 directoryRecords = retained
@@ -202,7 +200,7 @@ final class ISOReader: FormatReader {
             ancestors.insert(node.record.lba)
             var i = node.nextRecord
             while i < directoryRecords.count {
-                if recordCount & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: recordCount)
                 recordCount &+= 1
                 let first = directoryRecords[i]
                 i += 1
@@ -264,14 +262,14 @@ final class ISOReader: FormatReader {
                 let rrName = !joliet && rr.name != nil
                 specific["nameSource"] = joliet ? "joliet" : (rrName ? "rockRidge" : "iso9660")
                 let name = rrName ? rr.name! : first.identifier
-                var ranges: [ISOSection] = []
+                var ranges: [ByteRange] = []
                 var total: UInt64 = 0
                 if kind == .file {
                     for section in sections {
                         total = try Checked.add(total, UInt64(section.length))
                         // 長さ 0 の extent は block を持たない。libarchive は空 file の LBA に
                         // 0xFFFFFFF0 を書くため、位置は検証せず空 section にする。
-                        if section.length == 0 { ranges.append(ISOSection(offset: 0, length: 0)) }
+                        if section.length == 0 { ranges.append(ByteRange(offset: 0, length: 0)) }
                         else if !foreign { ranges.append(try volume.range(lba: section.lba, ea: section.ea, length: UInt64(section.length))) }
                     }
                     try Checked.size(total, limit: budget.limits.maxEntrySize)
@@ -281,7 +279,7 @@ final class ISOReader: FormatReader {
                     // symlink も不正な extent を許さない (通常 dataLength は 0 で、その場合は位置を見ない)。
                     _ = try volume.range(lba: first.lba, ea: first.ea, length: UInt64(first.length))
                 }
-                if kind != .file { ranges = [ISOSection(offset: 0, length: 0)] }
+                if kind != .file { ranges = [ByteRange(offset: 0, length: 0)] }
                 let index = result.count
                 guard index < budget.limits.maxEntryCount else { throw KaitoError.limitExceeded("iso entry count") }
                 var descent: Node?
@@ -315,21 +313,9 @@ final class ISOReader: FormatReader {
     }
 
     private static func finalize(_ pending: [Pending], joliet: Bool, options: ReaderOptions,
-                                 budget: ISOMetadataBudget) throws -> ([ArchiveEntry], [Record], String.Encoding?) {
-        let names = joliet ? [] : pending.map(\.bytes).filter {
-            if case .fixed = options.encodingPolicy { return true }
-            return !EncodingDetector.isStrictUTF8($0)
-        }
-        let encoding = EncodingDetector.detectArchiveEncoding(names: names, policy: options.encodingPolicy,
-                                                              maximumBatchByteCount: Int(clamping: options.limits.maxMetadataSize))
-        var decoded: [[UInt8]: String] = [:]
-        if let encoding {
-            let strings = EncodingDetector.decodeArchiveNames(names, as: encoding, maximumBatchByteCount: Int(clamping: options.limits.maxMetadataSize))
-            for (bytes, string) in zip(names, strings) { if let string { decoded[bytes] = string } }
-        }
-        func resolve(_ bytes: [UInt8]) -> String {
-            decoded[bytes] ?? EncodingDetector.resolveUndeclaredName(bytes: bytes, policy: options.encodingPolicy, archiveEncoding: encoding).string
-        }
+                                 budget: MetadataBudget) throws -> ([ArchiveEntry], [Record], String.Encoding?) {
+        let names = ArchiveNameResolver(undeclaredNames: joliet ? [] : pending.map(\.bytes), policy: options.encodingPolicy,
+                                        limits: options.limits)
         var paths: [Int: [String]] = [:]
         var rawPaths: [Int: [UInt8]] = [:]
         var kept: [Int] = []
@@ -337,9 +323,9 @@ final class ISOReader: FormatReader {
         var seen: [String: Int] = [:]
         var specificByIndex: [Int: [String: String]] = [:]
         for (index, item) in pending.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             if let parent = item.parent, paths[parent] == nil { continue }
-            var name = joliet ? ISOBytes.joliet(item.bytes) : resolve(item.bytes)
+            var name = joliet ? ISOBytes.joliet(item.bytes) : names.resolve(item.bytes)
             if !item.rrName {
                 if let semicolon = name.lastIndex(of: ";") {
                     let tail = name[name.index(after: semicolon)...]
@@ -364,7 +350,7 @@ final class ISOReader: FormatReader {
             raw += item.bytes
             var specific = item.specific
             if let link = item.link {
-                let target = resolve(link)
+                let target = names.resolve(link)
                 guard target.split(separator: "/").count <= options.limits.maxPathComponentCount else { throw KaitoError.limitExceeded("iso link component count") }
                 guard !target.utf8.contains(0) else { throw KaitoError.malformed("iso link") }
                 specific["linkPath"] = target
@@ -379,7 +365,7 @@ final class ISOReader: FormatReader {
         var entries: [ArchiveEntry] = []
         var records: [Record] = []
         for (position, index) in kept.enumerated() {
-            if position & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: position)
             let item = pending[index]
             let components = paths[index]!
             var specific = specificByIndex[index]!
@@ -395,6 +381,6 @@ final class ISOReader: FormatReader {
                 isIncomplete: item.record.unsupported == "otherVolume"))
             records.append(item.record)
         }
-        return (entries, records, joliet ? .utf16BigEndian : encoding)
+        return (entries, records, joliet ? .utf16BigEndian : names.archiveEncoding)
     }
 }

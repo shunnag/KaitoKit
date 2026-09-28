@@ -1,76 +1,5 @@
 import Foundation
 
-private final class ArchiveOutputBudget {
-    private let limit: UInt64
-    private let declaredTotal: UInt64
-    private var total: UInt64
-    private var unknownEntrySizes: [Int: UInt64] = [:]
-    private var limitWasExceeded = false
-
-    init(entries: [ArchiveEntry], limit: UInt64) throws {
-        self.limit = limit
-        var declaredTotal: UInt64 = 0
-        for (index, entry) in entries.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
-            guard let size = entry.uncompressedSize else { continue }
-            let next = declaredTotal.addingReportingOverflow(size)
-            guard !next.overflow, next.partialValue <= limit else {
-                throw KaitoError.limitExceeded("total uncompressed size")
-            }
-            declaredTotal = next.partialValue
-        }
-        self.declaredTotal = declaredTotal
-        self.total = declaredTotal
-    }
-
-    private init(limit: UInt64, declaredTotal: UInt64) {
-        self.limit = limit
-        self.declaredTotal = declaredTotal
-        self.total = declaredTotal
-    }
-
-    func reopened() -> sending ArchiveOutputBudget {
-        // The immutable entry sum was checked at open. Reset runtime charges
-        // and terminal failures without walking a large shared entry array.
-        ArchiveOutputBudget(limit: limit, declaredTotal: declaredTotal)
-    }
-
-    func ensureUsable() throws {
-        guard !limitWasExceeded else {
-            throw KaitoError.limitExceeded("total uncompressed size")
-        }
-    }
-
-    func availableAdditionalSize(index: Int, producedSize: UInt64) throws -> UInt64 {
-        try ensureUsable()
-        let previouslyRecorded = unknownEntrySizes[index] ?? 0
-        let replayAllowance = previouslyRecorded > producedSize
-            ? previouslyRecorded - producedSize
-            : 0
-        let unallocatedAllowance = limit - total
-        return try Checked.add(replayAllowance, unallocatedAllowance)
-    }
-
-    func recordUnknownEntry(index: Int, producedSize: UInt64) throws {
-        try ensureUsable()
-        let previous = unknownEntrySizes[index] ?? 0
-        guard producedSize > previous else { return }
-        let additional = try Checked.sub(producedSize, previous)
-        guard additional <= limit - total else {
-            limitWasExceeded = true
-            throw KaitoError.limitExceeded("total uncompressed size")
-        }
-        let nextTotal = total + additional
-        unknownEntrySizes[index] = producedSize
-        total = nextTotal
-    }
-
-    func recordLimitExceeded() throws {
-        limitWasExceeded = true
-        throw KaitoError.limitExceeded("total uncompressed size")
-    }
-}
-
 /// Opens an archive, lists its entries, and reads or extracts their contents.
 ///
 /// `ArchiveReader` is deliberately not thread-safe. Call ``reopen()`` to make
@@ -96,10 +25,12 @@ public final class ArchiveReader {
     /// Entries in archive order.
     public let entries: [ArchiveEntry]
 
-    /// URL open で実際に連結した 2 巻以上の numbered / native ZIP セット。
-    /// 単一ファイル、兄弟のない .001、明示した巻が symlink、Data / ByteSource open は nil。
-    /// StuffIt 固有の分割、RAR の多巻、.cue の参照先は現在この API の対象外。
-    /// reopen は保持済み source を共有し、このスナップショットも引き継ぐ。
+    /// The numbered or native ZIP volume set of two or more files that `open(url:)` actually joined.
+    ///
+    /// This is `nil` for a single file, a `.001` without siblings, an explicitly named volume that is a
+    /// symbolic link, and readers opened from `Data` or a `ByteSource`. StuffIt's own split format,
+    /// RAR multi-volume sets, and the files a `.cue` sheet references are currently outside this API.
+    /// ``reopen()`` shares the retained source and carries this snapshot over.
     public var volumeSet: ArchiveVolumeSet? { assembledVolumeSet }
 
     /// The archive-wide encoding selected for otherwise undeclared entry names.
@@ -128,289 +59,23 @@ public final class ArchiveReader {
         self.zipDiskLayout = zipDiskLayout
         self.assembledVolumeSet = volumeSet
         self.options = options
-        self.password = options.password
 
-        let stuffItInput = try FormatDetector.stuffItInput(source: source, limits: options.limits,
-            maximumSFXScanSize: sourceURL != nil || options.scanForSFXInData ? options.maximumSFXScanSize : 0)
-        let detected = try stuffItInput == nil ? FormatDetector.detect(
-            source: source,
-            sourceURL: sourceURL,
-            options: options,
-            skipStuffIt: true
-        ) : FormatDetector.envelopeFormat(stuffItInput!)
-
-        if zipDiskLayout != nil, detected != .zip {
+        let detected = try Self.detectFormat(source: source, sourceURL: sourceURL, options: options)
+        if zipDiskLayout != nil, detected.format != .zip {
             throw KaitoError.malformed("ZIP split volume set is not a ZIP archive")
         }
-        var stagedTarSource: (any ByteSource)?
-        var tarEditingState: TarEditingSnapshot?
-        let recordsTarLayout = options.recordsTarEditLayout && volumeSet == nil && !(source is ConcatenatedByteSource)
-        var tarOptions = options
-        tarOptions.recordsTarEditLayout = recordsTarLayout
-        switch detected {
-        case .tar:
-            let identityBefore = recordsTarLayout ? currentTarArchiveIdentity(source) : nil
-            let tar = try AppleDoubleReader.wrap(TarReader(source: source, options: tarOptions), options: options)
-            reader = tar
-            entries = tar.entries
-            format = .tar
-            if recordsTarLayout {
-                tarEditingState = Self.makeTarEditingState(container: .plain, archive: source, image: source,
-                                                           reader: tar, options: options, identityBefore: identityBefore)
-            }
-        case .zip:
-            // Finder / ditto の `__MACOSX/._name` sidecar は方針に従って畳む（既定は resource fork へ統合）。
-            let zip = try AppleDoubleReader.wrap(ZipReader(source: source, options: options, diskLayout: zipDiskLayout), options: options)
-            reader = zip
-            entries = zip.entries
-            format = .zip
-        case .sevenZip:
-            let sevenZipSource = try Self.sevenZipSource(
-                from: source,
-                sourceURL: sourceURL,
-                options: options
-            )
-            var sevenZipOptions = options
-            sevenZipOptions.recordsSevenZipEditLayout = options.recordsSevenZipEditLayout
-                && volumeSet == nil && !(source is ConcatenatedByteSource)
-            let sevenZip = try SevenZipReader(
-                source: sevenZipSource,
-                options: sevenZipOptions,
-                baseOffset: source.length - sevenZipSource.length
-            )
-            reader = sevenZip
-            entries = sevenZip.entries
-            format = .sevenZip
-            password = sevenZip.resolvedPassword
-        case .rar:
-            // 連結済み source では RAR 独自の多巻探索を行わず、Data と同じ扱いにする。
-            // 単巻 .001 の場合は、名前ヒントでなく実際に開いた葉を identity 検証に使う。
-            let rarSourceURL = source is ConcatenatedByteSource
-                ? nil
-                : (sourceVolumeURL ?? sourceURL)
-            guard let signature = try FormatDetector.findRARSignature(source: source) else {
-                throw KaitoError.unsupportedFormat
-            }
-            if signature.version == .rar5 {
-                let rarSource: any ByteSource
-                if signature.offset > 0 {
-                    rarSource = try RebasedByteSource(source: source, baseOffset: signature.offset)
-                } else {
-                    rarSource = source
-                }
-                let rar = try RAR5Reader(
-                    source: rarSource,
-                    options: options,
-                    sourceURL: signature.offset == 0 ? rarSourceURL : nil,
-                    sourceDirectoryAnchor: signature.offset == 0
-                        ? sourceDirectoryAnchor
-                        : nil
-                )
-                reader = rar
-                entries = rar.entries
-                format = .rar
-                password = rar.resolvedPassword
-            } else {
-                let rar = try RAR4Reader(
-                    source: source,
-                    options: options,
-                    sourceURL: signature.offset == 0 ? rarSourceURL : nil,
-                    sourceDirectoryAnchor: signature.offset == 0
-                        ? sourceDirectoryAnchor
-                        : nil,
-                    signatureOffset: signature.offset
-                )
-                reader = rar
-                entries = rar.entries
-                format = .rar
-                password = rar.resolvedPassword
-            }
-        case .lha:
-            // FormatDetector accepts a lone terminator only with an LHA
-            // filename hint. There is no member header for the SFX scanner.
-            let signatures = source.length == 1
-                ? [FormatDetector.LHASignatureMatch(offset: 0)]
-                : try FormatDetector.findLHASignatures(source: source)
-            guard !signatures.isEmpty else {
-                throw KaitoError.unsupportedFormat
-            }
-            var parsedReader: LHAReader?
-            var candidateError: KaitoError?
-            for signature in signatures {
-                do {
-                    parsedReader = try LHAReader(
-                        source: source,
-                        options: options,
-                        headerOffset: signature.offset
-                    )
-                    break
-                } catch let error as KaitoError {
-                    switch error {
-                    case .malformed, .truncated, .checksumMismatch:
-                        // An authenticated base header can still be an
-                        // executable byte pattern. Try the next bounded SFX
-                        // candidate only for structural parse failures.
-                        candidateError = candidateError ?? error
-                    default:
-                        throw error
-                    }
-                }
-            }
-            guard let lha = parsedReader else {
-                throw candidateError ?? KaitoError.unsupportedFormat
-            }
-            reader = lha
-            entries = lha.entries
-            format = .lha
-        case .stuffItX:
-            let stuffItX = try StuffItXReader(source: stuffItInput?.data ?? source,
-                                             resourceFork: stuffItInput?.resource, options: options)
-            reader = stuffItX
-            entries = stuffItX.entries
-            format = .stuffItX
-            password = stuffItX.resolvedPassword
-        case .stuffIt:
-            let stuffIt = try StuffItReader(source: stuffItInput?.data ?? source,
-                                              resourceFork: stuffItInput?.resource, options: options)
-            reader = stuffIt
-            entries = stuffIt.entries
-            format = .stuffIt
-        case .macBinary, .appleSingle, .binHex:
-            // wrapper の payload が StuffIt でない: wrapper 自身を data fork + resource fork の 1 file として公開する。
-            guard let envelope = stuffItInput, envelope.wrapper != nil else { throw KaitoError.unsupportedFormat }
-            let wrapper = try MacWrapperReader(envelope: envelope, format: detected, options: options,
-                                               fallbackFileName: sourceURL?.lastPathComponent)
-            reader = wrapper
-            entries = wrapper.entries
-            format = detected
-        case .ar:
-            let ar = try ArReader(source: source, options: options)
-            reader = ar
-            entries = ar.entries
-            format = .ar
-        case .cpio:
-            let cpio = try CpioReader(source: source, options: options)
-            reader = cpio
-            entries = cpio.entries
-            format = .cpio
-        case .iso:
-            let iso = try ISOReader(source: source, options: options)
-            reader = iso
-            entries = iso.entries
-            format = .iso
-        case .udf:
-            let udf = try UDFReader(source: source, options: options)
-            reader = udf
-            entries = udf.entries
-            format = .udf
-        case .wim:
-            let wim = try WIMReader(source: source, options: options)
-            reader = wim
-            entries = wim.entries
-            format = .wim
-        case .compoundFile:
-            let cfb = try CFBReader(source: source, options: options)
-            reader = cfb
-            entries = cfb.entries
-            format = .compoundFile
-        case .chm:
-            let chm = try CHMReader(source: source, options: options)
-            reader = chm
-            entries = chm.entries
-            format = .chm
-        case .arj:
-            let arj = try ARJReader(source: source, options: options)
-            reader = arj
-            entries = arj.entries
-            format = .arj
-        case .dmg:
-            let dmg = try DMGReader(source: source, options: options)
-            reader = dmg
-            entries = dmg.entries
-            format = .dmg
-        case .cab:
-            // 実行形式 prefix の後ろにある cabinet は 7z と同じ規則で位置を求めて rebase する。
-            let cabSource = try Self.sfxRebasedSource(
-                from: source, sourceURL: sourceURL, options: options,
-                nativeSignature: [0x4D, 0x53, 0x43, 0x46], format: .cab
-            )
-            let cab = try CabReader(source: cabSource, options: options)
-            reader = cab
-            entries = cab.entries
-            format = .cab
-        case .rpm:
-            let rpm = try RpmReader(source: source, options: options)
-            reader = rpm
-            entries = rpm.entries
-            format = .rpm
-        case .xar:
-            let xar = try XarReader(source: source, options: options)
-            reader = xar
-            entries = xar.entries
-            format = .xar
-        case .gzip, .bzip2, .xz, .zstd, .lz4, .compress, .lzma, .lzip, .brotli, .pbzx:
-            let container = Self.compressedContainer(for: sourceURL, detected: detected)
-            let identityBefore = recordsTarLayout && container == .tar ? currentTarArchiveIdentity(source) : nil
-            let single = try SingleFileReader(
-                source: source,
-                format: detected,
-                options: options,
-                fallbackFileName: sourceURL?.lastPathComponent
-            )
-            let mapRecorder = recordsTarLayout && !options.recoverDamagedArchives && container == .tar
-                && [.gzip, .bzip2, .xz].contains(detected) ? CompressedTarMapRecorder(format: detected) : nil
-            if let container {
-                // The expanded tar / cpio envelope is staging input, not a
-                // published entry. Its stream uses maxEntrySize; the aggregate
-                // budget constructed below applies to the inner reader's members.
-                let stream = try single.stagingStream(limits: options.limits, recorder: mapRecorder)
-                let staged = try SingleFileMaterializer.materialize(
-                    stream,
-                    limits: options.limits
-                )
-                stagedTarSource = staged
-                switch container {
-                case .tar:
-                    let tar = try AppleDoubleReader.wrap(TarReader(source: staged, options: tarOptions), options: options)
-                    reader = tar
-                    entries = tar.entries
-                    format = .tar
-                    if recordsTarLayout {
-                        let kind: TarContainer = detected == .gzip ? .gzip : detected == .bzip2 ? .bzip2 : detected == .xz ? .xz : .other(detected)
-                        tarEditingState = Self.makeTarEditingState(container: kind, archive: source, image: staged,
-                                                                   reader: tar, options: options, recorder: mapRecorder,
-                                                                   identityBefore: identityBefore)
-                    }
-                case .cpio:
-                    let cpio = try CpioReader(source: staged, options: options)
-                    reader = cpio
-                    entries = cpio.entries
-                    format = .cpio
-                case .pbzxAuto:
-                    // pbzx は Apple の pkg / OTA が cpio payload を包むためだけに使う container なので、
-                    // 展開結果が cpio ならその entry を直接公開し、そうでなければ単一 stream に留める。
-                    if CpioHeader.probe(try readByteRange(source: staged, offset: 0, count: Int(min(6, staged.length))),
-                                        source: staged) != nil {
-                        let cpio = try CpioReader(source: staged, options: options)
-                        reader = cpio
-                        entries = cpio.entries
-                        format = .cpio
-                    } else {
-                        stagedTarSource = nil
-                        reader = single
-                        entries = single.entries
-                        format = detected
-                    }
-                }
-            } else {
-                reader = single
-                entries = single.entries
-                format = detected
-            }
-        }
-
-        self.stagedTarSource = stagedTarSource
-        self.tarEditingState = tarEditingState
+        let opened = try Self.openFormatReader(
+            detected, source: source, sourceURL: sourceURL,
+            sourceDirectoryAnchor: sourceDirectoryAnchor, sourceVolumeURL: sourceVolumeURL,
+            zipDiskLayout: zipDiskLayout, volumeSet: volumeSet, options: options
+        )
+        // format と entries は形式 reader が持つ値そのもの。
+        self.reader = opened.reader
+        self.format = opened.reader.format
+        self.entries = opened.reader.entries
+        self.password = opened.password
+        self.stagedTarSource = opened.stagedTarSource
+        self.tarEditingState = opened.tarEditingState
         self.outputBudget = try ArchiveOutputBudget(
             entries: entries,
             limit: options.limits.maxTotalUncompressedSize
@@ -447,41 +112,21 @@ public final class ArchiveReader {
     }
 
     /// Opens an archive stored at a file URL.
-    /// `.001` から始まるバイト分割巻は、形式検出の前に同じ親の兄弟巻を連結する。
+    ///
+    /// Byte-split volumes that start at `.001` are joined with their siblings in the same parent
+    /// directory before format detection.
     public static func open(
         url: URL,
         options: ReaderOptions = ReaderOptions()
     ) throws -> ArchiveReader {
-        let standardized = url.standardizedFileURL
-        let opened = try FileByteSource.openAnchored(url: standardized)
-        let split = try SplitVolumeSet.assemble(
-            firstVolumeURL: standardized,
-            firstVolumeSource: opened.source,
-            directory: opened.directory,
-            limits: options.limits
-        )
-        let zipSplit = try split == nil ? ZipSplitVolumeSet.assemble(
-            url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
-        ) : nil
-        // classic StuffIt の分割セット（100 byte header の part）は兄弟を集めて data / resource fork に組む。
-        let stuffItSplit = try split == nil && zipSplit == nil ? StuffItSplitSet.assemble(
-            firstVolumeURL: standardized, source: opened.source, directory: opened.directory, limits: options.limits
-        ) : nil
-        // `.cue` は data track の image file（同じ directory）を開く。
-        let cue = try split == nil && zipSplit == nil && stuffItSplit == nil ? CueSheet.assemble(
-            url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
-        ) : nil
-        // 兄弟のない .001 でも .tar.gz などのヒントを保持する。
-        let sourceURL = SplitVolumeSet.naming(forFirstVolumeName: standardized.lastPathComponent) != nil
-            ? standardized.deletingPathExtension()
-            : standardized
+        let input = try OpenedArchiveInput.assemble(url: url, limits: options.limits)
         return try ArchiveReader(
-            source: split?.source ?? zipSplit?.source ?? stuffItSplit.map { $0 as any ByteSource } ?? cue ?? opened.source,
-            sourceURL: sourceURL,
-            sourceDirectoryAnchor: split == nil ? opened.directory : nil,
-            sourceVolumeURL: split == nil ? standardized : nil,
-            zipDiskLayout: zipSplit?.layout,
-            volumeSet: split?.volumeSet ?? zipSplit?.volumeSet,
+            source: input.source,
+            sourceURL: input.sourceURL,
+            sourceDirectoryAnchor: input.directoryAnchor,
+            sourceVolumeURL: input.volumeURL,
+            zipDiskLayout: input.zipDiskLayout,
+            volumeSet: input.volumeSet,
             options: options
         )
     }
@@ -560,11 +205,15 @@ public final class ArchiveReader {
         return try stream(entry).readAll()
     }
 
-    /// 再圧縮せずに運べる形式では生レコード範囲を返す。未対応形式・isIncomplete・.001 バイト分割セットは nil。
-    /// 現在は ZIP のみ対応し、data descriptor を含む範囲と中央ディレクトリとの整合を検証する。
-    /// .zNN / .zxNN 分割巻では連結ストリーム上の絶対範囲を返す。
-    /// 暗号化 entry もパスワードなしで取得できる。payload の復号・展開・完全性検証は行わない。
-    /// 呼び出しからコピー完了まで、source の byte は不変でなければならない。
+    /// Returns the raw record range of an entry in formats whose records can be carried over without
+    /// recompression.
+    ///
+    /// This is `nil` for unsupported formats, incomplete entries (`isIncomplete`), and `.001`
+    /// byte-split sets. Only ZIP is currently supported: the range includes any data descriptor and
+    /// is validated against the central directory. For `.zNN` / `.zxNN` split volumes the range is
+    /// absolute in the joined stream. Encrypted entries are returned without a password; the payload
+    /// is not decrypted, decompressed, or integrity-checked. The source bytes must stay unchanged from
+    /// this call until the copy completes.
     public func rawRecord(of entry: ArchiveEntry) throws -> RawEntryRecord? {
         try validate(entry)
         guard !entry.isIncomplete, zipDiskLayout != nil || !(source is ConcatenatedByteSource) else { return nil }
@@ -661,27 +310,26 @@ public final class ArchiveReader {
         return result.url
     }
 
-    /// 同じ不変の byte source を共有する独立した reader を作る。
-    /// 返された reader は別の isolation domain に送信できる。
+    /// Makes an independent reader that shares the same immutable byte source.
+    ///
+    /// The returned reader can be sent to another isolation domain.
     public func reopen() throws -> sending ArchiveReader {
         var reopenedOptions = options
         reopenedOptions.password = password
-        let parsedReader: any FormatReader
-        if let merged = reader as? AppleDoubleReader {
-            parsedReader = try merged.reopened(options: reopenedOptions)
-        } else if let zip = reader as? ZipReader {
-            parsedReader = zip.reopened(options: reopenedOptions)
-        } else if let tar = reader as? TarReader {
-            parsedReader = tar.reopened(options: reopenedOptions)
-        } else if let sevenZip = reader as? SevenZipReader {
-            parsedReader = sevenZip.reopened(options: reopenedOptions)
-        } else if let lha = reader as? LHAReader {
-            parsedReader = lha.reopened(options: reopenedOptions)
-        } else if let rar5 = reader as? RAR5Reader {
-            parsedReader = rar5.reopened(options: reopenedOptions)
-        } else if let rar4 = reader as? RAR4Reader {
-            parsedReader = rar4.reopened(options: reopenedOptions)
-        } else if let stagedTarSource, reader is CpioReader {
+        if let parsedReader = try reader.reopened(options: reopenedOptions) {
+            return try ArchiveReader(
+                sharing: stagedTarSource ?? source,
+                sourceURL: sourceURL,
+                options: reopenedOptions,
+                parsedReader: parsedReader,
+                outputBudget: outputBudget.reopened(),
+                zipDiskLayout: zipDiskLayout,
+                volumeSet: volumeSet,
+                stagedTarSource: stagedTarSource,
+                tarEditingState: tarEditingState
+            )
+        }
+        if let stagedTarSource, reader is CpioReader {
             // 圧縮 cpio / pbzx の展開結果は保持済みなので、再展開せずその source から開き直す。
             return try ArchiveReader(
                 source: stagedTarSource,
@@ -690,25 +338,13 @@ public final class ArchiveReader {
                 volumeSet: volumeSet,
                 options: reopenedOptions
             )
-        } else {
-            return try ArchiveReader(
-                source: source,
-                sourceURL: sourceURL,
-                zipDiskLayout: zipDiskLayout,
-                volumeSet: volumeSet,
-                options: reopenedOptions
-            )
         }
         return try ArchiveReader(
-            sharing: stagedTarSource ?? source,
+            source: source,
             sourceURL: sourceURL,
-            options: reopenedOptions,
-            parsedReader: parsedReader,
-            outputBudget: outputBudget.reopened(),
             zipDiskLayout: zipDiskLayout,
             volumeSet: volumeSet,
-            stagedTarSource: stagedTarSource,
-            tarEditingState: tarEditingState
+            options: reopenedOptions
         )
     }
 
@@ -730,6 +366,8 @@ public final class ArchiveReader {
         return try sevenZip.decryptedPackedStream(folder: folder, packedInput: packedInput)
     }
 
+    /// 保持済みの tar 編集用の値。`recordsTarEditLayout` を有効にした tar / 圧縮 tar の open だけが作り、
+    /// 分割巻・cpio・pbzx・tar 以外は nil。source の読取りや password の要求は行わない。
     @_spi(TarEditLayout)
     public func tarEditingSnapshot() -> TarEditingSnapshot? { tarEditingState }
 
@@ -757,10 +395,7 @@ public final class ArchiveReader {
         }
         guard !options.recoverDamagedArchives else { throw TarSpliceVerificationError(.baseNotSpliceable) }
         let detected = try tarSpliceVerification(.baseNotSpliceable) {
-            let stuffItInput = try FormatDetector.stuffItInput(source: output, limits: options.limits,
-                maximumSFXScanSize: sourceURL != nil || options.scanForSFXInData ? options.maximumSFXScanSize : 0)
-            return try stuffItInput == nil ? FormatDetector.detect(source: output, sourceURL: sourceURL,
-                options: options, skipStuffIt: true) : FormatDetector.envelopeFormat(stuffItInput!)
+            try detectFormat(source: output, sourceURL: sourceURL, options: options).format
         }
         guard detected == codec, compressedContainer(for: sourceURL, detected: detected) == .tar else {
             throw TarSpliceVerificationError(.baseNotSpliceable)
@@ -847,12 +482,260 @@ public final class ArchiveReader {
 
     private func preparePassword(for entry: ArchiveEntry) throws {
         // 復号に必須の resource / hash がなければ、password provider より先に診断する。
-        if let stuffIt = reader as? StuffItReader { try stuffIt.validateEncryptionSupport(for: entry) }
-        if let stuffItX = reader as? StuffItXReader { try stuffItX.validateEncryptionSupport(for: entry) }
+        try reader.validateEncryptionSupport(for: entry)
         if entry.isEncrypted, password == nil, let provider = options.passwordProvider {
             password = try provider.password(for: format)
         }
         reader.setPassword(password)
+    }
+
+    /// 形式検出の結果。StuffIt の envelope（wrapper を剥いだ payload と resource fork）があれば持つ。
+    private struct DetectedFormat {
+        let format: ArchiveFormat
+        let stuffItInput: MacEnvelope?
+    }
+
+    /// 形式 reader を開いた結果。format と entries は reader 自身から取る。
+    private struct OpenedFormatReader {
+        let reader: any FormatReader
+        /// options.password から始め、reader が解決した password があればそれ。
+        let password: String?
+        /// 圧縮 tar / cpio を展開した staging。reopen はこれを共有する。
+        var stagedTarSource: (any ByteSource)?
+        var tarEditingState: TarEditingSnapshot?
+    }
+
+    /// StuffIt の envelope を一段だけ剥がしてから形式を検出する。envelope があればその形式が結果。
+    private static func detectFormat(
+        source: any ByteSource, sourceURL: URL?, options: ReaderOptions
+    ) throws -> DetectedFormat {
+        let stuffItInput = try FormatDetector.stuffItInput(source: source, limits: options.limits,
+            maximumSFXScanSize: sourceURL != nil || options.scanForSFXInData ? options.maximumSFXScanSize : 0)
+        let format: ArchiveFormat
+        if let stuffItInput {
+            format = try FormatDetector.envelopeFormat(stuffItInput)
+        } else {
+            format = try FormatDetector.detect(source: source, sourceURL: sourceURL, options: options, skipStuffIt: true)
+        }
+        return DetectedFormat(format: format, stuffItInput: stuffItInput)
+    }
+
+    /// 検出した形式の reader を開く。tar は編集用の配置を記録し、
+    /// 単一 stream は ``openCompressedContainer`` で内側の tar / cpio まで開く。
+    private static func openFormatReader(
+        _ detected: DetectedFormat, source: any ByteSource, sourceURL: URL?,
+        sourceDirectoryAnchor: FileByteSource.DirectoryAnchor?, sourceVolumeURL: URL?,
+        zipDiskLayout: ZipDiskLayout?, volumeSet: ArchiveVolumeSet?, options: ReaderOptions
+    ) throws -> OpenedFormatReader {
+        let stuffItInput = detected.stuffItInput
+        let recordsTarLayout = options.recordsTarEditLayout && volumeSet == nil && !(source is ConcatenatedByteSource)
+        var tarOptions = options
+        tarOptions.recordsTarEditLayout = recordsTarLayout
+        let reader: any FormatReader
+        var password = options.password
+        var tarEditingState: TarEditingSnapshot?
+        switch detected.format {
+        case .tar:
+            let identityBefore = recordsTarLayout ? currentTarArchiveIdentity(source) : nil
+            let tar = try AppleDoubleReader.wrap(TarReader(source: source, options: tarOptions), options: options)
+            reader = tar
+            if recordsTarLayout {
+                tarEditingState = makeTarEditingState(container: .plain, archive: source, image: source,
+                                                      reader: tar, options: options, identityBefore: identityBefore)
+            }
+        case .zip:
+            // Finder / ditto の `__MACOSX/._name` sidecar は方針に従って畳む（既定は resource fork へ統合）。
+            reader = try AppleDoubleReader.wrap(ZipReader(source: source, options: options, diskLayout: zipDiskLayout), options: options)
+        case .sevenZip:
+            let sevenZipSource = try sevenZipSource(
+                from: source,
+                sourceURL: sourceURL,
+                options: options
+            )
+            var sevenZipOptions = options
+            sevenZipOptions.recordsSevenZipEditLayout = options.recordsSevenZipEditLayout
+                && volumeSet == nil && !(source is ConcatenatedByteSource)
+            let sevenZip = try SevenZipReader(
+                source: sevenZipSource,
+                options: sevenZipOptions,
+                baseOffset: source.length - sevenZipSource.length
+            )
+            reader = sevenZip
+            password = sevenZip.resolvedPassword
+        case .rar:
+            // 連結済み source では RAR 独自の多巻探索を行わず、Data と同じ扱いにする。
+            // 単巻 .001 の場合は、名前ヒントでなく実際に開いた葉を identity 検証に使う。
+            let rarSourceURL = source is ConcatenatedByteSource
+                ? nil
+                : (sourceVolumeURL ?? sourceURL)
+            guard let signature = try RARSignatureScanner.find(source: source) else {
+                throw KaitoError.unsupportedFormat
+            }
+            if signature.version == .rar5 {
+                let rarSource: any ByteSource
+                if signature.offset > 0 {
+                    rarSource = try RebasedByteSource(source: source, baseOffset: signature.offset)
+                } else {
+                    rarSource = source
+                }
+                let rar = try RAR5Reader(
+                    source: rarSource,
+                    options: options,
+                    sourceURL: signature.offset == 0 ? rarSourceURL : nil,
+                    sourceDirectoryAnchor: signature.offset == 0
+                        ? sourceDirectoryAnchor
+                        : nil
+                )
+                reader = rar
+                password = rar.resolvedPassword
+            } else {
+                let rar = try RAR4Reader(
+                    source: source,
+                    options: options,
+                    sourceURL: signature.offset == 0 ? rarSourceURL : nil,
+                    sourceDirectoryAnchor: signature.offset == 0
+                        ? sourceDirectoryAnchor
+                        : nil,
+                    signatureOffset: signature.offset
+                )
+                reader = rar
+                password = rar.resolvedPassword
+            }
+        case .lha:
+            // FormatDetector accepts a lone terminator only with an LHA
+            // filename hint. There is no member header for the SFX scanner.
+            let signatures = source.length == 1
+                ? [LHASignatureScanner.Match(offset: 0)]
+                : try LHASignatureScanner.findSignatures(source: source)
+            guard !signatures.isEmpty else {
+                throw KaitoError.unsupportedFormat
+            }
+            var parsedReader: LHAReader?
+            var candidateError: KaitoError?
+            for signature in signatures {
+                do {
+                    parsedReader = try LHAReader(
+                        source: source,
+                        options: options,
+                        headerOffset: signature.offset
+                    )
+                    break
+                } catch let error as KaitoError {
+                    switch error {
+                    case .malformed, .truncated, .checksumMismatch:
+                        // An authenticated base header can still be an
+                        // executable byte pattern. Try the next bounded SFX
+                        // candidate only for structural parse failures.
+                        candidateError = candidateError ?? error
+                    default:
+                        throw error
+                    }
+                }
+            }
+            guard let lha = parsedReader else {
+                throw candidateError ?? KaitoError.unsupportedFormat
+            }
+            reader = lha
+        case .stuffItX:
+            let stuffItX = try StuffItXReader(source: stuffItInput?.data ?? source,
+                                             resourceFork: stuffItInput?.resource, options: options)
+            reader = stuffItX
+            password = stuffItX.resolvedPassword
+        case .stuffIt:
+            reader = try StuffItReader(source: stuffItInput?.data ?? source,
+                                       resourceFork: stuffItInput?.resource, options: options)
+        case .macBinary, .appleSingle, .binHex:
+            // wrapper の payload が StuffIt でない: wrapper 自身を data fork + resource fork の 1 file として公開する。
+            guard let envelope = stuffItInput, envelope.wrapper != nil else { throw KaitoError.unsupportedFormat }
+            reader = try MacWrapperReader(envelope: envelope, format: detected.format, options: options,
+                                          fallbackFileName: sourceURL?.lastPathComponent)
+        case .ar:
+            reader = try ArReader(source: source, options: options)
+        case .cpio:
+            reader = try CpioReader(source: source, options: options)
+        case .iso:
+            reader = try ISOReader(source: source, options: options)
+        case .udf:
+            reader = try UDFReader(source: source, options: options)
+        case .wim:
+            reader = try WIMReader(source: source, options: options)
+        case .compoundFile:
+            reader = try CFBReader(source: source, options: options)
+        case .chm:
+            reader = try CHMReader(source: source, options: options)
+        case .arj:
+            reader = try ARJReader(source: source, options: options)
+        case .dmg:
+            reader = try DMGReader(source: source, options: options)
+        case .cab:
+            // 実行形式 prefix の後ろにある cabinet は 7z と同じ規則で位置を求めて rebase する。
+            let cabSource = try sfxRebasedSource(
+                from: source, sourceURL: sourceURL, options: options,
+                nativeSignature: [0x4D, 0x53, 0x43, 0x46], format: .cab
+            )
+            reader = try CabReader(source: cabSource, options: options)
+        case .rpm:
+            reader = try RpmReader(source: source, options: options)
+        case .xar:
+            reader = try XarReader(source: source, options: options)
+        case .gzip, .bzip2, .xz, .zstd, .lz4, .compress, .lzma, .lzip, .brotli, .pbzx:
+            return try openCompressedContainer(detected.format, source: source, sourceURL: sourceURL,
+                                               recordsTarLayout: recordsTarLayout, tarOptions: tarOptions, options: options)
+        }
+        return OpenedFormatReader(reader: reader, password: password, tarEditingState: tarEditingState)
+    }
+
+    /// 単一 stream を展開し、名前が示す内側の tar / cpio を開く。container を持たなければ stream 自身を公開する。
+    private static func openCompressedContainer(
+        _ detected: ArchiveFormat, source: any ByteSource, sourceURL: URL?,
+        recordsTarLayout: Bool, tarOptions: ReaderOptions, options: ReaderOptions
+    ) throws -> OpenedFormatReader {
+        let container = compressedContainer(for: sourceURL, detected: detected)
+        let identityBefore = recordsTarLayout && container == .tar ? currentTarArchiveIdentity(source) : nil
+        let single = try SingleFileReader(
+            source: source,
+            format: detected,
+            options: options,
+            fallbackFileName: sourceURL?.lastPathComponent
+        )
+        let mapRecorder = recordsTarLayout && !options.recoverDamagedArchives && container == .tar
+            && [.gzip, .bzip2, .xz].contains(detected) ? CompressedTarMapRecorder(format: detected) : nil
+        guard let container else {
+            return OpenedFormatReader(reader: single, password: options.password)
+        }
+        // The expanded tar / cpio envelope is staging input, not a
+        // published entry. Its stream uses maxEntrySize; the aggregate
+        // budget ArchiveReader constructs afterwards applies to the inner reader's members.
+        let stream = try single.stagingStream(limits: options.limits, recorder: mapRecorder)
+        let staged = try SingleFileMaterializer.materialize(
+            stream,
+            limits: options.limits
+        )
+        switch container {
+        case .tar:
+            let tar = try AppleDoubleReader.wrap(TarReader(source: staged, options: tarOptions), options: options)
+            var tarEditingState: TarEditingSnapshot?
+            if recordsTarLayout {
+                let kind: TarContainer = detected == .gzip ? .gzip : detected == .bzip2 ? .bzip2 : detected == .xz ? .xz : .other(detected)
+                tarEditingState = makeTarEditingState(container: kind, archive: source, image: staged,
+                                                      reader: tar, options: options, recorder: mapRecorder,
+                                                      identityBefore: identityBefore)
+            }
+            return OpenedFormatReader(reader: tar, password: options.password,
+                                      stagedTarSource: staged, tarEditingState: tarEditingState)
+        case .cpio:
+            return OpenedFormatReader(reader: try CpioReader(source: staged, options: options),
+                                      password: options.password, stagedTarSource: staged)
+        case .pbzxAuto:
+            // pbzx は Apple の pkg / OTA が cpio payload を包むためだけに使う container なので、
+            // 展開結果が cpio ならその entry を直接公開し、そうでなければ単一 stream に留める。
+            if CpioHeader.detectVariant(try readByteRange(source: staged, offset: 0, count: Int(min(6, staged.length))),
+                                source: staged) != nil {
+                return OpenedFormatReader(reader: try CpioReader(source: staged, options: options),
+                                          password: options.password, stagedTarSource: staged)
+            }
+            return OpenedFormatReader(reader: single, password: options.password)
+        }
     }
 
     /// 単一 stream の展開結果を渡す内側の container。

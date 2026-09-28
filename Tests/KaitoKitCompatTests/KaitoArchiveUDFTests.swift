@@ -4,9 +4,7 @@ import XCTest
 
 final class KaitoArchiveUDFTests: XCTestCase {
     private func fixture(_ name: String) throws -> Data {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/udf/\(name).gz.b64"), encoding: .utf8)
-        let gzip = try XCTUnwrap(KaitoArchive(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))))
+        let gzip = try XCTUnwrap(KaitoArchive(data: try CompatFixtures.base64("udf/\(name).gz")))
         return try XCTUnwrap(gzip.contents(ofEntry: 0))
     }
 

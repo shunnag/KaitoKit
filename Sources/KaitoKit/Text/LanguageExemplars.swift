@@ -1,4 +1,4 @@
-// このファイルは Tests/Tools/make-exemplars.py により生成されています。
+// このファイルは Scripts/generate/make-exemplars.py により生成されています。
 // 生成元: CLDR の文字集合 https://github.com/unicode-org/cldr/tree/main/common/main
 // 取得日: 2026-09-14。Unicode License v3、NOTICE 参照。
 // 主集合と補助集合だけを使い、構成 scalar と大文字を展開しています。

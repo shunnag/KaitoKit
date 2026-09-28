@@ -12,7 +12,8 @@ struct XarHeader {
     let checksumAlgorithm: ChecksumAlgorithm?
     let heapStart: UInt64
 
-    static func probe(_ bytes: [UInt8]) -> Bool {
+    /// 先頭 28 byte が xar header（magic "xar!"、header 長 ≥ 28、version 1）に見えるか。source は読まない。
+    static func isPlausibleHeader(_ bytes: [UInt8]) -> Bool {
         bytes.count >= 28 && bytes.prefix(4).elementsEqual([0x78, 0x61, 0x72, 0x21])
             && number(bytes, 4, 2) >= 28 && number(bytes, 6, 2) == 1
     }

@@ -55,7 +55,7 @@ final class RAR5Blake2spDecompressor: Decompressor {
         if let hashKey {
             actual = try RAR5ChecksumMAC.blake2sp(actual, hashKey: hashKey)
         }
-        guard RARConstantTime.equals(actual, expected) else {
+        guard ConstantTime.equals(actual, expected) else {
             if mismatchIsWrongPassword { throw KaitoError.wrongPassword }
             throw KaitoError.checksumMismatch(entry: entryIndex)
         }

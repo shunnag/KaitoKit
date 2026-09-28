@@ -62,8 +62,8 @@ final class SevenZipAESKeyCache {
             cyclesPower: properties.cyclesPower
         )
         if let cached = values[cacheKey] { return cached }
-        // Direct-key mode performs no SHA-256 rounds. Charge immediately before
-        // a cache miss so rejected work never reaches the derivation loop.
+        // direct-key mode（cyclesPower 0x3F）は SHA-256 を回さない。cache miss の直前に課金し、
+        // 予算で拒んだ仕事を導出 loop へ進ませない。
         let rounds = properties.cyclesPower == 0x3F
             ? 0 : try Checked.shiftLeft(1, by: UInt64(properties.cyclesPower))
         try chargeKDFWork(rounds)
@@ -268,6 +268,7 @@ final class SevenZipAESByteSource: ByteSource {
     }
 }
 
+// CommonCrypto の呼出しは Core/CommonCryptoPrimitives。ここは 7zAES の入力検査と error 文言。
 private enum SevenZipCommonCrypto {
     static func decryptECB(blocks: [UInt8], key: Data) throws -> [UInt8] {
         guard !blocks.isEmpty,
@@ -275,32 +276,10 @@ private enum SevenZipCommonCrypto {
               key.count == kCCKeySizeAES256 else {
             throw KaitoError.malformed("invalid 7zAES ECB input")
         }
-        var output = [UInt8](repeating: 0, count: blocks.count)
-        let outputCount = output.count
-        var moved = 0
-        let status: CCCryptorStatus = key.withUnsafeBytes { keyBytes in
-            blocks.withUnsafeBytes { inputBytes in
-                output.withUnsafeMutableBytes { outputBytes in
-                    // 3 領域はクロージャ中有効で、出力は blocks.count byte 確保済み。
-                    CCCrypt(
-                        CCOperation(kCCDecrypt),
-                        CCAlgorithm(kCCAlgorithmAES),
-                        CCOptions(kCCOptionECBMode),
-                        keyBytes.baseAddress,
-                        key.count,
-                        nil,
-                        inputBytes.baseAddress,
-                        blocks.count,
-                        outputBytes.baseAddress,
-                        outputCount,
-                        &moved
-                    )
-                }
-            }
+        do {
+            return try CommonCryptoPrimitives.aesECBDecrypt(blocks: blocks, key: key)
+        } catch {
+            throw KaitoError.malformed("CommonCrypto 7zAES failure (\(error.status))")
         }
-        guard status == kCCSuccess, moved == blocks.count else {
-            throw KaitoError.malformed("CommonCrypto 7zAES failure (\(status))")
-        }
-        return output
     }
 }

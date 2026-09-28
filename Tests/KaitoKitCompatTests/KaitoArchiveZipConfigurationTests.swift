@@ -35,8 +35,7 @@ final class KaitoArchiveZipConfigurationTests: XCTestCase {
     }
 
     func testZipSplitURLAndPathInitializersReadBothEnds() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try CompatFixtures.makeTemporaryDirectory(label: "ZipConfiguration")
         defer { try? FileManager.default.removeItem(at: directory) }
         var bytes = Data([0x50, 0x4b, 7, 8]) + zipWithInvalidLocalHeader()
         bytes[4] = 0x50

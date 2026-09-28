@@ -38,7 +38,7 @@ final class CpioReader: FormatReader {
         var pending: [Pending] = []
         var headerCount = 0
         while offset < source.length {
-            if headerCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: headerCount)
             headerCount &+= 1
             do {
                 guard let start = try Self.skipNULRun(source: source, from: offset), start < source.length else { break }
@@ -100,43 +100,15 @@ final class CpioReader: FormatReader {
                 throw KaitoError.malformed(reason)
             }
         }
-        let names = pending.map(\.name).filter {
-            if case .fixed = options.encodingPolicy { return true }
-            return !EncodingDetector.isStrictUTF8($0)
-        }
-        let encoding = EncodingDetector.detectArchiveEncoding(names: names, policy: options.encodingPolicy,
-            maximumBatchByteCount: Int(clamping: limits.maxMetadataSize))
-        var decoded: [[UInt8]: String] = [:]
-        if let encoding {
-            let strings = EncodingDetector.decodeArchiveNames(names, as: encoding,
-                maximumBatchByteCount: Int(clamping: limits.maxMetadataSize))
-            for (bytes, string) in zip(names, strings) { if let string { decoded[bytes] = string } }
-        }
-        func resolve(_ bytes: [UInt8]) -> String {
-            decoded[bytes] ?? EncodingDetector.resolveUndeclaredName(bytes: bytes, policy: options.encodingPolicy,
-                archiveEncoding: encoding).string
-        }
-        func components(_ path: String) throws -> [String] {
-            var count = 0
-            var inComponent = false
-            for byte in path.utf8 {
-                if byte == 47 { inComponent = false }
-                else if !inComponent {
-                    guard count < limits.maxPathComponentCount else { throw KaitoError.limitExceeded("cpio path component count") }
-                    count += 1
-                    inComponent = true
-                }
-            }
-            return path.utf8.split(separator: 47).map { String(decoding: $0, as: UTF8.self) }
-        }
+        let names = ArchiveNameResolver(undeclaredNames: pending.map(\.name), policy: options.encodingPolicy, limits: limits)
         var entries: [ArchiveEntry] = []
         metadata = 0
         let concatenated = pending.contains { $0.archiveIndex > 0 }
         for (index, item) in pending.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let record = item.record, header = record.header
-            let name = resolve(item.name)
-            let parts = try components(name)
+            let name = names.resolve(item.name)
+            let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "cpio path component count")
             var specific = ["variant": header.variant.rawValue, "uid": String(header.uid), "gid": String(header.gid),
                 "nlink": String(header.nlink), "ino": String(header.ino), "dev": String(header.dev)]
             if header.variant == .crc { specific["check"] = String(format: "%08x", header.check) }
@@ -149,8 +121,8 @@ final class CpioReader: FormatReader {
                 specific["rdev"] = header.rawRdev.map { String(format: "%02x", $0) }.joined()
             }
             if let link = item.link {
-                let target = resolve(link)
-                _ = try components(target)
+                let target = names.resolve(link)
+                try ArchivePath.validateComponentCount(of: target, limit: limits.maxPathComponentCount, label: "cpio path component count")
                 specific["linkPath"] = target
             }
             var cost = UInt64(256 + item.name.count + name.utf8.count + parts.count * MemoryLayout<String>.stride)
@@ -167,13 +139,11 @@ final class CpioReader: FormatReader {
         }
         self.entries = entries
         records = pending.map(\.record)
-        nameEncoding = encoding
+        nameEncoding = names.archiveEncoding
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("cpio entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "cpio")
         let record = records[entry.index]
         if record.incomplete {
             let copy = try CopyDecompressor(source: source, offset: record.offset, compressedSize: record.size)
@@ -192,7 +162,7 @@ final class CpioReader: FormatReader {
         return try EntryStream(source: source, offset: record.offset, length: record.size, limits: limits)
     }
 
-    // nil は走査上限。probe では EOF の証明にならないため失敗、reader では読み止めとする。
+    // nil は走査上限。検出（CpioHeader.detectBinary）では EOF の証明にならないため失敗、reader では読み止めとする。
     static func skipNULRun(source: any ByteSource, from start: UInt64) throws -> UInt64? {
         var offset = start
         while offset < source.length {

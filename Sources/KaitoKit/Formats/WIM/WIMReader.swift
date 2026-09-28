@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Windows Imaging（WIM）の reader。lookup table の SHA-1 で resource を引き、metadata resource の
@@ -43,7 +44,7 @@ final class WIMReader: FormatReader {
         guard header.totalParts <= 1 || header.partNumber == 1 else {
             throw KaitoError.unsupportedMethod("WIM spanned part \(header.partNumber) of \(header.totalParts) (open the first part)")
         }
-        let budget = ISOMetadataBudget(options.limits)
+        let budget = MetadataBudget(options.limits)
         // lookup table: 50 byte の entry 列（part 1 では他 part の resource も含む）。
         let table = header.lookupTable
         guard !table.isEmpty, !table.isCompressed else { throw KaitoError.malformed("wim lookup table header") }
@@ -56,7 +57,7 @@ final class WIMReader: FormatReader {
         var byHash: [[UInt8]: WIMLookupEntry] = [:]
         var metadata: [WIMLookupEntry] = []
         for index in 0..<entryCount {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let entry = WIMLookupEntry(tableBytes, index * WIMLookupEntry.size)
             if entry.header.isMetadata {
                 metadata.append(entry)
@@ -90,7 +91,7 @@ final class WIMReader: FormatReader {
     /// （install.wim の metadata は数十 MB）。buffer は image を辿った後に捨てるので累積予算には entry 由来の
     /// 費用だけを加え、buffer 自体は image ごとの上限で抑える。
     private static func readResource(_ resource: WIMResourceHeader, source: any ByteSource, chunkSize: UInt32,
-                                     compression: WIMCompression, limits: ReadLimits, budget: ISOMetadataBudget) throws -> [UInt8] {
+                                     compression: WIMCompression, limits: ReadLimits, budget: MetadataBudget) throws -> [UInt8] {
         try Checked.size(resource.originalSize, limit: limits.maxTotalMetadataSize)
         if !resource.isCompressed {
             guard resource.packedSize == resource.originalSize else { throw KaitoError.malformed("wim stored resource size") }
@@ -153,6 +154,7 @@ final class WIMReader: FormatReader {
         guard let name = utf16(m[(offset + 102)..<(offset + 102 + nameLength)]) else {
             throw KaitoError.malformed("wim directory entry name")
         }
+        // DIRENTRY は reparse point なら reparse tag、そうでなければ hard-link group を同じ 8 byte（@84）に置く（union）。
         return DirectoryEntry(length: length, attributes: WIMBytes.u32(m, offset + 8), subdirectoryOffset: WIMBytes.u64(m, offset + 16),
                               writeTime: WIMBytes.u64(m, offset + 56), hash: Array(m[(offset + 64)..<(offset + 84)]),
                               reparseTag: WIMBytes.u32(m, offset + 84), hardLink: WIMBytes.u64(m, offset + 84),
@@ -178,7 +180,7 @@ final class WIMReader: FormatReader {
     }
 
     private static func walk(metadata m: [UInt8], image: Int, root: Int?, byHash: [[UInt8]: WIMLookupEntry], header: WIMHeader,
-                             source: any ByteSource, options: ReaderOptions, budget: ISOMetadataBudget, into pending: inout [Pending]) throws {
+                             source: any ByteSource, options: ReaderOptions, budget: MetadataBudget, into pending: inout [Pending]) throws {
         guard m.count >= 8 else { throw KaitoError.truncated }
         // SECURITYBLOCK_DISK: total length、entry 数、entry 長 …、descriptor 本体。root DIRENTRY はその直後の 8 byte 境界。
         let securityLength = Int(WIMBytes.u32(m, 0))
@@ -192,7 +194,7 @@ final class WIMReader: FormatReader {
         var directoryCount = 0
         var entryCount = 0
         while let node = stack.popLast() {
-            if directoryCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: directoryCount)
             guard node.offset != 0 else { continue }
             guard visited.insert(node.offset).inserted else { throw KaitoError.malformed("wim directory cycle") }
             directoryCount += 1
@@ -201,14 +203,14 @@ final class WIMReader: FormatReader {
             var offset = Int(node.offset)
             var children: [(offset: UInt64, parent: Int?, depth: Int)] = []
             while let entry = try directoryEntry(m, at: offset) {
-                if entryCount & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: entryCount)
                 entryCount &+= 1
                 guard pending.count < options.limits.maxEntryCount else { throw KaitoError.limitExceeded("wim entry count") }
                 try budget.charge(UInt64(256 + entry.name.utf8.count))
                 var streamOffset = entry.end
                 var streams: [StreamEntry] = []
                 for index in 0..<entry.streamCount {
-                    if index & 0x3ff == 0 { try Task.checkCancellation() }
+                    try checkCancellation(every: index)
                     let stream = try streamEntry(m, at: streamOffset)
                     streams.append(stream)
                     streamOffset = stream.end
@@ -260,7 +262,7 @@ final class WIMReader: FormatReader {
                                        specific: specific, record: record))
                 // 名前付き stream（alternate data stream）は `name:stream` として公開する。
                 for (index, stream) in streams.enumerated() {
-                    if index & 0x3ff == 0 { try Task.checkCancellation() }
+                    try checkCancellation(every: index)
                     guard !stream.name.isEmpty else { continue }
                     var streamSpecific = specific
                     streamSpecific["stream"] = stream.name
@@ -293,7 +295,7 @@ final class WIMReader: FormatReader {
     /// reparse resource（REPARSE_DATA_BUFFER: tag、data length、reserved、本体）から link 先を読む。
     /// symbolic link は Flags bit 0（SYMLINK_FLAG_RELATIVE）、junction は常に絶対。`\??\` を外し `\` を `/` にする。
     private static func reparseTarget(tag: UInt32, hash: [UInt8], byHash: [[UInt8]: WIMLookupEntry], header: WIMHeader, source: any ByteSource,
-                                      options: ReaderOptions, budget: ISOMetadataBudget, zeroHash: [UInt8]) throws -> (path: String, absolute: Bool)? {
+                                      options: ReaderOptions, budget: MetadataBudget, zeroHash: [UInt8]) throws -> (path: String, absolute: Bool)? {
         guard tag == reparseTagSymbolicLink || tag == reparseTagMountPoint, hash != zeroHash,
               let resource = byHash[hash], resource.partNumber == header.partNumber,
               resource.header.originalSize >= 16, resource.header.originalSize <= 65536 else { return nil }
@@ -323,12 +325,12 @@ final class WIMReader: FormatReader {
     }
 
     private static func finalize(_ pending: [Pending], compression: WIMCompression, options: ReaderOptions,
-                                 budget: ISOMetadataBudget) throws -> ([ArchiveEntry], [Record]) {
+                                 budget: MetadataBudget) throws -> ([ArchiveEntry], [Record]) {
         var paths: [Int: [String]] = [:]
         var entries: [ArchiveEntry] = []
         var records: [Record] = []
         for (index, item) in pending.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard !item.name.isEmpty, item.name != ".", item.name != "..", !item.name.utf8.contains(where: { $0 == 0 || $0 == 0x2F }) else {
                 throw KaitoError.malformed("wim name")
             }
@@ -353,13 +355,11 @@ final class WIMReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("wim entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "wim")
         let record = records[entry.index]
         if let reason = record.unsupported { throw KaitoError.unsupportedMethod(reason) }
         guard let resource = record.resource else {
-            return try EntryStream(source: source, offset: 0, length: 0, limits: limits)
+            return try EntryStream.empty(entryIndex: entry.index, limits: limits)
         }
         let inner: any Decompressor
         if resource.header.isCompressed {
@@ -369,10 +369,13 @@ final class WIMReader: FormatReader {
             guard resource.header.packedSize == resource.header.originalSize else { throw KaitoError.malformed("wim stored resource size") }
             inner = try CopyDecompressor(source: source, offset: resource.header.offset, compressedSize: resource.header.originalSize)
         }
-        let hashing = WIMHashingDecompressor(inner)
+        let hashing = HashingDecompressor<Insecure.SHA1>(inner)
         let expected = resource.hash
         let index = entry.index
         return try EntryStream(decompressor: hashing, length: resource.header.originalSize, expectedCRC32: nil, entryIndex: index,
-                               limits: limits, completionCheck: { try hashing.verify(expected: expected, entryIndex: index) })
+                               limits: limits, completionCheck: {
+                                   // 完了時に lookup table の SHA-1 と照合する。
+                                   guard hashing.digest == expected else { throw KaitoError.checksumMismatch(entry: index) }
+                               })
     }
 }

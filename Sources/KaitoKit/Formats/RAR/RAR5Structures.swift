@@ -50,6 +50,40 @@ struct RAR5EndFlags: OptionSet, Sendable {
     static let moreVolumes = Self(rawValue: 0x0001)
 }
 
+/// Host OS values of the file header that change how attributes are read.
+enum RAR5HostOS {
+    static let windows: UInt64 = 0
+    static let unix: UInt64 = 1
+}
+
+/// Record types of the file and service header extra area.
+enum RAR5ExtraRecordType {
+    static let encryption: UInt64 = 0x01
+    static let hash: UInt64 = 0x02
+    static let time: UInt64 = 0x03
+    static let version: UInt64 = 0x04
+    static let redirection: UInt64 = 0x05
+    static let owner: UInt64 = 0x06
+    static let serviceData: UInt64 = 0x07
+}
+
+/// Redirection types of the file-system redirection extra record.
+enum RAR5RedirectionType {
+    static let unixSymlink: UInt64 = 1
+    static let windowsSymlink: UInt64 = 2
+    static let junction: UInt64 = 3
+    static let hardLink: UInt64 = 4
+    static let fileCopy: UInt64 = 5
+
+    /// Types published as symbolic links whose target is the record's text.
+    static let symbolicLinks: ClosedRange<UInt64> = unixSymlink...junction
+
+    /// Hard links and file copies store no data body of their own.
+    static func isZeroBody(_ type: UInt64?) -> Bool {
+        type == hardLink || type == fileCopy
+    }
+}
+
 struct RAR5CompressionInfo: Sendable, Equatable {
     let rawValue: UInt64
     let version: UInt8
@@ -221,4 +255,148 @@ enum RAR5VInt {
         }
         throw KaitoError.malformed("RAR vint exceeds 10 bytes")
     }
+}
+
+// MARK: - Parse state and read plans
+
+/// One CRC-verified header block: its specific and extra areas as bounded
+/// cursors, and the data area that follows (possibly cut short by EOF).
+struct RAR5Block {
+    let offset: UInt64
+    let typeValue: UInt64
+    let flags: RAR5HeaderFlags
+    let specific: RAR5ByteCursor
+    let extra: RAR5ByteCursor
+    let dataOffset: UInt64
+    let dataSize: UInt64
+    let availableDataSize: UInt64
+    let isDataTruncated: Bool
+    let nextOffset: UInt64
+}
+
+/// Extra-area records of one file header.
+struct RAR5FileExtras {
+    var encryption: RAR5EncryptionRecord?
+    var hash: RAR5HashRecord?
+    var modificationDate: Date?
+    var creationDate: Date?
+    var accessDate: Date?
+    var version: UInt64?
+    var redirection: RAR5RedirectionRecord?
+    var ownerName: String?
+    var groupName: String?
+    var ownerID: UInt64?
+    var groupID: UInt64?
+}
+
+/// Integrity values attached to one packed range. RAR5 defines CRC32 and
+/// BLAKE2sp in every non-final split header over that header's packed data;
+/// the final header carries the checksum/hash of the complete unpacked file.
+struct RAR5PackedPartIntegrity {
+    let crc32: UInt32?
+    let hash: RAR5HashRecord?
+    let usesTweakedChecksums: Bool
+}
+
+/// One file header, or split headers joined across volumes, before publication.
+struct RAR5PendingEntry {
+    let rawName: [UInt8]
+    let name: String
+    let pathComponents: [String]
+    let kind: EntryKind
+    let unpackedSize: UInt64?
+    let packedSize: UInt64
+    var availablePackedSize: UInt64? = nil
+    var isIncomplete = false
+    let modificationDate: Date?
+    let permissions: UInt16?
+    let crc32: UInt32?
+    let compression: RAR5CompressionInfo
+    let firstHeaderFlags: RAR5HeaderFlags
+    let lastHeaderFlags: RAR5HeaderFlags
+    let packedSegments: [SourceSegment]
+    let packedPartIntegrity: [RAR5PackedPartIntegrity]
+    let firstVolumeNumber: UInt64
+    let lastVolumeNumber: UInt64
+    let attributes: UInt64
+    let hostOS: UInt64
+    let extras: RAR5FileExtras
+
+    var splitBefore: Bool { firstHeaderFlags.contains(.splitBefore) }
+    var splitAfter: Bool { lastHeaderFlags.contains(.splitAfter) }
+    var isMultiVolume: Bool {
+        packedSegments.count > 1 || splitBefore || splitAfter
+    }
+}
+
+/// Read plan kept beside each published entry: packed ranges, integrity
+/// values, and the parameters the decoders need.
+struct RAR5EntryRecord {
+    let packedSegments: [SourceSegment]
+    let packedPartIntegrity: [RAR5PackedPartIntegrity]
+    let packedSize: UInt64
+    var availablePackedSize: UInt64? = nil
+    var isIncomplete = false
+    let unpackedSize: UInt64?
+    let compression: RAR5CompressionInfo
+    let encryption: RAR5EncryptionRecord?
+    let hash: RAR5HashRecord?
+    let redirectionType: UInt64?
+    let requiresPreviousVolume: Bool
+    let requiresNextVolume: Bool
+}
+
+/// Header key of an encrypted archive and whether its password check verified it.
+struct RAR5ArchiveEncryptionContext {
+    let key: Data
+    let passwordWasVerified: Bool
+}
+
+/// Bounds the aggregate work of archive-header key derivations. The parse
+/// cache is sized to retain every context reachable within maxVolumeCount,
+/// so each distinct context here corresponds to one actual derivation.
+struct RAR5HeaderKDFWorkBudget {
+    let limit: UInt64
+    private(set) var used: UInt64 = 0
+    private var contexts: Set<RAR5KeyCacheKey> = []
+
+    // Explicit because the private stored properties make the implicit
+    // memberwise initializer private as well.
+    init(limit: UInt64) {
+        self.limit = limit
+    }
+
+    mutating func charge(
+        passwordUTF8: Data,
+        salt: [UInt8],
+        count: UInt8
+    ) throws {
+        let context = RAR5KeyCacheKey(
+            passwordUTF8: passwordUTF8,
+            salt: Data(salt),
+            count: count
+        )
+        guard !contexts.contains(context) else { return }
+
+        let work = (UInt64(1) << UInt64(count)) + 32
+        let (total, overflow) = used.addingReportingOverflow(work)
+        guard !overflow, total <= limit else {
+            throw KaitoError.limitExceeded("RAR5 header encryption KDF work")
+        }
+        used = total
+        contexts.insert(context)
+    }
+}
+
+/// What `RAR5VolumeParser.parseVolume` collects from one volume.
+struct RAR5VolumeParseState {
+    var pending: [RAR5PendingEntry] = []
+    var archiveFlags = RAR5ArchiveFlags()
+    var volumeNumber: UInt64 = 0
+    var headersEncrypted = false
+    var sawMainHeader = false
+    var sawEndHeader = false
+    var endFlags = RAR5EndFlags()
+    var serviceHeaderCount = 0
+    var retainedMetadataSize: UInt64 = 0
 }

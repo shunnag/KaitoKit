@@ -4,23 +4,12 @@ import Foundation
 // 節番号は ECMA-167 を「部/節」、UDF を「UDF §」で示す。第三者 UDF 実装の source は開いていない。
 
 enum UDFBytes {
-    static func u16(_ b: [UInt8], _ o: Int) -> UInt16 { UInt16(b[o]) | UInt16(b[o + 1]) << 8 }
-    static func u32(_ b: [UInt8], _ o: Int) -> UInt32 {
-        UInt32(b[o]) | UInt32(b[o + 1]) << 8 | UInt32(b[o + 2]) << 16 | UInt32(b[o + 3]) << 24
-    }
-    static func u64(_ b: [UInt8], _ o: Int) -> UInt64 { UInt64(u32(b, o)) | UInt64(u32(b, o + 4)) << 32 }
+    static func u16(_ b: [UInt8], _ o: Int) -> UInt16 { LittleEndian.uint16(b, at: o) }
+    static func u32(_ b: [UInt8], _ o: Int) -> UInt32 { LittleEndian.uint32(b, at: o) }
+    static func u64(_ b: [UInt8], _ o: Int) -> UInt64 { LittleEndian.uint64(b, at: o) }
 
     /// 3/7.2.6: CRC-ITU-T（x^16 + x^12 + x^5 + 1）、初期値 0、反転なし。仕様の例: 70 6A 77 → 3299。
-    static func crc16(_ bytes: ArraySlice<UInt8>) -> UInt16 {
-        var crc: UInt16 = 0
-        for byte in bytes {
-            crc ^= UInt16(byte) << 8
-            for _ in 0..<8 {
-                crc = crc & 0x8000 != 0 ? (crc << 1) ^ 0x1021 : crc << 1
-            }
-        }
-        return crc
-    }
+    static func crc16(_ bytes: ArraySlice<UInt8>) -> UInt16 { CRC16XModem.checksum(bytes) }
 
     /// 1/7.4 regid の Identifier（byte 1〜23、末尾の #00 を除く）。
     static func identifier(_ b: [UInt8], _ o: Int) -> [UInt8] {

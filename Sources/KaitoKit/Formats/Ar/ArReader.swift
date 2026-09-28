@@ -57,7 +57,7 @@ final class ArReader: FormatReader {
         }
         var headerCount = 0
         walk: while offset < source.length {
-            if headerCount & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: headerCount)
             headerCount &+= 1
             guard source.length - offset >= 60 else {
                 if options.recoverDamagedArchives { break }
@@ -136,42 +136,14 @@ final class ArReader: FormatReader {
             offset = min(layout.next, source.length)
             if incomplete { break }
         }
-        let names = pending.map(\.name).filter {
-            if case .fixed = options.encodingPolicy { return true }
-            return !EncodingDetector.isStrictUTF8($0)
-        }
-        let encoding = EncodingDetector.detectArchiveEncoding(names: names, policy: options.encodingPolicy,
-            maximumBatchByteCount: Int(clamping: limits.maxMetadataSize))
-        var decoded: [[UInt8]: String] = [:]
-        if let encoding {
-            let strings = EncodingDetector.decodeArchiveNames(names, as: encoding,
-                maximumBatchByteCount: Int(clamping: limits.maxMetadataSize))
-            for (bytes, string) in zip(names, strings) { if let string { decoded[bytes] = string } }
-        }
-        func resolve(_ bytes: [UInt8]) -> String {
-            decoded[bytes] ?? EncodingDetector.resolveUndeclaredName(bytes: bytes, policy: options.encodingPolicy,
-                archiveEncoding: encoding).string
-        }
-        func components(_ path: String) throws -> [String] {
-            var count = 0
-            var inComponent = false
-            for byte in path.utf8 {
-                if byte == 47 { inComponent = false }
-                else if !inComponent {
-                    guard count < limits.maxPathComponentCount else { throw KaitoError.limitExceeded("ar path component count") }
-                    count += 1
-                    inComponent = true
-                }
-            }
-            return path.utf8.split(separator: 47).map { String(decoding: $0, as: UTF8.self) }
-        }
+        let names = ArchiveNameResolver(undeclaredNames: pending.map(\.name), policy: options.encodingPolicy, limits: limits)
         var entries: [ArchiveEntry] = []
         // 表と pending を保持したまま復号名・component を追加するため、合算で制限する。
         for (index, item) in pending.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let record = item.record, header = record.header
-            let name = resolve(item.name)
-            let parts = try components(name)
+            let name = names.resolve(item.name)
+            let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "ar path component count")
             var specific = ["nameForm": item.nameForm, "headerOffset": String(record.headerOffset)]
             if let uid = header.uid { specific["uid"] = String(uid) }
             if let gid = header.gid { specific["gid"] = String(gid) }
@@ -189,13 +161,11 @@ final class ArReader: FormatReader {
         }
         self.entries = entries
         records = pending.map(\.record)
-        nameEncoding = encoding
+        nameEncoding = names.archiveEncoding
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else {
-            throw KaitoError.notFound("ar entry index \(entry.index)")
-        }
+        try recordIndex(of: entry, label: "ar")
         let record = records[entry.index]
         if record.incomplete {
             let copy = try CopyDecompressor(source: source, offset: record.offset, compressedSize: record.size)

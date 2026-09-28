@@ -33,7 +33,7 @@ enum WinZipAESStrength: UInt8, Sendable, CaseIterable {
 
 // 0x9901 追加フィールドの 7 バイト仕様部分。
 struct WinZipAESMetadata: Sendable, Equatable {
-    static let extraFieldID: UInt16 = 0x9901
+    static let extraFieldID = ZipExtraFieldID.winZipAES
 
     let vendorVersion: WinZipAESVendorVersion
     let strength: WinZipAESStrength
@@ -53,6 +53,7 @@ struct WinZipAESMetadata: Sendable, Equatable {
         self.compressionMethod = compressionMethod
     }
 
+    // テスト専用。読取経路では中央ディレクトリの解析が 0x9901 を検証して memberwise init で作る。
     // 呼び出し側が ID と長さを除いた追加フィールド本体を渡す。
     init(extraFieldPayload payload: Data) throws {
         guard payload.count >= 7 else {
@@ -79,6 +80,7 @@ struct WinZipAESMetadata: Sendable, Equatable {
 }
 
 // 圧縮サイズに含まれる salt / verifier / ciphertext / auth を分離する。
+// 読取経路は二つの長さの定数だけを使い、`init(data:)` はテスト専用の一括復号が使う。
 struct WinZipAESPayload: Sendable, Equatable {
     static let passwordVerifierSize = 2
     static let authenticationCodeSize = 10
@@ -166,6 +168,7 @@ struct WinZipAESDerivedKeys: Sendable, Equatable {
     }
 }
 
+// テスト専用の一括復号の結果。
 struct WinZipAESDecryptionResult: Sendable, Equatable {
     let data: Data
     let derivedKeys: WinZipAESDerivedKeys
@@ -179,6 +182,7 @@ struct WinZipAESStreamDecryptionResult: Sendable {
     let shouldCacheDerivedKeys: Bool
 }
 
+// テスト専用の一括復号が返す、遅延した HMAC の照合。
 struct WinZipAESAuthenticationCheck: Sendable, Equatable {
     private let computedCode: Data
     private let storedCode: Data
@@ -189,7 +193,7 @@ struct WinZipAESAuthenticationCheck: Sendable, Equatable {
     }
 
     func verify() throws {
-        guard ZipConstantTime.equals(computedCode, storedCode) else {
+        guard ConstantTime.equals(computedCode, storedCode) else {
             // verifier の 16 bit 衝突を含む誤パスワードもここで拒否する。
             throw KaitoError.wrongPassword
         }
@@ -252,7 +256,7 @@ enum WinZipAES {
             ? min(Checked.sub(compressedSize, overhead), availableCiphertext)
             : availableCiphertext
         let authenticationOffset = try Checked.add(ciphertextOffset, ciphertextSize)
-        // 欠損した暗号文には末尾 HMAC がない。完全な範囲の認証は従来どおり必須。
+        // 欠損した暗号文には末尾 HMAC がない。完全な範囲では認証が必須。
         let storedCode: Data? = try isIncomplete ? nil : Data(readByteRange(
             source: source,
             offset: authenticationOffset,
@@ -274,6 +278,7 @@ enum WinZipAES {
         )
     }
 
+    // テスト専用の一括復号 API（decrypt と prepareDecryption）。読取経路は prepareStreamingDecryption を使う。
     static func decrypt(
         payload data: Data,
         password: String,
@@ -306,7 +311,7 @@ enum WinZipAES {
         return result
     }
 
-    // EntryStream 用: verifier を検証して復号するが、HMAC の照合は終端クロージャまで遅延する。
+    // verifier を検証して復号し、HMAC の照合は返した authenticationCheck まで遅延する。
     static func prepareDecryption(
         payload data: Data,
         password: String,
@@ -390,7 +395,7 @@ enum WinZipAES {
               keys.salt == salt else {
             throw KaitoError.malformed("cached WinZip AES keys do not match the payload")
         }
-        guard ZipConstantTime.equals(keys.passwordVerifier, passwordVerifier) else {
+        guard ConstantTime.equals(keys.passwordVerifier, passwordVerifier) else {
             throw KaitoError.wrongPassword
         }
     }
@@ -556,7 +561,7 @@ final class WinZipAESByteSource: ByteSource {
             hmac.finalize().prefix(WinZipAESPayload.authenticationCodeSize)
         )
         if let storedAuthenticationCode,
-           !ZipConstantTime.equals(computed, storedAuthenticationCode) {
+           !ConstantTime.equals(computed, storedAuthenticationCode) {
             throw KaitoError.wrongPassword
         }
         guard copied == destination.count else { throw KaitoError.truncated }
@@ -573,7 +578,7 @@ final class WinZipAESByteSource: ByteSource {
         try state.withLock { state in
             if let computed = state.computedAuthenticationCode {
                 if let storedAuthenticationCode,
-                   !ZipConstantTime.equals(computed, storedAuthenticationCode) {
+                   !ConstantTime.equals(computed, storedAuthenticationCode) {
                     throw KaitoError.wrongPassword
                 }
                 return
@@ -613,7 +618,7 @@ final class WinZipAESByteSource: ByteSource {
             )
             state.computedAuthenticationCode = computed
             if let storedAuthenticationCode,
-               !ZipConstantTime.equals(computed, storedAuthenticationCode) {
+               !ConstantTime.equals(computed, storedAuthenticationCode) {
                 throw KaitoError.wrongPassword
             }
         }
@@ -688,6 +693,7 @@ struct WinZipAESCTR: Sendable {
         }
     }
 
+    // テスト専用の一括復号と CTR のテストが使う。読取経路は transformInPlace を使う。
     mutating func transform(_ input: Data) throws -> Data {
         guard !input.isEmpty else {
             return Data()
@@ -769,7 +775,7 @@ struct WinZipAESCTR: Sendable {
     }
 }
 
-// CommonCrypto のポインタ境界をこの型だけに封じ込める。
+// CommonCrypto の呼出しは Core/CommonCryptoPrimitives。ここは WinZip AES の入力検査と error 文言。
 private enum ZipCommonCrypto {
     static func pbkdf2SHA1(
         password: Data,
@@ -780,108 +786,30 @@ private enum ZipCommonCrypto {
         guard iterations > 0, outputLength > 0 else {
             throw KaitoError.malformed("invalid PBKDF2 parameters")
         }
-
-        let passwordLength = password.count
-        var passwordStorage = [UInt8](password)
-        if passwordStorage.isEmpty {
-            passwordStorage.append(0)
+        do {
+            return try CommonCryptoPrimitives.pbkdf2SHA1(
+                password: password, salt: salt, iterations: iterations, outputLength: outputLength
+            )
+        } catch {
+            throw KaitoError.malformed("CommonCrypto PBKDF2 failed (\(error.status))")
         }
-        var saltStorage = [UInt8](salt)
-        if saltStorage.isEmpty {
-            saltStorage.append(0)
-        }
-        var output = [UInt8](repeating: 0, count: outputLength)
-
-        let status = passwordStorage.withUnsafeBytes { passwordBuffer in
-            saltStorage.withUnsafeBytes { saltBuffer in
-                output.withUnsafeMutableBytes { outputBuffer in
-                    // 各 storage はクロージャの間固定され、C 関数は呼び出し後にポインタを保持しない。
-                    CCKeyDerivationPBKDF(
-                        CCPBKDFAlgorithm(kCCPBKDF2),
-                        passwordBuffer.baseAddress?.assumingMemoryBound(to: CChar.self),
-                        passwordLength,
-                        saltBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self),
-                        salt.count,
-                        CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1),
-                        iterations,
-                        outputBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self),
-                        outputLength
-                    )
-                }
-            }
-        }
-        guard status == kCCSuccess else {
-            throw KaitoError.malformed("CommonCrypto PBKDF2 failed (\(status))")
-        }
-        return output
     }
 
     static func hmacSHA1(data: Data, key: Data) -> Data {
-        let dataLength = data.count
-        var dataStorage = [UInt8](data)
-        if dataStorage.isEmpty {
-            dataStorage.append(0)
-        }
-        var keyStorage = [UInt8](key)
-        if keyStorage.isEmpty {
-            keyStorage.append(0)
-        }
-        var digest = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
-
-        keyStorage.withUnsafeBytes { keyBuffer in
-            dataStorage.withUnsafeBytes { dataBuffer in
-                digest.withUnsafeMutableBytes { digestBuffer in
-                    // CCHmac は同期的に完了し、ポインタはこのクロージャ外に逃げない。
-                    CCHmac(
-                        CCHmacAlgorithm(kCCHmacAlgSHA1),
-                        keyBuffer.baseAddress,
-                        key.count,
-                        dataBuffer.baseAddress,
-                        dataLength,
-                        digestBuffer.baseAddress
-                    )
-                }
-            }
-        }
-        return Data(digest)
+        Data(CommonCryptoPrimitives.hmacSHA1(data: data, key: key))
     }
 
+    /// ECB は CTR の鍵流生成にのみ使う。
     static func aesECBEncrypt(blocks: [UInt8], key: Data) throws -> [UInt8] {
         guard !blocks.isEmpty, blocks.count.isMultiple(of: kCCBlockSizeAES128) else {
             throw KaitoError.malformed("AES-ECB input is not block aligned")
         }
-
-        let input = blocks
-        let keyStorage = [UInt8](key)
-        var output = [UInt8](repeating: 0, count: blocks.count)
-        var outputLength = 0
-        let outputCapacity = output.count
-
-        let status = keyStorage.withUnsafeBytes { keyBuffer in
-            input.withUnsafeBytes { inputBuffer in
-                output.withUnsafeMutableBytes { outputBuffer in
-                    // CCCrypt はこの呼び出し中だけ各領域を参照する。ECB は CTR の鍵流生成にのみ使う。
-                    CCCrypt(
-                        CCOperation(kCCEncrypt),
-                        CCAlgorithm(kCCAlgorithmAES),
-                        CCOptions(kCCOptionECBMode),
-                        keyBuffer.baseAddress,
-                        key.count,
-                        nil,
-                        inputBuffer.baseAddress,
-                        input.count,
-                        outputBuffer.baseAddress,
-                        outputCapacity,
-                        &outputLength
-                    )
-                }
-            }
-        }
-        guard status == kCCSuccess, outputLength == blocks.count else {
+        do {
+            return try CommonCryptoPrimitives.aesECBEncrypt(blocks: blocks, key: key)
+        } catch {
             throw KaitoError.malformed(
-                "CommonCrypto AES-ECB failed (\(status), \(outputLength) bytes)"
+                "CommonCrypto AES-ECB failed (\(error.status), \(error.outputLength) bytes)"
             )
         }
-        return output
     }
 }

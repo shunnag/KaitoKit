@@ -1,0 +1,210 @@
+import Foundation
+import KaitoKit
+import XCTest
+
+final class LZMADecoderTests: XCTestCase {
+    func testEndMarkedStreamWithDictionaryWrapAndTinyReads() throws {
+        // xz 5.8.3: `xz --format=raw --lzma1=dict=4KiB,lc=3,lp=0,pb=2`.
+        // The complete raw output below has SHA-256
+        // 79571bd455af60fab49756c278c50ef38aa28637cc31baef113603f8af6ef5f8.
+        let compressed = try Hex.data(
+            "002598492777f6198bfb55ec9f9870645187a7c68eabd4c78b5b16ef162410c2" +
+            "4140807bfabb0caa78f7675954c402235e482aa24588f9b0fa9e349dfb09dd9a" +
+            "037b33600bfffbbd90d6385b994ec2b712fe8e04f8e7eb2c125e32bec1e8186" +
+            "5a3dea28c3ecfa16c19f1ce9c01f1408a230581994fc73bd7468d9e01fc3db4" +
+            "f52b870f875744d345416bad2fffffe7e0e000"
+        )
+        var expected = Data()
+        for _ in 0..<500 {
+            expected.append(Data("KaitoKit-LZMA-streaming-".utf8))
+        }
+        for _ in 0..<30 {
+            expected.append(contentsOf: UInt8(0)..<UInt8(64))
+        }
+
+        let decoder = try makeDecoder(
+            compressed,
+            dictionarySize: 4_096,
+            expectedSize: nil
+        )
+        XCTAssertEqual(try drain(decoder, bufferSize: 7), expected)
+        XCTAssertTrue(decoder.isFinished)
+    }
+
+    func testKnownSizeDoesNotRequireEndMarker() throws {
+        // xz 5.8.3: `xz --format=raw --lzma1=dict=64KiB,lc=3,lp=0,pb=2`。
+        // 出力 `00309888aa02a643ebffffb5800000` から最後の end marker / range
+        // coder 終端を除いた raw LZMA1 data。
+        let compressed = try Hex.data("00309888aa02a643ebffffb580")
+        let expected = Data("abcabcabcabcabcabc".utf8)
+        let decoder = try makeDecoder(
+            compressed,
+            dictionarySize: 65_536,
+            expectedSize: UInt64(expected.count)
+        )
+
+        XCTAssertEqual(try drain(decoder, bufferSize: 1), expected)
+        XCTAssertTrue(decoder.isFinished)
+    }
+
+    func testLiteralRunTransfersConsumedMatchHeadWithinOneRead() throws {
+        let compressed = try Hex.data("00309888aa02a643ebffffb580")
+        let expected = Data("abcabcabcabcabcabc".utf8)
+        let decoder = try makeDecoder(
+            compressed,
+            dictionarySize: 65_536,
+            expectedSize: UInt64(expected.count)
+        )
+        var output = [UInt8](repeating: 0, count: expected.count)
+
+        let count = try output.withUnsafeMutableBytes { storage in
+            try decoder.read(into: storage)
+        }
+        XCTAssertEqual(count, expected.count)
+        XCTAssertEqual(Data(output), expected)
+        XCTAssertTrue(decoder.isFinished)
+    }
+
+    func testEndMarkerBeforeKnownSizeIsMalformed() throws {
+        let compressed = try Hex.data("0083fffbffffc0000000")
+        let decoder = try makeDecoder(
+            compressed,
+            dictionarySize: 65_536,
+            expectedSize: 1
+        )
+
+        XCTAssertThrowsError(try drain(decoder, bufferSize: 8)) { error in
+            guard case let .malformed(reason) = error as? KaitoError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertTrue(reason.contains("end marker"))
+        }
+    }
+
+    func testEndMarkedStreamRejectsTruncation() throws {
+        let compressed = try Hex.data("00309888aa02a643ebffffb580")
+        let decoder = try makeDecoder(
+            compressed,
+            dictionarySize: 65_536,
+            expectedSize: nil
+        )
+
+        XCTAssertThrowsError(try drain(decoder, bufferSize: 2)) { error in
+            XCTAssertEqual(error as? KaitoError, .truncated)
+        }
+    }
+
+    func testRejectsDictionaryBeyondLimitBeforeAllocation() throws {
+        let compressed = try Hex.data("00309888aa02a643ebffffb5800000")
+        XCTAssertThrowsError(
+            try makeDecoder(
+                compressed,
+                dictionarySize: 65_536,
+                expectedSize: 18,
+                dictionarySizeLimit: 65_535
+            )
+        ) { error in
+            guard case .limitExceeded = error as? KaitoError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testRejectsInvalidPropertiesAndRangeInitialization() throws {
+        let source = DataByteSource(Data(repeating: 0, count: 5))
+        XCTAssertThrowsError(
+            try LZMADecoder(
+                source: source,
+                offset: 0,
+                compressedSize: 5,
+                properties: [225, 0, 0, 1, 0],
+                expectedSize: nil,
+                dictionarySizeLimit: 1 << 20
+            )
+        ) { error in
+            guard case .malformed = error as? KaitoError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+
+        let badInitialization = Data([1, 0, 0, 0, 0])
+        XCTAssertThrowsError(
+            try makeDecoder(
+                badInitialization,
+                dictionarySize: 65_536,
+                expectedSize: nil
+            )
+        ) { error in
+            guard case .malformed = error as? KaitoError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testHugeLogicalCompressedRangeDoesNotTrapDuringRefillSizing() throws {
+        let source = EmptyHugeLogicalByteSource()
+        XCTAssertThrowsError(
+            try LZMADecoder(
+                source: source,
+                offset: 0,
+                compressedSize: UInt64.max,
+                properties: [0x5D, 0x00, 0x00, 0x01, 0x00],
+                expectedSize: 1,
+                dictionarySizeLimit: 1 << 20
+            )
+        ) { error in
+            XCTAssertEqual(error as? KaitoError, .truncated)
+        }
+        XCTAssertEqual(source.maximumRequestedCount, 256 * 1_024)
+    }
+
+    private func makeDecoder(
+        _ compressed: Data,
+        dictionarySize: UInt32,
+        expectedSize: UInt64?,
+        dictionarySizeLimit: UInt64 = 1 << 20
+    ) throws -> LZMADecoder {
+        try LZMADecoder(
+            source: DataByteSource(compressed),
+            offset: 0,
+            compressedSize: UInt64(compressed.count),
+            properties: [
+                0x5D,
+                UInt8(dictionarySize & 0xFF),
+                UInt8((dictionarySize >> 8) & 0xFF),
+                UInt8((dictionarySize >> 16) & 0xFF),
+                UInt8((dictionarySize >> 24) & 0xFF),
+            ],
+            expectedSize: expectedSize,
+            dictionarySizeLimit: dictionarySizeLimit
+        )
+    }
+
+    /// 終わらない decoder で止まらないよう、読む回数に上限を置く。
+    private func drain(_ decoder: any Decompressor, bufferSize: Int) throws -> Data {
+        try KaitoKitTests.drain(decoder, bufferSize: bufferSize, maxReads: 100_000)
+    }
+}
+
+private final class EmptyHugeLogicalByteSource: ByteSource, @unchecked Sendable {
+    let length = UInt64.max
+
+    private let lock = NSLock()
+    private var requestedCount = 0
+
+    var maximumRequestedCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestedCount
+    }
+
+    func read(
+        into buffer: UnsafeMutableRawBufferPointer,
+        at offset: UInt64
+    ) throws -> Int {
+        lock.lock()
+        requestedCount = max(requestedCount, buffer.count)
+        lock.unlock()
+        return 0
+    }
+}

@@ -5,9 +5,7 @@ import XCTest
 
 final class KaitoArchiveARJTests: XCTestCase {
     func testARJNamesItsFormatAndReadsCompressedMembers() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let text = try String(contentsOf: root.appendingPathComponent("Fixtures/arj/basic.arj.b64"), encoding: .utf8)
-        let archive = try XCTUnwrap(KaitoArchive(data: try XCTUnwrap(Data(base64Encoded: text, options: .ignoreUnknownCharacters))))
+        let archive = try XCTUnwrap(KaitoArchive(data: try CompatFixtures.base64("arj/basic.arj")))
         XCTAssertEqual(archive.formatName(), "ARJ")
         XCTAssertEqual(archive.numberOfEntries(), 8)
         let data = try XCTUnwrap((0..<archive.numberOfEntries()).first { archive.name(ofEntry: $0) == "DATA" })

@@ -1,11 +1,9 @@
 import Foundation
 
-// 命名規則は KaitoKit の SplitVolumeSet / ZipSplitVolumeSet と共有する。
-// 出自は両 reader のコメントを参照。新たな外部実装は参照していない。
-
 /// URL から実際に組み立てた分割巻と、その組み立て時点の同一性。
 /// 名前や属性はスナップショットであり、現在のパスの存在・同一性を保証しない。
 public struct ArchiveVolumeSet: Sendable, Equatable {
+    /// 巻名の付け方。巻名の生成と ``ArchiveVolumeSet/parse(fileName:)`` の結果に使う。
     public enum Scheme: Sendable, Equatable {
         /// `<stem>.001` などのバイト分割。width を超える巻番号は桁を伸ばす。
         case numbered(stem: String, width: Int)
@@ -38,14 +36,21 @@ public struct ArchiveVolumeSet: Sendable, Equatable {
     public struct Volume: Sendable, Equatable {
         /// 親 URL と、実際の open / openat に使った巻名（symlink は解決しない）。
         public let url: URL
+        /// 巻の byte 長（st_size）。
         public let length: UInt64
+        /// 巻の device（st_dev の bit 列を符号なしに広げた値）。
         public let device: UInt64
+        /// 巻の inode 番号（st_ino）。
         public let inode: UInt64
+        /// st_mode。permission bits に加えて S_IFMT のファイル種別を含む。
         public let mode: UInt16
+        /// 最終変更時刻（st_mtimespec）の秒の部分。
         public let modificationSeconds: Int64
+        /// 最終変更時刻（st_mtimespec）の nanosecond の部分。
         public let modificationNanoseconds: Int64
     }
 
+    /// 組み立てた巻の命名。
     public let scheme: Scheme
     /// 論理順。ZIP の最終 `.zip` / `.zipx` は最後に置く。常に 2 巻以上。
     public let volumes: [Volume]

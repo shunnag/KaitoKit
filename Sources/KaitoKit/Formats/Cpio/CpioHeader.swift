@@ -46,19 +46,7 @@ struct CpioHeader {
         guard UInt64(bytes.count) >= variant.headerSize else { throw KaitoError.truncated }
         self.variant = variant
         func number(_ offset: Int, _ width: Int, _ radix: UInt64) throws -> UInt64 {
-            var value: UInt64 = 0
-            for byte in bytes[offset..<offset + width] {
-                let digit: UInt64
-                switch byte {
-                case 48...57: digit = UInt64(byte - 48)
-                case 65...70: digit = UInt64(byte - 65 + 10)
-                case 97...102: digit = UInt64(byte - 97 + 10)
-                default: throw KaitoError.malformed("cpio header field")
-                }
-                guard digit < radix else { throw KaitoError.malformed("cpio header field") }
-                value = try Checked.add(Checked.mul(value, radix), digit)
-            }
-            return value
+            try ASCIIDigits.unsigned(bytes[offset..<offset + width], radix: radix, label: "cpio header field")
         }
         func word(_ offset: Int) -> UInt32 {
             let a = UInt32(bytes[offset]), b = UInt32(bytes[offset + 1])
@@ -130,12 +118,14 @@ struct CpioHeader {
         return (header, name, layout.next)
     }
 
-    static func probe(_ prefix: [UInt8], source: any ByteSource) -> CpioVariant? {
+    /// ASCII 系 cpio（odc / newc / crc）の先頭 record を source から読んで検証し、その variant を返す。
+    static func detectVariant(_ prefix: [UInt8], source: any ByteSource) -> CpioVariant? {
         guard let variant = variant(prefix), !variant.isBinary else { return nil }
         return (try? plausible(source: source, at: 0))?.0.variant
     }
 
-    static func probeBinary(source: any ByteSource, recoverDamagedArchives: Bool = false) -> Bool {
+    /// binary cpio の先頭から最大 4 record を source から読んで検証する。
+    static func detectBinary(source: any ByteSource, recoverDamagedArchives: Bool = false) -> Bool {
         do {
             var offset: UInt64 = 0
             for index in 0..<4 {

@@ -43,7 +43,7 @@ final class StuffItReader: FormatReader {
         var pathBytes = UInt64(archiveComment?.utf8.count ?? 0)
         try Checked.size(Checked.add(pathBytes, parser.metadataSize), limit: options.limits.maxTotalMetadataSize)
         for (index, record) in records.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let detection = EncodingDetector.resolveUndeclaredName(bytes: record.rawName, policy: options.encodingPolicy,
                                                                    archiveEncoding: encoding)
             var resolved = detection.string
@@ -66,7 +66,7 @@ final class StuffItReader: FormatReader {
             result.append(ArchiveEntry(index: result.count, rawName: RawName(bytes: record.rawName, isDirectoryHint: record.directory),
                 name: path.joined(separator: "/"), pathComponents: path, kind: record.directory ? .directory : .file,
                 uncompressedSize: record.size, compressedSize: record.stored,
-                modificationDate: Date(timeIntervalSince1970: Double(record.modified) - 2_082_844_800),
+                modificationDate: MacEpoch.date(seconds: record.modified),
                 posixPermissions: nil, isEncrypted: record.encrypted, solidGroup: -1, crc32: nil,
                 methodDescription: record.directory ? "Directory" : Self.methodName(record.method), formatSpecific: metadata))
         }

@@ -4,33 +4,16 @@ import Foundation
 // container 実装には XADMaster / 7-Zip C++ archive decoder のコードを取り込まず、
 // 7zz は差分 oracle のみに使う。
 final class SevenZipReader: FormatReader {
-    private static let signature: [UInt8] = [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]
-    private static let signatureHeaderSize: UInt64 = 32
-
     private struct Record: Sendable, Equatable {
         let substream: SevenZipSubstream?
         let isEncrypted: Bool
     }
 
-    private struct NextHeader {
-        let bytes: [UInt8]
-        let absoluteOffset: UInt64
-    }
-
-    private struct DecodedHeader {
-        let bytes: [UInt8]
-        let isEncrypted: Bool
-    }
-
-    private struct HeaderKDFWorkBudget {
-        var remaining: UInt64
-
-        mutating func charge(_ rounds: UInt64) throws {
-            guard rounds <= remaining else {
-                throw KaitoError.limitExceeded("7z header KDF work")
-            }
-            remaining -= rounds
-        }
+    /// Windows 属性のうち、entry の種別に使う bit。
+    private enum WindowsAttribute {
+        static let directory: UInt32 = 0x10
+        /// 上位 16 bit に Unix mode が入っている印（p7zip 系の拡張）。
+        static let unixExtension: UInt32 = 0x8000
     }
 
     let format: ArchiveFormat = .sevenZip
@@ -67,51 +50,23 @@ final class SevenZipReader: FormatReader {
         let metadataBudget = SevenZipMetadataBudget(
             limit: options.limits.maxTotalMetadataSize
         )
-        var resolvedPassword = options.password
-        var headerKDFBudget = HeaderKDFWorkBudget(remaining: options.limits.maxSevenZipHeaderKDFWork)
-        let nextHeader = try Self.readNextHeader(source: source, limits: options.limits, editRecorder: editRecorder)
-        let decodedHeader = try Self.decodeNextHeader(
-            nextHeader.bytes,
+        let nextHeader = try SevenZipHeaderDecoder.readNextHeader(
             source: source,
-            packedDataEnd: nextHeader.absoluteOffset,
             limits: options.limits,
-            maximumAESCyclesPower: options.maxSevenZipAESCyclesPower,
-            keyCache: keyCache,
-            headerKDFBudget: &headerKDFBudget,
-            packedStreamVerifier: packedStreamVerifier,
-            metadataBudget: metadataBudget,
-            password: &resolvedPassword,
-            passwordProvider: options.passwordProvider,
             editRecorder: editRecorder
         )
-        editRecorder?.state.plainHeaderLength = UInt64(decodedHeader.bytes.count)
-        let header: SevenZipParsedHeader
-        do {
-            header = try Self.parseHeader(
-                decodedHeader.bytes,
-                source: source,
-                packedDataEnd: nextHeader.absoluteOffset,
-                limits: options.limits,
-                maximumAESCyclesPower: options.maxSevenZipAESCyclesPower,
-                keyCache: keyCache,
-                headerKDFBudget: &headerKDFBudget,
-                packedStreamVerifier: packedStreamVerifier,
-                metadataBudget: metadataBudget,
-                password: &resolvedPassword,
-                passwordProvider: options.passwordProvider,
-                editRecorder: editRecorder
-            )
-        } catch let error as KaitoError {
-            guard decodedHeader.isEncrypted else { throw error }
-            switch error {
-            case .malformed, .truncated, .checksumMismatch:
-                throw KaitoError.wrongPassword
-            case .passwordRequired, .wrongPassword, .limitExceeded, .unsupportedMethod:
-                throw error
-            default:
-                throw error
-            }
-        }
+        let decoder = SevenZipHeaderDecoder(
+            source: source,
+            packedDataEnd: nextHeader.absoluteOffset,
+            options: options,
+            keyCache: keyCache,
+            packedStreamVerifier: packedStreamVerifier,
+            metadataBudget: metadataBudget,
+            editRecorder: editRecorder
+        )
+        let decodedHeader = try decoder.decodeNextHeader(nextHeader.bytes)
+        let header = try decoder.parseHeader(decodedHeader)
+
         let ranges: [[Int: SevenZipPackRange]]
         if let streams = header.streams {
             ranges = try SevenZipFolderLayout.ranges(
@@ -136,7 +91,7 @@ final class SevenZipReader: FormatReader {
         self.records = built.records
         self.keyCache = keyCache
         self.packedStreamVerifier = packedStreamVerifier
-        self.password = resolvedPassword
+        self.password = decoder.password
         self.editState = editRecorder?.state
     }
 
@@ -156,9 +111,9 @@ final class SevenZipReader: FormatReader {
         self.password = options.password
     }
 
-    func reopened(options: ReaderOptions) -> sending SevenZipReader {
-        // No folder coordinator, verified-pack cache or derived key crosses
-        // the reader boundary, including keys used to decode the header.
+    func reopened(options: ReaderOptions) -> sending (any FormatReader)? {
+        // folder coordinator、検証済み pack の記録、導出済みの鍵（header の復号に使った鍵を含む）は
+        // reader の境界を越えて共有しない。
         SevenZipReader(source: source, options: options, entries: entries,
                        streams: streams, packedRanges: packedRanges, records: records, editState: editState)
     }
@@ -188,11 +143,7 @@ final class SevenZipReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entry.index >= 0, entry.index < records.count,
-              entries[entry.index] == entry else {
-            throw KaitoError.notFound("7z entry index \(entry.index)")
-        }
-        let record = records[entry.index]
+        let record = records[try recordIndex(of: entry, label: "7z")]
         guard let substream = record.substream else {
             let empty = DataByteSource(data: Data())
             let decoder = try CopyDecompressor(source: empty, offset: 0, compressedSize: 0)
@@ -270,264 +221,6 @@ final class SevenZipReader: FormatReader {
         )
     }
 
-    private static func readNextHeader(
-        source: any ByteSource,
-        limits: ReadLimits,
-        editRecorder: SevenZipEditRecorder?
-    ) throws -> NextHeader {
-        guard source.length >= signatureHeaderSize else { throw KaitoError.truncated }
-        let fixed = try readByteRange(source: source, offset: 0, count: 32)
-        guard Array(fixed[0..<6]) == signature else {
-            throw KaitoError.unsupportedFormat
-        }
-        guard fixed[6] == 0, fixed[7] <= 4 else {
-            throw KaitoError.unsupportedMethod("7z version \(fixed[6]).\(fixed[7])")
-        }
-        let recordedStartCRC = littleUInt32(fixed, at: 8)
-        let startBytes = Array(fixed[12..<32])
-        guard CRC32.checksum(startBytes) == recordedStartCRC else {
-            throw KaitoError.malformed("7z start-header CRC mismatch")
-        }
-
-        let nextOffset = littleUInt64(fixed, at: 12)
-        let nextSize = littleUInt64(fixed, at: 20)
-        let nextCRC = littleUInt32(fixed, at: 28)
-        try Checked.size(nextSize, limit: limits.maxMetadataSize)
-        let absoluteOffset = try Checked.add(signatureHeaderSize, nextOffset)
-        let end = try Checked.add(absoluteOffset, nextSize)
-        guard end <= source.length else {
-            throw KaitoError.truncated
-        }
-        let bytes = try readByteRange(
-            source: source,
-            offset: absoluteOffset,
-            count: try Checked.toInt(nextSize)
-        )
-        guard CRC32.checksum(bytes) == nextCRC else {
-            throw KaitoError.malformed("7z next-header CRC mismatch")
-        }
-        editRecorder?.state.versionMajor = fixed[6]
-        editRecorder?.state.versionMinor = fixed[7]
-        editRecorder?.state.nextHeaderRange = absoluteOffset..<end
-        return NextHeader(bytes: bytes, absoluteOffset: absoluteOffset)
-    }
-
-    private static func decodeNextHeader(
-        _ bytes: [UInt8],
-        source: any ByteSource,
-        packedDataEnd: UInt64,
-        limits: ReadLimits,
-        maximumAESCyclesPower: UInt8,
-        keyCache: SevenZipAESKeyCache,
-        headerKDFBudget: inout HeaderKDFWorkBudget,
-        packedStreamVerifier: SevenZipPackedStreamVerifier,
-        metadataBudget: SevenZipMetadataBudget,
-        password: inout String?,
-        passwordProvider: (any PasswordProvider)?,
-        editRecorder: SevenZipEditRecorder?
-    ) throws -> DecodedHeader {
-        guard let first = bytes.first else {
-            throw KaitoError.malformed("empty 7z next header")
-        }
-        if first == SevenZipNID.header.rawValue {
-            return DecodedHeader(bytes: bytes, isEncrypted: false)
-        }
-        guard first == SevenZipNID.encodedHeader.rawValue else {
-            throw KaitoError.malformed("unknown 7z next-header kind")
-        }
-
-        var cursor = SevenZipHeaderCursor(Array(bytes.dropFirst()))
-        let streams = try SevenZipStreamsParser.parse(
-            cursor: &cursor,
-            limits: limits,
-            budget: metadataBudget,
-            editRecorder: editRecorder
-        )
-        guard cursor.isAtEnd else {
-            throw KaitoError.malformed("7z encoded header has trailing bytes")
-        }
-        let decoded = try decodeStreamsResolvingPassword(
-            streams,
-            source: source,
-            packedDataEnd: packedDataEnd,
-            limit: limits.maxMetadataSize,
-            limits: limits,
-            maximumAESCyclesPower: maximumAESCyclesPower,
-            keyCache: keyCache,
-            headerKDFBudget: &headerKDFBudget,
-            packedStreamVerifier: packedStreamVerifier,
-            password: &password,
-            passwordProvider: passwordProvider
-        )
-        guard decoded.count == 1 else {
-            throw KaitoError.malformed("7z encoded header must contain one substream")
-        }
-        let stream = streams.substreams[0]
-        guard streams.folders.indices.contains(stream.folderIndex) else {
-            throw KaitoError.malformed("7z encoded header references an invalid folder")
-        }
-        let isEncrypted = streams.folders[stream.folderIndex].coders.contains {
-            SevenZipMethod.kind(for: $0.methodID) == .aes
-        }
-        editRecorder?.state.encodedStreams = streams
-        return DecodedHeader(bytes: [UInt8](decoded[0]), isEncrypted: isEncrypted)
-    }
-
-    private static func parseHeader(
-        _ bytes: [UInt8],
-        source: any ByteSource,
-        packedDataEnd: UInt64,
-        limits: ReadLimits,
-        maximumAESCyclesPower: UInt8,
-        keyCache: SevenZipAESKeyCache,
-        headerKDFBudget: inout HeaderKDFWorkBudget,
-        packedStreamVerifier: SevenZipPackedStreamVerifier,
-        metadataBudget: SevenZipMetadataBudget,
-        password: inout String?,
-        passwordProvider: (any PasswordProvider)?,
-        editRecorder: SevenZipEditRecorder?
-    ) throws -> SevenZipParsedHeader {
-        try SevenZipHeaderParser.parse(
-            bytes: bytes,
-            limits: limits,
-            budget: metadataBudget,
-            editRecorder: editRecorder
-        ) { streams, limit in
-            try decodeStreamsResolvingPassword(
-                streams,
-                source: source,
-                packedDataEnd: packedDataEnd,
-                limit: limit,
-                limits: limits,
-                maximumAESCyclesPower: maximumAESCyclesPower,
-                keyCache: keyCache,
-                headerKDFBudget: &headerKDFBudget,
-                packedStreamVerifier: packedStreamVerifier,
-                password: &password,
-                passwordProvider: passwordProvider
-            )
-        }
-    }
-
-    private static func decodeStreamsResolvingPassword(
-        _ streams: SevenZipStreamsInfo,
-        source: any ByteSource,
-        packedDataEnd: UInt64,
-        limit: UInt64,
-        limits: ReadLimits,
-        maximumAESCyclesPower: UInt8,
-        keyCache: SevenZipAESKeyCache,
-        headerKDFBudget: inout HeaderKDFWorkBudget,
-        packedStreamVerifier: SevenZipPackedStreamVerifier,
-        password: inout String?,
-        passwordProvider: (any PasswordProvider)?
-    ) throws -> [Data] {
-        do {
-            return try decodeStreams(
-                streams,
-                source: source,
-                packedDataEnd: packedDataEnd,
-                limit: limit,
-                limits: limits,
-                maximumAESCyclesPower: maximumAESCyclesPower,
-                keyCache: keyCache,
-                headerKDFBudget: &headerKDFBudget,
-                packedStreamVerifier: packedStreamVerifier,
-                password: password
-            )
-        } catch KaitoError.passwordRequired {
-            guard password == nil, let passwordProvider,
-                  let supplied = try passwordProvider.password(for: .sevenZip) else {
-                throw KaitoError.passwordRequired
-            }
-            password = supplied
-            return try decodeStreams(
-                streams,
-                source: source,
-                packedDataEnd: packedDataEnd,
-                limit: limit,
-                limits: limits,
-                maximumAESCyclesPower: maximumAESCyclesPower,
-                keyCache: keyCache,
-                headerKDFBudget: &headerKDFBudget,
-                packedStreamVerifier: packedStreamVerifier,
-                password: supplied
-            )
-        }
-    }
-
-    private static func decodeStreams(
-        _ streams: SevenZipStreamsInfo,
-        source: any ByteSource,
-        packedDataEnd: UInt64,
-        limit: UInt64,
-        limits: ReadLimits,
-        maximumAESCyclesPower: UInt8,
-        keyCache: SevenZipAESKeyCache,
-        headerKDFBudget: inout HeaderKDFWorkBudget,
-        packedStreamVerifier: SevenZipPackedStreamVerifier,
-        password: String?
-    ) throws -> [Data] {
-        let ranges = try SevenZipFolderLayout.ranges(
-            for: streams,
-            sourceLength: source.length,
-            packedDataEnd: packedDataEnd
-        )
-        var folderData: [Data] = []
-        folderData.reserveCapacity(streams.folders.count)
-        var aggregate: UInt64 = 0
-        for index in streams.folders.indices {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
-            let factory = try SevenZipFolderDecoderFactory(
-                source: source,
-                folder: streams.folders[index],
-                packedRanges: ranges[index],
-                limits: limits,
-                password: password,
-                keyCache: keyCache,
-                maximumAESCyclesPower: maximumAESCyclesPower,
-                packedStreamVerifier: packedStreamVerifier
-            )
-            aggregate = try Checked.add(aggregate, factory.finalSize)
-            try Checked.size(aggregate, limit: limit)
-            folderData.append(try factory.decodeAll(limit: limit) {
-                try headerKDFBudget.charge($0)
-            })
-        }
-
-        var result: [Data] = []
-        result.reserveCapacity(streams.substreams.count)
-        for (index, stream) in streams.substreams.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
-            guard stream.folderIndex >= 0, stream.folderIndex < folderData.count else {
-                throw KaitoError.malformed("7z substream references an invalid folder")
-            }
-            let data = folderData[stream.folderIndex]
-            let start = try Checked.toInt(stream.offset)
-            let size = try Checked.toInt(stream.size)
-            guard start <= data.count, size <= data.count - start else {
-                throw KaitoError.malformed("7z substream exceeds decoded folder data")
-            }
-            let slice: Data
-            if start == 0, size == data.count {
-                // 典型的な encoded header は folder 全体が 1 substream なので CoW 共有する。
-                slice = data
-            } else {
-                slice = Data(data[start..<(start + size)])
-            }
-            if let expected = stream.digest.value,
-               CRC32.checksum(slice) != expected {
-                let encrypted = streams.folders[stream.folderIndex].coders.contains {
-                    SevenZipMethod.kind(for: $0.methodID) == .aes
-                }
-                if encrypted { throw KaitoError.wrongPassword }
-                throw KaitoError.checksumMismatch(entry: -1)
-            }
-            result.append(slice)
-        }
-        return result
-    }
-
     private static func makeEntries(
         files: [SevenZipFileMetadata],
         streams: SevenZipStreamsInfo?,
@@ -543,14 +236,14 @@ final class SevenZipReader: FormatReader {
 
         var folderSubstreamCounts: [Int: Int] = [:]
         for (index, stream) in substreams.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             folderSubstreamCounts[stream.folderIndex, default: 0] += 1
         }
         var folderPackedSizes: [UInt64] = []
         if let streams {
             folderPackedSizes.reserveCapacity(streams.folders.count)
             for index in streams.folders.indices {
-                if index & 0x3ff == 0 { try Task.checkCancellation() }
+                try checkCancellation(every: index)
                 var total: UInt64 = 0
                 for range in packedRanges[index].values {
                     total = try Checked.add(total, range.size)
@@ -573,7 +266,7 @@ final class SevenZipReader: FormatReader {
         var streamIndex = 0
 
         for (index, file) in files.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let substream: SevenZipSubstream?
             let folder: SevenZipFolder?
             if file.hasStream {
@@ -590,21 +283,7 @@ final class SevenZipReader: FormatReader {
             let size = substream?.size ?? 0
             try Checked.size(size, limit: limits.maxEntrySize)
 
-            let unixMode: UInt16? = file.windowsAttributes.flatMap { attributes in
-                guard attributes & 0x8000 != 0 else { return nil }
-                return UInt16(truncatingIfNeeded: attributes >> 16)
-            }
-            let unixType = unixMode.map { $0 & 0o170000 }
-            let dosDirectory = file.windowsAttributes.map { $0 & 0x10 != 0 } ?? false
-            let kind: EntryKind
-            if unixType == 0o120000 {
-                kind = .symlink
-            } else if unixType == 0o040000 || dosDirectory
-                        || (!file.hasStream && !file.isEmptyFile && !file.isAnti) {
-                kind = .directory
-            } else {
-                kind = .file
-            }
+            let (kind, unixMode) = classify(file: file)
             let components = file.name
                 .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
                 .map { String(decoding: $0, as: UTF8.self) }
@@ -619,25 +298,7 @@ final class SevenZipReader: FormatReader {
                 SevenZipMethod.kind(for: $0.methodID) == .aes
             } ?? false
             let methods = folder?.coders.map(SevenZipMethod.description(for:)) ?? ["Copy"]
-            var specific: [String: String] = [
-                "encryption": encrypted ? "7zAES-256" : "none",
-                "anti": file.isAnti ? "true" : "false",
-                "emptyFile": file.isEmptyFile ? "true" : "false",
-                "emptyStream": file.hasStream ? "false" : "true"
-            ]
-            if let attributes = file.windowsAttributes {
-                specific["windowsAttributes"] = String(format: "0x%08x", attributes)
-            }
-            if let startPosition = file.startPosition {
-                specific["startPosition"] = String(startPosition)
-            }
-            if let creationTime = file.creationTime {
-                specific["creationTime"] = String(creationTime.timeIntervalSince1970)
-            }
-            if let accessTime = file.accessTime {
-                specific["accessTime"] = String(accessTime.timeIntervalSince1970)
-            }
-            if kind == .symlink { specific["linkTargetStoredAsData"] = "true" }
+            let specific = formatSpecific(for: file, kind: kind, isEncrypted: encrypted)
 
             var entryMetadata = try Checked.add(
                 UInt64(file.rawName.count),
@@ -691,15 +352,52 @@ final class SevenZipReader: FormatReader {
         return (entries, records)
     }
 
-    private static func littleUInt32(_ bytes: [UInt8], at index: Int) -> UInt32 {
-        UInt32(bytes[index])
-            | UInt32(bytes[index + 1]) << 8
-            | UInt32(bytes[index + 2]) << 16
-            | UInt32(bytes[index + 3]) << 24
+    /// Windows 属性に Unix mode があれば（`unixExtension`）その種別を優先し、無ければ DOS の
+    /// directory 属性で決める。どちらでもなく stream も EmptyFile・Anti も無い file は directory。
+    private static func classify(file: SevenZipFileMetadata) -> (kind: EntryKind, unixMode: UInt16?) {
+        let unixMode: UInt16? = file.windowsAttributes.flatMap { attributes in
+            guard attributes & WindowsAttribute.unixExtension != 0 else { return nil }
+            return UInt16(truncatingIfNeeded: attributes >> 16)
+        }
+        let unixType = unixMode.map { $0 & 0o170000 }
+        let dosDirectory = file.windowsAttributes.map { $0 & WindowsAttribute.directory != 0 } ?? false
+        let kind: EntryKind
+        if unixType == 0o120000 {
+            kind = .symlink
+        } else if unixType == 0o040000 || dosDirectory
+                    || (!file.hasStream && !file.isEmptyFile && !file.isAnti) {
+            kind = .directory
+        } else {
+            kind = .file
+        }
+        return (kind, unixMode)
     }
 
-    private static func littleUInt64(_ bytes: [UInt8], at index: Int) -> UInt64 {
-        UInt64(littleUInt32(bytes, at: index))
-            | UInt64(littleUInt32(bytes, at: index + 4)) << 32
+    /// `ArchiveEntry.formatSpecific` に載せる 7z 固有の値。
+    private static func formatSpecific(
+        for file: SevenZipFileMetadata,
+        kind: EntryKind,
+        isEncrypted: Bool
+    ) -> [String: String] {
+        var specific: [String: String] = [
+            "encryption": isEncrypted ? "7zAES-256" : "none",
+            "anti": file.isAnti ? "true" : "false",
+            "emptyFile": file.isEmptyFile ? "true" : "false",
+            "emptyStream": file.hasStream ? "false" : "true"
+        ]
+        if let attributes = file.windowsAttributes {
+            specific["windowsAttributes"] = String(format: "0x%08x", attributes)
+        }
+        if let startPosition = file.startPosition {
+            specific["startPosition"] = String(startPosition)
+        }
+        if let creationTime = file.creationTime {
+            specific["creationTime"] = String(creationTime.timeIntervalSince1970)
+        }
+        if let accessTime = file.accessTime {
+            specific["accessTime"] = String(accessTime.timeIntervalSince1970)
+        }
+        if kind == .symlink { specific["linkTargetStoredAsData"] = "true" }
+        return specific
     }
 }

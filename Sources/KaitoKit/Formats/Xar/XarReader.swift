@@ -37,13 +37,8 @@ final class XarReader: FormatReader {
         var paths: [String: Int] = [:]
         var metadata = toc.metadataSize
         var dateFormatter: DateFormatter?
-        func components(_ path: String) throws -> [String] {
-            let parts = path.utf8.split(separator: 47, maxSplits: limits.maxPathComponentCount)
-            guard parts.count <= limits.maxPathComponentCount else { throw KaitoError.limitExceeded("xar path component count") }
-            return parts.map { String(decoding: $0, as: UTF8.self) }
-        }
         for (index, node) in toc.files.enumerated() {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             let kind: EntryKind
             switch node.type {
             case "file": kind = .file
@@ -62,7 +57,7 @@ final class XarReader: FormatReader {
                 archiveEncoding: .utf8).string
             let parentName = node.parent.map { entries[$0].name + "/" } ?? ""
             let name = parentName + component
-            let parts = try components(name)
+            let parts = try ArchivePath.components(of: name, limit: limits.maxPathComponentCount, label: "xar path component count")
             var raw = node.parent.map { entries[$0].rawName.bytes + [47] } ?? []
             raw += node.name
             var specific = node.fields.filter { ["fileID", "uid", "gid", "user", "group"].contains($0.key) }
@@ -71,7 +66,7 @@ final class XarReader: FormatReader {
                 ids[id] = entries.count
             }
             if let link = kind == .symlink ? node.symlink : (kind == .hardlink ? node.hardlink : nil) {
-                _ = try components(link)
+                try ArchivePath.validateComponentCount(of: link, limit: limits.maxPathComponentCount, label: "xar path component count")
                 specific["linkPath"] = link
             }
             if let data = node.data {
@@ -106,7 +101,7 @@ final class XarReader: FormatReader {
         // ID は TOC 全体で解決し、chain は既に解決した実体だけを継承するため cycle を作らない。
         var dependents: [Int: [Int]] = [:]
         for index in entries.indices {
-            if index & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: index)
             guard entries[index].kind == .hardlink else { continue }
             guard let link = toc.files[index].hardlink else { continue }
             let target = ids[link] ?? paths[link]
@@ -124,7 +119,7 @@ final class XarReader: FormatReader {
         var queue = entries.indices.filter { entries[$0].kind == .file }
         var cursor = 0
         while cursor < queue.count {
-            if cursor & 0x3ff == 0 { try Task.checkCancellation() }
+            try checkCancellation(every: cursor)
             let target = queue[cursor]
             cursor += 1
             for index in dependents[target] ?? [] {
@@ -147,7 +142,7 @@ final class XarReader: FormatReader {
         let text = mtime.trimmingCharacters(in: .whitespacesAndNewlines)
         let plain = text.hasSuffix("Z") ? String(text.dropLast()) : text
         // 5,110 項目の open 標本の 68% を占めた ICU 解析を、暦が一致する定型日時だけで省く。
-        // 1582 年以前の混合暦と 5 桁以上の年は、従来の formatter にそのまま委ねる。
+        // 1582 年以前の混合暦と 5 桁以上の年は、下の DateFormatter（ICU）にそのまま委ねる。
         if plain.utf8.count == 19 {
             let bytes = Array(plain.utf8)
             if bytes[4] == 45, bytes[7] == 45, bytes[10] == 84, bytes[13] == 58, bytes[16] == 58,
@@ -219,9 +214,9 @@ final class XarReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entries.indices.contains(entry.index), entries[entry.index] == entry else { throw KaitoError.notFound("xar entry index \(entry.index)") }
+        try recordIndex(of: entry, label: "xar")
         guard entry.kind != .directory, entry.kind != .symlink, entry.kind != .hardlink, let data = records[entry.index] else {
-            return try EntryStream(source: source, offset: heapStart, length: 0, limits: limits)
+            return try EntryStream.empty(entryIndex: entry.index, limits: limits)
         }
         let style = data.encoding ?? XarEncoding.stored.rawValue
         guard let encoding = XarEncoding(rawValue: style.lowercased()) else { throw KaitoError.unsupportedMethod("xar encoding \(style)") }
@@ -246,36 +241,18 @@ final class XarReader: FormatReader {
             let hash = Self.hashing(decoder, style: style)
             return try EntryStream(decompressor: hash, length: data.size, expectedCRC32: nil, entryIndex: entry.index,
                 limits: limits, completionCheck: {
-                    let digest = hash.digest.map { String(format: "%02x", $0) }.joined()
-                    guard digest == text.lowercased() else { throw KaitoError.malformed("xar checksum mismatch") }
+                    guard hash.hexDigest == text.lowercased() else { throw KaitoError.malformed("xar checksum mismatch") }
                 })
         }
         return try EntryStream(decompressor: decoder, length: data.size, expectedCRC32: nil, entryIndex: entry.index, limits: limits)
     }
 
-    private static func hashing(_ decoder: any Decompressor, style: XarChecksumStyle) -> any XarDigestDecompressor {
+    private static func hashing(_ decoder: any Decompressor, style: XarChecksumStyle) -> any DigestDecompressor {
         switch style {
-        case .sha1: XarHashDecompressor<Insecure.SHA1>(decoder)
-        case .md5: XarHashDecompressor<Insecure.MD5>(decoder)
-        case .sha256: XarHashDecompressor<SHA256>(decoder)
-        case .sha512: XarHashDecompressor<SHA512>(decoder)
+        case .sha1: HashingDecompressor<Insecure.SHA1>(decoder)
+        case .md5: HashingDecompressor<Insecure.MD5>(decoder)
+        case .sha256: HashingDecompressor<SHA256>(decoder)
+        case .sha512: HashingDecompressor<SHA512>(decoder)
         }
-    }
-}
-
-private protocol XarDigestDecompressor: Decompressor { var digest: [UInt8] { get } }
-
-// 展開時の同一 pass で digest を更新し、出力全体の保持や圧縮 data の再読込を避ける。
-private final class XarHashDecompressor<H: HashFunction>: XarDigestDecompressor {
-    private let decoder: any Decompressor
-    private var hash = H()
-    init(_ decoder: any Decompressor) { self.decoder = decoder }
-    var isFinished: Bool { decoder.isFinished }
-    var digest: [UInt8] { Array(hash.finalize()) }
-    func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
-        let count = try decoder.read(into: buffer)
-        guard count >= 0, count <= buffer.count else { throw KaitoError.malformed("xar decoder byte count") }
-        hash.update(bufferPointer: UnsafeRawBufferPointer(rebasing: buffer[..<count]))
-        return count
     }
 }

@@ -58,7 +58,7 @@ final class TarLayoutStorage: Sendable {
         init(recovery: Bool) { reason = recovery ? .recoveryMode : nil }
         func recordExtension(type: UInt8, start: UInt64, end: UInt64) {
             guard reason == nil else { return }
-            if type == 0x67 {
+            if type == UInt8(ascii: "g") {
                 if groupStart != nil { reason = .interleavedGlobalHeader; members = []; globals = [] }
                 else { globals.append(start..<end) }
             } else if groupStart == nil { groupStart = start }

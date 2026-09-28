@@ -1,9 +1,11 @@
 import Foundation
 
 // ZIP method 98 の二バイトパラメータと既知の展開サイズを受け取る。
+// 失敗は latch しない。throw した時点で model と range coder は途中まで進んでいるので、instance を破棄する。
 final class PPMdVarIDecoder: Decompressor {
     private let expectedSize: UInt64
     private let rangeDecoder: PPMdVarIRangeDecoder?
+    /// Test hook: ZipPPMdTests が model の復元回数と arena の解放を読む。
     internal let model: PPMdVarIModel
     private var producedSize: UInt64 = 0
 

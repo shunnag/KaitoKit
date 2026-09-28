@@ -2,23 +2,33 @@ import Foundation
 
 /// Detects supported archive containers from their structural signatures.
 ///
-/// zstd は通常 frame と先頭の skippable frame の両方を検出する。
-/// LZ4 と Zstandard で共通の skippable frame は、最初の通常 frame で区別する。
-/// Skippable-only streams retain the existing Zstandard classification.
-///
 /// Detection uses a stable order so ambiguous inputs behave consistently:
 ///
-/// 1. A checksum-valid tar member header wins
-///    over bytes in its pathname that resemble a shorter stream signature.
-/// 2. Native markers are checked in this order: ZIP, RAR, 7-Zip, XZ, xar, LZ4/zstd, RPM, CAB,
-///    structurally plausible LHA, gzip, bzip2, UNIX compress, then `!<arch>` / `!<thin>` ar, structurally valid ASCII cpio.
+/// 1. A checksum-valid 512-byte tar member header wins over bytes in its
+///    pathname that resemble a shorter stream signature.
+/// 2. A StuffIt envelope (a StuffIt / StuffIt X payload, a StuffIt SFX, or a
+///    MacBinary / AppleSingle / BinHex wrapper) is unwrapped one level unless
+///    a native signature from step 3 rules it out.
+/// 3. Native markers at offset zero, in this order: ZIP, RAR, 7-Zip; the UDIF
+///    (dmg) trailer; XZ, lzip, pbzx, WIM, CFB, CHM, ARJ (main header
+///    authenticated), xar, LZ4, Zstandard (skippable frames resolved by the
+///    first regular frame), RPM, CAB, structurally plausible LHA, gzip, bzip2,
+///    UNIX compress, `!<arch>` / `!<thin>` ar, structurally valid ASCII cpio.
 ///    LHA precedes the two-byte stream markers because its header supplies a
 ///    method and a bounded size envelope.
-/// 3. When enabled, markers inside a recognized Mach-O or PE prefix are
-///    considered by ascending offset, with ZIP, RAR, then 7-Zip as the stable
-///    same-offset order.
-/// 4. File-name hints follow existing content evidence.
-/// 5. Binary cpio is considered last and must validate a bounded record chain.
+/// 4. A native ZIP whose first local marker is damaged is still recognized
+///    when its end record places the central directory at absolute base zero.
+/// 5. When enabled, markers inside a recognized Mach-O or PE prefix are
+///    considered by ascending offset, with ZIP, RAR, 7-Zip, then CAB as the
+///    stable same-offset order; then an LHA self-extractor, then an ARJ DOS
+///    self-extractor.
+/// 6. ISO 9660 / UDF volume descriptors at sector 16, on the plain image and
+///    on a raw-sector (BIN/CUE, .img, .mdf) image; then a raw Apple disk image
+///    (GPT / APM / bare HFS+).
+/// 7. File-name hints follow content evidence: `.tar`, `.Z`, an empty
+///    `.lha` / `.lzh`, LZMA_Alone (`.lzma` / `.tlz` with a plausible header),
+///    brotli (`.br` / `.tbr` with a valid header and a trial decode).
+/// 8. Binary cpio is considered last and must validate a bounded record chain.
 public enum FormatDetector {
     private static let tarBlockSize = 512
     private static let zipEOCDMinimumSize = 22
@@ -26,30 +36,13 @@ public enum FormatDetector {
     private static let zipMaximumTrailingDataSize = 1 * 1_024 * 1_024
     /// Executable-prefix detection never examines a marker beyond one MiB.
     static let maximumSFXScanSize: UInt64 = 1 * 1_024 * 1_024
-    /// Include the longest signature so a marker beginning at the final
-    /// permitted byte remains visible.
-    static let maximumRARSFXSize: UInt64 = maximumSFXScanSize
-    /// LHA self-extractors in the compatibility corpus place their first
-    /// member below this bound. Header bytes beyond the bound may be read only
-    /// to authenticate a candidate beginning within it.
-    static let maximumLHASFXSize: UInt64 = 1 * 1_024 * 1_024
-    /// A genuine executable is not expected to contain even one accidental,
-    /// authenticated LHA header. Capping retries keeps deliberately dense
-    /// prefixes from turning candidate validation into unbounded parser work.
-    private static let maximumLHASFXCandidates = 64
 
-    enum RARVersion {
-        case rar4
-        case rar5
-    }
-
-    struct RARSignatureMatch {
-        let offset: UInt64
-        let version: RARVersion
-    }
-
-    struct LHASignatureMatch {
-        let offset: UInt64
+    // LHA / RAR の走査は LHASignatureScanner / RARSignatureScanner にある。
+    // 以下はその入口を FormatDetector の名前で呼ぶ既存 caller のための転送。
+    static let maximumRARSFXSize: UInt64 = RARSignatureScanner.maximumSFXSize
+    static let maximumLHASFXSize: UInt64 = LHASignatureScanner.maximumSFXSize
+    static func findRARSignature(source: any ByteSource) throws -> RARSignatureScanner.Match? {
+        try RARSignatureScanner.find(source: source)
     }
 
     struct SFXSignatureMatch: Equatable {
@@ -101,32 +94,9 @@ public enum FormatDetector {
         url: URL,
         options: ReaderOptions = ReaderOptions()
     ) throws -> ArchiveFormat {
-        let standardized = url.standardizedFileURL
-        let opened = try FileByteSource.openAnchored(url: standardized)
-        let split = try SplitVolumeSet.assemble(
-            firstVolumeURL: standardized,
-            firstVolumeSource: opened.source,
-            directory: opened.directory,
-            limits: options.limits
-        )
-        let zipSplit = try split == nil ? ZipSplitVolumeSet.assemble(
-            url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
-        ) : nil
-        let stuffItSplit = try split == nil && zipSplit == nil ? StuffItSplitSet.assemble(
-            firstVolumeURL: standardized, source: opened.source, directory: opened.directory, limits: options.limits
-        ) : nil
-        let cue = try split == nil && zipSplit == nil && stuffItSplit == nil ? CueSheet.assemble(
-            url: standardized, source: opened.source, directory: opened.directory, limits: options.limits
-        ) : nil
-        let sourceURL = SplitVolumeSet.naming(forFirstVolumeName: standardized.lastPathComponent) != nil
-            ? standardized.deletingPathExtension()
-            : standardized
-        let format = try detect(
-            source: split?.source ?? zipSplit?.source ?? stuffItSplit.map { $0 as any ByteSource } ?? cue ?? opened.source,
-            sourceURL: sourceURL,
-            options: options
-        )
-        guard zipSplit == nil || format == .zip else {
+        let input = try OpenedArchiveInput.assemble(url: url, limits: options.limits)
+        let format = try detect(source: input.source, sourceURL: input.sourceURL, options: options)
+        guard input.zipDiskLayout == nil || format == .zip else {
             throw KaitoError.malformed("ZIP split volume set is not a ZIP archive")
         }
         return format
@@ -161,7 +131,7 @@ public enum FormatDetector {
 
     /// envelope の形式: payload が StuffIt なら classic / X、そうでなければ wrapper 自身（MacBinary /
     /// AppleSingle / BinHex 4）を 1 file の書庫として扱う。
-    static func envelopeFormat(_ envelope: StuffItEnvelope) throws -> ArchiveFormat {
+    static func envelopeFormat(_ envelope: MacEnvelope) throws -> ArchiveFormat {
         let inner = try readByteRange(source: envelope.data, offset: 0, count: Int(min(envelope.data.length, 100)))
         if StuffItHeader.signature(inner) != nil || inner.starts(with: "StuffIt!".utf8) {
             return try stuffItFormat(envelope.data)
@@ -176,25 +146,25 @@ public enum FormatDetector {
 
     // wrapper は一段だけ剥がす。内側の他形式へは再帰的に dispatch しない。
     static func stuffItInput(source: any ByteSource, prefix: [UInt8]? = nil, limits: ReadLimits,
-                             maximumSFXScanSize: UInt64 = 0) throws -> StuffItEnvelope? {
+                             maximumSFXScanSize: UInt64 = 0) throws -> MacEnvelope? {
         // URL open で連結済みの分割セットは data fork と resource fork をそのまま渡す。
         if let split = source as? StuffItSplitSource {
-            return StuffItEnvelope(data: split, resource: split.resourceFork)
+            return MacEnvelope(data: split, resource: split.resourceFork)
         }
         let bytes = try prefix ?? readByteRange(source: source, offset: 0, count: Int(min(source.length, 512)))
         // Data で開いた分割 part は、単独で R+D を覆う場合だけ連結なしで成立する。
         if StuffItSplitHeader(bytes) != nil,
            let split = try StuffItSplitSet.assemble(firstVolumeURL: nil, source: source, directory: nil, limits: limits) {
-            return StuffItEnvelope(data: split, resource: split.resourceFork)
+            return MacEnvelope(data: split, resource: split.resourceFork)
         }
         if TarReader.isPlausibleMemberHeader(bytes) { return nil }
         if bytes.starts(with: "StuffIt?".utf8) { throw KaitoError.unsupportedFormat }
         if StuffItHeader.signature(bytes) != nil || bytes.starts(with: "StuffIt!".utf8) {
-            return StuffItEnvelope(data: source, resource: nil)
+            return MacEnvelope(data: source, resource: nil)
         }
         if bytes.starts(with: [0x4d, 0x5a]) {
             guard let offset = try StuffItSFX.find(source: source, maximumScanSize: maximumSFXScanSize, limits: limits) else { return nil }
-            return StuffItEnvelope(data: try RebasedByteSource(source: source, baseOffset: offset), resource: nil)
+            return MacEnvelope(data: try RebasedByteSource(source: source, baseOffset: offset), resource: nil)
         }
         // 強い先頭署名を持つ既存形式の payload を BinHex の説明文として探索しない。
         let nativePrefixes: [[UInt8]] = [
@@ -205,12 +175,12 @@ public enum FormatDetector {
             LzipMember.magic, PbzxHeader.magic, WIMHeader.signature, CFBHeader.signature,
             CHMHeader.signature, ARJHeader.identifier
         ]
-        if nativePrefixes.contains(where: { hasPrefix(bytes, $0) }) || XarHeader.probe(bytes)
+        if nativePrefixes.contains(where: { hasPrefix(bytes, $0) }) || XarHeader.isPlausibleHeader(bytes)
             || ZstdFrameHeader.hasMagic(bytes) || isBzip2Header(bytes)
             || ArReader.isPlausibleArchive(bytes, sourceLength: source.length) { return nil }
-        if try isLHAHeader(bytes, sourceLength: source.length) { return nil }
+        if try LHASignatureScanner.isHeader(bytes, sourceLength: source.length) { return nil }
         // wrapper の payload が StuffIt でなくても、wrapper 自身を 1 file の書庫として公開する（envelopeFormat）。
-        return try StuffItWrapper.unwrap(source: source, prefix: bytes, limits: limits)
+        return try MacEnvelopeParser.unwrap(source: source, prefix: bytes, limits: limits)
     }
 
     private static func detect(
@@ -222,7 +192,7 @@ public enum FormatDetector {
         skipStuffIt: Bool = false
     ) throws -> ArchiveFormat {
         let prefixLength = try Checked.toInt(min(source.length, UInt64(tarBlockSize)))
-        let prefix = try read(source: source, at: 0, count: prefixLength)
+        let prefix = try readByteRange(source: source, offset: 0, count: prefixLength)
 
         // 512-byte 全体で検証できる tar checksum は短い magic より強い証拠になる。
         if TarReader.isPlausibleMemberHeader(prefix) {
@@ -262,12 +232,12 @@ public enum FormatDetector {
         if hasPrefix(prefix, CHMHeader.signature), prefix.count >= 8, [2, 3].contains(CHMBytes.u32(prefix, 4)) { return .chm }
         // ARJ: 先頭の header id + CRC の合う main header。DOS SFX（MZ）は下の実行形式 prefix の走査で扱う。
         if hasPrefix(prefix, ARJHeader.identifier), try ARJReader.findMainHeader(source: source, maximumScan: 0) != nil { return .arj }
-        if XarHeader.probe(prefix) { return .xar }
+        if XarHeader.isPlausibleHeader(prefix) { return .xar }
         if hasPrefix(prefix, [0x04, 0x22, 0x4d, 0x18]) || hasPrefix(prefix, [0x02, 0x21, 0x4c, 0x18]) { return .lz4 }
         if ZstdFrameHeader.hasMagic(prefix) { return try skippableStreamFormat(source: source, limits: limits) }
         if hasPrefix(prefix, [0xED, 0xAB, 0xEE, 0xDB]) { return .rpm }
         if prefix.count > 25, hasPrefix(prefix, [0x4D, 0x53, 0x43, 0x46]), prefix[25] == 1 { return .cab }
-        if try isLHAHeader(prefix, sourceLength: source.length) {
+        if try LHASignatureScanner.isHeader(prefix, sourceLength: source.length) {
             return .lha
         }
         if hasPrefix(prefix, [0x1F, 0x8B]) {
@@ -280,7 +250,7 @@ public enum FormatDetector {
             return .compress
         }
         if ArReader.isPlausibleArchive(prefix, sourceLength: source.length) { return .ar }
-        if CpioHeader.probe(prefix, source: source) != nil { return .cpio }
+        if CpioHeader.detectVariant(prefix, source: source) != nil { return .cpio }
         // A damaged first local marker can still belong to a native ZIP when
         // its end record places the central directory at an absolute base of
         // zero. A nonzero inferred base is an SFX prefix and follows the
@@ -294,7 +264,7 @@ public enum FormatDetector {
         ) {
             return embedded.format
         }
-        if try findLHASFXSignature(source: source) != nil {
+        if try LHASignatureScanner.findSFXSignature(source: source) != nil {
             return .lha
         }
         // ARJ の DOS SFX（MZ の後ろに main header）。
@@ -307,17 +277,17 @@ public enum FormatDetector {
         // 既存の検出結果を奪わないよう、ISO の固定 offset probe はその後に置く。
         // 短い入力では read を行わず、従来の拡張子判定まで到達させる。
         if source.length >= 34816 {
-            let sector = try read(source: source, at: 32768, count: 2048)
+            let sector = try readByteRange(source: source, offset: 32768, count: 2048)
             if ISOReader.isPlausibleVolumeDescriptor(sector) { return .iso }
             // ECMA-167 2/8.3.1: CD001 を持たず BEA01 … NSR02|NSR03 … TEA01 の認識列だけがある image は
             // UDF 専用。CD001 を伴う hybrid は `.iso` として ISOReader が UDF の木を選ぶ。
-            if try UDFVolume.hasRecognitionSequence(source: source, pureOnly: true) { return .udf }
+            if try UDFVolume.detectRecognitionSequence(source: source, pureOnly: true) { return .udf }
             // ECMA-130 の生 sector image（BIN/CUE、.img、.mdf）: 2352 / 2448 / 2336 byte の sector から
             // user data を取り出した上で同じ判定を行う。
             if let raw = try RawSectorByteSource.wrapIfRaw(source) {
-                let sector = try read(source: raw, at: 32768, count: 2048)
+                let sector = try readByteRange(source: raw, offset: 32768, count: 2048)
                 if ISOReader.isPlausibleVolumeDescriptor(sector) { return .iso }
-                if try UDFVolume.hasRecognitionSequence(source: raw, pureOnly: true) { return .udf }
+                if try UDFVolume.detectRecognitionSequence(source: raw, pureOnly: true) { return .udf }
             }
         }
         // 生の Apple disk image: GPT / APM / bare の HFS+ volume（koly 付きは上で判定済み）。
@@ -347,18 +317,20 @@ public enum FormatDetector {
             // brotli (RFC 7932) にも magic が無い。`.br` / `.tbr` の名前と、有効な WBITS を持つ
             // stream header、先頭 chunk の試し復号がそろったときだけ受理する。
             if ["br", "tbr"].contains(pathExtension.lowercased()),
-               BrotliDecompressor.isPlausibleStream(source: source, limits: limits) {
+               BrotliDecompressor.detect(source: source, limits: limits) {
                 return .brotli
             }
         }
 
-        if CpioHeader.probeBinary(source: source, recoverDamagedArchives: recoverDamagedArchives) { return .cpio }
+        if CpioHeader.detectBinary(source: source, recoverDamagedArchives: recoverDamagedArchives) { return .cpio }
         throw KaitoError.unsupportedFormat
     }
 
-    // LZ4 and Zstandard deliberately share the skippable-frame range. Seek over
-    // each payload without allocating it. Malformed/pure skippable streams keep
-    // the previous classification and receive validation in their reader.
+    // Zstandard is recognized from a regular frame or from a leading skippable
+    // frame. LZ4 and Zstandard deliberately share the skippable-frame range, so
+    // the first regular frame decides between them. Seek over each payload
+    // without allocating it. Malformed/pure skippable streams keep the
+    // Zstandard classification and receive validation in their reader.
     private static func skippableStreamFormat(source: any ByteSource, limits: ReadLimits) throws -> ArchiveFormat {
         var position: UInt64 = 0
         var records = 0
@@ -398,9 +370,9 @@ public enum FormatDetector {
         return (0x31...0x39).contains(bytes[3])
     }
 
-    /// Locates the first ZIP, RAR, or 7-Zip marker in a recognized executable
-    /// prefix. The scan bound is clamped even when this internal entry point is
-    /// called directly.
+    /// Locates the first ZIP, RAR, 7-Zip, or CAB marker in a recognized
+    /// executable prefix. The scan bound is clamped even when this internal
+    /// entry point is called directly.
     static func findSFXSignature(
         source: any ByteSource,
         maximumScanSize: UInt64
@@ -412,7 +384,7 @@ public enum FormatDetector {
         let maximumRead = try Checked.add(scanSize, longestSignatureSize)
         let count = try Checked.toInt(min(source.length, maximumRead))
         guard count >= 4 else { return nil }
-        let bytes = try read(source: source, at: 0, count: count)
+        let bytes = try readByteRange(source: source, offset: 0, count: count)
         guard isMachOOrPEPrefix(bytes) else { return nil }
 
         let zipLocal: [UInt8] = [0x50, 0x4B, 0x03, 0x04]
@@ -500,197 +472,6 @@ public enum FormatDetector {
             && bytes[offset + 3] == 0
     }
 
-    private static func isLHAHeader(
-        _ bytes: [UInt8],
-        sourceLength: UInt64
-    ) throws -> Bool {
-        guard bytes.count >= 21,
-              bytes[2] == 0x2D,
-              bytes[6] == 0x2D else {
-            return false
-        }
-
-        let methodMatches =
-            (bytes[3] == 0x6C && (bytes[4] == 0x68 || bytes[4] == 0x7A))
-            || (bytes[3] == 0x70 && bytes[4] == 0x6D)
-        guard methodMatches else {
-            return false
-        }
-
-        let level = bytes[20]
-        let totalSize: UInt64
-        switch level {
-        case 0:
-            // Level 0/1 store the base-header size excluding the two leading
-            // size/checksum bytes. Both fixed fields and the name CRC must fit.
-            guard bytes[0] >= 22 else { return false }
-            totalSize = try Checked.add(UInt64(bytes[0]), 2)
-        case 1:
-            guard bytes[0] >= 25 else { return false }
-            totalSize = try Checked.add(UInt64(bytes[0]), 2)
-        case 2:
-            // Level 2 uses a little-endian total header size. A low byte of
-            // zero is the archive end marker, and the format therefore
-            // forbids total header sizes that are multiples of 256.
-            guard bytes[0] != 0 else { return false }
-            totalSize = UInt64(bytes[0]) | (UInt64(bytes[1]) << 8)
-            guard totalSize >= 26 else { return false }
-        case 3:
-            // Level 3 declares a four-byte extension-size width, followed by
-            // its four-byte total header size and first extension size.
-            guard bytes.count >= 32,
-                  bytes[0] == 4,
-                  bytes[1] == 0 else {
-                return false
-            }
-            totalSize = UInt64(bytes[24])
-                | (UInt64(bytes[25]) << 8)
-                | (UInt64(bytes[26]) << 16)
-                | (UInt64(bytes[27]) << 24)
-            guard totalSize >= 32 else { return false }
-        default:
-            return false
-        }
-        return totalSize <= sourceLength
-    }
-
-    /// Returns the first LHA member header at offset zero or after a bounded
-    /// executable prefix.
-    static func findLHASignature(
-        source: any ByteSource
-    ) throws -> LHASignatureMatch? {
-        try findLHASignatures(source: source).first
-    }
-
-    /// Returns authenticated LHA candidates in prefix order. A native archive
-    /// at offset zero is authoritative. Embedded candidates are retained so
-    /// the full parser can reject a plausible header embedded in executable
-    /// code and resume at the next candidate.
-    static func findLHASignatures(
-        source: any ByteSource
-    ) throws -> [LHASignatureMatch] {
-        let prefixCount = try Checked.toInt(min(source.length, UInt64(tarBlockSize)))
-        let prefix = try read(source: source, at: 0, count: prefixCount)
-        if try isLHAHeader(prefix, sourceLength: source.length) {
-            return [LHASignatureMatch(offset: 0)]
-        }
-        return try findLHASFXSignatures(source: source)
-    }
-
-    private static func findLHASFXSignature(
-        source: any ByteSource
-    ) throws -> LHASignatureMatch? {
-        try findLHASFXSignatures(source: source).first
-    }
-
-    private static func findLHASFXSignatures(
-        source: any ByteSource
-    ) throws -> [LHASignatureMatch] {
-        let maximumHeaderSize: UInt64 = UInt64(UInt16.max)
-        let maximumRead = try Checked.add(maximumLHASFXSize, maximumHeaderSize)
-        let count = try Checked.toInt(min(source.length, maximumRead))
-        guard count >= 22 else { return [] }
-        let bytes = try read(source: source, at: 0, count: count)
-        let maximumStart = min(Int(maximumLHASFXSize), bytes.count - 21)
-        guard maximumStart >= 1 else { return [] }
-
-        var matches: [LHASignatureMatch] = []
-        matches.reserveCapacity(1)
-        for index in 1...maximumStart where bytes[index + 2] == 0x2D {
-            guard isLHAFamilyMethod(bytes, at: index),
-                  isAuthenticatedLHASFXHeader(bytes, at: index) else {
-                continue
-            }
-            matches.append(LHASignatureMatch(offset: UInt64(index)))
-            if matches.count == maximumLHASFXCandidates {
-                break
-            }
-        }
-        return matches
-    }
-
-    private static func isLHAFamilyMethod(_ bytes: [UInt8], at index: Int) -> Bool {
-        guard index >= 0, index <= bytes.count - 7,
-              bytes[index + 2] == 0x2D,
-              bytes[index + 6] == 0x2D else {
-            return false
-        }
-        let family0 = bytes[index + 3]
-        let family1 = bytes[index + 4]
-        let variant = bytes[index + 5]
-        let validVariant = (0x30...0x39).contains(variant)
-            || (0x41...0x5A).contains(variant)
-            || (0x61...0x7A).contains(variant)
-        return validVariant
-            && ((family0 == 0x6C && (family1 == 0x68 || family1 == 0x7A))
-                || (family0 == 0x70 && family1 == 0x6D))
-    }
-
-    private static func isAuthenticatedLHASFXHeader(
-        _ bytes: [UInt8],
-        at index: Int
-    ) -> Bool {
-        guard index >= 0, index <= bytes.count - 21 else { return false }
-        let level = bytes[index + 20]
-        switch level {
-        case 0, 1:
-            let minimumSize = level == 0 ? 24 : 27
-            let totalSize = Int(bytes[index]) + 2
-            guard totalSize >= minimumSize,
-                  totalSize <= bytes.count - index else {
-                return false
-            }
-            var sum: UInt8 = 0
-            for byte in bytes[(index + 2)..<(index + totalSize)] {
-                sum &+= byte
-            }
-            return sum == bytes[index + 1]
-
-        case 2:
-            let totalSize = Int(bytes[index]) | (Int(bytes[index + 1]) << 8)
-            guard bytes[index] != 0,
-                  totalSize >= 26,
-                  totalSize <= bytes.count - index else {
-                return false
-            }
-            let headerEnd = index + totalSize
-            var currentSize = Int(bytes[index + 24])
-                | (Int(bytes[index + 25]) << 8)
-            var cursor = index + 26
-            var records = 0
-            while currentSize != 0 {
-                guard currentSize >= 3,
-                      cursor <= headerEnd,
-                      currentSize <= headerEnd - cursor,
-                      records <= Int(UInt16.max) else {
-                    return false
-                }
-                let recordEnd = cursor + currentSize
-                if bytes[cursor] == 0x00 {
-                    guard currentSize >= 5 else { return false }
-                    let expected = UInt16(bytes[cursor + 1])
-                        | (UInt16(bytes[cursor + 2]) << 8)
-                    var authenticated = Array(bytes[index..<headerEnd])
-                    let crcOffset = cursor - index + 1
-                    authenticated[crcOffset] = 0
-                    authenticated[crcOffset + 1] = 0
-                    return CRC16.checksum(authenticated) == expected
-                }
-                currentSize = Int(bytes[recordEnd - 2])
-                    | (Int(bytes[recordEnd - 1]) << 8)
-                cursor = recordEnd
-                records += 1
-            }
-            // Common-header CRC is optional in interoperable level-2 files;
-            // the bounded size, method, and extension envelope remain a
-            // sufficiently strong candidate for the real parser to validate.
-            return true
-
-        default:
-            return false
-        }
-    }
-
     private static func containsNativeZipEOCD(
         source: any ByteSource
     ) throws -> Bool {
@@ -703,7 +484,7 @@ public enum FormatDetector {
             + zipMaximumTrailingDataSize
         let searchLength = try Checked.toInt(min(source.length, UInt64(maximumSearch)))
         let searchOffset = try Checked.sub(source.length, UInt64(searchLength))
-        let tail = try read(source: source, at: searchOffset, count: searchLength)
+        let tail = try readByteRange(source: source, offset: searchOffset, count: searchLength)
         guard tail.count >= zipEOCDMinimumSize else {
             return false
         }
@@ -758,80 +539,5 @@ public enum FormatDetector {
             | (UInt64(bytes[offset + 1]) << 8)
             | (UInt64(bytes[offset + 2]) << 16)
             | (UInt64(bytes[offset + 3]) << 24)
-    }
-
-    /// Locates a RAR4 or RAR5 marker at offset zero or after a bounded SFX
-    /// executable prefix. The format readers authenticate the following main
-    /// header, so this routine deliberately performs only marker recognition.
-    static func findRARSignature(
-        source: any ByteSource
-    ) throws -> RARSignatureMatch? {
-        let rar4: [UInt8] = [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00]
-        let rar5: [UInt8] = rar4.dropLast() + [0x01, 0x00]
-        let prefixCount = try Checked.toInt(min(source.length, UInt64(rar5.count)))
-        let prefix = try read(source: source, at: 0, count: prefixCount)
-        if prefix.count >= rar5.count, prefix.prefix(rar5.count).elementsEqual(rar5) {
-            return RARSignatureMatch(offset: 0, version: .rar5)
-        }
-        if prefix.count >= rar4.count, prefix.prefix(rar4.count).elementsEqual(rar4) {
-            return RARSignatureMatch(offset: 0, version: .rar4)
-        }
-
-        let maximumRead = try Checked.add(maximumRARSFXSize, UInt64(rar5.count))
-        let count = try Checked.toInt(min(source.length, maximumRead))
-        guard count >= rar4.count else { return nil }
-        let bytes = try read(source: source, at: 0, count: count)
-
-        let maximumStart = min(
-            Int(maximumRARSFXSize),
-            bytes.count - rar4.count
-        )
-        guard maximumStart >= 1 else { return nil }
-        for index in 1...maximumStart where bytes[index] == rar4[0] {
-            if index <= bytes.count - rar5.count,
-               bytes[index..<(index + rar5.count)].elementsEqual(rar5) {
-                return RARSignatureMatch(offset: UInt64(index), version: .rar5)
-            }
-            if bytes[index..<(index + rar4.count)].elementsEqual(rar4) {
-                return RARSignatureMatch(offset: UInt64(index), version: .rar4)
-            }
-        }
-        return nil
-    }
-
-    private static func read(
-        source: any ByteSource,
-        at offset: UInt64,
-        count: Int
-    ) throws -> [UInt8] {
-        guard count >= 0 else {
-            throw KaitoError.malformed("negative detector read size")
-        }
-        let endOffset = try Checked.add(offset, UInt64(count))
-        guard endOffset <= source.length else {
-            throw KaitoError.truncated
-        }
-        guard count > 0 else {
-            return []
-        }
-
-        var result = [UInt8](repeating: 0, count: count)
-        var filled = 0
-        while filled < count {
-            let readOffset = try Checked.add(offset, UInt64(filled))
-            let bytesRead = try result.withUnsafeMutableBytes { bytes -> Int in
-                // filled..<count は result の有効範囲で、ByteSource に未充填部分だけを公開する。
-                let destination = UnsafeMutableRawBufferPointer(rebasing: bytes[filled..<count])
-                return try source.read(into: destination, at: readOffset)
-            }
-            guard bytesRead >= 0, bytesRead <= count - filled else {
-                throw KaitoError.malformed("ByteSource returned an invalid byte count")
-            }
-            guard bytesRead != 0 else {
-                throw KaitoError.truncated
-            }
-            filled += bytesRead
-        }
-        return result
     }
 }

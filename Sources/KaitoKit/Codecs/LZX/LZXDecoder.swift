@@ -1,4 +1,5 @@
-// Microsoft [MS-PATCH] v20160613 を CAB 向けに読み替えた実装。出自と十一項目の差分は設計文書に記録。
+// Microsoft [MS-PATCH] v20160613 を CAB 向けに読み替えた実装。出自と CAB 向けの十一項目の読み替えは
+// Documentation/design.md の「CAB LZX の出自と読み替え」に、WIM chunk の差分は verification/2026-09-21-wim.md に記録。
 final class LZXDecoder {
     private let windowSize: Int
     private let expectedSize: UInt64
@@ -20,6 +21,10 @@ final class LZXDecoder {
     private var decodedSize: UInt64 = 0
     private var declaredSize: UInt64 = 0
 
+    /// CAB の CFDATA frame と WIM の既定 block の展開サイズ。最終 frame だけはこれより短くてよい。
+    private static let frameSize = 32_768
+    /// E8 変換は folder 先頭から 1 GiB 未満で始まる frame にだけ施す（design.md の読み替え項目 6）。
+    private static let e8TranslationLimit: UInt64 = 0x4000_0000
     private static let slotCounts = [30, 32, 34, 36, 38, 42, 50]
     private static let footerBits = (0..<50).map { max(0, min(17, $0 / 2 - 1)) }
     private static let basePositions: [Int] = {
@@ -28,8 +33,8 @@ final class LZXDecoder {
         return result
     }()
 
-    /// WIM の chunk（黒箱で確定、2026-09-21 の検証記録）: stream 先頭の E8 header bit が無く、変換サイズは
-    /// 固定。block header は 3 bit の type の後に 1 bit（1 = block size 32768、0 = 16 bit の size が続く）。
+    /// WIM chunk 形式: stream 先頭の E8 header bit が無く、変換サイズは固定。block header は 3 bit の type の後に
+    /// 1 bit（1 = block size 32768、0 = 16 bit の size が続く）。根拠: verification/2026-09-21-wim.md の黒箱検証。
     private let wimVariant: Bool
 
     /// `intelHeader`: stream 先頭の 1 bit（E8 変換サイズの有無）を読むか。CAB は読む。WIM の chunk は
@@ -52,12 +57,12 @@ final class LZXDecoder {
     }
 
     func decodeFrame(input: [UInt8], outputSize: Int) throws -> [UInt8] {
-        guard (1...32768).contains(outputSize), decodedSize <= expectedSize,
+        guard (1...Self.frameSize).contains(outputSize), decodedSize <= expectedSize,
               UInt64(outputSize) <= expectedSize - decodedSize else {
             throw KaitoError.malformed("cab LZX frame size")
         }
-        let frameSize = folderContinues ? 32768 : min(32768, expectedSize - decodedSize)
-        guard UInt64(outputSize) == frameSize else {
+        let requiredSize = folderContinues ? UInt64(Self.frameSize) : min(UInt64(Self.frameSize), expectedSize - decodedSize)
+        guard UInt64(outputSize) == requiredSize else {
             throw KaitoError.malformed("cab LZX short intermediate frame")
         }
         var bits = LZXBitReader(input)
@@ -108,6 +113,7 @@ final class LZXDecoder {
                             throw KaitoError.malformed("cab LZX match exceeds block or frame")
                         }
                         let offset = try matchOffset(slot: slot, bits: &bits)
+                        // LZX の match offset は最大で window サイズ - 3。
                         guard offset > 0, offset <= history, offset <= windowSize - 3 else {
                             throw KaitoError.malformed("cab LZX match exceeds history")
                         }
@@ -127,8 +133,8 @@ final class LZXDecoder {
             }
         }
         let nextSize = try Checked.add(decodedSize, UInt64(outputSize))
-        // 奇数長の生 block の後ろの padding byte: CAB は末尾でも要求する。WIM の chunk は末尾に置かない
-        // （黒箱で確定）ので、入力が残っているときだけ消費する。
+        // 奇数長の生 block の後ろの padding byte: CAB は末尾の block にも要求する。WIM chunk は末尾では置かないので、
+        // 入力が残っているときだけ消費する。根拠: verification/2026-09-21-wim.md の黒箱検証。
         if blockRemaining == 0, rawPadding,
            bits.remainingRawBytes > 0 || (!wimVariant && nextSize == expectedSize) {
             try consumeRawPadding(&bits)
@@ -155,7 +161,7 @@ final class LZXDecoder {
         blockType = try bits.read(3)
         guard (1...3).contains(blockType) else { throw KaitoError.malformed("cab LZX block type") }
         if wimVariant {
-            blockRemaining = try bits.read(1) == 1 ? 32768 : try bits.read(16)
+            blockRemaining = try bits.read(1) == 1 ? Self.frameSize : try bits.read(16)
         } else {
             blockRemaining = try bits.read(24)
         }
@@ -167,10 +173,11 @@ final class LZXDecoder {
         declaredSize = try Checked.add(declaredSize, UInt64(blockRemaining))
         if blockType == 3 {
             // 生 block 直前の padding は [MS-PATCH] 2.3.2.1 の規則（整列済みでも 1 word）を WIM にも適用する。
-            // boot.wim の 165 個の生 block はすべて非整列で始まり、整列時の WIM の挙動は未確認（検証記録）。
+            // 整列済みで始まる WIM の生 block は未確認（boot.wim の 165 個はすべて非整列。verification/2026-09-21-wim.md）。
             try bits.beginRaw()
             for index in 0..<3 {
                 let offset = try bits.readRawOffset()
+                // 繰返し offset も match と同じく最大で window サイズ - 3。
                 guard offset > 0, offset <= windowSize - 3 else { throw KaitoError.malformed("cab LZX repeated offset") }
                 repeated[index] = offset
             }
@@ -244,10 +251,10 @@ final class LZXDecoder {
     }
 
     private func translate(_ bytes: inout [UInt8]) {
-        guard translationSize != 0, decodedSize < 0x40000000, bytes.count > 10 else { return }
+        guard translationSize != 0, decodedSize < Self.e8TranslationLimit, bytes.count > 10 else { return }
         var index = 0
         while index < bytes.count - 10 {
-            if bytes[index] != 0xe8 { index += 1; continue }
+            if bytes[index] != 0xe8 { index += 1; continue }  // 0xE8 = x86 CALL rel32
             let pointer = Int64(decodedSize) + Int64(index)
             let word = UInt32(bytes[index + 1]) | UInt32(bytes[index + 2]) << 8
                 | UInt32(bytes[index + 3]) << 16 | UInt32(bytes[index + 4]) << 24

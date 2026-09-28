@@ -3,13 +3,12 @@ import Foundation
 
 // Apple の UDIF disk image（.dmg）。実装入力は Joachim Metz の "Mac OS disk image types"（libmodi の GFDL 文書、
 // `inbox/dmg/libmodi-disk-image-types.asciidoc`）の koly / mish / blkx の表と、CC0 の Archive Team wiki、
-// hdiutil が書いた image の黒箱観察である。全 field は big-endian。2026-09-22 の検証記録を参照。
+// hdiutil が書いた image の黒箱観察である。全 field は big-endian。
+// 検証記録は Documentation/verification/2026-09-22-dmg.md。
 
 enum UDIFBytes {
-    static func u32(_ b: [UInt8], _ o: Int) -> UInt32 {
-        UInt32(b[o]) << 24 | UInt32(b[o + 1]) << 16 | UInt32(b[o + 2]) << 8 | UInt32(b[o + 3])
-    }
-    static func u64(_ b: [UInt8], _ o: Int) -> UInt64 { UInt64(u32(b, o)) << 32 | UInt64(u32(b, o + 4)) }
+    static func u32(_ b: [UInt8], _ o: Int) -> UInt32 { BigEndian.uint32(b, at: o) }
+    static func u64(_ b: [UInt8], _ o: Int) -> UInt64 { BigEndian.uint64(b, at: o) }
 }
 
 /// koly（UDIF resource file、file 末尾の 512 byte）。

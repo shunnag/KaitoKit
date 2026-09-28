@@ -9,6 +9,10 @@ import Foundation
 /// The five property bytes contain `lc`, `lp`, `pb`, and the little-endian
 /// dictionary size. The compressed range starts with the standard five-byte
 /// LZMA range-coder initialization sequence.
+///
+/// Failures are not latched. A throwing `read(into:)` does not commit the
+/// scalar coder state, but the dictionary and probability models may already
+/// hold partial updates, so the instance must be discarded.
 public final class LZMADecoder: Decompressor {
     private static let outputChunkSize = 256 * 1_024
     private static let inputBufferSize = 256 * 1_024
@@ -16,7 +20,8 @@ public final class LZMADecoder: Decompressor {
     private static let matchBatchCapacity = 256
     fileprivate static let probabilityInitialValue: UInt16 = 1 << 10
     fileprivate static let maximumPositionStates = 1 << 4
-    private static let maximumLZMA2LiteralProbabilities = 0x300 << 4
+    // LZMA2 は lc + lp <= 4 なので literal coder は最大 16 個。
+    private static let maximumLZMA2LiteralProbabilities = LZMAProperties.literalCoderSize << 4
 
     private var rangeDecoder: LZMARangeDecoder?
     private var expectedSize: UInt64?
@@ -61,9 +66,11 @@ public final class LZMADecoder: Decompressor {
     ///   - properties: Exactly five LZMA1 property bytes.
     ///   - expectedSize: Known output size, or `nil` to require an end marker.
     ///   - dictionarySizeLimit: Maximum accepted dictionary allocation.
-    ///   - outputSizeHint: end marker 終端の stream で、容器が別途宣言する出力サイズ。
-    ///     辞書の確保量を抑えるためだけに使い、終端判定には使わない。宣言より長い出力は
-    ///     容器側の検証で拒否される前提で、超過分の参照は invalid distance になる。
+    ///   - outputSizeHint: For a stream terminated by an end marker, the output
+    ///     size that the container declares separately. It only bounds the
+    ///     dictionary allocation and never decides where the stream ends. Output
+    ///     beyond the declaration is left to the container's own check, and a
+    ///     reference past the retained dictionary fails as an invalid distance.
     public convenience init(
         source: any ByteSource,
         offset: UInt64,
@@ -273,12 +280,6 @@ public final class LZMADecoder: Decompressor {
     /// Indicates whether the known output size or LZMA end marker was reached.
     public var isFinished: Bool {
         finished
-    }
-
-    /// 範囲復号器が消費した入力の直後の絶対 offset。end marker で終わる stream の
-    /// 実長（lzip の member size 検証）に使う。range decoder が無ければ `nil`。
-    var consumedInputOffset: UInt64? {
-        rangeDecoder?.consumedOffset
     }
 
     /// end marker に到達し、与えた圧縮範囲を byte 単位で使い切ったかどうか。
@@ -699,10 +700,10 @@ public final class LZMADecoder: Decompressor {
         resetState: Bool,
         properties: UInt8?
     ) throws {
-        guard unpackedSize > 0, unpackedSize <= 2 * 1_024 * 1_024 else {
+        guard unpackedSize > 0, unpackedSize <= LZMA2ChunkHeader.maximumUnpackedChunkSize else {
             throw KaitoError.malformed("invalid LZMA2 unpacked chunk size")
         }
-        guard compressedSize > 0, compressedSize <= 64 * 1_024 else {
+        guard compressedSize > 0, compressedSize <= LZMA2ChunkHeader.maximumPackedChunkSize else {
             throw KaitoError.malformed("invalid LZMA2 packed chunk size")
         }
         guard properties == nil || resetState else {
@@ -868,41 +869,9 @@ private enum LZMAProbabilityOffset {
     static let literals = repeatedHigh + 256
 }
 
-private struct LZMAProperties {
-    let literalContextBits: Int
-    let literalPositionBits: Int
-    let positionBits: Int
-
-    var positionStateMask: UInt64 {
-        (UInt64(1) << UInt64(positionBits)) - 1
-    }
-
-    init(packed: UInt8, requireLZMA2LiteralLimit: Bool) throws {
-        let value = Int(packed)
-        guard value < 9 * 5 * 5 else {
-            throw KaitoError.malformed("invalid LZMA lc/lp/pb properties")
-        }
-        literalContextBits = value % 9
-        let remainder = value / 9
-        literalPositionBits = remainder % 5
-        positionBits = remainder / 5
-        if requireLZMA2LiteralLimit,
-           literalContextBits + literalPositionBits > 4 {
-            throw KaitoError.malformed("invalid LZMA2 literal properties")
-        }
-    }
-
-    func literalProbabilityCount() throws -> Int {
-        let shift = try Checked.add(
-            UInt64(literalContextBits),
-            UInt64(literalPositionBits)
-        )
-        let contextCount = try Checked.shiftLeft(1, by: shift)
-        let probabilityCount = try Checked.mul(0x300, contextCount)
-        return try Checked.toInt(probabilityCount)
-    }
-}
-
+// LZMA の二値 range coder の入力と range/code。hot loop は LZMAHotRangeState に写して使い、
+// 入力末尾の読み越しは zero sentinel で遅延検出する。同じ coder を BCJ2Decompressor が
+// inline で持つ（一覧: Core/BitReader.swift の先頭）。
 private struct LZMARangeDecoder {
     private let source: any ByteSource
     private let endOffset: UInt64
@@ -918,10 +887,6 @@ private struct LZMARangeDecoder {
     var isFinishedOK: Bool { code == 0 && !overrun }
     var consumedAllInput: Bool {
         nextSourceOffset == endOffset && inputPosition == inputCount && !overrun
-    }
-    /// 消費済み入力の直後の絶対 offset。先読みして未消費の byte は含めない。
-    var consumedOffset: UInt64 {
-        nextSourceOffset &- UInt64(inputCount &- inputPosition)
     }
 
     init(
@@ -1014,6 +979,12 @@ private struct LZMARangeDecoder {
 }
 
 private struct LZMAHotRangeState {
+    // lzma-specification.txt の kNumBitModelTotalBits、kBitModelTotal、kNumMoveBits、kTopValue。
+    static let probabilityBits: UInt32 = 11
+    static let probabilityTotal: UInt32 = 1 << 11
+    static let probabilityMoveBits: UInt32 = 5
+    static let rangeTop: UInt32 = 1 << 24
+
     let inputBase: UnsafeMutablePointer<UInt8>
     let inputCount: Int
     var inputPosition: Int
@@ -1027,25 +998,24 @@ private struct LZMAHotRangeState {
     var overrun: Bool { inputPosition > inputCount }
 
     // この本体を三項演算子や mask 形へ書き換えず、bit tree の最終段も先読みしない。
-    // code < bound は LLVM が既に csel 化するため手書き branchless は効かない。
-    // 設計検討の micro benchmark では 5〜6% 遅かった（2026-09-12、cooViewer-r897）。
-    // この値は採用形の A/B では再測していない。
+    // code < bound は LLVM が既に csel 化するため手書き branchless は効かない
+    // （経緯と測定: design.md §11「LZMA / LZMA2 bit tree 先読み」）。
     @inline(__always)
     mutating func decodeBit(
         probability: UInt32,
         store probabilityPointer: UnsafeMutablePointer<UInt16>
     ) -> UInt32 {
         var probability = probability
-        let bound = (range >> 11) &* probability
+        let bound = (range >> Self.probabilityBits) &* probability
         let bit: UInt32
         if code < bound {
             range = bound
-            probability &+= (2_048 &- probability) >> 5
+            probability &+= (Self.probabilityTotal &- probability) >> Self.probabilityMoveBits
             bit = 0
         } else {
             range &-= bound
             code &-= bound
-            probability &-= probability >> 5
+            probability &-= probability >> Self.probabilityMoveBits
             bit = 1
         }
         probabilityPointer.pointee = UInt16(truncatingIfNeeded: probability)
@@ -1075,7 +1045,7 @@ private struct LZMAHotRangeState {
 
     @inline(__always)
     private mutating func normalize() {
-        if range < 0x0100_0000 {
+        if range < Self.rangeTop {
             range <<= 8
             code = (code << 8) | UInt32(nextByte())
         }
@@ -1087,6 +1057,24 @@ private struct LZMAHotRangeState {
         inputPosition &+= 1
         return byte
     }
+}
+
+// LZMA の 12 状態（lzma-specification.txt の UpdateState_*）。0...6 は直前の symbol が
+// literal、7...11 は直前が match / rep。遷移は次のとおり。
+//   literal:   s < 4 → 0、s < 10 → s - 3、それ以外 → s - 6
+//   match:     s < 7 → 7、それ以外 → 10
+//   rep:       s < 7 → 8、それ以外 → 11
+//   short rep: s < 7 → 9、それ以外 → 11
+// s >= 7 の literal は rep0 の位置の byte と照合しながら復号する（matched literal）。
+private enum LZMAState {
+    /// 直前の symbol が literal である state の数（kNumLitStates）。
+    static let literalStateCount = 7
+    static let matchAfterLiteral = 7
+    static let matchAfterMatch = 10
+    static let repAfterLiteral = 8
+    static let repAfterMatch = 11
+    static let shortRepAfterLiteral = 9
+    static let shortRepAfterMatch = 11
 }
 
 private enum LZMABatchStop {
@@ -1196,7 +1184,9 @@ private func decodeLZMANewMatchBatch(
         let length = Int(UInt32(truncatingIfNeeded: packedMatch))
         generated &+= length
         modelPosition &+= UInt64(length)
-        localState = localState < 7 ? 7 : 10
+        localState = localState < LZMAState.literalStateCount
+            ? LZMAState.matchAfterLiteral
+            : LZMAState.matchAfterMatch
     }
 
     return LZMAMatchBatchResult(
@@ -1244,10 +1234,10 @@ private func decodeLZMALiteralRun(
         let previousPart = UInt64(localPreviousByte >> literalPreviousShift)
         let context = (positionPart << literalContextShift) | previousPart
         let literalBase = LZMAProbabilityOffset.literals
-            &+ Int(truncatingIfNeeded: context) &* 0x300
+            &+ Int(truncatingIfNeeded: context) &* LZMAProperties.literalCoderSize
 
         var symbol = 1
-        if localState >= 7 {
+        if localState >= LZMAState.literalStateCount {
             let byteDistance = Int(rep0) &+ 1
             guard byteDistance <= localDictionaryBytesAvailable,
                   byteDistance <= dictionaryCount else {
@@ -1302,6 +1292,7 @@ private func decodeLZMALiteralRun(
         localPreviousByte = byte
         localProcessedPosition &+= 1
         localOutputPosition &+= 1
+        // literal 後の遷移（LZMAState の表）。
         if localState < 4 {
             localState = 0
         } else if localState < 10 {
@@ -1416,7 +1407,9 @@ private func decodeLZMARepeatedMatchSymbol(
                 by: LZMAProbabilityOffset.isRep0Long &+ statePositionIndex
             )
         ) == 0 {
-            localState = localState < 7 ? 9 : 11
+            localState = localState < LZMAState.literalStateCount
+                ? LZMAState.shortRepAfterLiteral
+                : LZMAState.shortRepAfterMatch
             matchLength = 1
         } else {
             matchLength = 2 &+ decodeLZMALength(
@@ -1428,7 +1421,9 @@ private func decodeLZMARepeatedMatchSymbol(
                 positionState: positionState,
                 decoder: &localDecoder
             )
-            localState = localState < 7 ? 8 : 11
+            localState = localState < LZMAState.literalStateCount
+                ? LZMAState.repAfterLiteral
+                : LZMAState.repAfterMatch
         }
     } else {
         let distance: UInt32
@@ -1458,7 +1453,9 @@ private func decodeLZMARepeatedMatchSymbol(
             positionState: positionState,
             decoder: &localDecoder
         )
-        localState = localState < 7 ? 8 : 11
+        localState = localState < LZMAState.literalStateCount
+            ? LZMAState.repAfterLiteral
+            : LZMAState.repAfterMatch
     }
 
     return LZMARepeatedMatchResult(
@@ -1474,7 +1471,8 @@ private func decodeLZMARepeatedMatchSymbol(
 
 // literal 木も深さ 8 の bit tree なので同じ先読みを使う。8 段を手展開しないこと。
 // 手展開すると本体が大きくなり、book-solid.7z が実測で退行する
-// (@inline(__always) のみで +31%、@_transparent を足しても +18%。2026-09-12、cooViewer-r897)。
+// (@inline(__always) のみで +31%、@_transparent を足しても +18%。
+// 測定: design.md §11「LZMA / LZMA2 bit tree 先読み」)。
 @inline(__always)
 private func decodeLZMAPlainLiteral(
     probabilities: UnsafeMutablePointer<UInt16>,
@@ -1744,26 +1742,4 @@ private func copyLZMAMatch(
     processedPosition &+= UInt64(amount)
     outputPosition &+= UInt64(amount)
     return amount
-}
-
-// LZMA2 の外側の ByteReader も folder の検証済み packed 範囲だけを読む。
-struct LZMABoundedByteSource: ByteSource {
-    let source: any ByteSource
-    let length: UInt64
-
-    init(source: any ByteSource, endOffset: UInt64) {
-        self.source = source
-        self.length = endOffset
-    }
-
-    func read(
-        into buffer: UnsafeMutableRawBufferPointer,
-        at offset: UInt64
-    ) throws -> Int {
-        guard !buffer.isEmpty, offset < length else { return 0 }
-        let remaining = try Checked.sub(length, offset)
-        let count = try Checked.toInt(min(UInt64(buffer.count), remaining))
-        let destination = UnsafeMutableRawBufferPointer(rebasing: buffer[..<count])
-        return try source.read(into: destination, at: offset)
-    }
 }

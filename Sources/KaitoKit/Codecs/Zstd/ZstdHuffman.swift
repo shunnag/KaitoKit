@@ -116,12 +116,6 @@ final class ZstdHuffman {
         decodedSymbols = 0
     }
 
-    static func read(from reader: inout ZstdByteReader) throws -> ZstdHuffman {
-        let result = ZstdHuffman()
-        try result.readTable(from: &reader)
-        return result
-    }
-
     func readTable(from reader: inout ZstdByteReader) throws {
         let header = try reader.byte()
         let weights = weightStorage()
@@ -136,7 +130,7 @@ final class ZstdHuffman {
             }
         } else {
             var section = try reader.subreader(header)
-            // D8: FSE 重みの復号は従来の検査付き実装を維持する。
+            // D8: 重みの FSE 復号は毎回境界を検査する ZstdBitReader を使う（表の構築時だけで hot path ではない）。
             let table = try ZstdFSE.read(from: &section, maximumLog: 6, maximumSymbol: 11)
             var bits = try ZstdBitReader(section.bytes, range: section.position..<section.end)
             var state1 = try bits.read(table.accuracyLog)
@@ -184,16 +178,6 @@ final class ZstdHuffman {
                 : Pair(symbols: UInt16(first.symbol), bits: first.bits, count: 1)
         }
         pairTableBuilt = true
-    }
-
-    func decode(from reader: inout ZstdByteReader, count: Int, fourStreams: Bool,
-                tuning: ZstdTuning = .default) throws -> [UInt8] {
-        var result = try [UInt8](unsafeUninitializedCapacity: count + ZstdScratchBuffer.backPad) { output, initialized in
-            try decode(from: &reader, count: count, fourStreams: fourStreams, tuning: tuning, into: output)
-            initialized = count + ZstdScratchBuffer.backPad
-        }
-        result.removeLast(ZstdScratchBuffer.backPad)
-        return result
     }
 
     func decode(from reader: inout ZstdByteReader, count: Int, fourStreams: Bool,

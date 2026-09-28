@@ -46,7 +46,7 @@ final class LHAReader: FormatReader {
         self.unpublishedMembers = unpublishedMembers
     }
 
-    func reopened(options: ReaderOptions) -> sending LHAReader {
+    func reopened(options: ReaderOptions) -> sending (any FormatReader)? {
         LHAReader(source: source, entries: entries, nameEncoding: nameEncoding, records: records,
                   firstHeaderOffset: firstHeaderOffset, terminator: terminator,
                   unpublishedMembers: unpublishedMembers)
@@ -64,6 +64,9 @@ final class LHAReader: FormatReader {
                 trailingBytes = .unchecked(count: count)
             } else {
                 let bytes: [UInt8]
+                // KaitoError passes through unchanged; any other error thrown by a
+                // ByteSource implementation is reported as EIO. The first clause is
+                // what keeps KaitoError out of the generic conversion below.
                 do {
                     bytes = try readByteRange(source: source, offset: tailOffset, count: Int(count))
                 } catch let error as KaitoError {
@@ -84,12 +87,9 @@ final class LHAReader: FormatReader {
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
-        guard entry.index >= 0,
-              entry.index < records.count,
-              entries[entry.index] == entry else {
-            throw KaitoError.notFound("LHA entry index \(entry.index)")
-        }
-        let record = records[entry.index]
+        // The parser publishes entries and records in lockstep, so an entry
+        // index also selects its record.
+        let record = records[try recordIndex(of: entry, label: "LHA")]
         let rawDecoded = try makeDecompressor(
             record: record,
             entry: entry,
@@ -164,7 +164,7 @@ final class LHAReader: FormatReader {
                 limits: limits
             )
         case "-lh4-", "-lh5-", "-lh6-", "-lh7-", "-lhx-":
-            return try LZSStaticHuffmanDecoder(
+            return try LHAStaticHuffmanDecoder(
                 method: record.method,
                 source: source,
                 offset: record.dataOffset,

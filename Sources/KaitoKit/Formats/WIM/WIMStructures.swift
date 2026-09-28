@@ -3,19 +3,17 @@ import Foundation
 
 // Microsoft "Windows Imaging File Format (WIM)"（2007 年の公開 whitepaper）と [MS-XCA] / [MS-PATCH] の
 // 公開仕様に基づくクリーンルーム実装。whitepaper に無い点（LZX chunk の header、DIRENTRY の 102 byte 固定部、
-// chunk の生格納）は黒箱で確定した。2026-09-21 の検証記録を参照。
+// chunk の生格納）は黒箱で確定した。検証記録は Documentation/verification/2026-09-21-wim.md。
 
 enum WIMBytes {
-    static func u16(_ b: [UInt8], _ o: Int) -> UInt16 { UInt16(b[o]) | UInt16(b[o + 1]) << 8 }
-    static func u32(_ b: [UInt8], _ o: Int) -> UInt32 {
-        UInt32(b[o]) | UInt32(b[o + 1]) << 8 | UInt32(b[o + 2]) << 16 | UInt32(b[o + 3]) << 24
-    }
-    static func u64(_ b: [UInt8], _ o: Int) -> UInt64 { UInt64(u32(b, o)) | UInt64(u32(b, o + 4)) << 32 }
+    static func u16(_ b: [UInt8], _ o: Int) -> UInt16 { LittleEndian.uint16(b, at: o) }
+    static func u32(_ b: [UInt8], _ o: Int) -> UInt32 { LittleEndian.uint32(b, at: o) }
+    static func u64(_ b: [UInt8], _ o: Int) -> UInt64 { LittleEndian.uint64(b, at: o) }
 
     /// FILETIME（1601-01-01 からの 100 ns）。0 は未設定。
     static func fileTime(_ value: UInt64) -> Date? {
         guard value != 0, value < 0x8000_0000_0000_0000 else { return nil }
-        return Date(timeIntervalSince1970: Double(value) / 10_000_000 - 11_644_473_600)
+        return WindowsFileTime.date(ticks: value)
     }
 }
 
@@ -233,27 +231,5 @@ final class WIMResourceDecompressor: Decompressor {
         pendingOffset = 0
         produced += UInt64(outputSize)
         nextChunk += 1
-    }
-}
-
-/// 出力の SHA-1 を数え、完了時に lookup table の hash と照合する。
-final class WIMHashingDecompressor: Decompressor {
-    private let inner: any Decompressor
-    private var hasher = Insecure.SHA1()
-    private(set) var digest: [UInt8]?
-
-    init(_ inner: any Decompressor) { self.inner = inner }
-    var isFinished: Bool { inner.isFinished }
-
-    func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
-        let count = try inner.read(into: buffer)
-        if count > 0 { hasher.update(bufferPointer: UnsafeRawBufferPointer(rebasing: buffer[..<count])) }
-        if inner.isFinished, digest == nil { digest = Array(hasher.finalize()) }
-        return count
-    }
-
-    func verify(expected: [UInt8], entryIndex: Int) throws {
-        if digest == nil { digest = Array(hasher.finalize()) }
-        guard digest == expected else { throw KaitoError.checksumMismatch(entry: entryIndex) }
     }
 }

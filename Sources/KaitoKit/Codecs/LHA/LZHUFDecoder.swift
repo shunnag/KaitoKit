@@ -190,7 +190,7 @@ final class LZHUFDecoder: Decompressor {
         while outputPosition < outputLimit {
             if pendingLength > 0 {
                 let before = outputPosition
-                lhaCopyMatch(
+                copyLZMatchThroughWindow(
                     window: window,
                     windowMask: Self.windowMask,
                     windowPosition: &windowPosition,

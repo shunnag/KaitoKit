@@ -5,7 +5,8 @@ import Foundation
 //   volume numbers, signature, main-header layout and CRC32 coverage).
 // - bitplane/rar-research's unofficial clean-room RAR 1.5-4.x notes
 //   (old .rar/.r00 naming and new .partN.rar naming).
-// - KaitoKit M3 requirements for same-directory lookup and Data-backed errors.
+// - Task safety requirements: only deterministic sibling names below the first
+//   volume's directory are opened, and Data-backed sources reject continuations.
 // No unrar, 7-Zip Rar29, XADMaster, The Unarchiver, or RAR5 decoder source was
 // consulted.
 
@@ -100,7 +101,8 @@ final class RARVolumeLocator {
             throw KaitoError.malformed("RAR first volume anchor is incomplete")
         }
         guard let handle else {
-            // 親を開けない fallback は匿名 origin とし、後続巻は既存の unsupportedMethod で拒否する。
+            // Without a parent-directory anchor the origin is anonymous, so a
+            // continuation volume fails with unsupportedMethod as for Data input.
             self.naming = naming
             self.origin = .anonymous
             self.maxMetadataSize = maxMetadataSize
@@ -272,7 +274,7 @@ final class RARVolumeLocator {
     ) throws {
         switch naming {
         case .rar4Old, .rar4New:
-            let expected: [UInt8] = [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00]
+            let expected = RAR4Reader.signature
             guard try readByteRange(
                 source: volume.source,
                 offset: 0,
@@ -289,9 +291,7 @@ final class RARVolumeLocator {
         _ volume: RARLocatedVolume,
         maxMetadataSize: UInt64
     ) throws {
-        let signature: [UInt8] = [
-            0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00,
-        ]
+        let signature = RAR5Reader.signature
         guard try readByteRange(
             source: volume.source,
             offset: 0,
@@ -302,8 +302,8 @@ final class RARVolumeLocator {
 
         var reader = try ByteReader(source: volume.source, offset: UInt64(signature.count))
         let storedCRC = try reader.readUInt32LE()
-        let sizeField = try readVInt(from: &reader)
-        guard sizeField.encoded.count <= 3 else {
+        let sizeField = try RAR5VInt.read(from: &reader)
+        guard sizeField.bytes.count <= 3 else {
             throw KaitoError.malformed("RAR5 header-size vint exceeds 3 bytes")
         }
         guard sizeField.value >= 2 else {
@@ -313,31 +313,31 @@ final class RARVolumeLocator {
         guard sizeField.value <= reader.remaining else { throw KaitoError.truncated }
         let bodySize = try Checked.toInt(sizeField.value)
         let body = [UInt8](try reader.readBytes(bodySize))
-        var crcBytes = sizeField.encoded
+        var crcBytes = sizeField.bytes
         crcBytes.append(contentsOf: body)
         guard CRC32.checksum(crcBytes) == storedCRC else {
             throw KaitoError.malformed("RAR5 volume main header CRC mismatch")
         }
 
-        var cursor = VIntCursor(body)
-        let type = try cursor.read()
-        let headerFlags = try cursor.read()
-        let extraSize = headerFlags & 0x0001 != 0 ? try cursor.read() : 0
-        let dataSize = headerFlags & 0x0002 != 0 ? try cursor.read() : 0
+        var cursor = RAR5ByteCursor(body)
+        let type = try cursor.readVInt()
+        let headerFlags = RAR5HeaderFlags(rawValue: try cursor.readVInt())
+        let extraSize = headerFlags.contains(.extraArea) ? try cursor.readVInt() : 0
+        let dataSize = headerFlags.contains(.dataArea) ? try cursor.readVInt() : 0
 
-        if type == 4 {
-            guard headerFlags == 0, extraSize == 0, dataSize == 0 else {
+        if type == RAR5HeaderType.encryption.rawValue {
+            guard headerFlags.rawValue == 0, extraSize == 0, dataSize == 0 else {
                 throw KaitoError.malformed(
                     "RAR5 archive encryption header has invalid common flags"
                 )
             }
-            let version = try cursor.read()
+            let version = try cursor.readVInt()
             guard version == 0 else {
                 throw KaitoError.unsupportedMethod(
                     "RAR5 archive encryption version \(version)"
                 )
             }
-            let encryptionFlags = try cursor.read()
+            let encryptionFlags = try cursor.readVInt()
             guard encryptionFlags & ~UInt64(0x0001) == 0 else {
                 throw KaitoError.unsupportedMethod(
                     "RAR5 archive encryption flags 0x\(String(encryptionFlags, radix: 16))"
@@ -345,7 +345,7 @@ final class RARVolumeLocator {
             }
             _ = try cursor.readUInt8() // KDF count is bounded by RAR5Reader.
             try cursor.skip(16) // global archive-header salt
-            if encryptionFlags & 0x0001 != 0 { try cursor.skip(12) }
+            if encryptionFlags & 0x0001 != 0 { try cursor.skip(12) } // password check
             guard cursor.isAtEnd else {
                 throw KaitoError.malformed(
                     "RAR5 archive encryption header has trailing fields"
@@ -356,83 +356,25 @@ final class RARVolumeLocator {
             return
         }
 
-        guard type == 1 else {
+        guard type == RAR5HeaderType.main.rawValue else {
             throw KaitoError.malformed("RAR5 volume does not start with a main header")
         }
         _ = extraSize
         _ = dataSize
-        let archiveFlags = try cursor.read()
-        guard archiveFlags & 0x0001 != 0 else {
+        let archiveFlags = RAR5ArchiveFlags(rawValue: try cursor.readVInt())
+        guard archiveFlags.contains(.volume) else {
             throw KaitoError.malformed("RAR5 continuation is not marked as a volume")
         }
-        let recordedNumber = archiveFlags & 0x0002 != 0 ? try cursor.read() : 0
+        let recordedNumber = archiveFlags.contains(.volumeNumber) ? try cursor.readVInt() : 0
         guard recordedNumber == volume.number else {
             throw KaitoError.malformed(
                 "RAR5 volume number \(recordedNumber) does not match expected \(volume.number)"
             )
         }
-        if volume.number == 0, archiveFlags & 0x0002 != 0 {
+        if volume.number == 0, archiveFlags.contains(.volumeNumber) {
             throw KaitoError.malformed(
                 "RAR5 first volume has an explicit volume number"
             )
-        }
-    }
-
-    private static func readVInt(
-        from reader: inout ByteReader
-    ) throws -> (value: UInt64, encoded: [UInt8]) {
-        var value: UInt64 = 0
-        var encoded: [UInt8] = []
-        for index in 0..<10 {
-            let byte = try reader.readUInt8()
-            encoded.append(byte)
-            let shift = index * 7
-            if shift < 64 {
-                let usefulBits = min(7, 64 - shift)
-                let mask = (UInt64(1) << UInt64(usefulBits)) - 1
-                value |= (UInt64(byte & 0x7F) & mask) << UInt64(shift)
-            }
-            if byte & 0x80 == 0 { return (value, encoded) }
-        }
-        throw KaitoError.malformed("RAR vint exceeds 10 bytes")
-    }
-
-    private struct VIntCursor {
-        let bytes: [UInt8]
-        var offset = 0
-
-        init(_ bytes: [UInt8]) { self.bytes = bytes }
-
-        var isAtEnd: Bool { offset == bytes.count }
-
-        mutating func readUInt8() throws -> UInt8 {
-            guard offset < bytes.count else { throw KaitoError.truncated }
-            defer { offset += 1 }
-            return bytes[offset]
-        }
-
-        mutating func skip(_ count: Int) throws {
-            guard count >= 0, count <= bytes.count - offset else {
-                throw KaitoError.truncated
-            }
-            offset += count
-        }
-
-        mutating func read() throws -> UInt64 {
-            var value: UInt64 = 0
-            for index in 0..<10 {
-                guard offset < bytes.count else { throw KaitoError.truncated }
-                let byte = bytes[offset]
-                offset += 1
-                let shift = index * 7
-                if shift < 64 {
-                    let usefulBits = min(7, 64 - shift)
-                    let mask = (UInt64(1) << UInt64(usefulBits)) - 1
-                    value |= (UInt64(byte & 0x7F) & mask) << UInt64(shift)
-                }
-                if byte & 0x80 == 0 { return value }
-            }
-            throw KaitoError.malformed("RAR vint exceeds 10 bytes")
         }
     }
 }

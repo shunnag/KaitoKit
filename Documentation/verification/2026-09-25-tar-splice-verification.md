@@ -57,12 +57,12 @@ sequential compaction; a lower memory limit also compacts an oversized retained 
 ## Reproduction
 
 The orchestrator's named manifest-generation helper was absent. The checked-in replacement
-[make-tar-splice-manifest.py](../../Scripts/fixtures/make-tar-splice-manifest.py) reads the existing
+[make-tar-splice-manifest.py](../../Tests/Measurement/tar-splice/make-tar-splice-manifest.py) reads the existing
 prototype `results.jsonl`, `map/*.chunks.json`, output bytes and `p3lib.py` helpers. It reconstructs
 the `chain.py` s1/s2 rules, asserts copied byte ranges, and does not regenerate or modify the corpus.
 
 ```sh
-python3 Scripts/fixtures/make-tar-splice-manifest.py <corpus>/p3val > <tmp>/splice-manifest.json
+python3 Tests/Measurement/tar-splice/make-tar-splice-manifest.py <corpus>/p3val > <tmp>/splice-manifest.json
 KAITOKIT_TAR_SPLICE_PROBE=<tmp>/splice-manifest.json swift test -c release -Xswiftc -enable-testing --filter TarEditScaleProbeTests
 KAITOKIT_TAR_SPLICE_PROBE_LARGE=1 swift test -c release -Xswiftc -enable-testing --filter TarEditScaleProbeTests
 # Final rerun uses both opt-ins in one invocation:

@@ -1,5 +1,4 @@
-// KaitoKit の RAR 巻連結処理を形式非依存の ByteSource として移設した。
-
+/// 連結する source の一区間: `source` の `offset` から `length` byte。
 struct SourceSegment: Sendable {
     let source: any ByteSource
     let offset: UInt64

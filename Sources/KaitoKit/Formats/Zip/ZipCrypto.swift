@@ -45,7 +45,7 @@ struct ZipCryptoKeys: Sendable {
 
         let header = decrypt(encryptedHeader)
         guard let actual = header.last,
-              ZipConstantTime.equals(actual, expectedCheckByte) else {
+              ConstantTime.equals(actual, expectedCheckByte) else {
             throw KaitoError.wrongPassword
         }
     }
@@ -195,7 +195,7 @@ final class ZipCryptoByteSource: ByteSource {
     }
 }
 
-// ZIP 従来暗号の一括復号ヘルパー。入力は 12 バイトヘッダを含む。
+// ZIP 従来暗号の暗号 header の大きさと検査値。
 enum ZipCrypto {
     static let headerSize = 12
 
@@ -210,6 +210,7 @@ enum ZipCrypto {
         return UInt8(truncatingIfNeeded: crc32 >> 24)
     }
 
+    // テスト専用の一括復号。入力は 12 バイトヘッダを含む。読取経路は ZipCryptoByteSource を使う。
     static func decrypt(
         payloadIncludingHeader payload: Data,
         password: String,
@@ -249,28 +250,5 @@ enum ZipCrypto {
         var keys = ZipCryptoKeys(passwordBytes: passwordBytes)
         try keys.validateAndConsumeHeader(encryptedHeader, expectedCheckByte: expected)
         return keys.decrypt(encryptedBody)
-    }
-}
-
-// 秘密値の比較で不一致位置に依存する早期 return を行わない。
-enum ZipConstantTime {
-    static func equals(_ lhs: UInt8, _ rhs: UInt8) -> Bool {
-        (lhs ^ rhs) == 0
-    }
-
-    static func equals(_ lhs: Data, _ rhs: Data) -> Bool {
-        guard lhs.count == rhs.count else {
-            return false
-        }
-
-        var difference: UInt8 = 0
-        var leftIndex = lhs.startIndex
-        var rightIndex = rhs.startIndex
-        while leftIndex < lhs.endIndex {
-            difference |= lhs[leftIndex] ^ rhs[rightIndex]
-            lhs.formIndex(after: &leftIndex)
-            rhs.formIndex(after: &rightIndex)
-        }
-        return difference == 0
     }
 }

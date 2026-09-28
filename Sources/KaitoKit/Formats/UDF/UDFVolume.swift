@@ -1,7 +1,5 @@
 import Foundation
 
-typealias UDFMetadataBudget = ISOMetadataBudget
-
 /// 論理 volume を構成する partition（3/8.8 の partition reference number 順）。
 struct UDFPartition {
     enum Kind {
@@ -39,7 +37,7 @@ struct UDFSparingEntry {
 final class UDFVolume {
     let source: any ByteSource
     let blockSize: Int
-    let budget: UDFMetadataBudget
+    let budget: MetadataBudget
     private(set) var partitions: [UDFPartition] = []
     private(set) var fileSetLocation = UDFAllocation(length: 0, type: 0, block: 0, partition: 0)
     private(set) var revision: UInt16 = 0
@@ -53,7 +51,7 @@ final class UDFVolume {
     /// 2/8.3.1: byte 32768 から 2048 byte ごとの volume structure descriptor 列。CD001 の集合（ECMA-119）を
     /// 読み飛ばし、BEA01 … NSR02|NSR03 … TEA01 の拡張領域を確認する。`pureOnly` は CD001 を持たない
     /// image（UDF 専用）にだけ true を返す。
-    static func hasRecognitionSequence(source: any ByteSource, pureOnly: Bool) throws -> Bool {
+    static func detectRecognitionSequence(source: any ByteSource, pureOnly: Bool) throws -> Bool {
         var offset = recognitionOffset
         var sawBeginning = false
         var sawNSR = false
@@ -80,8 +78,8 @@ final class UDFVolume {
 
     init(source: any ByteSource, limits: ReadLimits) throws {
         self.source = source
-        self.budget = UDFMetadataBudget(limits)
-        guard try Self.hasRecognitionSequence(source: source, pureOnly: false) else {
+        self.budget = MetadataBudget(limits)
+        guard try Self.detectRecognitionSequence(source: source, pureOnly: false) else {
             throw KaitoError.unsupportedFormat
         }
         // 3/8.4.2.1 と UDF §2.2.3: anchor は sector 256、N − 256、N のうち 2 つ以上。block size は
@@ -444,7 +442,7 @@ final class UDFVolume {
     }
 
     /// partition 内の連続 block 範囲を、物理的に連続する byte 範囲の列に分ける（metadata 空間は run 境界で切る）。
-    func physicalRanges(partition reference: Int, block: UInt32, length: UInt64) throws -> [ISOSection] {
+    func physicalRanges(partition reference: Int, block: UInt32, length: UInt64) throws -> [ByteRange] {
         guard length > 0 else { return [] }
         guard partitions.indices.contains(reference) else { throw KaitoError.malformed("udf partition reference \(reference)") }
         let partition = partitions[reference]
@@ -456,9 +454,9 @@ final class UDFVolume {
                 throw KaitoError.malformed("udf extent outside partition \(reference)")
             }
             let offset = try Checked.mul(UInt64(partition.start) + UInt64(block), blockSize64)
-            return [ISOSection(offset: offset, length: length)]
+            return [ByteRange(offset: offset, length: length)]
         case .metadata, .sparable, .virtual:
-            var sections: [ISOSection] = []
+            var sections: [ByteRange] = []
             var current = block
             var remaining = length
             while remaining > 0 {
@@ -471,7 +469,7 @@ final class UDFVolume {
                     contiguous += 1
                 }
                 let bytes = min(remaining, contiguous * blockSize64)
-                sections.append(ISOSection(offset: try Checked.mul(sector, blockSize64), length: bytes))
+                sections.append(ByteRange(offset: try Checked.mul(sector, blockSize64), length: bytes))
                 remaining -= bytes
                 current = try UInt32(Checked.add(UInt64(current), contiguous))
             }

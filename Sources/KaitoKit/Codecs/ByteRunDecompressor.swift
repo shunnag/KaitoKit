@@ -1,6 +1,7 @@
 import Foundation
 
 /// 連続しない byte 範囲の並びを順に返す（CFB の sector 列、HFS+ の extent 列）。
+/// 失敗は latch しない。`read(into:)` が throw した後の状態は未規定なので、instance を破棄する。
 final class ByteRunDecompressor: Decompressor {
     private let source: any ByteSource
     private let runs: [(offset: UInt64, length: UInt64)]

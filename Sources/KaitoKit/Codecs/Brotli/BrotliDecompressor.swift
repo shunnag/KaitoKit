@@ -60,12 +60,7 @@ struct BrotliStreamHeader: Equatable {
 final class BrotliDecompressor: Decompressor {
     static let chunkSize = 256 * 1_024
 
-    private let source: any ByteSource
-    private let compressedEnd: UInt64
-    private var sourceOffset: UInt64
-    private var input = [UInt8](repeating: 0, count: chunkSize)
-    private var inputOffset = 0
-    private var inputCount = 0
+    private var input: ChunkedSourceInput
     private var stream = compression_stream(
         dst_ptr: UnsafeMutablePointer<UInt8>(bitPattern: 1)!,
         dst_size: 0,
@@ -148,9 +143,9 @@ final class BrotliDecompressor: Decompressor {
         let size = try compressedSize ?? Checked.sub(source.length, offset)
         let end = try Checked.add(offset, size)
         guard end <= source.length else { throw KaitoError.truncated }
-        self.source = source
-        self.compressedEnd = end
-        self.sourceOffset = offset
+        self.input = ChunkedSourceInput(
+            source: source, offset: offset, endOffset: end, chunkSize: Self.chunkSize
+        )
         _ = try Self.validateHeader(source: source, offset: offset, limits: limits)
         let status = compression_stream_init(&stream, COMPRESSION_STREAM_DECODE, COMPRESSION_BROTLI)
         guard status != COMPRESSION_STATUS_ERROR else {
@@ -173,25 +168,23 @@ final class BrotliDecompressor: Decompressor {
         var totalProduced = 0
 
         while totalProduced < outputCapacity {
-            if inputOffset == inputCount {
-                try refillInput()
+            if input.availableCount == 0 {
+                try input.refill()
             }
-            let availableInput = inputCount - inputOffset
-            let inputExhausted = sourceOffset == compressedEnd
+            let availableInput = input.availableCount
+            let inputExhausted = input.isSourceExhausted
             // Apple の decoder は入力を全部消費してから出力を小分けに返すことがある。
             // 入力が尽きていても FINALIZE 付きで呼び続け、END が来るまで出力を引き出す。
             guard availableInput > 0 || inputExhausted else { throw KaitoError.truncated }
             let availableOutput = outputCapacity - totalProduced
             let flags = inputExhausted ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue) : 0
 
-            let status: compression_status = try input.withUnsafeMutableBytes { inputBytes in
+            let status: compression_status = try input.withUnsafeBytes { inputBytes in
                 guard let inputBase = inputBytes.baseAddress,
                       let outputBase = buffer.baseAddress else {
                     throw KaitoError.malformed("brotli buffer has no storage")
                 }
-                stream.src_ptr = UnsafePointer(
-                    inputBase.assumingMemoryBound(to: UInt8.self).advanced(by: inputOffset)
-                )
+                stream.src_ptr = inputBase.assumingMemoryBound(to: UInt8.self)
                 stream.src_size = availableInput
                 stream.dst_ptr = outputBase.assumingMemoryBound(to: UInt8.self).advanced(by: totalProduced)
                 stream.dst_size = availableOutput
@@ -208,14 +201,14 @@ final class BrotliDecompressor: Decompressor {
             }
             let consumed = availableInput - stream.src_size
             let produced = availableOutput - stream.dst_size
-            inputOffset += consumed
+            input.consume(consumed)
             totalProduced += produced
 
             switch status {
             case COMPRESSION_STATUS_END:
                 // brotli に連結や padding の規定は無い。END 時点で未消費の入力があれば末尾ゴミ。
-                let consumedEnd = try Checked.sub(sourceOffset, UInt64(inputCount - inputOffset))
-                guard consumedEnd == compressedEnd else {
+                let consumedEnd = try input.consumedSourceOffset
+                guard consumedEnd == input.endOffset else {
                     throw KaitoError.malformed("brotli stream has trailing bytes")
                 }
                 finished = true
@@ -242,23 +235,5 @@ final class BrotliDecompressor: Decompressor {
             }
         }
         return totalProduced
-    }
-
-    private func refillInput() throws {
-        guard sourceOffset < compressedEnd else {
-            inputOffset = 0
-            inputCount = 0
-            return
-        }
-        let remaining = try Checked.sub(compressedEnd, sourceOffset)
-        let requested = try Checked.toInt(min(UInt64(Self.chunkSize), remaining))
-        let count = try input.withUnsafeMutableBytes { storage in
-            // storage は chunkSize の固定領域で、先頭 requested byte だけを要求する。
-            try source.read(into: UnsafeMutableRawBufferPointer(rebasing: storage[..<requested]), at: sourceOffset)
-        }
-        guard count > 0, count <= requested else { throw KaitoError.truncated }
-        sourceOffset = try Checked.add(sourceOffset, UInt64(count))
-        inputOffset = 0
-        inputCount = count
     }
 }

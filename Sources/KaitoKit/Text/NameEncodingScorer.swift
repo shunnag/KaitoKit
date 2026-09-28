@@ -978,75 +978,94 @@ enum NameEncodingScorer {
     // Unicode Standard §9: 同じ基底字母に複数の結合記号が付くことは許す。
     static func additionalOrthography(_ properties: [Traits], language: String, context suppliedContext: LanguageRuleContext? = nil,
                                       recordViolations: Bool = true) -> Orthography {
+        switch language {
+        case "fr": return frenchOrthography(properties, recordViolations: recordViolations)
+        case "is": return icelandicOrthography(properties, context: suppliedContext, recordViolations: recordViolations)
+        case "el": return greekOrthography(properties, recordViolations: recordViolations)
+        case "he", "ar", "fa", "ru", "uk", "be", "bg", "sr", "mk":
+            return semiticAndCyrillicOrthography(properties, language: language, context: suppliedContext,
+                                                 recordViolations: recordViolations)
+        default: return Orthography(recordViolations: recordViolations)
+        }
+    }
+
+    private static func frenchOrthography(_ properties: [Traits], recordViolations: Bool) -> Orthography {
         var result = Orthography(recordViolations: recordViolations)
-        if language == "fr" {
-            // French の通常の élision は前の語の末尾母音を apostrophe に置く。
-            // 口語の省略や借用表記もあるため、字母の前の孤立した語頭形は弱い証拠にとどめる。
-            for (i, p) in properties.enumerated() where p.scalar == 0x2019 {
-                if (i == 0 || !properties[i - 1].letter), i + 1 < properties.count,
-                   properties[i + 1].script == .latin, properties[i + 1].letter {
-                    result.reject("fr-initial-apostrophe", i, p.scalar, penalty: 1)
+        // French の通常の élision は前の語の末尾母音を apostrophe に置く。
+        // 口語の省略や借用表記もあるため、字母の前の孤立した語頭形は弱い証拠にとどめる。
+        for (i, p) in properties.enumerated() where p.scalar == 0x2019 {
+            if (i == 0 || !properties[i - 1].letter), i + 1 < properties.count,
+               properties[i + 1].script == .latin, properties[i + 1].letter {
+                result.reject("fr-initial-apostrophe", i, p.scalar, penalty: 1)
+            }
+        }
+        return result
+    }
+
+    private static func icelandicOrthography(_ properties: [Traits], context suppliedContext: LanguageRuleContext?,
+                                             recordViolations: Bool) -> Orthography {
+        var result = Orthography(recordViolations: recordViolations)
+        let context = suppliedContext ?? LanguageRuleContext(properties)
+        guard !context.flags.isDisjoint(with: .icelandic) else { return result }
+        var yAcute = 0
+        for (i, p) in properties.enumerated() where !p.alphabetFlags.isDisjoint(with: .icelandic) {
+            let previous = i > 0 ? properties[i - 1] : nil
+            let next = i + 1 < properties.count ? properties[i + 1] : nil
+            if p.scalar == 0xFD || p.scalar == 0xDD {
+                yAcute += 1
+                if p.scalar == 0xFD, next?.letter != true { result.reject("is-y-acute-final", i, p.scalar, penalty: 2) }
+                if p.scalar == 0xDD, previous?.letter != true { result.reject("is-y-acute-initial-upper", i, p.scalar, penalty: 1) }
+                if yAcute >= 2 { result.reject("is-y-acute-repeated", i, p.scalar, penalty: 1.5) }
+            } else if p.scalar == 0xF0 || p.scalar == 0xD0 {
+                if previous?.letter != true, next?.letter == true { result.reject("is-eth-initial", i, p.scalar, penalty: 3) }
+            } else if previous?.letter == true, next?.letter != true {
+                result.reject("is-thorn-final", i, p.scalar, penalty: 3)
+            } else if let next, next.script == .latin, next.letter, !next.vowel,
+                      ![UInt32(0x6A), 0x72, 0x76].contains(next.scalar | 0x20) {
+                // 複合語の途中の þ は許し、語頭子音群の不整合だけを弱く減点する。
+                result.reject("is-thorn-cluster", i, p.scalar, penalty: 1)
+            }
+        }
+        return result
+    }
+
+    private static func greekOrthography(_ properties: [Traits], recordViolations: Bool) -> Orthography {
+        var result = Orthography(recordViolations: recordViolations)
+        var accents = 0
+        for (i, p) in properties.enumerated() {
+            // dialytika は直前の母音と別の音節に分ける記号で、子音直後や語頭には置かない。
+            if [UInt32(0x3CA), 0x3CB, 0x390, 0x3B0, 0x3AA, 0x3AB].contains(p.scalar) {
+                if i == 0 || properties[i - 1].script != .greek || !properties[i - 1].vowel {
+                    result.reject("el-diaeresis-without-vowel", i, p.scalar, penalty: 2)
                 }
             }
-            return result
-        }
-        if language == "is" {
-            let context = suppliedContext ?? LanguageRuleContext(properties)
-            guard !context.flags.isDisjoint(with: .icelandic) else { return result }
-            var yAcute = 0
-            for (i, p) in properties.enumerated() where !p.alphabetFlags.isDisjoint(with: .icelandic) {
-                let previous = i > 0 ? properties[i - 1] : nil
-                let next = i + 1 < properties.count ? properties[i + 1] : nil
-                if p.scalar == 0xFD || p.scalar == 0xDD {
-                    yAcute += 1
-                    if p.scalar == 0xFD, next?.letter != true { result.reject("is-y-acute-final", i, p.scalar, penalty: 2) }
-                    if p.scalar == 0xDD, previous?.letter != true { result.reject("is-y-acute-initial-upper", i, p.scalar, penalty: 1) }
-                    if yAcute >= 2 { result.reject("is-y-acute-repeated", i, p.scalar, penalty: 1.5) }
-                } else if p.scalar == 0xF0 || p.scalar == 0xD0 {
-                    if previous?.letter != true, next?.letter == true { result.reject("is-eth-initial", i, p.scalar, penalty: 3) }
-                } else if previous?.letter == true, next?.letter != true {
-                    result.reject("is-thorn-final", i, p.scalar, penalty: 3)
-                } else if let next, next.script == .latin, next.letter, !next.vowel,
-                          ![UInt32(0x6A), 0x72, 0x76].contains(next.scalar | 0x20) {
-                    // 複合語の途中の þ は許し、語頭子音群の不整合だけを弱く減点する。
-                    result.reject("is-thorn-cluster", i, p.scalar, penalty: 1)
-                }
+            // 母音脱落の apostrophe は字母の境界を示す。母音の前の孤立した語頭形は弱く減点する。
+            if p.scalar == 0x2019, (i == 0 || !properties[i - 1].letter), i + 1 < properties.count,
+               properties[i + 1].script == .greek, properties[i + 1].vowel {
+                result.reject("el-initial-apostrophe-vowel", i, p.scalar, penalty: 1)
             }
-            return result
-        }
-        if language == "el" {
-            var accents = 0
-            for (i, p) in properties.enumerated() {
-                // dialytika は直前の母音と別の音節に分ける記号で、子音直後や語頭には置かない。
-                if [UInt32(0x3CA), 0x3CB, 0x390, 0x3B0, 0x3AA, 0x3AB].contains(p.scalar) {
-                    if i == 0 || properties[i - 1].script != .greek || !properties[i - 1].vowel {
-                        result.reject("el-diaeresis-without-vowel", i, p.scalar, penalty: 2)
-                    }
-                }
-                // 母音脱落の apostrophe は字母の境界を示す。母音の前の孤立した語頭形は弱く減点する。
-                if p.scalar == 0x2019, (i == 0 || !properties[i - 1].letter), i + 1 < properties.count,
-                   properties[i + 1].script == .greek, properties[i + 1].vowel {
-                    result.reject("el-initial-apostrophe-vowel", i, p.scalar, penalty: 1)
-                }
-                if !p.letter && !p.mark { accents = 0; continue }
-                if i > 0, properties[i - 1].scalar == 0x3C2, p.script == .greek, p.upper { accents = 0 }
-                if greekTonos.contains(p.scalar) {
-                    accents += 1
-                    if accents >= 2 { result.reject("el-multiple-tonos", i, p.scalar, penalty: 2) }
-                }
-                if p.scalar == 0x3C2 || p.scalar == 0x3C3 {
-                    var end = i + 1
-                    while end < properties.count, properties[end].mark { end += 1 }
-                    let internalLetter = end < properties.count && properties[end].letter && properties[end].script == .greek
-                        && !(p.scalar == 0x3C2 && properties[end].upper)
-                    if p.scalar == 0x3C2, internalLetter { result.reject("el-final-sigma-internal", i, p.scalar, penalty: 2) }
-                    if p.scalar == 0x3C3, !internalLetter { result.reject("el-sigma-final", i, p.scalar, penalty: 1) }
-                }
+            if !p.letter && !p.mark { accents = 0; continue }
+            if i > 0, properties[i - 1].scalar == 0x3C2, p.script == .greek, p.upper { accents = 0 }
+            if greekTonos.contains(p.scalar) {
+                accents += 1
+                if accents >= 2 { result.reject("el-multiple-tonos", i, p.scalar, penalty: 2) }
             }
-            return result
+            if p.scalar == 0x3C2 || p.scalar == 0x3C3 {
+                var end = i + 1
+                while end < properties.count, properties[end].mark { end += 1 }
+                let internalLetter = end < properties.count && properties[end].letter && properties[end].script == .greek
+                    && !(p.scalar == 0x3C2 && properties[end].upper)
+                if p.scalar == 0x3C2, internalLetter { result.reject("el-final-sigma-internal", i, p.scalar, penalty: 2) }
+                if p.scalar == 0x3C3, !internalLetter { result.reject("el-sigma-final", i, p.scalar, penalty: 1) }
+            }
         }
-        guard language == "he" || language == "ar" || language == "fa" || language == "ru"
-                || language == "uk" || language == "be" || language == "bg" || language == "sr" || language == "mk" else { return result }
+        return result
+    }
+
+    private static func semiticAndCyrillicOrthography(_ properties: [Traits], language: String,
+                                                      context suppliedContext: LanguageRuleContext?,
+                                                      recordViolations: Bool) -> Orthography {
+        var result = Orthography(recordViolations: recordViolations)
         let native: Script = language == "he" ? .hebrew : language == "ar" || language == "fa" ? .arabic : .cyrillic
         let context = suppliedContext ?? LanguageRuleContext(properties)
         let nativeCount = native == .hebrew ? context.hebrew : native == .arabic ? context.arabic : context.cyrillic

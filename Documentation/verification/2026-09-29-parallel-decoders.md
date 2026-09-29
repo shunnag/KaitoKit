@@ -47,6 +47,7 @@ peak RSS（`/usr/bin/time -l`、`kaito sha`）: text.tar.xz 82 → 351 MiB（W =
 - テスト: Codex sandbox で全 suite（xz: 1,591 tests、bzip2: 1,582 tests、0 failures）。新規テストは直列との差分比較（生成 fixture と `xz -T0 --block-size`、GyoshukuKit の header だけの block を持つ fixture、連結 stream、単一 block、予算で W < 2 / W = 2、切断、check 欄の改変、bit 位置の偽 magic、地図の同一性）、worker 数と保持量の上限、入力の読み回数、deinit / 取消しの 2 s 以内の放棄。
 - ThreadSanitizer: 下記。
 - 直列 `XZDecompressor` / `Bzip2Decompressor` と公開 API は不変。GyoshukuKit / KaitoFinder は変更なし。
+- GyoshukuKit（隣の KaitoKit を path 依存で解決）の全 suite を取り込み後の main に対して実行: 589 tests（19 skipped）、0 failures。tar の区切りの地図を使う圧縮 tar の編集経路が新しい復号器で通る。
 
 ThreadSanitizer（`swift test --sanitize=thread`）: ParallelXZ の 14 tests、ParallelBzip2 の 10 tests とも 0 failures、TSan の警告なし。
 

@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### 追加
+
+- 圧縮 tar / cpio の xz staging を block 並列にした（`ParallelXZDecompressor`）。`xz -T0` や GyoshukuKit が書く複数 block の stream を、
+  検証済みの block 表から連続 block の run ごとに従来の `XZDecompressor` で独立に復号し、順に出力する。出力と tar の区切りの地図は
+  直列経路と同一。単一 block、連結 stream、保持量の上限（512 MiB、W < 2）では従来の直列経路に渡す。M4 Max の 256 MiB の text の tar.xz
+  （11 block）で `kaito sha` が 2.1 s → 0.5 s。
+
 ### 変更
 
 - ソースの配置を機能ごとに整理した。公開 API・`@_spi` の宣言・書庫の読み取り結果は変えていない。

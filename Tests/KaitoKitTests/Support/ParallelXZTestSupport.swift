@@ -6,6 +6,10 @@ enum ParallelXZTestSupport {
     static let blockSize = 65_536
     static let fixture = "tar-golden/inputs/gyoshuku-header-blocks.tar.xz"
 
+    static func requireXZ() throws {
+        try ZipTestSupport.requireExecutable(ZipTestSupport.xzPath)
+    }
+
     static func random(_ count: Int) -> Data {
         var state: UInt64 = 0x189c82f0
         return Data((0..<count).map { _ -> UInt8 in
@@ -16,10 +20,7 @@ enum ParallelXZTestSupport {
 
     static func compress(_ bytes: Data, threads: Int = 0, blockSize: Int? = blockSize,
                          filters: [String] = []) throws -> Data {
-        let tool = "/opt/homebrew/bin/xz"
-        guard FileManager.default.isExecutableFile(atPath: tool) else {
-            throw XCTSkip("xz command is not installed")
-        }
+        let tool = ZipTestSupport.xzPath
         var arguments = ["-c", "-1", "-T\(threads)"]
         if let blockSize { arguments.append("--block-size=\(blockSize)") }
         arguments.append(contentsOf: filters)

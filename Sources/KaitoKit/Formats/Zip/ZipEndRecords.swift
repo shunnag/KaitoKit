@@ -97,7 +97,7 @@ enum ZipEndRecords {
                     let needsCoherenceCheck = try candidates.count > 1
                         || (directoryEnd != candidate.offset && locator(source: source, end: candidate) == nil)
                     if last == 0, candidate.totalEntries > 0, needsCoherenceCheck,
-                       try !ZipCentralDirectoryLocator.hasCoherentZIP32End(source: source, end: candidate, budget: &state.budget) {
+                       try !ZipEndRecordRecovery.hasCoherentZIP32End(source: source, end: candidate, budget: &state.budget) {
                         continue
                     }
                     if needsCoherenceCheck, last > 0, UInt64(candidate.centralDirectoryDisk) == last,
@@ -125,7 +125,7 @@ enum ZipEndRecords {
         if !isZIP32Directory, let locator = try locator(source: source, end: end) {
             // SFX 単巻では相対位置だけでは判断できないため、既存の索引候補検査を共有する。
             if !hasSentinel, end.diskNumber == 0,
-               try ZipCentralDirectoryLocator.hasCoherentZIP32End(source: source, end: end, budget: &budget) {
+               try ZipEndRecordRecovery.hasCoherentZIP32End(source: source, end: end, budget: &budget) {
                 return 0
             }
             guard locator.diskCount > 0 else {

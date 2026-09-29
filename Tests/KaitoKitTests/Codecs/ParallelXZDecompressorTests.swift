@@ -4,6 +4,7 @@ internal import XCTest
 
 final class ParallelXZDecompressorTests: XCTestCase {
     func testGeneratedTextAndRandomMultiBlockStreamsMatchSerial() throws {
+        try ParallelXZTestSupport.requireXZ()
         for size in [130_001, 600_007, 1_100_003] {
             let text = Data(String(repeating: "XZ 並列復号の比較\n", count: size / 10).utf8.prefix(size))
             for body in [text, ParallelXZTestSupport.random(size)] {
@@ -20,6 +21,7 @@ final class ParallelXZDecompressorTests: XCTestCase {
     }
 
     func testSingleBlockConcatenatedAndEmptyStreamsFallBack() throws {
+        try ParallelXZTestSupport.requireXZ()
         let body = ParallelXZTestSupport.random(140_003)
         let single = try ParallelXZTestSupport.compress(body, threads: 1, blockSize: nil)
         let empty = try ParallelXZTestSupport.compress(Data(), threads: 1, blockSize: nil)
@@ -36,6 +38,7 @@ final class ParallelXZDecompressorTests: XCTestCase {
     }
 
     func testMemoryBudgetCapsWorkersAndCompressedReads() throws {
+        try ParallelXZTestSupport.requireXZ()
         let body = ParallelXZTestSupport.random(2 * 1_048_576)
         let bytes = try ParallelXZTestSupport.compress(body)
         let source = CountingByteSource(DataByteSource(bytes))
@@ -88,6 +91,7 @@ final class ParallelXZDecompressorTests: XCTestCase {
     }
 
     func testArchiveReaderStagingChunkMapMatchesSerial() throws {
+        try ParallelXZTestSupport.requireXZ()
         let image = try TarTestSupport.makeTar(entries: [
             HandTarEntry(name: "random.bin", contents: ParallelXZTestSupport.random(800_003)),
             // 既定の 16 MiB を越え、staging hook でも複数の job を順に記録する。
@@ -110,6 +114,7 @@ final class ParallelXZDecompressorTests: XCTestCase {
     }
 
     func testMultiBlockBCJAndDeltaFiltersMatchSerial() throws {
+        try ParallelXZTestSupport.requireXZ()
         let body = ParallelXZTestSupport.random(400_003)
         for filters in [["--x86", "--lzma2=preset=1"], ["--delta=dist=4", "--lzma2=preset=1"]] {
             XCTAssertEqual(try ParallelXZTestSupport.compare(ParallelXZTestSupport.compress(body, filters: filters)), body)

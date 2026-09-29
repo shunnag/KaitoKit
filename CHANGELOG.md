@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-29
+
+圧縮 tar / cpio の staging の並列復号（xz の block 並列 `ParallelXZDecompressor`、単一 stream bzip2 の block 単位 `Bzip2BlockScanner`）と、
+2026-09-28 のコード品質レビューに続く source の配置整理をまとめた release。公開 API・`@_spi` の宣言・書庫の読み取り結果は変えていない。
+挙動の変わる点は各節の「挙動の変わる点」に列挙する（`.taz` の fallback 名、到達しにくい error 文言、不正な `ByteSource` への error）。
+計測と判断は `Documentation/verification/2026-09-29-parallel-decoders.md` と `2026-09-29-deferred-items.md` に記録した。
+GyoshukuKit 0.7.0 はこの版を `.upToNextMinor(from: "0.12.0")` で参照する。
+
 ### 追加
 
 - 圧縮 tar / cpio の xz staging を block 並列にした（`ParallelXZDecompressor`）。`xz -T0` や GyoshukuKit が書く複数 block の stream を、
@@ -15,7 +23,6 @@
 - 圧縮 tar / cpio の bzip2 staging が単一 stream の中でも block 単位で並列に復号する。bit 単位の block magic を探し、連続 block の run を
   独立した stream に組み直して libbz2 に渡す（`Bzip2BlockScanner`）。出力と tar の区切りの地図は直列経路と同一、失敗時は stream の始点
   から従来の decoder で読み直す。M4 Max の 256 MiB の text の tar.bz2（bsdtar、単一 stream）で `kaito sha` が 5.8 s → 1.05 s。
-
 
 ### 変更
 

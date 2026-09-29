@@ -16,13 +16,8 @@ private import CommonCrypto
 /// complete encrypted entry and keeps the hot copy loop over fixed raw storage.
 final class RARAESCBCByteSource: ByteSource {
     private static let blockSize = 16
-    private static let maximumReadSize = 256 * 1_024
 
-    private let source: any ByteSource
-    private let ciphertextOffset: UInt64
-    private let ciphertextSize: UInt64
-    private let key: Data
-    private let initializationVector: [UInt8]
+    private let randomAccess: AESCBCRandomAccess
 
     let length: UInt64
 
@@ -49,87 +44,28 @@ final class RARAESCBCByteSource: ByteSource {
             throw KaitoError.malformed("RAR AES plaintext exceeds ciphertext")
         }
         if plaintextSize > 0 {
-            guard try Self.roundedToBlock(plaintextSize) <= ciphertextSize else {
+            guard try AESCBCRandomAccess.roundedToBlock(plaintextSize) <= ciphertextSize else {
                 throw KaitoError.malformed("RAR AES ciphertext is too short")
             }
         }
 
-        self.source = source
-        self.ciphertextOffset = ciphertextOffset
-        self.ciphertextSize = ciphertextSize
         self.length = plaintextSize
-        self.key = key
-        self.initializationVector = [UInt8](initializationVector)
+        self.randomAccess = AESCBCRandomAccess(
+            source: source,
+            ciphertextOffset: ciphertextOffset,
+            length: plaintextSize,
+            key: key,
+            iv: [UInt8](initializationVector),
+            invalidRangeMessage: "RAR AES output range is invalid",
+            decryptECB: RARBlockDecryption.decryptECB
+        )
     }
 
     func read(
         into buffer: UnsafeMutableRawBufferPointer,
         at offset: UInt64
     ) throws -> Int {
-        guard !buffer.isEmpty, offset < length else { return 0 }
-        let requested = try Checked.toInt(min(
-            UInt64(buffer.count),
-            UInt64(Self.maximumReadSize),
-            length - offset
-        ))
-        let firstBlock = offset / UInt64(Self.blockSize)
-        let endOffset = try Checked.add(offset, UInt64(requested))
-        let blockEnd = try Self.roundedToBlock(endOffset) / UInt64(Self.blockSize)
-        let blockCount = try Checked.toInt(try Checked.sub(blockEnd, firstBlock))
-        let encryptedCount = try Checked.toInt(
-            try Checked.mul(UInt64(blockCount), UInt64(Self.blockSize))
-        )
-        let encryptedOffset = try Checked.add(
-            ciphertextOffset,
-            try Checked.mul(firstBlock, UInt64(Self.blockSize))
-        )
-        let ciphertext = try readByteRange(
-            source: source,
-            offset: encryptedOffset,
-            count: encryptedCount
-        )
-
-        let firstPrevious: [UInt8]
-        if firstBlock == 0 {
-            firstPrevious = initializationVector
-        } else {
-            firstPrevious = try readByteRange(
-                source: source,
-                offset: try Checked.sub(encryptedOffset, UInt64(Self.blockSize)),
-                count: Self.blockSize
-            )
-        }
-
-        var plaintext = try RARBlockDecryption.decryptECB(blocks: ciphertext, key: key)
-        for block in 0..<blockCount {
-            let base = block * Self.blockSize
-            for index in 0..<Self.blockSize {
-                let previous = block == 0
-                    ? firstPrevious[index]
-                    : ciphertext[base - Self.blockSize + index]
-                plaintext[base + index] ^= previous
-            }
-        }
-
-        let intraBlock = try Checked.toInt(offset % UInt64(Self.blockSize))
-        guard intraBlock <= plaintext.count,
-              requested <= plaintext.count - intraBlock,
-              let destination = buffer.baseAddress else {
-            throw KaitoError.malformed("RAR AES output range is invalid")
-        }
-        plaintext.withUnsafeBytes { bytes in
-            destination.copyMemory(
-                from: bytes.baseAddress!.advanced(by: intraBlock),
-                byteCount: requested
-            )
-        }
-        return requested
-    }
-
-    private static func roundedToBlock(_ value: UInt64) throws -> UInt64 {
-        guard value > 0 else { return 0 }
-        return try Checked.add(value, UInt64(blockSize - 1))
-            & ~UInt64(blockSize - 1)
+        try randomAccess.read(into: buffer, at: offset)
     }
 }
 

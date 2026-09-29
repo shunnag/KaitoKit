@@ -42,20 +42,13 @@ enum RAR5KeyDerivation {
     static let maximumCount: UInt8 = 24
     private static let digestSize = Int(CC_SHA256_DIGEST_LENGTH)
 
+    // テスト専用の鍵導出。読取経路は derive(passwordUTF8:salt:count:) を使う。
     static func derive(
         password: String,
         salt: [UInt8],
         count: UInt8
     ) throws -> RAR5DerivedKeys {
         try derive(passwordUTF8: Data(password.utf8), salt: salt, count: count)
-    }
-
-    static func derive(
-        password: String,
-        salt: Data,
-        count: UInt8
-    ) throws -> RAR5DerivedKeys {
-        try derive(password: password, salt: [UInt8](salt), count: count)
     }
 
     static func derive(
@@ -212,6 +205,7 @@ final class RAR5KeyCache {
         throw KaitoError.wrongPassword
     }
 
+    // テスト専用の鍵取得。読取経路は checkedKey を使う。
     func key(
         password: String,
         salt: [UInt8],

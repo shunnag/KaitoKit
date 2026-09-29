@@ -15,54 +15,6 @@ final class RAR5Reader: FormatReader {
         let mismatchIsWrongPassword: Bool
     }
 
-    /// Structural decoder failures cannot distinguish damaged ciphertext from
-    /// a wrong key when a file has no independently valid password check.
-    private final class PasswordAmbiguousDecompressor: Decompressor {
-        private let base: any Decompressor
-        private let expectedSize: UInt64?
-        private var produced: UInt64 = 0
-
-        init(base: any Decompressor, expectedSize: UInt64?) {
-            self.base = base
-            self.expectedSize = expectedSize
-        }
-
-        var isFinished: Bool {
-            guard base.isFinished else { return false }
-            return expectedSize.map { produced == $0 } ?? true
-        }
-
-        func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
-            do {
-                let count = try base.read(into: buffer)
-                guard count >= 0, count <= buffer.count else { return count }
-                if count == 0, let expectedSize, produced < expectedSize {
-                    throw KaitoError.wrongPassword
-                }
-                let (total, overflow) = produced.addingReportingOverflow(UInt64(count))
-                if overflow || expectedSize.map({ total > $0 }) == true {
-                    throw KaitoError.wrongPassword
-                }
-                produced = total
-                return count
-            } catch {
-                try Self.rethrowNormalized(error)
-            }
-        }
-
-        static func rethrowNormalized(_ error: Error) throws -> Never {
-            if let kaitoError = error as? KaitoError {
-                switch kaitoError {
-                case .malformed, .truncated:
-                    throw KaitoError.wrongPassword
-                default:
-                    break
-                }
-            }
-            throw error
-        }
-    }
-
     let format: ArchiveFormat = .rar
     private(set) var entries: [ArchiveEntry]
     let nameEncoding: String.Encoding? = nil
@@ -74,7 +26,7 @@ final class RAR5Reader: FormatReader {
     private let solidGroupMembers: [Int: [Int]]
     private let keyCache = RAR5KeyCache()
     private var password: String?
-    private var solidCoordinators: [Int: RAR5SolidCoordinator] = [:]
+    private var solidCoordinators: [Int: RARSolidCoordinator<RAR5Decoder.SolidState>] = [:]
     private var activeSolidGroup: Int?
 
     var resolvedPassword: String? { password }
@@ -284,7 +236,7 @@ final class RAR5Reader: FormatReader {
         }
         activeSolidGroup = group
 
-        let coordinator: RAR5SolidCoordinator
+        let coordinator: RARSolidCoordinator<RAR5Decoder.SolidState>
         if let existing = solidCoordinators[group] {
             coordinator = existing
         } else {
@@ -318,7 +270,8 @@ final class RAR5Reader: FormatReader {
             let capturedPassword = password
             let capturedKeyCache = keyCache
             let capturedSourceURL = sourceURL
-            coordinator = RAR5SolidCoordinator(
+            coordinator = RARSolidCoordinator<RAR5Decoder.SolidState>(
+                formatLabel: "RAR5",
                 entryIndices: groupIndices,
                 dictionarySize: dictionarySize,
                 limits: limits
@@ -592,13 +545,13 @@ final class RAR5Reader: FormatReader {
                 solidState: solidState
             )
             guard mismatchIsWrongPassword else { return decoder }
-            return PasswordAmbiguousDecompressor(
+            return RARPasswordAmbiguousDecompressor(
                 base: decoder,
                 expectedSize: unpackedSize
             )
         } catch {
             guard mismatchIsWrongPassword else { throw error }
-            try PasswordAmbiguousDecompressor.rethrowNormalized(error)
+            try RARPasswordAmbiguousDecompressor.rethrowNormalized(error)
         }
     }
 

@@ -119,12 +119,7 @@ final class GzipDecompressor: Decompressor {
     private static let chunkSize = 256 * 1_024
     private static let signature: [UInt8] = [0x1f, 0x8b]
 
-    private let source: any ByteSource
-    private let compressedEnd: UInt64
-    private var sourceOffset: UInt64
-    private var input = [UInt8](repeating: 0, count: chunkSize)
-    private var inputOffset = 0
-    private var inputCount = 0
+    private var input: ChunkedSourceInput
     private var stream = z_stream()
     private var streamWasInitialized = false
     private var finished = false
@@ -142,9 +137,9 @@ final class GzipDecompressor: Decompressor {
         }
         let end = try Checked.add(offset, size)
         guard end <= source.length else { throw KaitoError.truncated }
-        self.source = source
-        self.compressedEnd = end
-        self.sourceOffset = offset
+        self.input = ChunkedSourceInput(
+            source: source, offset: offset, endOffset: end, chunkSize: Self.chunkSize
+        )
 
         let status = inflateInit2_(
             &stream,
@@ -172,21 +167,21 @@ final class GzipDecompressor: Decompressor {
         var totalProduced = 0
 
         while totalProduced < outputCapacity {
-            if inputOffset == inputCount {
-                try refillInput()
+            if input.availableCount == 0 {
+                try input.refill()
             }
-            let availableInput = inputCount - inputOffset
+            let availableInput = input.availableCount
             guard availableInput > 0 else { throw KaitoError.truncated }
             let availableOutput = outputCapacity - totalProduced
 
-            let status: Int32 = try input.withUnsafeMutableBytes { inputBytes in
+            let status: Int32 = try input.withUnsafeBytes { inputBytes in
                 guard let inputBase = inputBytes.baseAddress,
                       let outputBase = buffer.baseAddress else {
                     throw KaitoError.malformed("gzip buffer has no storage")
                 }
-                stream.next_in = inputBase
-                    .assumingMemoryBound(to: Bytef.self)
-                    .advanced(by: inputOffset)
+                stream.next_in = UnsafeMutablePointer(
+                    mutating: inputBase.assumingMemoryBound(to: Bytef.self)
+                )
                 stream.avail_in = uInt(availableInput)
                 stream.next_out = outputBase
                     .assumingMemoryBound(to: Bytef.self)
@@ -210,17 +205,17 @@ final class GzipDecompressor: Decompressor {
             if let recorder, recorder.isRecording {
                 let end = try currentCompressedOffset() + UInt64(consumed)
                 input.withUnsafeBytes {
-                    recorder.consumeGzip(UnsafeRawBufferPointer(rebasing: $0[inputOffset..<(inputOffset + consumed)]),
+                    recorder.consumeGzip(UnsafeRawBufferPointer(rebasing: $0[..<consumed]),
                                          end: end, produced: produced, dataType: stream.data_type,
                                          crc: UInt32(truncatingIfNeeded: stream.adler), streamEnd: status == Z_STREAM_END)
                 }
             }
-            inputOffset += consumed
+            input.consume(consumed)
             totalProduced += produced
 
             if status == Z_STREAM_END {
                 let nextOffset = try currentCompressedOffset()
-                if nextOffset == compressedEnd {
+                if nextOffset == input.endOffset {
                     finished = true
                     return totalProduced
                 }
@@ -240,7 +235,7 @@ final class GzipDecompressor: Decompressor {
             }
             let recording = recorder?.isRecording == true
             // Z_BLOCK の停止で小さく戻ると Swift 側の反復が増える。入力切れか出力満杯まで進む。
-            if totalProduced > 0, !recording || inputOffset == inputCount { return totalProduced }
+            if totalProduced > 0, !recording || input.availableCount == 0 { return totalProduced }
             if consumed == 0, produced == 0, recording, stream.data_type & 128 != 0 {
                 emptyStops += 1
                 guard emptyStops <= 64 else { throw KaitoError.malformed("gzip stream made no progress") }
@@ -255,37 +250,17 @@ final class GzipDecompressor: Decompressor {
     }
 
     private func currentCompressedOffset() throws -> UInt64 {
-        try Checked.sub(sourceOffset, UInt64(inputCount - inputOffset))
+        try input.consumedSourceOffset
     }
 
     private func hasMemberSignature(at offset: UInt64) throws -> Bool {
-        let remaining = try Checked.sub(compressedEnd, offset)
+        let remaining = try Checked.sub(input.endOffset, offset)
         guard remaining >= UInt64(Self.signature.count) else { return false }
         return try readByteRange(
-            source: source,
+            source: input.source,
             offset: offset,
             count: Self.signature.count
         ) == Self.signature
-    }
-
-    private func refillInput() throws {
-        guard sourceOffset < compressedEnd else {
-            inputOffset = 0
-            inputCount = 0
-            return
-        }
-        let remaining = try Checked.sub(compressedEnd, sourceOffset)
-        let requested = try Checked.toInt(min(UInt64(Self.chunkSize), remaining))
-        let count = try input.withUnsafeMutableBytes { storage in
-            try source.read(
-                into: UnsafeMutableRawBufferPointer(rebasing: storage[..<requested]),
-                at: sourceOffset
-            )
-        }
-        guard count > 0, count <= requested else { throw KaitoError.truncated }
-        sourceOffset = try Checked.add(sourceOffset, UInt64(count))
-        inputOffset = 0
-        inputCount = count
     }
 
     private func gzipError(_ status: Int32) -> KaitoError {

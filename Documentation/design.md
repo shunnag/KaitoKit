@@ -103,12 +103,12 @@ streaming 検証契約:
 
 | directory | 規則 |
 |---|---|
-| `Core/` | 形式を知らない基盤。`ByteSource` とその view、`Checked` 算術、`ReadLimits`、`KaitoError`、bit reader、固定幅 field(`ByteFields`)、日時(`Timestamps`)、metadata 予算、path の分割、ASCII 数字、CRC・XXH・Blake2・CommonCrypto の境界、cancel 確認の間隔 |
+| `Core/` | 形式を知らない基盤。`ByteSource` とその view、`Checked` 算術、`ReadLimits`、`KaitoError`、bit reader、固定幅 field(`ByteFields`)、日時(`Timestamps`)、metadata 予算、path の分割、ASCII 数字、CRC・XXH・Blake2・CommonCrypto の境界、AES-CBC の random access 復号(`AESCBCRandomAccess`)、C library wrapper の入力補充(`ChunkedSourceInput`)、cancel 確認の間隔 |
 | `Model/` | 公開の値型と `@_spi` の snapshot(`ArchiveEntry`、`ArchiveFormat`、`RawEntryRecord`、`ZipRawRecordLayout`、`TarEditingSnapshot`、`SevenZipEditingSnapshot`、`LHARawLayout`) |
 | `Reader/` | façade と巻の組み立て。`ArchiveReader`(検出 → reader 生成 → 圧縮 container)、`EntryStream`、`Extractor` と dirfd API、`ReaderOptions`、巻 set、`TarSplice/`(圧縮 tar の splice 検証) |
 | `Text/` | 名前の文字コード判定。`EncodingDetector`、`JapaneseNameEncodingResolver`、`NameEncodingScorer` と `LetterRules` / `NameOrthography`、`PathComponentSplitter`。`LanguageExemplars.swift` は `Scripts/generate/` が生成する表 |
-| `Formats/<形式>/` | container の reader。`Reader` / `Structures` / `Parser` / `Publisher` / `Coordinator` / `Crypto` の語を形式をまたいで同じ意味で使う。`FormatDetector` は順序、`<形式>SignatureScanner` は署名走査。`MacEnvelope/`(MacBinary・AppleSingle・BinHex の封筒)、`AppleDouble/`、`HFSPlus/`、`Cab/` の folder decoder もここ |
-| `Codecs/<方式>/` | `Decompressor` に適合する復号器と、その bit reader・表。hot path。命名・comment・定数以外は触らない。`LZWindowCopy.swift` は LHA・RAR が共有する窓コピー、`SevenZipFilters/` は 7z 専用の filter |
+| `Formats/<形式>/` | container の reader。`Reader` / `Structures` / `Parser` / `Publisher` / `Coordinator` / `Crypto` の語を形式をまたいで同じ意味で使う。`FormatDetector` は順序、`<形式>SignatureScanner` は署名走査。`MacEnvelope/`(MacBinary・AppleSingle・BinHex の封筒)、`AppleDouble/`、`HFSPlus/`、`Cab/` の folder decoder もここ。`RAR/RARSolidCoordinator` は RAR4・RAR5 共通の generic な solid coordinator、`SingleFile/CompressedNaming` は圧縮単一 file の接尾辞の表 |
+| `Codecs/<方式>/` | `Decompressor` に適合する復号器と、その bit reader・表。hot path。命名・comment・定数以外は触らない(2026-09-29: C library の wrapper は chunk ごとの入力補充を `Core/ChunkedSourceInput` に任せる。復号 loop は不変)。`LZWindowCopy.swift` は LHA・RAR が共有する窓コピー、`OkumuraLZSSSeeds.swift` は LArc・LZHUF・StuffIt LZAH が共有する初期化値、`SevenZipFilters/` は 7z 専用の filter |
 | `KaitoKitCompat/` | XADMaster 形の façade `KaitoArchive` と、複写器・hard link 展開の型 |
 | `kaito/` | CLI。`Commands/` に command ごとの file、`ArgumentCursor` が引数を読む |
 
@@ -227,6 +227,10 @@ KaitoKit のどの部分に効くかを併記する。
 > StuffIt-Go (LGPL 2.1: chapter 12 prose only; its samples are oracle inputs and are not bundled),
 > on public specifications (RFC 1740, MacBinary, RFC 1951, NIST SP 800-38A, RFC 1321), on the CC0
 > ssokolow test corpus, and on Apple's CommonCrypto / CryptoKit for standard primitives.
+>
+> 2026-09-29 の利用者の決定: StuffIt の code は LHA 系の code に依存してよい。`StuffItLZAH` は LArc -lz5- の窓の seed と
+> LZHUF の位置符号長を `Codecs/OkumuraLZSSSeeds.swift`(Okumura の公開解説由来、上の LHA の出所と同じ)から取る。
+> 適応木と復号 loop は引き続き別実装。
 
 StuffIt slice 7（2026-09-13、bd `cooViewer-gu28.7`）の実装入力は指定 Python 6 本と
 Ch.25–34 のみで、16 ファイルの SHA256SUMS を照合した。数値表の出自は vendor バイナリからの
@@ -948,13 +952,13 @@ RAR 関連 source file ごとの実装入力は次のとおり。表の「black-
 | source file | 参照した仕様・挙動 |
 |---|---|
 | `Sources/KaitoKit/Formats/FormatDetector.swift`・`Formats/RAR/RARSignatureScanner.swift` | RAR4 signature は bitplane/rar-research、RAR5 signature は RARLab technote。SFX の探索上限は task 要件 |
-| `Sources/KaitoKit/Formats/RAR/RAR4Reader.swift`・`RAR4VolumeParser.swift`・`RAR4EntryPublisher.swift`・`RAR4Structures.swift`・`RAR4SolidCoordinator.swift` | bitplane/rar-research の RAR 1.5-4.x note、BSD-2 libarchive `archive_read_support_format_rar.c` の header traversal / optional-field order / Unicode name / timestamp の挙動だけ、RAR 7.23 black-box |
+| `Sources/KaitoKit/Formats/RAR/RAR4Reader.swift`・`RAR4VolumeParser.swift`・`RAR4EntryPublisher.swift`・`RAR4Structures.swift`・`RARSolidCoordinator.swift`(2026-09-29 に RAR5 版を generic 化し RAR4 と共有) | bitplane/rar-research の RAR 1.5-4.x note、BSD-2 libarchive `archive_read_support_format_rar.c` の header traversal / optional-field order / Unicode name / timestamp の挙動だけ、RAR 7.23 black-box |
 | `Sources/KaitoKit/Codecs/RAR/RAR29Decoder.swift`・`RAR3FilterToken.swift` | bitplane/rar-research §§18-20、同 libarchive RAR4 file の block/table transition・match・RAR3 standard-filter 挙動だけ、RAR 3.00 生成物と RAR 7.23 展開の black-box vector |
 | `Sources/KaitoKit/Codecs/PPMd/RARPPMdRangeDecoder.swift` | bitplane/rar-research の RAR PPMd range-coder note、public-domain LZMA SDK PPMd7 model contract、RAR black-box vector |
 | `Sources/KaitoKit/Codecs/PPMd/PPMd7Decoder.swift`・`PPMd7RangeDecoding.swift`・`SevenZipPPMdRangeDecoder.swift` | public-domain LZMA SDK `C/Ppmd7.c` / `C/Ppmd7.h` / `C/Ppmd7Dec.c`、Shkarin PPMd var.H description |
 | `Sources/KaitoKit/Codecs/PPMd/PPMd7Model.swift` | 同じ public-domain LZMA SDK / Shkarin var.H。RAR 固有 container / LZ source は不使用 |
 | `Sources/KaitoKit/Codecs/PPMd/PPMd7Suballocator.swift` | public-domain LZMA SDK `C/Ppmd7.c` / `C/Ppmd7.h` の allocator contract |
-| `Sources/KaitoKit/Formats/RAR/RAR5Reader.swift`・`RAR5VolumeParser.swift`・`RAR5EntryPublisher.swift`・`RAR5SolidCoordinator.swift` | RAR5 の sole external format-specific source である RARLab technote、task orchestrator の clean-room 要件、RAR 7.23 black-box vector |
+| `Sources/KaitoKit/Formats/RAR/RAR5Reader.swift`・`RAR5VolumeParser.swift`・`RAR5EntryPublisher.swift`・`RARSolidCoordinator.swift`(RAR4 と共有) | RAR5 の sole external format-specific source である RARLab technote、task orchestrator の clean-room 要件、RAR 7.23 black-box vector |
 | `Sources/KaitoKit/Formats/RAR/RAR5Structures.swift` | RARLab technote の header / flags / compression-info / extra-record layout のみ |
 | `Sources/KaitoKit/Codecs/RAR/RAR5Decoder.swift` | RARLab technote、task orchestrator 供給の clean-room LZ grammar、RAR 7.23 black-box vector。第三者 decoder source は不使用 |
 | `Sources/KaitoKit/Codecs/RAR/RARStandardFilters.swift` | RAR5 部分は technote + orchestrator 要件 + 既存 KaitoKit BCJ / Delta + black-box vector。RAR3 部分は bitplane note、libarchive RAR4 の挙動 / fingerprint、XZ Utils 0BSD IA-64 branch encoding 解説 |
@@ -983,6 +987,7 @@ LHA 関連 source file ごとの最終的な実装入力は次のとおり。`lh
 | `Sources/KaitoKit/Codecs/LHA/LHAStaticHuffmanDecoder.swift`・`LHAStaticHuffmanTable.swift`・`LHAStaticBitCursor.swift`（旧 `LZSStaticHuffmanDecoder.swift`） | task の pt-len / c-len / position grammar、LHa method parameter、Haruhiko Okumura の public-domain static-Huffman description、ARJ/ar002 `read_pt_len` の search-result snippet (zero-run grammar の曖昧さだけ)、LHX は Lhasa `lha.1` と black-box candidate parsing、LHArk は Jason Summers の公開 format note、供給 bitstream と lhasa black-box 出力 |
 | `Sources/KaitoKit/Codecs/LHA/LZHUFDecoder.swift` | task の 314-symbol / fixed-position 要件、LHa / Lhasa の LZHUF format note、Okumura の公開 LZHUF 解説、CiderPress2 の LZHUF format note、Debian `lzhuf.c` の search-result snippet (64-symbol prefix-length distribution)、liblhasa public raw-decoder API の black-box vector |
 | `Sources/KaitoKit/Codecs/LHA/LArcDecoder.swift` | task の LArc parameters、LHa / Lhasa の LArc format note、Okumura の公開 LZSS 解説、LHa `larc.c` / `delharc` の search-result snippet (token / seed semantics)、liblhasa public raw-decoder API の black-box vector |
+| `Sources/KaitoKit/Codecs/OkumuraLZSSSeeds.swift`(2026-09-29、旧 `LArcDecoder.initializeLZ5Window` と `LZHUFDecoder` の位置符号長) | 上の二行と同じ。`Codecs/StuffIt/StuffItLZAH.swift` も利用者の 2026-09-29 の決定でこれを共有する(StuffIt provenance map の注記を参照) |
 | `Sources/KaitoKit/Formats/LHA/MacBinaryDataForkDecompressor.swift`・`Formats/MacEnvelope/MacBinaryHeader.swift`（旧 `Codecs/LHA/`） | MacBinary / MacBinary II standard proposals、供給された MacLHA bitstream、installed lhasa の black-box data-fork 出力。LHA CRC contract は既存 `CRC16` / `EntryStream` |
 | `Sources/KaitoKit/Codecs/LZWindowCopy.swift`（旧 `Codecs/LHA/LHABoundedWindow.swift`） | task の shared bounded-copy requirement と既存 KaitoKit ring-window contract |
 | `Sources/KaitoKit/Codecs/LHA/LHAPackedInputStorage.swift` / `Sources/KaitoKit/Core/BitReader.swift` | task / §11 の one-allocation raw-input と sentinel 方針、既存 MSB-first reader contract |

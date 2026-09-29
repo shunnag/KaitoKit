@@ -25,8 +25,7 @@ final class StuffItLZAH: Decompressor {
         try Checked.size(UInt64(627 * (MemoryLayout<Node>.stride + MemoryLayout<Int>.stride)
                                + (64 * 32 + 1) * 3 * MemoryLayout<Int>.stride + 4096), limit: limits.maxDictionarySize)
         self.input = input; remaining = size
-        distance = try .canonical([3] + Array(repeating: 4, count: 3) + Array(repeating: 5, count: 8)
-                                  + Array(repeating: 6, count: 12) + Array(repeating: 7, count: 24) + Array(repeating: 8, count: 16))
+        distance = try .canonical(lzhufPositionCodeLengths)
         nodes = .allocate(capacity: 627); nodes.initialize(repeating: Node(), count: 627)
         order = .allocate(capacity: 627)
         for i in 0..<627 {
@@ -39,11 +38,7 @@ final class StuffItLZAH: Decompressor {
             nodes[i].weight = nodes[2 * i + 1].weight + nodes[2 * i + 2].weight
         }
         history = .allocate(capacity: 4096); history.initialize(repeating: 0, count: 4096)
-        for b in 0..<256 {
-            for j in 0..<13 { history[18 + 13 * b + j] = UInt8(b) }
-            history[3346 + b] = UInt8(b); history[3602 + b] = UInt8(255 - b)
-        }
-        for i in 3986..<4096 { history[i] = 32 }
+        seedLArcLZ5Window(history)
     }
     deinit { nodes.deallocate(); order.deallocate(); history.deallocate() }
 

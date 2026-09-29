@@ -12,6 +12,10 @@
   検証済みの block 表から連続 block の run ごとに従来の `XZDecompressor` で独立に復号し、順に出力する。出力と tar の区切りの地図は
   直列経路と同一。単一 block、連結 stream、保持量の上限（512 MiB、W < 2）では従来の直列経路に渡す。M4 Max の 256 MiB の text の tar.xz
   （11 block）で `kaito sha` が 2.1 s → 0.5 s。
+- 圧縮 tar / cpio の bzip2 staging が単一 stream の中でも block 単位で並列に復号する。bit 単位の block magic を探し、連続 block の run を
+  独立した stream に組み直して libbz2 に渡す（`Bzip2BlockScanner`）。出力と tar の区切りの地図は直列経路と同一、失敗時は stream の始点
+  から従来の decoder で読み直す。M4 Max の 256 MiB の text の tar.bz2（bsdtar、単一 stream）で `kaito sha` が 5.8 s → 1.05 s。
+
 
 ### 変更
 

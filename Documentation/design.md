@@ -2139,10 +2139,16 @@ encoded と写しは既存 materializer の read ごとに検査する。取消�
 その他の検証失敗は reason・segmentIndex・underlying を持つ TarSpliceVerificationError として返す。
 
 圧縮 tar / cpio の bzip2 staging は option に依らず並列化する。単独 bz2 の stream は従来の直列のまま。
-消費側は 1 MiB の読み取り窓と 9 byte の重なりで BZh[1-9] + block / EOS magic を探し、区間を worker に渡す。
-worker は END と区間全体の消費が一致したときだけ成功し、順番に出力する。最初の異常な区間の始点は
-直前に成功した END（または 0）なので、そこから従来の decoder を再開すれば同じ決定的な状態機械になる。
-偽の magic、途中の END、切断、CRC エラー、8 MiB の圧縮 / 16 MiB の出力上限はすべてこの直列経路へ戻る。
+消費側（`Bzip2BlockScanner`）は 1 MiB の読み取り窓と 9 byte の重なりで BZh[1-9] の stream 始点を探し、さらに stream の中では
+bit 単位の block magic 0x314159265359 と EOS magic 0x177245385090 を 8 通りの bit 位置で探す（2026-09-29 まで stream 単位だけだったので、
+bsdtar / bzip2 CLI の単一 stream は直列だった）。連続する block は最大 9 個（出力 ≤ 8.1 MB）の run にまとめ、run を
+「stream header（同じ level 桁）+ byte 境界へ寄せた block の bit 列 + EOS magic + run の結合 CRC（header の block CRC を
+rotl 1 で畳む）+ 0 詰め」の独立した stream に組み直して worker（libbz2）へ渡す。worker は END と区間全体の消費が一致したときだけ成功し、
+順番に出力する。地図の記録は stream 単位のまま: stream の最後の run を出し終えたときに stream 全体の圧縮範囲・出力合計・level・
+圧縮 byte の CRC32 を `appendBzip2` で記録するので、単一 stream の地図は直列経路と同一。
+偽の magic、失敗した run、結合 CRC の不一致、途中の END、切断、8 MiB の圧縮 / 16 MiB の出力上限は直列経路へ戻る。
+libbz2 は bit 位置から再開できないので、復帰は失敗した run を含む stream の byte 境界の始点から従来の decoder を再開し、
+その stream から既に返した byte 数（CRC で検証済みの block 出力なので同じ prefix）を読み捨てる。
 エラー前に返せる byte 数は入力の分け方で変わりうるが、両方とも同じ復号列の prefix となり、staging は失敗時に全体を捨てる。
 
 W = min(8, activeProcessorCount)、投入は W 区間までとし、走査と完了通知の受け渡しに二つの余裕を持つ。

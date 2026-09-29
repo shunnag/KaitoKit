@@ -50,6 +50,20 @@ peak RSS（`/usr/bin/time -l`、`kaito sha`）: text.tar.xz 82 → 351 MiB（W =
 
 ThreadSanitizer（`swift test --sanitize=thread`）: ParallelXZ の 14 tests、ParallelBzip2 の 10 tests とも 0 failures、TSan の警告なし。
 
+### 両方を取り込んだ main（1b7b34a）対 取り込み前（bf33753）
+
+| 書庫 | list（比） | sha（比） |
+|---|---|---|
+| text.tar.xz | 1960 → 406 ms（0.21） | 2052 → 505 ms（0.25） |
+| text-gk.tar.xz | 1905 → 287 ms（0.15） | 2009 → 385 ms（0.19） |
+| small-gk.tar.xz | 1348 → 396 ms（0.29） | 2253 → 1324 ms（0.59） |
+| random.tar.xz | 238 → 74 ms（0.31） | 334 → 171 ms（0.51） |
+| text.tar.bz2 | 5534 → 949 ms（0.17） | 5642 → 1041 ms（0.18） |
+| text1.tar.xz / text9.tar.xz（直列に落ちる） | 0.99 / 1.00 | 1.00 / 1.00 |
+| 他 14 書庫（zip / 7z / rar / lzh / gz / zst / br） | 0.91〜1.01 | 0.98〜1.01 |
+
+main での全 suite: 1,562 tests（54 skipped）、0 failures。
+
 ## 判断の記録
 
 - xz は走査ではなく検証済みの block 表から仕事を作るので、bzip2 の「偽の境界からの復帰」は持たない（advisor の指摘）。

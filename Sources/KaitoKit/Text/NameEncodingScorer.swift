@@ -1,7 +1,7 @@
 import Foundation
 
 // 設計書「採点 2〜7」: 復号の証拠と減衰する事前確率を分離し、言語で候補を除外しない。
-// 語ごとの字母の規則は LetterRules.swift、言語ごとの正書法は NameOrthography.swift、
+// 語ごとの字母の規則は NameEncodingScorer+LetterRules.swift、言語ごとの正書法は NameEncodingScorer+NameOrthography.swift、
 // 日本語の二候補の決定は JapaneseNameEncodingResolver.swift にある。
 enum NameEncodingScorer {
     typealias Candidate = NameEncodingCandidates.Candidate

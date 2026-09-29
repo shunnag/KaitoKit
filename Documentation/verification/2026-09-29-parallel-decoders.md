@@ -15,7 +15,7 @@ KaitoAccelLab（GPU / NPU の検証、https://github.com/shunnag/KaitoAccelLab�
 
 corpus: KaitoAccelLab と同じ text256 / random256 / small（5 万 file）/ headers。`list` は書庫を開く時間（tar.* では staging = 展開全体を含む）、`sha` は全 entry の SHA-256。
 
-noise floor（main 対 main）: 全 21 書庫 × 2 操作で 0.978〜1.012。
+noise floor（main 対 main）: 20 書庫 × 2 操作 = 40 行で 0.964〜1.022。
 
 ### xz（feat/parallel-xz、base = main bf33753）
 
@@ -60,7 +60,9 @@ ThreadSanitizer（`swift test --sanitize=thread`）: ParallelXZ の 14 tests、P
 | random.tar.xz | 238 → 74 ms（0.31） | 334 → 171 ms（0.51） |
 | text.tar.bz2 | 5534 → 949 ms（0.17） | 5642 → 1041 ms（0.18） |
 | text1.tar.xz / text9.tar.xz（直列に落ちる） | 0.99 / 1.00 | 1.00 / 1.00 |
-| 他 14 書庫（zip / 7z / rar / lzh / gz / zst / br） | 0.91〜1.01 | 0.98〜1.01 |
+| 他 14 書庫（zip / 7z / rar / lzh / gz / zst / br） | 0.91〜1.03 | 0.98〜1.01 |
+
+0.91 は headers.zip の list（14.0 → 12.7 ms）、1.03 は text.7z の list（4.2 → 4.3 ms）で、いずれも十数 ms 以下の操作の noise。
 
 main での全 suite: 1,562 tests（54 skipped）、0 failures。
 

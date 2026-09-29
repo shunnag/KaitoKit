@@ -106,9 +106,9 @@ streaming 検証契約:
 | `Core/` | 形式を知らない基盤。`ByteSource` とその view、`Checked` 算術、`ReadLimits`、`KaitoError`、bit reader、固定幅 field(`ByteFields`)、日時(`Timestamps`)、metadata 予算、path の分割、ASCII 数字、CRC・XXH・Blake2・CommonCrypto の境界、AES-CBC の random access 復号(`AESCBCRandomAccess`)、C library wrapper の入力補充(`ChunkedSourceInput`)、cancel 確認の間隔 |
 | `Model/` | 公開の値型と `@_spi` の snapshot(`ArchiveEntry`、`ArchiveFormat`、`RawEntryRecord`、`ZipRawRecordLayout`、`TarEditingSnapshot`、`SevenZipEditingSnapshot`、`LHARawLayout`) |
 | `Reader/` | façade と巻の組み立て。`ArchiveReader`(検出 → reader 生成 → 圧縮 container)、`EntryStream`、`Extractor` と dirfd API、`ReaderOptions`、巻 set、`TarSplice/`(圧縮 tar の splice 検証) |
-| `Text/` | 名前の文字コード判定。`EncodingDetector`、`JapaneseNameEncodingResolver`、`NameEncodingScorer` と `LetterRules` / `NameOrthography`、`PathComponentSplitter`。`LanguageExemplars.swift` は `Scripts/generate/` が生成する表 |
+| `Text/` | 名前の文字コード判定。`EncodingDetector`、`JapaneseNameEncodingResolver`、`NameEncodingScorer` とその extension file `NameEncodingScorer+LetterRules` / `NameEncodingScorer+NameOrthography`、`PathComponentSplitter`。`LanguageExemplars.swift` は `Scripts/generate/` が生成する表 |
 | `Formats/<形式>/` | container の reader。`Reader` / `Structures` / `Parser` / `Publisher` / `Coordinator` / `Crypto` の語を形式をまたいで同じ意味で使う。`FormatDetector` は順序、`<形式>SignatureScanner` は署名走査。`MacEnvelope/`(MacBinary・AppleSingle・BinHex の封筒)、`AppleDouble/`、`HFSPlus/`、`Cab/` の folder decoder もここ。`RAR/RARSolidCoordinator` は RAR4・RAR5 共通の generic な solid coordinator、`SingleFile/CompressedNaming` は圧縮単一 file の接尾辞の表 |
-| `Codecs/<方式>/` | `Decompressor` に適合する復号器と、その bit reader・表。hot path。命名・comment・定数以外は触らない(2026-09-29: C library の wrapper は chunk ごとの入力補充を `Core/ChunkedSourceInput` に任せる。復号 loop は不変)。`LZWindowCopy.swift` は LHA・RAR が共有する窓コピー、`OkumuraLZSSSeeds.swift` は LArc・LZHUF・StuffIt LZAH が共有する初期化値、`SevenZipFilters/` は 7z 専用の filter |
+| `Codecs/<方式>/` | `Decompressor` に適合する復号器と、その bit reader・表。hot path。命名・comment・定数以外は触らない(2026-09-29: C library の wrapper は chunk ごとの入力補充を `Core/ChunkedSourceInput` に任せる。復号 loop は不変)。`LZWindowCopy.swift` は LHA・RAR が共有する窓コピー、`OkumuraLZSSSeeds.swift` は LArc・LZHUF・StuffIt LZAH が共有する初期化値、`SevenZipFilters/` は 7z 専用の filter、`PPMd/VariantH/`（PPMd7 = var.H、7z・RAR の range decoder を含む）と `PPMd/VariantI/` は二つの PPMd 変種 |
 | `KaitoKitCompat/` | XADMaster 形の façade `KaitoArchive` と、複写器・hard link 展開の型 |
 | `kaito/` | CLI。`Commands/` に command ごとの file、`ArgumentCursor` が引数を読む |
 
@@ -954,10 +954,10 @@ RAR 関連 source file ごとの実装入力は次のとおり。表の「black-
 | `Sources/KaitoKit/Formats/FormatDetector.swift`・`Formats/RAR/RARSignatureScanner.swift` | RAR4 signature は bitplane/rar-research、RAR5 signature は RARLab technote。SFX の探索上限は task 要件 |
 | `Sources/KaitoKit/Formats/RAR/RAR4Reader.swift`・`RAR4VolumeParser.swift`・`RAR4EntryPublisher.swift`・`RAR4Structures.swift`・`RARSolidCoordinator.swift`(2026-09-29 に RAR5 版を generic 化し RAR4 と共有) | bitplane/rar-research の RAR 1.5-4.x note、BSD-2 libarchive `archive_read_support_format_rar.c` の header traversal / optional-field order / Unicode name / timestamp の挙動だけ、RAR 7.23 black-box |
 | `Sources/KaitoKit/Codecs/RAR/RAR29Decoder.swift`・`RAR3FilterToken.swift` | bitplane/rar-research §§18-20、同 libarchive RAR4 file の block/table transition・match・RAR3 standard-filter 挙動だけ、RAR 3.00 生成物と RAR 7.23 展開の black-box vector |
-| `Sources/KaitoKit/Codecs/PPMd/RARPPMdRangeDecoder.swift` | bitplane/rar-research の RAR PPMd range-coder note、public-domain LZMA SDK PPMd7 model contract、RAR black-box vector |
-| `Sources/KaitoKit/Codecs/PPMd/PPMd7Decoder.swift`・`PPMd7RangeDecoding.swift`・`SevenZipPPMdRangeDecoder.swift` | public-domain LZMA SDK `C/Ppmd7.c` / `C/Ppmd7.h` / `C/Ppmd7Dec.c`、Shkarin PPMd var.H description |
-| `Sources/KaitoKit/Codecs/PPMd/PPMd7Model.swift` | 同じ public-domain LZMA SDK / Shkarin var.H。RAR 固有 container / LZ source は不使用 |
-| `Sources/KaitoKit/Codecs/PPMd/PPMd7Suballocator.swift` | public-domain LZMA SDK `C/Ppmd7.c` / `C/Ppmd7.h` の allocator contract |
+| `Sources/KaitoKit/Codecs/PPMd/VariantH/RARPPMdRangeDecoder.swift` | bitplane/rar-research の RAR PPMd range-coder note、public-domain LZMA SDK PPMd7 model contract、RAR black-box vector |
+| `Sources/KaitoKit/Codecs/PPMd/VariantH/PPMd7Decoder.swift`・`PPMd7RangeDecoding.swift`・`SevenZipPPMdRangeDecoder.swift` | public-domain LZMA SDK `C/Ppmd7.c` / `C/Ppmd7.h` / `C/Ppmd7Dec.c`、Shkarin PPMd var.H description |
+| `Sources/KaitoKit/Codecs/PPMd/VariantH/PPMd7Model.swift` | 同じ public-domain LZMA SDK / Shkarin var.H。RAR 固有 container / LZ source は不使用 |
+| `Sources/KaitoKit/Codecs/PPMd/VariantH/PPMd7Suballocator.swift` | public-domain LZMA SDK `C/Ppmd7.c` / `C/Ppmd7.h` の allocator contract |
 | `Sources/KaitoKit/Formats/RAR/RAR5Reader.swift`・`RAR5VolumeParser.swift`・`RAR5EntryPublisher.swift`・`RARSolidCoordinator.swift`(RAR4 と共有) | RAR5 の sole external format-specific source である RARLab technote、task orchestrator の clean-room 要件、RAR 7.23 black-box vector |
 | `Sources/KaitoKit/Formats/RAR/RAR5Structures.swift` | RARLab technote の header / flags / compression-info / extra-record layout のみ |
 | `Sources/KaitoKit/Codecs/RAR/RAR5Decoder.swift` | RARLab technote、task orchestrator 供給の clean-room LZ grammar、RAR 7.23 black-box vector。第三者 decoder source は不使用 |
@@ -1033,7 +1033,7 @@ context へ挿入し、`CSMultiHandle.h` の method 一覧を参照した。こ�
 保守作業としては正当だが、§10 は KaitoKit について XADMaster source の参照を無条件に禁じる。
 是正として、同一 session 内では KaitoKit の RAR3 / RAR4 復号領域
 (`Formats/RAR/RAR4Reader.swift`、`Codecs/RAR/RAR29Decoder.swift`、
-`Codecs/PPMd/RARPPMdRangeDecoder.swift`、`Codecs/RAR/RARStandardFilters.swift`、および
+`Codecs/PPMd/VariantH/RARPPMdRangeDecoder.swift`、`Codecs/RAR/RARStandardFilters.swift`、および
 RAR solid stream・filter 実行に触れる箇所)を変更しない。この session で行う XADMaster との
 機能・性能比較は §10 どおり black-box 展開オラクル(実行ファイルの入出力)に限り、
 XADMaster の source は KaitoKit の実装入力にしない。

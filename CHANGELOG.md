@@ -63,6 +63,12 @@
     `.tar.bz` は従来どおり単一 entry のまま（`.bz` は名前から除くだけで container の別名にはしない）。
   - 要求より多い（または負の）byte 数を返す `ByteSource` に対して Deflate・bzip2 の wrapper が投げる error が
     `.malformed("ByteSource returned an invalid byte count")` から `.truncated` になり、gzip・xz・brotli と同じになった（正しい `ByteSource` では起きない）。
+- 2026-09-29 の残り整理（後回しの項目をなくす round）。公開 API・`@_spi`・復号結果は変えていない。
+  - `Formats/LHA/LHAExtendedHeader.swift` の型を file 名と同じ `LHAExtendedHeader` にし、`Text/` の `NameEncodingScorer` の extension file を
+    `NameEncodingScorer+LetterRules.swift` / `NameEncodingScorer+NameOrthography.swift` にした。`TarReader` の 512 literal は `TarHeaderBlock.size`。
+  - `Codecs/PPMd/` を `VariantH/`（PPMd7・7z / RAR の range decoder）と `VariantI/` に分けた（file の中身は不変）。
+  - 883 行の `ZipCentralDirectoryLocator.swift` を、候補の選択（同 file）・回復の判定（`ZipEndRecordRecovery.swift`）・
+    directory の位置計算（`ZipDirectoryLocationResolver.swift`）に分けた。関数の本体・error の順序・回復の予算は同じ。
 
 ## [0.11.0] - 2026-09-27
 

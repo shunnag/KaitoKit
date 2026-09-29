@@ -110,14 +110,14 @@ final class TarReader: FormatReader {
             try checkCancellation(every: headerCount)
             headerCount &+= 1
             let remaining = try Checked.sub(source.length, offset)
-            guard remaining >= 512 else {
+            guard remaining >= UInt64(TarHeaderBlock.size) else {
                 if recoverDamagedArchives { break }
                 throw KaitoError.truncated
             }
 
             try byteReader.seek(to: offset)
-            let headerBytes = Array(try byteReader.readBytes(512))
-            guard headerBytes.count == 512 else { throw KaitoError.truncated }
+            let headerBytes = Array(try byteReader.readBytes(TarHeaderBlock.size))
+            guard headerBytes.count == TarHeaderBlock.size else { throw KaitoError.truncated }
             if headerBytes.allSatisfy({ $0 == 0 }) {
                 foundTerminator = true
                 break
@@ -127,7 +127,7 @@ final class TarReader: FormatReader {
             try header.validateChecksum()
             let typeByte = header.typeFlag
             let headerSize = try header.size()
-            var dataOffset = try Checked.add(offset, 512)
+            var dataOffset = try Checked.add(offset, UInt64(TarHeaderBlock.size))
 
             if typeByte == UInt8(ascii: "x") || typeByte == UInt8(ascii: "X") ||
                 typeByte == UInt8(ascii: "g") ||
@@ -446,12 +446,12 @@ final class TarReader: FormatReader {
         do {
             var global = TarPAXRecords(), local = TarPAXRecords()
             for range in layout.globalHeaderRanges where range.lowerBound < member.headerOffset {
-                let header = TarHeaderBlock(bytes: try readByteRange(source: source, offset: range.lowerBound, count: 512))
+                let header = TarHeaderBlock(bytes: try readByteRange(source: source, offset: range.lowerBound, count: TarHeaderBlock.size))
                 try header.validateChecksum()
                 guard header.typeFlag == UInt8(ascii: "g") else { throw KaitoError.truncated }
                 let size = try header.size()
                 try Checked.size(size, limit: limits.maxMetadataSize)
-                let body = try Checked.add(range.lowerBound, 512)
+                let body = try Checked.add(range.lowerBound, UInt64(TarHeaderBlock.size))
                 guard try nextHeaderOffset(dataOffset: body, size: size, source: source) == range.upperBound else { throw KaitoError.truncated }
                 let paxRecords = try TarPAXRecords.parse(readPayload(source: source, offset: body, size: size), recordLimit: limits.maxMetadataRecordCount)
                 try paxRecords.rejectGlobalSparse()
@@ -460,13 +460,13 @@ final class TarReader: FormatReader {
             var cursor = member.groupRange.lowerBound
             var extensions: [TarHeaderGroup.Extension] = []
             while cursor < member.headerOffset {
-                let header = TarHeaderBlock(bytes: try readByteRange(source: source, offset: cursor, count: 512))
+                let header = TarHeaderBlock(bytes: try readByteRange(source: source, offset: cursor, count: TarHeaderBlock.size))
                 try header.validateChecksum()
                 let type = header.typeFlag
                 guard (paxLocal + gnuLong).contains(type) else { throw KaitoError.truncated }
                 let size = try header.size()
                 try Checked.size(size, limit: limits.maxMetadataSize)
-                let body = try Checked.add(cursor, 512)
+                let body = try Checked.add(cursor, UInt64(TarHeaderBlock.size))
                 let end = try nextHeaderOffset(dataOffset: body, size: size, source: source)
                 guard end <= member.headerOffset else { throw KaitoError.truncated }
                 let payload = try readPayload(source: source, offset: body, size: size)
@@ -477,14 +477,14 @@ final class TarReader: FormatReader {
                 cursor = end
             }
             guard cursor == member.headerOffset else { throw KaitoError.truncated }
-            let header = TarHeaderBlock(bytes: try readByteRange(source: source, offset: cursor, count: 512))
+            let header = TarHeaderBlock(bytes: try readByteRange(source: source, offset: cursor, count: TarHeaderBlock.size))
             try header.validateChecksum()
             let type = header.typeFlag
             guard !(paxLocal + gnuLong + [UInt8(ascii: "g")]).contains(type) else { throw KaitoError.truncated }
             try global.merge(local, limits: limits)
             let headerSize = try header.size()
             let effectiveSize = try global["size"].map { try TarPAXRecords.unsigned($0, fieldName: "size") } ?? headerSize
-            let extensionStart = try Checked.add(cursor, 512)
+            let extensionStart = try Checked.add(cursor, UInt64(TarHeaderBlock.size))
             var body = extensionStart
             if type == UInt8(ascii: "S") {
                 body = try TarSparseMap.parseOldGNU(
@@ -644,9 +644,9 @@ final class TarReader: FormatReader {
         source: any ByteSource,
         recoverDamagedArchives: Bool = false
     ) throws -> UInt64 {
-        let rounded = try Checked.add(size, 511)
-        let blocks = rounded / 512
-        let padded = try Checked.mul(blocks, 512)
+        let rounded = try Checked.add(size, UInt64(TarHeaderBlock.size - 1))
+        let blocks = rounded / UInt64(TarHeaderBlock.size)
+        let padded = try Checked.mul(blocks, UInt64(TarHeaderBlock.size))
         let next = try Checked.add(dataOffset, padded)
         guard next <= source.length || recoverDamagedArchives else { throw KaitoError.truncated }
         return next
@@ -710,9 +710,9 @@ final class TarReader: FormatReader {
         reader: inout ByteReader
     ) throws -> Bool {
         let remaining = try Checked.sub(source.length, offset)
-        guard remaining >= 512 else { return false }
+        guard remaining >= UInt64(TarHeaderBlock.size) else { return false }
         try reader.seek(to: offset)
-        let block = Array(try reader.readBytes(512))
+        let block = Array(try reader.readBytes(TarHeaderBlock.size))
         if block.allSatisfy({ $0 == 0 }) { return true }
         do {
             try TarHeaderBlock(bytes: block).validateChecksum()

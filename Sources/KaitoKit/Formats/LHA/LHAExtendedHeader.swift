@@ -12,7 +12,7 @@ import Foundation
 /// store it inside the declared total header, with two-byte and four-byte
 /// sizes respectively. Level 0 has no chain; its parser fills the Unix fields
 /// from the fixed 'U' extension directly.
-struct LHAExtendedFields {
+struct LHAExtendedHeader {
     var headerCRC16: UInt16?
     var headerCRCFieldOffset: Int?
     var filename: [UInt8]?
@@ -182,7 +182,7 @@ struct LHAExtendedFields {
 
     /// Applies one record. `crcFieldOffset` is where the record's data begins
     /// within the authenticated header bytes, used by the 0x00 common header.
-    mutating func apply(
+    private mutating func apply(
         type: UInt8,
         data: [UInt8],
         crcFieldOffset: Int

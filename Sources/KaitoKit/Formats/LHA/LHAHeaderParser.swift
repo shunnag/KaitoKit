@@ -35,7 +35,7 @@ enum LHAHeaderParser {
     private static let minimumCommonPrefixSize = 21
     // Smallest valid base header per level, in bytes. LHASignatureScanner
     // applies the same bounds to candidates, and levels 2 and 3 start their
-    // extension chains at these offsets (LHAExtendedFields).
+    // extension chains at these offsets (LHAExtendedHeader).
     static let level0MinimumHeaderSize = 24
     static let level1MinimumHeaderSize = 27
     static let level2MinimumHeaderSize = 26
@@ -63,7 +63,7 @@ enum LHAHeaderParser {
         let fromWindows: Bool
         let attribute: UInt8
         let directoryHint: Bool
-        let extended: LHAExtendedFields
+        let extended: LHAExtendedHeader
         let headerOffset: UInt64
         let dataOffset: UInt64
     }
@@ -264,7 +264,7 @@ enum LHAHeaderParser {
             directory: nil
         )
         var modificationDate = try dosDate(LittleEndian.uint32(header, at: 15))
-        var extended = LHAExtendedFields()
+        var extended = LHAExtendedHeader()
         // LHa for UNIX places a fixed-length 'U' extension after the level-0
         // data CRC. Only a complete 12-byte version-0 extension is interpreted;
         // trailing bytes from other creators are not retained.
@@ -346,7 +346,7 @@ enum LHAHeaderParser {
         let firstExtensionSize = LittleEndian.uint16(base, at: base.count - 2)
 
         let baseEnd = try Checked.add(offset, baseHeaderSize)
-        var fields = LHAExtendedFields()
+        var fields = LHAExtendedHeader()
         let extensionResult = try fields.readLevel1Chain(
             source: source,
             offset: baseEnd,
@@ -459,7 +459,7 @@ enum LHAHeaderParser {
         } else {
             candidate = declaredHeader
         }
-        var fields = LHAExtendedFields()
+        var fields = LHAExtendedHeader()
         let extensionResult = try fields.parseLevel2Chain(
             candidate,
             limits: limits
@@ -580,7 +580,7 @@ enum LHAHeaderParser {
         let originalSize32 = UInt64(LittleEndian.uint32(header, at: 11))
         let crc16 = LittleEndian.uint16(header, at: 21)
         let osID = header[23]
-        var fields = LHAExtendedFields()
+        var fields = LHAExtendedHeader()
         let extensionRecordCount = try fields.parseLevel3Chain(
             header,
             limits: limits
@@ -654,7 +654,7 @@ enum LHAHeaderParser {
         osID: UInt8?,
         attribute: UInt8,
         directoryHint: Bool,
-        fields: LHAExtendedFields,
+        fields: LHAExtendedHeader,
         headerOffset: UInt64,
         dataOffset: UInt64,
         nextOffset: UInt64,

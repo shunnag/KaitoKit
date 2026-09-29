@@ -8,6 +8,7 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-09-29-deferred-items.md](2026-09-29-deferred-items.md) | 2026-09-29 | コード品質レビューで見送った項目の実施と据え置きの記録（AESCBCRandomAccess・RARSolidCoordinator・ChunkedSourceInput・PPMd の階層・locator 分割ほか） | 未 release |
 | [2026-09-27-release-preparation-0.11.0.md](2026-09-27-release-preparation-0.11.0.md) | 2026-09-27 | filter fixture の自作 payload への置換、出自・path 監査、0.11.0 文書・CI・全件検証 | v0.11.0 |
 | [2026-09-26-zstd-p11.md](2026-09-26-zstd-p11.md) | 2026-09-26 | zstd P11 Stage 1〜3、最終 host 性能・RSS gate 通過 | v0.11.0 |
 | [2026-09-26-sevenzip-edit-layout.md](2026-09-26-sevenzip-edit-layout.md) | 2026-09-26 | SevenZipEditLayout SPI、header snapshot、AES packed stream、AC-K5 計測 | v0.11.0 |

@@ -8,10 +8,12 @@ import Foundation
 /// Format input: https://tukaani.org/xz/xz-file-format.txt and LZMA2's public
 /// control-byte layout. Apple Compression still verifies the decoded data.
 enum XZResourceValidator {
+    @discardableResult
     static func validate(source: any ByteSource, dictionaryLimit: UInt64,
-                         recorder: CompressedTarMapRecorder? = nil) throws {
+                         recorder: CompressedTarMapRecorder? = nil) throws -> XZStreamLayout {
         guard source.length >= 24, source.length % 4 == 0 else { throw KaitoError.truncated }
         var reader = try ByteReader(source: source, bufferCapacity: 1_024)
+        var streams: [XZStreamLayout.Stream] = []
         repeat {
             let streamStart = reader.offset
             let header = try reader.readBytes(12)
@@ -24,6 +26,7 @@ enum XZResourceValidator {
             let checkSize: UInt64 = check == 0 ? 0 : UInt64(1) << ((Int(check) - 1) / 3 + 2)
             recorder?.beginXZ(at: streamStart, flags: UInt16(header[6]) | UInt16(header[7]) << 8, checkSize: checkSize)
             var blocks: UInt64 = 0
+            var layoutBlocks: [XZStreamLayout.Block] = []
             var actualIndex = SHA256()
             var indexStart: UInt64
             while true {
@@ -45,11 +48,15 @@ enum XZResourceValidator {
                 }
                 try zeros(&reader, count: (4 - compressedSize % 4) % 4)
                 try reader.seek(to: Checked.add(reader.offset, checkSize))
-                hashRecord(&actualIndex, UInt64(headerSize) + compressedSize + checkSize, outputSize)
+                let unpaddedSize = try Checked.add(Checked.add(UInt64(headerSize), compressedSize), checkSize)
+                hashRecord(&actualIndex, unpaddedSize, outputSize)
                 blocks = try Checked.add(blocks, 1)
                 recorder?.appendXZ(compressedRange: blockStart..<reader.offset, headerSize: UInt64(headerSize),
-                                   payloadSize: compressedSize, unpaddedSize: UInt64(headerSize) + compressedSize + checkSize,
+                                   payloadSize: compressedSize, unpaddedSize: unpaddedSize,
                                    outputSize: outputSize)
+                layoutBlocks.append(.init(compressedRange: blockStart..<reader.offset, headerSize: UInt64(headerSize),
+                                          payloadSize: compressedSize, unpaddedSize: unpaddedSize,
+                                          outputSize: outputSize))
             }
             let records = try variableInteger(&reader)
             guard records == blocks else { throw KaitoError.malformed("XZ Index block count mismatch") }
@@ -75,6 +82,10 @@ enum XZResourceValidator {
                 throw KaitoError.malformed("invalid XZ stream footer")
             }
             recorder?.endXZ(index: indexStart..<footerStart, footer: footerStart..<reader.offset)
+            streams.append(.init(headerRange: streamStart..<(try Checked.add(streamStart, 12)),
+                                 flags: UInt16(header[6]) | UInt16(header[7]) << 8, checkSize: checkSize,
+                                 blocks: layoutBlocks, indexRange: indexStart..<footerStart,
+                                 footerRange: footerStart..<reader.offset))
             while reader.remaining > 0 {
                 let offset = reader.offset
                 if try reader.readUInt32LE() != 0 {
@@ -84,6 +95,7 @@ enum XZResourceValidator {
                 recorder?.disable(.xzStreamPadding)
             }
         } while reader.remaining > 0
+        return XZStreamLayout(streams: streams)
     }
 
     private static func validateBlockHeader(_ header: Data, dictionaryLimit: UInt64) throws

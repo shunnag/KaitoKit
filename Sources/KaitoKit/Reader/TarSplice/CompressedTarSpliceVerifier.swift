@@ -305,7 +305,9 @@ final class CompressedTarSpliceVerifier: Decompressor {
             recorder = recording; archiveLength = source.length
         case .xz:
             let framing = xzFraming!
-            let tail = DataByteSource(Self.xzIndexFooter(blocks: Array(framing.blocks[part.outputBlocks!]), flags: framing.streamFlags))
+            let tail = try DataByteSource(XZSyntheticStream.xzIndexFooter(
+                blocks: framing.blocks[part.outputBlocks!].map { ($0.unpaddedSize, $0.imageRange.count64) },
+                flags: framing.streamFlags))
             let source = try ConcatenatedByteSource(segments: [
                 .init(source: output, offset: 0, length: 12),
                 .init(source: output, offset: part.output.lowerBound, length: part.output.count64),
@@ -418,23 +420,6 @@ final class CompressedTarSpliceVerifier: Decompressor {
 
     private func failure(_ reason: TarSpliceVerificationError.Reason, underlying: KaitoError? = nil) -> TarSpliceVerificationError {
         .init(reason, segmentIndex: partIndex, underlying: underlying)
-    }
-
-    static func xzIndexFooter(blocks: [XZBlockMap.Block], flags: UInt16) -> Data {
-        func integer(_ number: UInt64) -> Data {
-            var number = number, bytes = Data()
-            repeat { bytes.append(UInt8(number & 127) | (number >= 128 ? 128 : 0)); number >>= 7 } while number > 0
-            return bytes
-        }
-        func little(_ number: UInt32) -> Data { Data((0..<4).map { UInt8(truncatingIfNeeded: number >> (8 * $0)) }) }
-        var index = Data([0]); index.append(integer(UInt64(blocks.count)))
-        for block in blocks { index.append(integer(block.unpaddedSize)); index.append(integer(block.imageRange.count64)) }
-        while index.count % 4 != 0 { index.append(0) }
-        index.append(little(CRC32.checksum(index)))
-        var footer = little(UInt32(index.count / 4 - 1))
-        footer.append(contentsOf: [UInt8(truncatingIfNeeded: flags), UInt8(truncatingIfNeeded: flags >> 8)])
-        index.append(little(CRC32.checksum(footer))); index.append(footer); index.append(contentsOf: [0x59, 0x5a])
-        return index
     }
 }
 

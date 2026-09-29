@@ -134,6 +134,8 @@ final class SingleFileReader: FormatReader {
         let decoder: any Decompressor
         if format == .bzip2 {
             decoder = try ParallelBzip2Decompressor(source: source, recorder: recorder)
+        } else if format == .xz {
+            decoder = try ParallelXZDecompressor(source: source, limits: limits, recorder: recorder)
         } else {
             decoder = try Self.makeDecompressor(format: format, source: source, limits: limits, recorder: recorder)
         }

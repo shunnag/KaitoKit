@@ -2150,6 +2150,20 @@ W = min(8, activeProcessorCount)、投入は W 区間までとし、走査と完
 待機は 50 ms ごとに既存と同じ CancellationError を検査する。deinit / 取消しは放棄を通知し、worker は
 1 MiB の出力ごとに観測する。deinit は worker を待たない。共有状態は reader ごとの lock で守り、global の可変状態は置かない。
 
+圧縮 tar / cpio の xz staging も並列化する（2026-09-29、`ParallelXZDecompressor`）。仕事の表は走査ではなく `XZResourceValidator` が
+検証した block の表（`XZStreamLayout`）から作るので、偽の境界も直列への「復帰」もない。job は連続した block の run で、出力の合計が
+16 MiB を超えない範囲でまとめる（それより大きい block は単独）。GyoshukuKit が大きな member の前に置く 512 byte の header だけの block は
+こうして隣の block と同じ job になる。worker は run を stream header + block の byte 範囲 + 合成した Index / footer
+（`XZSyntheticStream`、継ぎの検証と共有）の独立した stream として従来の直列 `XZDecompressor` に渡し、期待 size + 1 byte の領域に復号して
+size と終端が一致したときだけ成功とする。合成した Index では元の Index の CRC32 が検査されないので、最後の job が元の Index の CRC32 を確かめる。
+job ごとの保持量 = 出力 + 圧縮 byte とし、W = clamp(512 MiB / 保持量 − 2, 1, min(8, activeProcessorCount))。W < 2、block が 1 つ、
+連結 stream のときは従来の `XZDecompressor` にそのまま渡す（`xz -T1` の出力や `xz -9 -T0` の 192 MiB block はここに落ちる）。
+保持する領域は (W + 2) × job の保持量以下。出力は job の順に 256 KiB ずつ返し、worker の失敗はその job の番が来たときに表に出す
+（エラー前に返せる byte 数が分け方で変わりうるのは bzip2 と同じ）。tar の区切りの地図は、計画時に recorder なしで表を作り、
+並列化するときだけ recorder 付きで再度走査して `beginXZ` / `appendXZ` / `endXZ` を従来どおり出し、各 block の圧縮範囲全体を
+出力の順に `consumeXZ` へ渡すので、直列経路と byte 単位で同じ地図になる。単独の `.xz` の entry stream、pbzx、UDIF、ZIP method 95、
+xar、継ぎの検証は従来の直列経路のまま。
+
 TarEditLayout は 0.x の間は追加だけとし、削除・改名・型変更が必要なら GK と同時に release して依存下限を上げる。
 公開 swiftinterface には出さない。全公開値の frozen golden、各段の回帰・差分 fuzz、TSan / ASan、Release と
 負荷付きの計測は [段階 A](verification/2026-09-25-tar-edit-layout.md)・

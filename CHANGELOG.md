@@ -6,6 +6,28 @@
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-09-30
+
+LHA / tar の解析・entry 公開・編集用配置復元と、入力から形式別 reader を作る処理の責務を整理した。
+公開 API・書庫の受理条件・entry の公開値・decoder の hot loop は維持する。
+
+### 変更
+
+- LHA の構造と境界の検査を `LHAHeaderParser`、名前と metadata の公開を `LHAEntryPublisher` に分けた。
+- tar の header / 拡張解析、entry 公開、編集用 snapshot の配置復元を専用の担当へ分けた。
+  解析結果と COW の layout storage の共有を保ち、reopen ごとに読み直さない。
+- `OpenedArchiveInput` が source・nominal URL・実際に開いた volume・directory anchor・検出 hint を区別し、
+  `FormatReaderFactory` が形式別 reader を組み立てる。password・出力予算・抽出 provenance は reopen ごとに独立する。
+- tar と RAR5 の同一の抽出 path 正規化を `ArchivePath` に集約した。
+  root / DOS drive の扱いが異なる LHA は形式内の規則を保つ。
+- LHA の DOS 日時変換を parse ごとに再利用する。不正日時は従来どおり nil、Unix 拡張は優先する。
+  release CLI の交互 A/B では、10,000 entry の LHA level 0 の open が ASCII で約22%、CP932で約11%短縮した。
+
+全1,599件のローカルテストは0失敗（既存50 skip）。macOS 26 / Intel / Xcode 27 の全CI、
+両framework構成、圧縮payloadのsanitizer検証と Asia/Tokyo の LHA golden比較も成功した。
+7種の計測入力の SHA 出力はすべて一致した。この計測は metadata / read 経路を対象とし、全codecやGUI全体の性能を表さない。
+[責務・互換性・性能の検証記録](https://github.com/shunnag/KaitoKit/blob/v0.12.1/Documentation/verification/2026-09-30-reader-responsibilities.md)。
+
 ## [0.12.0] - 2026-09-29
 
 圧縮 tar / cpio の staging の並列復号（xz の block 並列 `ParallelXZDecompressor`、単一 stream bzip2 の block 単位 `Bzip2BlockScanner`）と、

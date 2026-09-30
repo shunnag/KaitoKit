@@ -1,0 +1,370 @@
+{
+  "before": "/tmp/cooviewer-quality-20260930/kaito-release-before/out/Products/Release/kaito",
+  "after": "/tmp/cooviewer-quality-20260930/kaito-release-after/out/Products/Release/kaito",
+  "cases": [
+    {
+      "input": "lha-0-ascii.lzh",
+      "sha_matches": true,
+      "measurements": {
+        "before": {
+          "open": [
+            41.524,
+            41.319,
+            43.151,
+            42.55,
+            42.251,
+            42.298
+          ],
+          "extract": [
+            6.88,
+            6.799,
+            7.053,
+            6.887,
+            6.855,
+            6.894
+          ]
+        },
+        "after": {
+          "open": [
+            33.163,
+            32.77,
+            33.016,
+            33.607,
+            33.393,
+            32.354
+          ],
+          "extract": [
+            6.589,
+            6.801,
+            6.71,
+            6.85,
+            6.526,
+            6.622
+          ]
+        }
+      },
+      "open": {
+        "before_median_ms": 42.2745,
+        "after_median_ms": 33.0895,
+        "ratio": 0.782729541449337
+      },
+      "extract": {
+        "before_median_ms": 6.8835,
+        "after_median_ms": 6.666,
+        "ratio": 0.9684027021137503
+      }
+    },
+    {
+      "input": "lha-0-cp932.lzh",
+      "sha_matches": true,
+      "measurements": {
+        "before": {
+          "open": [
+            80.256,
+            80.344,
+            78.777,
+            78.293,
+            81.641,
+            77.967
+          ],
+          "extract": [
+            6.949,
+            6.91,
+            6.851,
+            6.838,
+            7.109,
+            6.809
+          ]
+        },
+        "after": {
+          "open": [
+            70.106,
+            70.839,
+            70.35,
+            69.647,
+            71.18,
+            71.938
+          ],
+          "extract": [
+            6.692,
+            6.763,
+            6.7,
+            6.794,
+            6.859,
+            6.926
+          ]
+        }
+      },
+      "open": {
+        "before_median_ms": 79.51650000000001,
+        "after_median_ms": 70.5945,
+        "ratio": 0.8877968723472486
+      },
+      "extract": {
+        "before_median_ms": 6.8805,
+        "after_median_ms": 6.778499999999999,
+        "ratio": 0.9851754959668628
+      }
+    },
+    {
+      "input": "lha-2-ascii.lzh",
+      "sha_matches": true,
+      "measurements": {
+        "before": {
+          "open": [
+            37.398,
+            38.471,
+            39.697,
+            37.605,
+            37.407,
+            37.268
+          ],
+          "extract": [
+            7.068,
+            7.234,
+            7.297,
+            7.199,
+            7.029,
+            6.978
+          ]
+        },
+        "after": {
+          "open": [
+            38.231,
+            37.607,
+            39.198,
+            38.222,
+            37.791,
+            37.926
+          ],
+          "extract": [
+            6.826,
+            6.858,
+            7.408,
+            6.945,
+            6.824,
+            7.041
+          ]
+        }
+      },
+      "open": {
+        "before_median_ms": 37.506,
+        "after_median_ms": 38.074,
+        "ratio": 1.0151442435876925
+      },
+      "extract": {
+        "before_median_ms": 7.1335,
+        "after_median_ms": 6.9015,
+        "ratio": 0.9674773953879583
+      }
+    },
+    {
+      "input": "tar-10000.tar",
+      "sha_matches": true,
+      "measurements": {
+        "before": {
+          "open": [
+            20.874,
+            20.778,
+            20.878,
+            20.599,
+            20.891,
+            21.448
+          ],
+          "extract": [
+            7.32,
+            7.224,
+            7.323,
+            7.245,
+            7.29,
+            7.296
+          ]
+        },
+        "after": {
+          "open": [
+            21.99,
+            21.843,
+            22.047,
+            21.746,
+            21.858,
+            21.68
+          ],
+          "extract": [
+            7.177,
+            7.084,
+            7.144,
+            7.461,
+            7.128,
+            7.096
+          ]
+        }
+      },
+      "open": {
+        "before_median_ms": 20.875999999999998,
+        "after_median_ms": 21.8505,
+        "ratio": 1.0466803985437825
+      },
+      "extract": {
+        "before_median_ms": 7.293,
+        "after_median_ms": 7.136,
+        "ratio": 0.9784725078842725
+      }
+    },
+    {
+      "input": "tar-10000.tar.gz",
+      "sha_matches": true,
+      "measurements": {
+        "before": {
+          "open": [
+            21.274,
+            21.046,
+            21.655,
+            20.907,
+            21.2,
+            21.614
+          ],
+          "extract": [
+            4.253,
+            4.211,
+            4.379,
+            4.242,
+            4.376,
+            4.185
+          ]
+        },
+        "after": {
+          "open": [
+            22.437,
+            22.286,
+            22.238,
+            22.204,
+            22.104,
+            22.107
+          ],
+          "extract": [
+            4.349,
+            4.194,
+            4.304,
+            4.11,
+            4.279,
+            4.27
+          ]
+        }
+      },
+      "open": {
+        "before_median_ms": 21.237000000000002,
+        "after_median_ms": 22.221,
+        "ratio": 1.0463342279983048
+      },
+      "extract": {
+        "before_median_ms": 4.2475000000000005,
+        "after_median_ms": 4.2745,
+        "ratio": 1.0063566804002353
+      }
+    },
+    {
+      "input": "zip-deflate.zip",
+      "sha_matches": true,
+      "measurements": {
+        "before": {
+          "open": [
+            0.247,
+            0.225,
+            0.253,
+            0.241,
+            0.25,
+            0.232
+          ],
+          "extract": [
+            2.128,
+            2.139,
+            2.145,
+            2.088,
+            2.082,
+            2.132
+          ]
+        },
+        "after": {
+          "open": [
+            0.241,
+            0.237,
+            0.245,
+            0.248,
+            0.24,
+            0.273
+          ],
+          "extract": [
+            2.125,
+            2.149,
+            2.087,
+            2.081,
+            2.103,
+            2.026
+          ]
+        }
+      },
+      "open": {
+        "before_median_ms": 0.244,
+        "after_median_ms": 0.243,
+        "ratio": 0.9959016393442623
+      },
+      "extract": {
+        "before_median_ms": 2.13,
+        "after_median_ms": 2.095,
+        "ratio": 0.983568075117371
+      }
+    },
+    {
+      "input": "zip-stored.zip",
+      "sha_matches": true,
+      "measurements": {
+        "before": {
+          "open": [
+            0.242,
+            0.241,
+            0.243,
+            0.243,
+            0.236,
+            0.24
+          ],
+          "extract": [
+            1.077,
+            1.08,
+            1.041,
+            1.086,
+            1.049,
+            1.065
+          ]
+        },
+        "after": {
+          "open": [
+            0.261,
+            0.245,
+            0.233,
+            0.254,
+            0.256,
+            0.264
+          ],
+          "extract": [
+            1.135,
+            1.076,
+            1.05,
+            1.1,
+            1.141,
+            1.063
+          ]
+        }
+      },
+      "open": {
+        "before_median_ms": 0.2415,
+        "after_median_ms": 0.255,
+        "ratio": 1.0559006211180124
+      },
+      "extract": {
+        "before_median_ms": 1.071,
+        "after_median_ms": 1.088,
+        "ratio": 1.015873015873016
+      }
+    }
+  ]
+}

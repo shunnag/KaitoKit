@@ -1,6 +1,6 @@
 import Foundation
 
-// DOS 日時（1980 起点、2 秒単位）の復号。ZIP・CAB・RAR4 が共有し、不正な値を error にするか捨てるかは
+// DOS 日時（1980 起点、2 秒単位）の復号。ZIP・CAB・RAR4・LHA が共有し、不正な値を error にするか捨てるかは
 // 呼出側が選ぶ。bit 配置は Core/Timestamps.swift の DOSDateTime、月日の検査と Calendar 変換はここ。
 
 func dosModificationDate(date: UInt16, time: UInt16) throws -> Date? {
@@ -17,6 +17,12 @@ struct DOSTimestampDecoder {
         // パースごとに現在の timezone を採り、entry 間では Calendar を共有する。
         calendar.timeZone = timeZone
         self.calendar = calendar
+    }
+
+    /// LHA の packed DOS field（上位 16 bit が日付、下位が時刻）。
+    mutating func modificationDate(packed: UInt32) throws -> Date? {
+        try modificationDate(date: UInt16(truncatingIfNeeded: packed >> 16),
+                             time: UInt16(truncatingIfNeeded: packed))
     }
 
     mutating func modificationDate(date: UInt16, time: UInt16) throws -> Date? {

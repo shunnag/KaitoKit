@@ -1,12 +1,12 @@
 import Foundation
 
-/// URL で開いた書庫の入力。形式検出の前に、同じ directory の兄弟巻や参照先を一つの source に組み立てる。
-/// ArchiveReader.open(url:) と FormatDetector.detect(url:) が同じ規則・上限で使う。
+/// 形式検出に渡す書庫の入力。byte source・名前ヒント・実際に開いた巻の identity を別々に持つ。
+/// URL 入口だけが兄弟巻と参照先を組み立て、名前ヒントのない Data / ByteSource 入口は与えた byte のみを使う。
 struct OpenedArchiveInput {
     /// 組み立て後の source。分割セットは連結、`.cue` は data track の image、それ以外は開いた file 自身。
     let source: any ByteSource
     /// 拡張子・単一 stream の名前・SFX 検出のヒント。`.001` セットでは `.001` を除く。
-    let sourceURL: URL
+    let sourceURL: URL?
     /// 開いた file の親 directory。`.001` の連結セットでは nil。
     let directoryAnchor: FileByteSource.DirectoryAnchor?
     /// 実際に開いた巻の URL。`.001` の連結セットでは nil。
@@ -15,6 +15,17 @@ struct OpenedArchiveInput {
     let zipDiskLayout: ZipDiskLayout?
     /// 2 巻以上連結した numbered / native ZIP セット。
     let volumeSet: ArchiveVolumeSet?
+
+    init(source: any ByteSource, sourceURL: URL? = nil,
+         directoryAnchor: FileByteSource.DirectoryAnchor? = nil, volumeURL: URL? = nil,
+         zipDiskLayout: ZipDiskLayout? = nil, volumeSet: ArchiveVolumeSet? = nil) {
+        self.source = source
+        self.sourceURL = sourceURL
+        self.directoryAnchor = directoryAnchor
+        self.volumeURL = volumeURL
+        self.zipDiskLayout = zipDiskLayout
+        self.volumeSet = volumeSet
+    }
 
     /// `.001` から始まるバイト分割巻は、形式検出の前に同じ親の兄弟巻を連結する。
     static func assemble(url: URL, limits: ReadLimits) throws -> OpenedArchiveInput {

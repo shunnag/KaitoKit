@@ -9,7 +9,7 @@ final class TarLayoutStorage: Sendable {
     }
     let members: [Member]
     // 本文長は既存の配列を COW 共有し、追加の記録は member ごとに 32 B に抑える。
-    let records: [TarReader.Record]
+    let records: [TarEntryRecord]
     let imageLength: UInt64
     let endOfArchiveOffset: UInt64
     let globalHeaderRanges: [Range<UInt64>]
@@ -21,7 +21,7 @@ final class TarLayoutStorage: Sendable {
                                 globalHeaderRanges: globalHeaderRanges, storage: self)
     }
 
-    init(builder: Builder, records: [TarReader.Record], imageLength: UInt64, end: UInt64) {
+    init(builder: Builder, records: [TarEntryRecord], imageLength: UInt64, end: UInt64) {
         self.imageLength = imageLength; self.endOfArchiveOffset = end
         self.globalHeaderRanges = builder.globals
         var reason = builder.reason

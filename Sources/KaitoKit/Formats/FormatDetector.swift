@@ -154,7 +154,7 @@ public enum FormatDetector {
            let split = try StuffItSplitSet.assemble(firstVolumeURL: nil, source: source, directory: nil, limits: limits) {
             return MacEnvelope(data: split, resource: split.resourceFork)
         }
-        if TarReader.isPlausibleMemberHeader(bytes) { return nil }
+        if TarHeaderBlock.isPlausibleMemberHeader(bytes) { return nil }
         if bytes.starts(with: "StuffIt?".utf8) { throw KaitoError.unsupportedFormat }
         if StuffItHeader.signature(bytes) != nil || bytes.starts(with: "StuffIt!".utf8) {
             return MacEnvelope(data: source, resource: nil)
@@ -192,7 +192,7 @@ public enum FormatDetector {
         let prefix = try readByteRange(source: source, offset: 0, count: prefixLength)
 
         // 512-byte 全体で検証できる tar checksum は短い magic より強い証拠になる。
-        if TarReader.isPlausibleMemberHeader(prefix) {
+        if TarHeaderBlock.isPlausibleMemberHeader(prefix) {
             return .tar
         }
 

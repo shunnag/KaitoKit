@@ -36,7 +36,7 @@ public struct TarEditingSnapshot: Sendable {
     public func headerGroup(ofMember index: Int) throws -> TarHeaderGroup {
         guard let layout else { throw KaitoError.notFound("tar member index \(index)") }
         let member = try layout.member(at: index)
-        return try TarReader.headerGroup(member, layout: layout, source: image, limits: limits)
+        return try TarEditingLayoutRestorer.headerGroup(member, layout: layout, source: image, limits: limits)
     }
 
     /// image の end-of-archive 以後がすべて 0 か。1 MiB ずつ読む。layout がなければ notFound。

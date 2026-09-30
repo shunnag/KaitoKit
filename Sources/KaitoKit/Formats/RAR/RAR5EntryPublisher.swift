@@ -382,7 +382,7 @@ enum RAR5EntryPublisher {
             // it stays a zero-body `.other`.
             var fileCopyTarget: (index: Int, entry: ArchiveEntry)?
             if let redirection = item.extras.redirection, redirection.type == RAR5RedirectionType.fileCopy,
-               let normalizedTarget = normalizedExtractionPath(redirection.target),
+               let normalizedTarget = ArchivePath.normalizedExtractionPath(redirection.target),
                let targetIndex = lastEntryByNormalizedPath[normalizedTarget],
                entries.indices.contains(targetIndex),
                entries[targetIndex].kind == .file,
@@ -422,7 +422,7 @@ enum RAR5EntryPublisher {
                 specific["redirectionType"] = String(redirection.type)
                 specific["redirectionTargetIsDirectory"] = redirection.flags & 1 != 0 ? "true" : "false"
                 if redirection.type == RAR5RedirectionType.hardLink,
-                   let normalizedTarget = normalizedExtractionPath(redirection.target),
+                   let normalizedTarget = ArchivePath.normalizedExtractionPath(redirection.target),
                    let targetIndex = lastEntryByNormalizedPath[normalizedTarget],
                    entries.indices.contains(targetIndex) {
                     let target = entries[targetIndex]
@@ -482,7 +482,7 @@ enum RAR5EntryPublisher {
                 isIncomplete: recoverDamagedArchives && item.isIncomplete
             )
             entries.append(entry)
-            if let normalizedName = normalizedExtractionPath(item.name) {
+            if let normalizedName = ArchivePath.normalizedExtractionPath(item.name) {
                 // Resolve hard links before insertion so targets are always
                 // earlier archive members and cannot form forward cycles.
                 lastEntryByNormalizedPath[normalizedName] = entry.index
@@ -505,18 +505,5 @@ enum RAR5EntryPublisher {
             ))
         }
         return (entries, records)
-    }
-
-    private static func normalizedExtractionPath(_ path: String) -> String? {
-        guard !path.isEmpty, path.utf8.first != 0x2F, !path.utf8.contains(0) else {
-            return nil
-        }
-        let rawComponents = path
-            .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
-            .map { String(decoding: $0, as: UTF8.self) }
-        guard !rawComponents.contains("..") else { return nil }
-        let components = rawComponents.filter { $0 != "." }
-        guard !components.isEmpty else { return nil }
-        return components.joined(separator: "/")
     }
 }

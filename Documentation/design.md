@@ -105,7 +105,7 @@ streaming 検証契約:
 |---|---|
 | `Core/` | 形式を知らない基盤。`ByteSource` とその view、`Checked` 算術、`ReadLimits`、`KaitoError`、bit reader、固定幅 field(`ByteFields`)、日時(`Timestamps`)、metadata 予算、path の分割、ASCII 数字、CRC・XXH・Blake2・CommonCrypto の境界、AES-CBC の random access 復号(`AESCBCRandomAccess`)、C library wrapper の入力補充(`ChunkedSourceInput`)、cancel 確認の間隔 |
 | `Model/` | 公開の値型と `@_spi` の snapshot(`ArchiveEntry`、`ArchiveFormat`、`RawEntryRecord`、`ZipRawRecordLayout`、`TarEditingSnapshot`、`SevenZipEditingSnapshot`、`LHARawLayout`) |
-| `Reader/` | façade と巻の組み立て。`ArchiveReader`(検出 → reader 生成 → 圧縮 container)、`EntryStream`、`Extractor` と dirfd API、`ReaderOptions`、巻 set、`TarSplice/`(圧縮 tar の splice 検証) |
+| `Reader/` | façade と巻の組み立て。`ArchiveReader`(entry 操作と再オープン)、`FormatReaderFactory`(検出・reader 生成・圧縮 container staging)、`OpenedArchiveInput`(byte・名前ヒント・実巻 identity)、`EntryStream`、`Extractor` と dirfd API、`ReaderOptions`、巻 set、`TarSplice/`(圧縮 tar の splice 検証) |
 | `Text/` | 名前の文字コード判定。`EncodingDetector`、`JapaneseNameEncodingResolver`、`NameEncodingScorer` とその extension file `NameEncodingScorer+LetterRules` / `NameEncodingScorer+NameOrthography`、`PathComponentSplitter`。`LanguageExemplars.swift` は `Scripts/generate/` が生成する表 |
 | `Formats/<形式>/` | container の reader。`Reader` / `Structures` / `Parser` / `Publisher` / `Coordinator` / `Crypto` の語を形式をまたいで同じ意味で使う。`FormatDetector` は順序、`<形式>SignatureScanner` は署名走査。`MacEnvelope/`(MacBinary・AppleSingle・BinHex の封筒)、`AppleDouble/`、`HFSPlus/`、`Cab/` の folder decoder もここ。`RAR/RARSolidCoordinator` は RAR4・RAR5 共通の generic な solid coordinator、`SingleFile/CompressedNaming` は圧縮単一 file の接尾辞の表 |
 | `Codecs/<方式>/` | `Decompressor` に適合する復号器と、その bit reader・表。hot path。命名・comment・定数以外は触らない(2026-09-29: C library の wrapper は chunk ごとの入力補充を `Core/ChunkedSourceInput` に任せる。復号 loop は不変)。`LZWindowCopy.swift` は LHA・RAR が共有する窓コピー、`OkumuraLZSSSeeds.swift` は LArc・LZHUF・StuffIt LZAH が共有する初期化値、`SevenZipFilters/` は 7z 専用の filter、`PPMd/VariantH/`（PPMd7 = var.H、7z・RAR の range decoder を含む）と `PPMd/VariantI/` は二つの PPMd 変種 |
@@ -115,6 +115,27 @@ streaming 検証契約:
 `Codecs/` は `Formats/` の型に依存しない。`Formats/` は `Core/`・`Codecs/`・`Text/` を使う。`Reader/` だけが形式をまたいで
 分岐する。試験は `Tests/README.md` に配置と環境変数をまとめ、共有の helper は `Tests/KaitoKitTests/Support/`、
 環境変数で有効にする計測は `Probes/`、計測の道具は `Tests/Measurement/` に置く。
+
+### 3.2 解析・公開・再オープンの境界（2026-09-30）
+
+LHA と tar も RAR の Parser / Publisher と同じ役割に合わせる。
+`LHAHeaderParser` は header level 0–3・拡張・payload 境界を検証し、`LHAEntryPublisher` は
+書庫全体の名前判定後に公開値を作る。pending を一件ずつ解放し、匿名 member の物理位置と公開 index は別々に保つ。
+`TarParser` は pax / GNU / sparse と本文境界を読み、`TarEntryPublisher` が名前・link・metadata 上限と
+過去の hard link 参照を検証する。編集 snapshot の header 復元は `TarEditingLayoutRestorer` が担当する。
+`TarReader` は保持済みの record から stream を開く。`reopen()` は entries・record・layout の不変値を共有し、再解析しない。
+
+`FormatReaderFactory` は初回 open の形式選択と staging だけを担当する。`ArchiveReader` が独立して持つ
+password・出力合算枠・展開先の inode 記録は共有しない。圧縮 tar / cpio の展開済み source は
+`stagedContainerSource` として再利用し、編集 snapshot は外側の元 archive と内側の image の区別を維持する。
+URL で開いた名前ヒント・実巻 URL・固定した親 directory は `OpenedArchiveInput` で一緒に渡し、
+`.001` の名前処理・RAR の巻探索・SFX の rebase と raw 配置 SPI の条件は変更しない。
+
+同じ安全な相対 path の照合を tar と RAR5 が `ArchivePath.normalizedExtractionPath` で使う。
+LHA の DOS drive / root を取り除く表示名の規則とは別物なので統合しない。
+LHA level 0 / 1 の DOS 日時も parse 単位の `DOSTimestampDecoder` を使い、不正な値は従来どおり nil にする。
+復号 hot loop・定数表・公開 API は変更しない。検証と計測は
+[reader 責務整理の記録](verification/2026-09-30-reader-responsibilities.md) にまとめる。
 
 ## 4. 性能の目標値(Scripts/bench results-2026-08-27、M4 Max、XADMaster final)
 

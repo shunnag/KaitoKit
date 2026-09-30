@@ -82,4 +82,4 @@ manifest は [tar-splice](Measurement/tar-splice/README.md) で作る。`KAITOKI
   `StuffItXEnglishDictionary.swift` を作る make-stuffit-english-dictionary.py は、テストが `--check` で呼ぶので `Scripts/fixtures/` に置く。
 - `Tests/Fixtures/<形式>/`: 一度だけ走らせる fixture の生成器（出力の隣）。
 - `Tests/Measurement/`: CI では実行しない測定と検証の道具。[name-encoding](Measurement/name-encoding/README.md)・
-  [stuffitx-jpeg](Measurement/stuffitx-jpeg/README.md)・[crc16](Measurement/crc16/README.md)・[tar-splice](Measurement/tar-splice/README.md)。
+  [stuffitx-jpeg](Measurement/stuffitx-jpeg/README.md)・[crc16](Measurement/crc16/README.md)・[tar-splice](Measurement/tar-splice/README.md)・[reader-structure](Measurement/reader-structure/README.md)。

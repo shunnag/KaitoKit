@@ -24,4 +24,18 @@ enum ArchivePath {
         return path.utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
             .map { String(decoding: $0, as: UTF8.self) }
     }
+    /// hard link / file copy の照合用の相対 path。NUL・絶対 path・`..` は拒否し、
+    /// `.` と重複する `/` だけを除く。OS 固有の名前変換は呼出側で先に行う。
+    static func normalizedExtractionPath(_ path: String) -> String? {
+        guard !path.isEmpty, path.utf8.first != 0x2F, !path.utf8.contains(0) else {
+            return nil
+        }
+        let rawComponents = path
+            .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
+            .map { String(decoding: $0, as: UTF8.self) }
+        guard !rawComponents.contains("..") else { return nil }
+        let components = rawComponents.filter { $0 != "." }
+        guard !components.isEmpty else { return nil }
+        return components.joined(separator: "/")
+    }
 }

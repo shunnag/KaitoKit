@@ -1,5 +1,9 @@
 name: CI
 
+# build は Xcode 27 / Swift 6.4 のみ。製品の実行環境は macOS 26 以上を維持する。
+# Swift 6.3.3 の -O は TaskLocal<function?> の withValue を誤コンパイルする
+# （valueType metadata が nil、EXC_BAD_ACCESS。GyoshukuKit の 2026-10-08 probe で確認）。
+# macos-26 / macos-26-intel は Xcode 27 で build した test をコンパイルせず実行する。
 # push は main と tag だけにする。PR ブランチへの push でも起動すると
 # pull_request と合わせて同じ commit に 6 job × 2 が走る(2026-09-11 PR #5 で確認)。
 on:
@@ -10,16 +14,16 @@ on:
 
 jobs:
   build-and-test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-26, macos-26-intel, xcode-27]
-    # ラベルが利用できない場合は macos-15 へ一時的に戻す。
-    runs-on: ${{ matrix.os }}
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v5
       - name: Install differential-test oracles
         run: brew install sevenzip xz brotli zstd
+      - name: Show toolchain versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
       - name: Build
         run: swift build -v
       - name: Test
@@ -36,22 +40,256 @@ jobs:
           KAITO_REQUIRE_LHA_GOLDEN: "1"
         # golden の 2 件が実際に走ったことも出力で確かめる（名前の変更で filter に一致しなくなっても緑にしない）。
         run: |
-          set -o pipefail
+          set -euo pipefail
           swift test --skip-build --filter 'LHARawLayout|LHAPublicValueGolden' 2>&1 | tee "$RUNNER_TEMP/lha-golden.log"
           grep -q 'LHA-GOLDEN Step0=31 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden.log"
           grep -q 'LHA-GOLDEN existing=3 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden.log"
+          grep -Eq "Executed [1-9][0-9]* tests?, with 0 failures" "$RUNNER_TEMP/lha-golden.log"
 
-  # 利用側の cooViewer は、このスクリプトが作るフレームワークを組み込む。
-  # swift build / swift test が緑でも、ここが壊れると利用側はビルドできない（2026-09 に実際に発生）。
-  # スクリプトは新旧のモジュール配置を分岐するため、macos-26 と xcode-27 の両方で検証する。
-  # 片方だけでは分岐の半分しか通らず、修正前のバグは実際に Xcode 27 でのみ再現した。
-  # xcode-27 は現時点ではプレビュー扱いの arm64 イメージで、Intel 版は存在しない。
-  framework:
+  build-for-macos-26:
+    runs-on: xcode-27
+    steps:
+      # 全 job で同じ checkout path。#filePath の fixture・生成器・文書の絶対 path を保つ。
+      - uses: actions/checkout@v5
+      - name: Show toolchain versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+      - name: Build universal debug tests
+        run: swift build --build-tests --arch arm64 --arch x86_64
+      - name: Package runtime tests and Xcode 27 dependencies
+        run: |
+          set -euo pipefail
+          export DEBUG_BIN PACKAGE_STAGE
+          DEBUG_BIN="$(swift build --show-bin-path --build-tests --arch arm64 --arch x86_64)"
+          PACKAGE_STAGE="$RUNNER_TEMP/macos-26-tests"
+          python3 <<'PYTHON'
+          import os
+          import plistlib
+          import re
+          import shutil
+          import subprocess
+          from collections import deque
+          from pathlib import Path
+
+          root = Path.cwd().resolve()
+          stage = Path(os.environ["PACKAGE_STAGE"])
+          runtime = stage / ".build/ci-runtime"
+          architectures = ("arm64", "x86_64")
+          for directory in (runtime / "bin", runtime / "lib", runtime / "Frameworks"):
+              directory.mkdir(parents=True, exist_ok=True)
+          (runtime / "checkout-path.txt").write_text(str(root) + "\n")
+
+          developer = Path(subprocess.check_output(["xcode-select", "-p"], text=True).strip())
+          macos = developer / "Platforms/MacOSX.platform/Developer"
+          runner = Path(subprocess.check_output(["xcrun", "-f", "xctest"], text=True).strip()).resolve()
+          shutil.copy2(runner, runtime / "bin/xctest")
+          search_paths = [
+              macos / "Library/Frameworks", macos / "Library/PrivateFrameworks",
+              macos / "usr/lib", macos / "usr/lib/swift/macosx",
+              developer / "Library/Frameworks", developer / "Library/PrivateFrameworks",
+              developer.parent / "SharedFrameworks",
+              developer / "Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx",
+          ]
+          products = Path(os.environ["DEBUG_BIN"]).resolve()
+          products.relative_to(root / ".build")
+          roots = [runner, products / "kaito"]
+          for name in ("KaitoKitTests", "KaitoKitCompatTests"):
+              bundle = products / f"{name}.xctest"
+              if not bundle.is_dir():
+                  raise RuntimeError(f"Missing test bundle: {bundle}")
+              relative = bundle.relative_to(root)
+              target = stage / relative
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copytree(bundle, target, symlinks=True)
+              (runtime / f"{name}-bundle.txt").write_text(str(relative) + "\n")
+              with (bundle / "Contents/Info.plist").open("rb") as info:
+                  executable = plistlib.load(info)["CFBundleExecutable"]
+              roots.append(bundle / "Contents/MacOS" / executable)
+              print(f"Package: {relative}", flush=True)
+          # CLI test は bundle の隣を探す。Xcode 27 の Products/Debug の相対配置を保つ。
+          shutil.copy2(products / "kaito", stage / (products / "kaito").relative_to(root))
+
+          def system_path(path):
+              return str(path).startswith(("/usr/lib/", "/System/Library/", "/Library/Apple/System/Library/"))
+
+          def expand(path, binary, executable):
+              return Path(path.replace("@loader_path", str(binary.parent)).replace(
+                  "@executable_path", str(executable.parent)
+              )).resolve()
+
+          resolved_rpaths = {}
+          def resolve_dependency(name, binary, executable, rpaths):
+              if name.startswith("@rpath/"):
+                  # 同じ install name は最初の解決先を使う（platform / SharedFrameworks の重複）。
+                  if name in resolved_rpaths:
+                      return resolved_rpaths[name]
+                  suffix = name.removeprefix("@rpath/")
+                  candidates = [directory / suffix for directory in [*rpaths, *search_paths]]
+                  if suffix.startswith("Testing.framework/"):
+                      # SharedFrameworks の Testing は arm64-only。同名の universal な platform copy を優先する。
+                      candidates.insert(0, macos / "Library/Frameworks" / suffix)
+              else:
+                  candidates = [expand(name, binary, executable)]
+              for candidate in candidates:
+                  if candidate.is_file():
+                      dependency = candidate.resolve()
+                      if name.startswith("@rpath/"):
+                          resolved_rpaths[name] = dependency
+                      return dependency
+              # shared cache 内の system dylib は file として存在しない。
+              if not name.startswith("@") and system_path(Path(name)):
+                  return None
+              raise RuntimeError(f"Cannot resolve {name} from {binary}")
+
+          verified = set()
+          def verify_universal(binary):
+              if binary not in verified:
+                  for architecture in architectures:
+                      subprocess.run(["lipo", str(binary), "-verify_arch", architecture], check=True)
+                  verified.add(binary)
+
+          for binary in roots:
+              verify_universal(binary)
+          queue = deque((binary, runner, architecture, []) for binary in roots for architecture in architectures)
+          visited = set()
+          copied = {}
+          while queue:
+              binary, executable, architecture, inherited_rpaths = queue.popleft()
+              binary = binary.resolve()
+              if (binary, architecture) in visited or system_path(binary):
+                  continue
+              visited.add((binary, architecture))
+              dependencies = subprocess.check_output([
+                  "otool", "-arch", architecture, "-L", str(binary)
+              ], text=True)
+              loads = subprocess.check_output([
+                  "otool", "-arch", architecture, "-l", str(binary)
+              ], text=True)
+              print(dependencies, end="", flush=True)
+              rpaths = [expand(match.group(1), binary, executable) for match in re.finditer(
+                  r"cmd LC_RPATH\n\s+cmdsize \d+\n\s+path (.*?) \(offset \d+\)", loads
+              )]
+              rpaths = list(dict.fromkeys([*rpaths, *inherited_rpaths]))
+              weak = set(re.findall(
+                  r"cmd LC_LOAD_WEAK_DYLIB\n\s+cmdsize \d+\n\s+name (.*?) \(offset \d+\)", loads
+              ))
+              for name in re.findall(r"^\s+(.+?) \(compatibility version", dependencies, re.MULTILINE):
+                  if not name.startswith("@") and system_path(Path(name)):
+                      continue
+                  dependency = resolve_dependency(name, binary, executable, rpaths)
+                  if dependency is None or dependency == binary or system_path(dependency):
+                      continue
+                  if name in weak:
+                      slices = subprocess.check_output(["lipo", "-archs", str(dependency)], text=True).split()
+                      missing = [arch for arch in architectures if arch not in slices]
+                      if missing:
+                          print(f"Skip weak dependency ({architecture}; missing {missing}): {dependency}", flush=True)
+                          continue
+                  # 全ての同梱依存は universal。strong dependency の slice 不足はここで失敗する。
+                  verify_universal(dependency)
+                  framework = next((p for p in dependency.parents if p.suffix == ".framework"), None)
+                  if framework:
+                      source, target = framework, runtime / "Frameworks" / framework.name
+                  else:
+                      source, target = dependency, runtime / "lib" / Path(name).name
+                  if target in copied and copied[target] != source:
+                      raise RuntimeError(f"Conflicting dependencies: {target}: {copied[target]} vs {source}")
+                  if target not in copied:
+                      copied[target] = source
+                      if framework:
+                          shutil.copytree(source, target, symlinks=True)
+                      else:
+                          shutil.copy2(source, target)
+                      print(f"Dependency: {source} -> {target.relative_to(stage)}", flush=True)
+                  queue.append((dependency, executable, architecture, rpaths))
+          # source だけでなく artifact の実体にも両 arch があることを確かめる。
+          for binary in roots:
+              target = runtime / "bin/xctest" if binary == runner else stage / binary.relative_to(root)
+              verify_universal(target)
+          for target, source in copied.items():
+              if source.suffix == ".framework":
+                  with (source / "Resources/Info.plist").open("rb") as info:
+                      executable = plistlib.load(info)["CFBundleExecutable"]
+                  verify_universal(target / executable)
+              else:
+                  verify_universal(target)
+          PYTHON
+          # tar で bundle 内の symlink と実行権限を保つ。object / checkout は含めない。
+          tar -czf "$RUNNER_TEMP/macos-26-tests.tar.gz" -C "$PACKAGE_STAGE" .build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-26-tests
+          path: ${{ runner.temp }}/macos-26-tests.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+
+  macos-26-runtime:
+    name: macOS 26 runtime (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-26, xcode-27]
+        os: [macos-26, macos-26-intel]
     runs-on: ${{ matrix.os }}
+    needs: build-for-macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install differential-test oracles
+        run: brew install sevenzip xz brotli zstd
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-26-tests
+          path: ${{ runner.temp }}/macos-26-artifact
+      - name: Extract test bundles
+        run: |
+          set -euo pipefail
+          tar -xzf "$RUNNER_TEMP/macos-26-artifact/macos-26-tests.tar.gz" -C "$GITHUB_WORKSPACE"
+          # #filePath の build 時 path と一致することも検査する。
+          test "$(cat .build/ci-runtime/checkout-path.txt)" = "$(pwd -P)"
+      - name: Run both suites and LHA golden without compiling
+        env:
+          KAITO_REQUIRE_7ZZ: "1"
+          KAITO_REQUIRE_XZ: "1"
+          KAITO_REQUIRE_BROTLI: "1"
+          KAITO_REQUIRE_ZSTD: "1"
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -m
+          runtime="$PWD/.build/ci-runtime"
+          architecture="$(uname -m)"
+          case "$architecture" in arm64|x86_64) ;; *) exit 1 ;; esac
+          printf 'xctest architecture: %s (arch -arch で実行 slice を指定)\n' "$architecture"
+          lipo "$runtime/bin/xctest" -verify_arch "$architecture"
+
+          run_tests() {
+            local label="$1" bundle="$2"
+            shift 2
+            local log="$RUNNER_TEMP/${label}-bundled.log"
+            printf 'Runner (%s): %s\n' "$label" "$runtime/bin/xctest"
+            # Xcode 26 の system xctest は Xcode 27 の bundle を load できないため、同梱 runner を使う。
+            # arch / env の起動時は SIP が DYLD_* を消す。env の引数でその後に設定する。
+            /usr/bin/arch -arch "$architecture" /usr/bin/env \
+              DYLD_FRAMEWORK_PATH="$runtime/Frameworks" DYLD_LIBRARY_PATH="$runtime/lib" \
+              "$runtime/bin/xctest" "$@" "$bundle" 2>&1 | tee "$log"
+            # selector の不一致などで実行 0 件になっても成功にはしない。pipefail で実際の failure も伝える。
+            grep -Eq "Executed [1-9][0-9]* tests?, with 0 failures" "$log"
+          }
+
+          run_tests kaitokit "$PWD/$(cat "$runtime/KaitoKitTests-bundle.txt")"
+          run_tests compat "$PWD/$(cat "$runtime/KaitoKitCompatTests-bundle.txt")"
+          export TZ=Asia/Tokyo KAITO_REQUIRE_LHA_GOLDEN=1
+          run_tests lha-golden "$PWD/$(cat "$runtime/KaitoKitTests-bundle.txt")" \
+            -XCTest KaitoKitTests.LHARawLayoutTests,KaitoKitTests.LHARawLayoutSPIImportTests,KaitoKitTests.LHAPublicValueGoldenTests
+          grep -q 'LHA-GOLDEN Step0=31 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden-bundled.log"
+          grep -q 'LHA-GOLDEN existing=3 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden-bundled.log"
+
+  # 利用側の cooViewer は、このスクリプトが作るフレームワークを組み込む。
+  # swift build / swift test が緑でも、ここが壊れると利用側はビルドできない（2026-09 に実際に発生）。
+  # cooViewer は自身の CI で Xcode 26 でも build するため、script の旧 module 配置の分岐は残す。
+  framework:
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v5
       - name: Show toolchain versions
@@ -94,7 +332,7 @@ jobs:
           ls "$modules/"
 
   compressed-payload-mutants:
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v5
       - name: Install seed generator

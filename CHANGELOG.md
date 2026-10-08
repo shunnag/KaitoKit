@@ -6,6 +6,19 @@
 
 ## [Unreleased]
 
+### 変更
+
+- CI の build を Xcode 27 / Swift 6.4 のみにした。Swift 6.3.3 の `-O` による
+  `TaskLocal<function?>` の誤コンパイルを避け、macOS 26 以上、Apple Silicon / Intel の実行対応は維持する。
+  Xcode 27 で universal build した二つの test bundle・`kaito`・xctest と依存 framework / dylib を
+  `macos-26` / `macos-26-intel` に運び、コンパイルせず全 suite と Asia/Tokyo の LHA golden を検査する。
+  cooViewer が Xcode 26 で使う framework script の旧 module 配置の分岐は残す。
+
+### 修正
+
+- 制限 umask の互換テストが子 process でも現在の xctest を使い、SIP で消える `DYLD_*` を
+  shell 内で復元する。同梱した Xcode 27 runner で macOS 26 上の試験を継続できる。
+
 ## [0.12.1] - 2026-09-30
 
 LHA / tar の解析・entry 公開・編集用配置復元と、入力から形式別 reader を作る処理の責務を整理した。

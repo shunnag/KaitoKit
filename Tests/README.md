@@ -36,6 +36,26 @@
 macOS 同梱の `/usr/bin/{bsdtar,gzip,bzip2,compress,ditto,zip,unzip,hdiutil,python3}` も fixture の生成と比較に使う。
 `kaito` CLI は `KAITO_EXECUTABLE`、無ければ build の成果物を探す（`Support/KaitoCLI.swift`）。
 
+## CI と toolchain
+
+build は Xcode 27 / Swift 6.4 のみ。`build-and-test` は `xcode-27` で既定の全 suite と
+Asia/Tokyo の LHA golden を実行し、framework と圧縮 payload の sanitizer smoke も同じ toolchain で検査する。
+Swift 6.3.3 の `-O` による `TaskLocal<function?>` の誤コンパイル（2026-10-08 確認）のため、
+Xcode 26 / Swift 6.3 での build は CI でサポートしない。
+
+`build-for-macos-26` は Xcode 27 で arm64 / x86_64 の universal test を build し、
+`KaitoKitTests.xctest`・`KaitoKitCompatTests.xctest` と `kaito`、両 arch の `otool` で調べた
+非 system の依存 framework / dylib、Xcode 27 の xctest を tar で運ぶ。
+同じ install name の `Testing.framework` は universal な platform copy を使い、
+必要な arch のない weak dependency は同梱しない。strong dependency は両 arch を必須にする。
+`macos-26-runtime` は `macos-26` / `macos-26-intel` の同じ checkout path に展開し、
+コンパイルせず同梱 runner と `DYLD_FRAMEWORK_PATH` / `DYLD_LIBRARY_PATH` で二つの bundle と LHA golden を実行する。
+fixture、README / CHANGELOG / 検証記録、生成器は checkout から読み、作業 file は `.build` に置く。
+Xcode 26 の system xctest は XCTestCore の interop symbol が不足し、Xcode 27 の test bundle を load できない。
+制限 umask の子 process も現在の xctest を再利用し、SIP で消える `DYLD_*` は別名で渡して shell 内で復元する。
+両実行 job は同じ必須 oracle を使い、macOS 26 の製品コードは OS Swift runtime 上で動かす。
+実際の test failure、bundle ごとの実行件数0、LHA golden の二つの marker の欠如は失敗にする。
+
 ## 環境変数（CI と過去の記録が使う名前なので変えない）
 
 | 変数 | 値 | 用途（無いときの扱い） |
@@ -50,7 +70,7 @@ macOS 同梱の `/usr/bin/{bsdtar,gzip,bzip2,compress,ditto,zip,unzip,hdiutil,py
 | `KAITOKIT_WRITE_ZIP_GOLDEN[_INPUTS]`・`KAITOKIT_WRITE_TAR_GOLDEN[_INPUTS]`・`KAITOKIT_WRITE_7Z_PUBLIC_GOLDEN` | 1 | PublicValueGolden の golden と入力を書き直す（意図した変更のときだけ） |
 | `KAITOKIT_DUMP_ZIP_GOLDEN`・`KAITOKIT_DUMP_TAR_GOLDEN` | path | 実際の値をファイルへ書き出す（差の調査用） |
 | `KAITOKIT_ZIP_SCALE_PROBE[_OPEN_ONLY]`・`KAITOKIT_7Z_SCALE_DIR`・`KAITOKIT_TAR_SPLICE_PROBE[_LARGE]` | file・dir・1 | Probes/ の計測（下記。skip） |
-| `KAITOKIT_7Z_SCALE_CHILD`・`_RECORDING`・`KAITOKIT_COMPAT_RESTRICTIVE_UMASK_*` | — | テストが子 process へ渡す内部の値。手で設定しない |
+| `KAITOKIT_7Z_SCALE_CHILD`・`_RECORDING`・`KAITOKIT_COMPAT_RESTRICTIVE_UMASK_*`・`KAITO_CHILD_DYLD_*` | — | テストが子 process へ渡す内部の値。手で設定しない |
 
 外部ツールの場所と `KAITO_REQUIRE_*`・`KAITO_EXECUTABLE` は前節のとおり。
 

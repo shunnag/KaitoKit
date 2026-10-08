@@ -4,7 +4,8 @@ KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークで
 RAR4 / RAR5、LHA / LZH、StuffIt classic / StuffIt 5 / StuffIt X、MacBinary / AppleSingle / BinHex、ISO 9660 / UDF（BIN/CUE の生 sector image を含む）、WIM、Compound File（MS-CFB / OLE2）、CHM、ARJ、Apple Disk Image（UDIF `.dmg` + HFS+）、cpio、ar（.deb を含む）、xar（.pkg を含む）、CAB、RPM に加え、gzip、bzip2、xz、zstd、LZ4、LZMA（`.lzma` / `.tlz`）、lzip（`.lz`）、brotli（`.br`）、UNIX compress (`.Z`)、pbzx（flat package の Payload）と圧縮 tar / 圧縮 cpio を扱います。
 書庫の検出から列挙、ストリーミング読み取り、展開までを一つのパイプラインとして提供します。
 
-- 対象: macOS 26 以上、Swift 6、Apple Silicon / Intel
+- 実行環境: macOS 26 以上、Apple Silicon / Intel
+- ビルド環境: Xcode 27 / Swift 6.4 以上
 - 外部依存: なし。zlib、libbz2 など OS 同梱ライブラリだけを使用
 - ライセンス: MIT。XADMaster / The Unarchiver のコードは実装へ取り込んでいません
 
@@ -15,7 +16,8 @@ RAR4 / RAR5、LHA / LZH、StuffIt classic / StuffIt 5 / StuffIt X、MacBinary / 
 > plus gzip, bzip2, xz, zstd, LZ4, LZMA (`.lzma` / `.tlz`), lzip (`.lz`), brotli (`.br`), UNIX compress (`.Z`), pbzx (flat-package payloads) and compressed tar / cpio.
 > Detection, listing, streaming reads and extraction are provided as one pipeline.
 >
-> - Requires macOS 26 or later, Swift 6, Apple Silicon or Intel.
+> - Runs on macOS 26 or later, on Apple Silicon and Intel.
+> - Building requires Xcode 27 / Swift 6.4 or later.
 > - No external dependencies. Only OS-bundled libraries such as zlib and libbz2 are used.
 > - MIT licensed. No XADMaster or The Unarchiver code is incorporated into the implementation.
 

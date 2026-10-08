@@ -592,12 +592,27 @@ final class KaitoArchiveCompatTests: XCTestCase {
         let standardOutput = Pipe()
         let standardError = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let runner = [
+            Bundle.main.executableURL,
+            ProcessInfo.processInfo.arguments.first.map { URL(fileURLWithPath: $0) },
+        ].compactMap { $0 }.first {
+            $0.lastPathComponent == "xctest" &&
+                FileManager.default.isExecutableFile(atPath: $0.path)
+        }
         process.arguments = [
             "-c",
-            "umask 0777; exec \"$@\"",
+            """
+            umask 0777
+            if [ "${KAITO_CHILD_DYLD_FRAMEWORK_PATH+x}" = x ]; then
+                export DYLD_FRAMEWORK_PATH="$KAITO_CHILD_DYLD_FRAMEWORK_PATH"
+            fi
+            if [ "${KAITO_CHILD_DYLD_LIBRARY_PATH+x}" = x ]; then
+                export DYLD_LIBRARY_PATH="$KAITO_CHILD_DYLD_LIBRARY_PATH"
+            fi
+            exec "$@"
+            """,
             "kaitokit-compat-restrictive-umask",
-            "/usr/bin/xcrun",
-            "xctest",
+        ] + (runner.map { [$0.path] } ?? ["/usr/bin/xcrun", "xctest"]) + [
             "-XCTest",
             "KaitoKitCompatTests.KaitoArchiveCompatTests/" +
                 "testRestrictiveUmaskHardLinkStagingIsRemovedAndDestinationModeIsRestored",
@@ -607,6 +622,10 @@ final class KaitoArchiveCompatTests: XCTestCase {
         environment[Self.restrictiveUmaskChild] = "1"
         environment[Self.restrictiveUmaskArchive] = archiveURL.path
         environment[Self.restrictiveUmaskOutput] = output.path
+        // SIP は /bin/sh の起動時に DYLD_* を消すため、shell 内で同梱 runner の探索 path を戻す。
+        for name in ["DYLD_FRAMEWORK_PATH", "DYLD_LIBRARY_PATH"] {
+            environment["KAITO_CHILD_" + name] = environment[name]
+        }
         process.environment = environment
         process.standardOutput = standardOutput
         process.standardError = standardError

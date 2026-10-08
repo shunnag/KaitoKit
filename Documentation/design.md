@@ -8,6 +8,26 @@
 - 安全と性能のバランス。XADMaster フォークで得た経験(MODERNIZATION.md #1〜#66、ファジング、Scripts/bench)を活かす。
 - 実装言語はオープン(Rust/Go/純 Swift)。多角的に検討して決める。
 
+### CI と toolchain（2026-10-08）
+
+ビルドには Xcode 27 / Swift 6.4 以上を使い、成果物の実行環境は macOS 26 以上、Apple Silicon / Intel を維持する。
+Swift 6.3.3 の `-O` は Optional な関数型の `TaskLocal.withValue` を誤コンパイルする。
+GyoshukuKit の独立 probe で valueType metadata が nil になり、EXC_BAD_ACCESS を確認した。
+CI の Xcode 26 / Swift 6.3 でのコンパイル差の検査は廃止する。
+cooViewer は自身の CI で `Scripts/build-framework.sh` を Xcode 26 でも使うため、
+旧 module 配置の分岐を残し、製品 source に Swift 6.4 専用の構文は加えない。
+
+`build-and-test`、`framework`、`compressed-payload-mutants` は `xcode-27` で実行する。
+並行する `build-for-macos-26` も Xcode 27 で二つの test bundle と `kaito` を universal build し、
+両 arch の `otool` で調べた非 system の依存 framework / dylib、Xcode 27 の xctest を tar で運ぶ。
+`Testing.framework` は universal な platform copy を優先し、strong dependency は両 arch を検査する。
+`macos-26-runtime` は `macos-26` / `macos-26-intel` の同じ checkout path に展開し、
+`#filePath` の fixture・生成器・文書の path と `.build` の CLI 配置を保つ。
+Swift の build / test は行わず、同梱 runner と framework / dylib で全 suite と Asia/Tokyo の LHA golden を実行する。
+Xcode 26 の system xctest は XCTestCore の interop symbol が不足し、Xcode 27 の test bundle を load できない。
+製品コードは macOS 26 の OS Swift runtime 上で動かし、OS と arch の差を検査する。
+必須 oracle は両実行 job でそろえ、実際の test failure と実行件数0、golden marker の欠如は失敗にする。
+
 ## 2. cooViewer が実際に使っている XADMaster の面(移行の最小面)
 
 - 生成: `XADArchive(file:)`, `XADArchive(data:)`(mmap した Data を渡す)。クラス既定 `defaultZipLazyLocalHeaders` / `setDefaultZipLazyLocalHeaders(_:)`(cooViewer 設定「ZIP 書庫をより速く開く」)。

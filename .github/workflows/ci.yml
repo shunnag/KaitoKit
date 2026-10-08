@@ -110,6 +110,13 @@ jobs:
               print(f"Package: {relative}", flush=True)
           # CLI test は bundle の隣を探す。Xcode 27 の Products/Debug の相対配置を保つ。
           shutil.copy2(products / "kaito", stage / (products / "kaito").relative_to(root))
+          # .build/debug を直接使う fixture test にも、build が作った相対 symlink を保つ。
+          debug_link = root / ".build/debug"
+          debug_target = os.readlink(debug_link)
+          if Path(debug_target).is_absolute() or debug_link.resolve() != products:
+              raise RuntimeError(f"Unexpected .build/debug symlink: {debug_target}")
+          (stage / ".build/debug").symlink_to(debug_target, target_is_directory=True)
+          print(f"Package: .build/debug -> {debug_target}", flush=True)
 
           def system_path(path):
               return str(path).startswith(("/usr/lib/", "/System/Library/", "/Library/Apple/System/Library/"))
@@ -216,7 +223,7 @@ jobs:
               else:
                   verify_universal(target)
           PYTHON
-          # tar で bundle 内の symlink と実行権限を保つ。object / checkout は含めない。
+          # tar で .build/debug・bundle 内の symlink と実行権限を保つ。object / checkout は含めない。
           tar -czf "$RUNNER_TEMP/macos-26-tests.tar.gz" -C "$PACKAGE_STAGE" .build
       - uses: actions/upload-artifact@v4
         with:
@@ -258,6 +265,7 @@ jobs:
           sw_vers
           uname -m
           runtime="$PWD/.build/ci-runtime"
+          test -x .build/debug/kaito
           architecture="$(uname -m)"
           case "$architecture" in arm64|x86_64) ;; *) exit 1 ;; esac
           printf 'xctest architecture: %s (arch -arch で実行 slice を指定)\n' "$architecture"
@@ -278,6 +286,11 @@ jobs:
           }
 
           run_tests kaitokit "$PWD/$(cat "$runtime/KaitoKitTests-bundle.txt")"
+          # checkout 内の build 済み tool の欠落による skip は artifact の不備として失敗にする。
+          if grep -F "required fixture tool is unavailable: $(pwd -P)/.build/" "$RUNNER_TEMP/kaitokit-bundled.log"; then
+            echo "error: packaged fixture tool is unavailable" >&2
+            exit 1
+          fi
           run_tests compat "$PWD/$(cat "$runtime/KaitoKitCompatTests-bundle.txt")"
           export TZ=Asia/Tokyo KAITO_REQUIRE_LHA_GOLDEN=1
           run_tests lha-golden "$PWD/$(cat "$runtime/KaitoKitTests-bundle.txt")" \

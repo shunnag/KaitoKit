@@ -46,7 +46,7 @@ final class DocumentationConsistencyTests: XCTestCase {
     }
 
     func testR9ReviewEnglishTarSupportIncludesOldGNU() throws {
-        let readme = try document("README.md")
+        let readme = try document("Documentation/formats.md")
         let row = try XCTUnwrap(readme.components(separatedBy: "> - **tar**:").dropFirst().first?
             .components(separatedBy: "> - **").first)
         XCTAssertTrue(row.contains("old GNU") && row.contains("typeflag `S`"), "英語の対応状況にも旧 GNU S 型が必要")
@@ -106,7 +106,7 @@ final class DocumentationConsistencyTests: XCTestCase {
         for item in 10...13 {
             XCTAssertTrue(record.contains("## K\(item)."), "verification record must cover K\(item)")
         }
-        let readme = try String(contentsOf: root.appendingPathComponent("README.md"), encoding: .utf8)
+        let readme = try String(contentsOf: root.appendingPathComponent("Documentation/formats.md"), encoding: .utf8)
         for aliases in readme.components(separatedBy: "\n") where aliases.contains("`.tz` / `.tar.Z`") {
             XCTAssertTrue(aliases.contains("`.taz`"), "compressed-tar alias documentation must include .taz")
         }

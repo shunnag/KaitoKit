@@ -1,5 +1,8 @@
 # KaitoKit 設計書(2026-09-06 初版)
 
+採用時の導入は [README](../README.md)、完全な対応表は [formats.md](formats.md)、
+展開・並列処理・上限の利用ガイドは [embedding.md](embedding.md) を参照してください。
+
 ## 1. 要件(ユーザー指示 + 現状調査から)
 
 - 名称: KaitoKit.framework(解凍Kit)。github.com/shunnag/KaitoKit に新規リポジトリ。shunnag 配下に同名なし。無関係の小規模リポジトリが 2 件(Kaito1108/KaitoKit、KietUTE2812/KaitoKit)存在するが枠組みではない。

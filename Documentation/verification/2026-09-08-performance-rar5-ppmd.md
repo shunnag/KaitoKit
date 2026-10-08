@@ -881,7 +881,7 @@ error: ExitCode(rawValue: 1)
 [0/1] Planning build
 ```
 
-Exit status: 1. [Complete underlying log](../.build/batch11/verification/01-build-exact.log).
+Exit status: 1. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/01-build-exact.log`.
 
 ### 02-build-local
 
@@ -905,7 +905,7 @@ Building for production...
 Build of product 'kaito' complete! (28.64s)
 ```
 
-Exit status: 0. [Complete underlying log](../.build/batch11/verification/02-build-local.log).
+Exit status: 0. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/02-build-local.log`.
 
 ### 03-bin-path
 
@@ -917,7 +917,7 @@ DEVELOPER_DIR=/Applications/Xcode.app swift build -c release --product kaito --s
 <repo>/.build/arm64-apple-macosx/release
 ```
 
-Exit status: 0. [Complete underlying log](../.build/batch11/verification/03-bin-path.log).
+Exit status: 0. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/03-bin-path.log`.
 
 ### 04-paired-bench
 
@@ -947,7 +947,7 @@ extract-median-ms	335.192
 extract-median-ms	683.972
 ```
 
-Exit status: 0. [Complete underlying log](../.build/batch11/verification/04-paired-bench.log).
+Exit status: 0. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/04-paired-bench.log`.
 
 ### 05-ppmd-bench
 
@@ -962,7 +962,7 @@ extract-median-ms	1882.584
 bytes	13127317
 ```
 
-Exit status: 0. [Complete underlying log](../.build/batch11/verification/05-ppmd-bench.log).
+Exit status: 0. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/05-ppmd-bench.log`.
 
 ### 06-sha-list
 
@@ -988,7 +988,7 @@ RESULT: OK
 RESULT: OK
 ```
 
-Exit status: 0. [Complete underlying log](../.build/batch11/verification/06-sha-list.log).
+Exit status: 0. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/06-sha-list.log`.
 
 ### 07-sha-st
 
@@ -1000,7 +1000,7 @@ Exit status: 0. [Complete underlying log](../.build/batch11/verification/06-sha-
 RESULT: OK
 ```
 
-Exit status: 0. [Complete underlying log](../.build/batch11/verification/07-sha-st.log).
+Exit status: 0. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/07-sha-st.log`.
 
 ### 08-ppmd-parity
 
@@ -1014,7 +1014,7 @@ for f in ppmd-s-m5-mctp.rar pp-jpg-mctp.rar; do
 ```text
 ```
 
-Exit status: 0. [Complete underlying log](../.build/batch11/verification/08-ppmd-parity.log).
+Exit status: 0. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/08-ppmd-parity.log`.
 
 ### 09-test633-exact
 
@@ -1028,7 +1028,7 @@ error: ExitCode(rawValue: 1)
 [0/1] Planning build
 ```
 
-Exit status: 1. [Complete underlying log](../.build/batch11/verification/09-test633-exact.log).
+Exit status: 1. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/09-test633-exact.log`.
 
 ### 10-test633-local
 
@@ -1042,7 +1042,7 @@ DEVELOPER_DIR=/Applications/Xcode.app swift test --disable-sandbox 2>&1 | tail -
 ✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
 ```
 
-Exit status: 0. [Complete underlying log](../.build/batch11/verification/10-test633-local.log).
+Exit status: 0. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/10-test633-local.log`.
 
 XCTest suite total (the separate Swift Testing footer reports zero tests):
 
@@ -1062,7 +1062,7 @@ error: 'kaitokit': Invalid manifest (compiled with: ["/Applications/Xcode-beta.a
 sandbox-exec: sandbox_apply: Operation not permitted
 ```
 
-Exit status: 1. [Complete underlying log](../.build/batch11/verification/11-test64-exact.log).
+Exit status: 1. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/11-test64-exact.log`.
 
 ### 12-test64-local
 
@@ -1076,7 +1076,7 @@ swift test --disable-sandbox 2>&1 | tail -3
 ✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
 ```
 
-Exit status: 0. [Complete underlying log](../.build/batch11/verification/12-test64-local.log).
+Exit status: 0. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/12-test64-local.log`.
 
 XCTest suite total (the separate Swift Testing footer reports zero tests):
 
@@ -1107,7 +1107,7 @@ Building for debugging...
 Build complete! (2.03秒)
 ```
 
-Exit status: 0. [Complete underlying log](../.build/batch11/verification/13-build-asan.log).
+Exit status: 0. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/13-build-asan.log`.
 
 ### 14-mutants
 
@@ -1120,7 +1120,7 @@ generated 400 mutants from 41 seed(s)
 mutants: 400, crashes: 0, hangs: 0, sanitizer findings: 0
 ```
 
-Exit status: 0. [Complete underlying log](../.build/batch11/verification/14-mutants.log).
+Exit status: 0. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/14-mutants.log`.
 
 ### 15-diff-status
 
@@ -1137,7 +1137,7 @@ git diff --check; git status --porcelain
 ?? Documentation/performance-rar5-ppmd-2026-09-08.md
 ```
 
-Exit status: 0. [Complete underlying log](../.build/batch11/verification/15-diff-status.log).
+Exit status: 0. Complete underlying log (local artifact, not distributed): `.build/batch11/verification/15-diff-status.log`.
 
 ### Additional final pairs (stored and both PPMd cases)
 

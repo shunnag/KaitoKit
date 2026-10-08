@@ -8,6 +8,11 @@
 
 ### 変更
 
+- README を採用・導入向けに整理し、詳細を [対応形式](Documentation/formats.md)、
+  [制限](Documentation/limitations.md)、[組み込み](Documentation/embedding.md)、
+  [CLI](Documentation/cli.md)、[開発](Documentation/development.md) に分けた。
+  既存の日英の説明・表・検証記録へのリンクを保持した。
+
 - CI の build を Xcode 27 / Swift 6.4 のみにした。Swift 6.3.3 の `-O` による
   `TaskLocal<function?>` の誤コンパイルを避け、macOS 26 以上、Apple Silicon / Intel の実行対応は維持する。
   Xcode 27 で universal build した二つの test bundle・`kaito`・xctest と依存 framework / dylib を
@@ -15,6 +20,10 @@
   cooViewer が Xcode 26 で使う framework script の旧 module 配置の分岐は残す。
 
 ### 修正
+
+- 文書の古い制限記述を訂正した。BIN/CUE の raw sector image は対応済みのため、
+  [制限](Documentation/limitations.md) と日英の移行ガイドから ISO raw sector image の「未対応」を除いた。
+  英語の LZMA_Alone の拡張子を `.lzma` のみから `.lzma` / `.tlz` に訂正した。
 
 - 制限 umask の互換テストが子 process でも現在の xctest を使い、SIP で消える `DYLD_*` を
   shell 内で復元する。同梱した Xcode 27 runner で macOS 26 上の試験を継続できる。

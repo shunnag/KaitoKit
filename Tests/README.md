@@ -1,5 +1,9 @@
 # テスト
 
+build・CI・fuzz の実行手順は [開発ガイド](../Documentation/development.md) にあります。
+文書の対応表は [formats.md](../Documentation/formats.md)、導入と資源上限は [README](../README.md) と
+[embedding.md](../Documentation/embedding.md) を参照してください。
+
 `swift test` は二つの target を実行する。
 
 - `KaitoKitTests`: 本体の試験。形式ごとのディレクトリ（Core・Codecs・Zip・SevenZip・RAR・LHA・Tar・StuffIt・

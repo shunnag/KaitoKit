@@ -6,7 +6,7 @@ Read, inspect, stream, and extract common archive formats with a native Swift AP
 
 KaitoKit opens archives from file URLs, `Data`, and custom random-access byte sources. It supports
 ZIP / ZIP64, 7-Zip, RAR4/RAR5, LHA, StuffIt / StuffIt X, MacBinary / AppleSingle / BinHex, ISO 9660 / UDF (including BIN/CUE raw-sector images), WIM, Compound File (MS-CFB), CHM, ARJ, Apple Disk Image (UDIF + HFS+), cpio, ar (including `.deb`),
-xar (including `.pkg`), CAB, RPM, tar, gzip, bzip2, XZ, zstd, LZ4, LZMA (`.lzma`), lzip (`.lz`), brotli (`.br`), UNIX compress,
+xar (including `.pkg`), CAB, RPM, tar, gzip, bzip2, XZ, zstd, LZ4, LZMA (`.lzma` / `.tlz`), lzip (`.lz`), brotli (`.br`), UNIX compress,
 pbzx, and compressed-tar / compressed-cpio filename forms. Entry names retain both their decoded display string and their
 original bytes.
 

@@ -1,943 +1,199 @@
 # KaitoKit (解凍Kit)
 
-KaitoKit は macOS 向けの純 Swift 書庫読み取りフレームワークです。tar、ZIP / ZIP64、7z、
-RAR4 / RAR5、LHA / LZH、StuffIt classic / StuffIt 5 / StuffIt X、MacBinary / AppleSingle / BinHex、ISO 9660 / UDF（BIN/CUE の生 sector image を含む）、WIM、Compound File（MS-CFB / OLE2）、CHM、ARJ、Apple Disk Image（UDIF `.dmg` + HFS+）、cpio、ar（.deb を含む）、xar（.pkg を含む）、CAB、RPM に加え、gzip、bzip2、xz、zstd、LZ4、LZMA（`.lzma` / `.tlz`）、lzip（`.lz`）、brotli（`.br`）、UNIX compress (`.Z`)、pbzx（flat package の Payload）と圧縮 tar / 圧縮 cpio を扱います。
-書庫の検出から列挙、ストリーミング読み取り、展開までを一つのパイプラインとして提供します。
+KaitoKit は macOS 向けの純 Swift 書庫読み取りライブラリです。書庫の検出・列挙・ストリーミング読み取り・安全な展開を一つの API で扱えます。tar、ZIP、7z、RAR などの書庫と、LZ4・LZMA（`.lzma` / `.tlz`）などの圧縮形式に対応します。書き込みには姉妹ライブラリ [GyoshukuKit](https://github.com/shunnag/GyoshukuKit) を組み合わせてください。
 
-- 実行環境: macOS 26 以上、Apple Silicon / Intel
-- ビルド環境: Xcode 27 / Swift 6.4 以上
+## 動作要件
+
+- 実行: macOS 26 以上、Apple Silicon / Intel
+- ビルド: Xcode 27 / Swift 6.4 以上
 - 外部依存: なし。zlib、libbz2 など OS 同梱ライブラリだけを使用
-- ライセンス: MIT。XADMaster / The Unarchiver のコードは実装へ取り込んでいません
+
+## English
 
 > **KaitoKit (解凍Kit)**
 >
-> KaitoKit is a pure-Swift archive reading framework for macOS. It handles tar, ZIP / ZIP64, 7z,
-> RAR4 / RAR5, LHA / LZH, StuffIt classic / StuffIt 5 / StuffIt X, MacBinary / AppleSingle / BinHex, ISO 9660 / UDF (including BIN/CUE raw-sector images), WIM, Compound File (MS-CFB / OLE2), CHM, ARJ, Apple Disk Image (UDIF `.dmg` + HFS+), cpio, ar (including `.deb`), xar (including `.pkg`), CAB and RPM,
-> plus gzip, bzip2, xz, zstd, LZ4, LZMA (`.lzma` / `.tlz`), lzip (`.lz`), brotli (`.br`), UNIX compress (`.Z`), pbzx (flat-package payloads) and compressed tar / cpio.
-> Detection, listing, streaming reads and extraction are provided as one pipeline.
->
-> - Runs on macOS 26 or later, on Apple Silicon and Intel.
-> - Building requires Xcode 27 / Swift 6.4 or later.
-> - No external dependencies. Only OS-bundled libraries such as zlib and libbz2 are used.
-> - MIT licensed. No XADMaster or The Unarchiver code is incorporated into the implementation.
+> A pure-Swift archive reader for macOS: detect, list, stream and extract archives through one API.
+> Supports tar, ZIP, 7z, RAR and more, including LZ4 and LZMA (`.lzma` / `.tlz`). Pair it with GyoshukuKit for writing.
+> Runs on macOS 26+ (Apple Silicon and Intel); building requires Xcode 27 / Swift 6.4+.
+> Uses only OS-bundled libraries. MIT licensed; no XADMaster or The Unarchiver code is incorporated.
+> The [full format matrix](Documentation/formats.md) and the linked guides include English summaries.
 
 ## SwiftPM
+
+現行リリースは **0.12.1** です（[変更履歴](CHANGELOG.md)）。`Package.swift` に依存を追加します。
+次の指定は 0.12.x の更新を受け取ります。
+
+```swift
+dependencies: [
+    .package(
+        url: "https://github.com/shunnag/KaitoKit.git",
+        .upToNextMinor(from: "0.12.1")
+    )
+],
+targets: [
+    .target(name: "YourApp", dependencies: [
+        .product(name: "KaitoKit", package: "KaitoKit")
+    ])
+]
+```
+
+## 製品
+
+| Product | 用途 |
+|---|---|
+| `KaitoKit` | 新規 Swift コード向け。`ArchiveReader`、throwing API、stream、資源上限 |
+| `KaitoKitCompat` | XADMaster からの移行向け。`KaitoArchive` と `XADArchive` typealias |
+| `KaitoKitDynamic` | `KaitoKit` と `KaitoKitCompat` を含む動的ライブラリ |
+| `kaito` | 検出・一覧・展開・SHA-256・計測・名前の文字コード診断を行う CLI |
+
+## クイックスタート
+
+以下の例は同じ Swift ファイル内で順に使えます。
+
+### 1. 検出して開く
 
 ```swift
 import Foundation
 import KaitoKit
 
-let archive = try ArchiveReader.open(url: URL(fileURLWithPath: "/tmp/book.tar"))
-for entry in archive.entries {
-    print(entry.index, entry.uncompressedSize ?? 0, entry.name)
-    if entry.kind == .file {
-        let contents = try archive.read(entry)
-        print("read \(contents.count) bytes")
-    }
-}
+let url = URL(fileURLWithPath: "/tmp/book.zip")
+let format = try FormatDetector.detect(url: url) // 検出だけ必要な場合
+print(format)
+let archive = try ArchiveReader.open(url: url)   // open 自体も形式を検出
+```
 
-let destination = URL(fileURLWithPath: "/tmp/unpacked", isDirectory: true)
-func isResourceFork(_ entry: ArchiveEntry) -> Bool {
-    entry.kind == .file && entry.pathComponents.suffix(2).elementsEqual(["..namedfork", "rsrc"])
+URL からの open は分割巻や拡張子 hint も扱います。メモリ上の書庫には `open(data:)` を使えます。
+
+### 2. 一覧と本文を読む
+
+```swift
+for entry in archive.entries {
+    print(entry.index, entry.name, entry.uncompressedSize as Any)
 }
-var deferred: [ArchiveEntry] = []
-for entry in archive.entries where entry.kind != .directory {
-    if isResourceFork(entry) {
-        deferred.append(entry)
-    } else if entry.kind == .hardlink,
-              let target = entry.formatSpecific["hardLinkTargetIndex"].flatMap(Int.init),
-              target > entry.index {
-        deferred.append(entry)
-    } else {
-        _ = try archive.extract(entry, to: destination)
-    }
-}
-for entry in deferred where !isResourceFork(entry) {
-    _ = try archive.extract(entry, to: destination)
-}
-for entry in deferred where isResourceFork(entry) {
-    _ = try archive.extract(entry, to: destination)
-}
-let directories = archive.entries.filter { $0.kind == .directory }.sorted {
-    if $0.pathComponents.count != $1.pathComponents.count {
-        return $0.pathComponents.count > $1.pathComponents.count
-    }
-    return $0.index < $1.index
-}
-for entry in directories {
-    _ = try archive.extract(entry, to: destination)
+if let entry = archive.entries.first(where: { $0.kind == .file }) {
+    let contents = try archive.read(entry)
+    print("read \(contents.count) bytes")
 }
 ```
 
-ディレクトリは子を展開した後に深い順で処理すると、書庫内の最終パーミッションと
-更新日時を保持できます。`kaito extract` もこの順序を使用します。
-本文を持たない hard link は、同じ `ArchiveReader` で同じ出力ルートへ参照先を先に
-展開した場合だけ作成されます。この provenance は出力ルートを切り替えるか `reopen()`
-するとリセットされます。書庫順を保ち、前方参照だけ参照先の展開後まで遅らせてください。
-resource fork（`.file` かつ末尾が `..namedfork/rsrc`）は、data fork と hard link の後、
-directory の前に展開します。data fork の不可分置換は既存 resource fork も失うため、この順序が必要です。
-単発の `extract` は対象 data ファイルがなければ空の通常ファイルを作り、resource fork を付けます。
-`overwriteExisting: false` は既存の非空 resource fork に `EEXIST` を返します。
-展開中の出力ルートは呼出側が排他的に所有し、別スレッドや別プロセスから変更しないでください。
+サイズ不明の entry は `uncompressedSize == nil` です。大きい本文には `stream(_:)` を使ってください。
 
-`ArchiveReader` はスレッドセーフではありません。並列展開では `reopen()` で同じ
-`ByteSource` を共有する独立 reader を作ってください。既存 XADMaster 利用コード向けには
-`KaitoKitCompat` の `KaitoArchive` と `XADArchive` typealias もあります。
-自動判定が必要な未宣言名を持つ書庫では、`nameEncoding` から書庫全体に選択された
-文字コードを取得できます。自動判定時にすべての名前が形式で宣言済みまたは
-厳密に有効な UTF-8 なら `nil` です。
+### 3. 通常ファイルを展開し、進捗とキャンセルを扱う
 
-> **Swift Package Manager**
->
-> Process directories after their children, deepest first, to preserve the final permissions and
-> modification dates recorded in the archive. `kaito extract` uses the same order.
-> A hard link with no body of its own is created only when the same `ArchiveReader` has already
-> extracted its target into the same output root. That provenance is reset when you switch output
-> roots or call `reopen()`. Keep archive order, deferring forward links until their targets exist.
-> Extract resource forks (`.file` with the final components `..namedfork/rsrc`) after data and hard
-> links, before directories. Atomic data-file replacement discards any existing resource fork.
-> A single resource extraction creates an empty regular data file if missing. With
-> `overwriteExisting: false`, an existing nonempty resource fork fails with `EEXIST`.
-> The caller owns the output root exclusively during extraction; do not modify it from another
-> thread or process.
->
-> `ArchiveReader` is not thread-safe. For parallel extraction, use `reopen()` to create independent
-> readers that share the same `ByteSource`. For existing XADMaster call sites, `KaitoKitCompat`
-> provides `KaitoArchive` and an `XADArchive` typealias.
-> For archives whose names are undeclared and need automatic detection, `nameEncoding` reports the
-> character encoding chosen for the whole archive. It is `nil` when every name is either declared by
-> the format or strictly valid UTF-8.
+```swift
+func extractDataFiles(
+    _ reader: ArchiveReader, to destination: URL,
+    progress: (Int, Int) -> Void
+) throws {
+    let files = reader.entries.filter {
+        $0.kind == .file &&
+        !$0.pathComponents.suffix(2).elementsEqual(["..namedfork", "rsrc"])
+    }
+    for (index, entry) in files.enumerated() {
+        try Task.checkCancellation()
+        _ = try reader.extract(entry, to: destination)
+        progress(index + 1, files.count)
+    }
+}
+
+try extractDataFiles(archive, to: URL(fileURLWithPath: "/tmp/unpacked")) { done, total in
+    print("\(done) / \(total)")
+}
+```
+
+この例の進捗・キャンセル確認は entry 単位です。byte 単位で制御する [stream の例](Documentation/embedding.md#進捗とキャンセル) もあります。
+リンク・resource fork・ディレクトリの metadata を含む書庫全体の復元は、[展開順序の例](Documentation/embedding.md#書庫全体の展開順序) を参照してください。
+
+### 4. パスワード付き書庫
+
+```swift
+let encrypted = try ArchiveReader.open(
+    url: URL(fileURLWithPath: "/tmp/private.7z"),
+    options: ReaderOptions(password: "secret")
+)
+print(encrypted.entries.count)
+```
+
+暗号化 header は open 時に password が必要です。必要時に取得する [PasswordProvider の例](Documentation/embedding.md#passwordprovider) もあります。
+`passwordRequired` / `wrongPassword` の扱いと形式別の違いは [対応形式の詳細](Documentation/formats.md) を参照してください。
 
 ## 対応状況
 
-| 形式 | コンテナ・圧縮方式 | 暗号化 | multi-volume / multi-stream |
-|---|---|---|---|
-| ISO 9660 / BIN・CUE | PVD、Joliet、Rock Ridge（NM/CE/PX/SL/TF/ZF、深い階層）、multi-extent、stored、zisofs（ZF version 1 / `pz`、32〜128 KiB block の zlib、0 埋め block）。UDF との hybrid は UDF の木を優先。生 sector image（ECMA-130 の 2352 byte sector、Mode 1 / Mode 2 と 8 byte sub-header、2448 byte の sub-channel 付き、2336 byte 版。`.bin` `.img` `.mdf`）も同じ `iso` / `udf` として開き、`.cue` の URL は data track の image を辿る | なし | 最初の session のみ。EDC / ECC は検証しない |
-| MacBinary / AppleSingle / BinHex 4 | payload が StuffIt でない wrapper を、data fork（entry 0）と resource fork（`name/..namedfork/rsrc`）の 1 file 書庫として公開。名前・type / creator・Finder flags・日時（MacBinary は 1904 起点、AppleSingle は File Dates Info）を header から取る。payload が StuffIt なら従来どおり StuffIt として開く | なし | 一段だけ剥がす（MacBinary の中の ZIP は file として公開） |
-| WIM / `.wim` `.swm` | Windows Imaging 1.13（`MSWIM`）、stored / XPRESS（[MS-XCA] LZ77+Huffman、chunk 4〜64 KiB の 2 冪）/ LZX（WIM 変種: chunk 32 KiB、E8 変換 12,000,000）、複数 image（`1/` `2/` の前置）、alternate data stream（`name:stream`）、hard link 群、symbolic link / junction の reparse point（[MS-FSCC]）、resource ごとの SHA-1 検証 | なし | 分割 `.swm` は先頭 part の metadata だけ（他 part の resource は `unsupportedMethod`）。solid / ESD（LZMS、version 0.14）は非対応 |
-| Compound File / `.msi` `.doc` `.xls` `.ppt` `.msg` | [MS-CFB] version 3（512 byte sector）/ 4（4096 byte sector、64 bit サイズ）、FAT / DIFAT（header 外の DIFAT sector を含む）/ mini FAT と mini stream、storage を directory、stream を stored file として公開。storage の CLSID（`formatSpecific["clsid"]`）と更新日時、制御文字で始まる名前は 7-Zip と同じ `[5]SummaryInformation` の綴り。Windows Installer の詰め込み名（`!_Tables`、`setup.cab` など）は 7-Zip と同じ写像で戻し、元の UTF-16 名は `formatSpecific["storedName"]` | なし | MSI 内の cabinet や Office の property set は解釈しない |
-| CHM / `.chm` | HTML Help（ITSF version 3、ITSP directory の PMGL chunk 連鎖）、section 0 の stored file と `MSCompressed` section の LZX（window 32 KiB〜2 MiB、reset interval ごとの全状態 reset、0x8000 byte block の reset table、E8 変換）。`/` 以下の利用者 file と `#SYSTEM` などの format file を公開し、`::DataSpace/…` の内部 file は出さない（7-Zip と同じ） | なし | 直近の reset interval 1 つを cache して file 単位の random access に応える。version 2 header は Russotto の記述どおりに読むが標本が無く未検証 |
-| ARJ / `.arj` `.exe` | main header / local file header（version 1〜11、ARJ32）、stored（0）と method 1〜3（LHA lh6 と同じ LZ77 + 静的 Huffman、窓 26 KB）、directory（file type 3）、DOS の `\` 区切りと PATHSYM 名、書庫全体の名前 encoding 判定（CP932 など）、comment、DOS 日時、CRC-32、DOS SFX（MZ の後ろの main header を technote の手順で探す）、method 8 / 9（no data） | なし（garbled は一覧のみ） | method 4（compressed fastest）、garbled（暗号化）、multi-volume の続き file は `unsupportedMethod`。extended header は読み飛ばす |
-| Apple Disk Image / `.dmg` `.img` | UDIF（koly + blkx: zero-fill / raw / zlib / bzip2 / lzfse / lzma(xz) の chunk、直近 4 chunk の cache）と生の HFS+ image（GPT / Apple Partition Map / bare volume）。HFS Plus / HFSX の catalog（file、directory、symlink、hard link は indirect node の本文、resource fork は `name/..namedfork/rsrc`）、extents overflow、更新日時、permissions、type / creator。decmpfs（zlib / LZVN / LZFSE / stored、type 1 は raw、type 9 は `0xCC` + raw）。type 3 / 4 / 7 / 8 / 9 は 7-Zip 26.03 でも展開して原本と照合済み。UDIF に包まれた ISO 9660 / UDF はその reader へ | なし | ADC（UDCO）chunk と APFS は `unsupportedMethod`。decmpfs（UF_COMPRESSED）は type 1 / 3 / 4 / 7 / 8 / 9 / 10 / 11 / 12（stored / zlib / LZVN / LZFSE、inline xattr または resource fork の 64 KiB chunk）を読める。type 5 / 13 / 14・未知の type・fork 格納の属性は一覧のみ。複数 volume は最初の HFS+ だけ。app 配布 DMG の `/Applications` への絶対 symlink は extractor の方針で作らない |
-| UDF / `.udf` `.iso` `.img` | ECMA-167 / OSTA UDF 1.02〜2.60、block 512〜4096、type 1 / sparable（sparing table）/ virtual（VAT、1.50 形式と 2.x 形式）/ metadata partition（mirror へ fallback）、FE / EFE、inline data、複数 entry の ICB（strategy 4。strategy 4096 の indirect entry は仕様どおり実装したが macOS の driver が拒むため未検証）、symlink（path component 列と hdiutil の生 path）、`*UDF Macintosh Resource Fork` named stream を `..namedfork/rsrc` として公開 | なし | 単一 volume。tag checksum / CRC / 位置を検証 |
-| ar / .deb | BSD 長名、SysV/GNU 文字列表、stored | なし | symbol table を公開、長名表 `//` のみ非公開、thin archive は明示的に拒否 |
-| cpio | bin（両 byte order）、odc、newc、crc、hpbin、hpodc、stored。`.cpgz` / `.cpio.<codec>`（gz / bz2 / xz / zst / lz4 / lzma / lz / br / Z）と pbzx の Payload は展開後に CpioReader で列挙 | なし | 連結書庫、symlink、宣言サイズどおりの hard link |
-| xar / .pkg | TOC XML（部分集合 pull parser）、zlib / bzip2 / lzma / xz / stored の heap、入れ子ディレクトリ、symlink、hard link、`<name enctype="base64">`、macOS flat package | なし | なし。TOC checksum と `<extracted-checksum>` を検証、`<subdoc>` 内の `<file>` は entry にしない |
-| CAB | CFHEADER / CFFOLDER / CFFILE / CFDATA、None / MSZIP / LZX（15〜21 bit の辞書、CFDATA をまたぐ履歴）、予約領域、UTF-8 名 (attribs 0x80)、上限付き PE / Mach-O SFX prefix | なし | 多分割フラグがあっても手元の cabinet の file は読み、実際にまたぐ file だけ拒否。Quantum は一覧のみ |
-| RPM | lead / signature header / main header、classic cpio と stripped `07070X`（rpm ≥ 4.12 の 4 GB 超 file、rpm 6 の既定）の entry を直接公開、gzip / bzip2 / xz / lzma / zstd / stored payload | なし | stripped の名前・サイズ・mode は header tags から復元。hard link は非 ghost の最大 index に本文、他は 0 byte。ghost は省略。codec は payload の magic で決定 |
-| tar | POSIX/ustar、pax、GNU long name/link、stored member、GNU sparse（旧 GNU `S` 型、pax 0.0 / 0.1 / 1.0。穴は 0 で埋め、実サイズと `GNU.sparse.name` の名前を公開）。macOS tar の `._name` AppleDouble sidecar は既定で resource fork に統合 | なし | volume 分割なし |
-| gzip | RFC 1952、FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT、DEFLATE、CRC32/ISIZE | なし | concatenated member 対応 |
-| bzip2 | BZip2 block size 1〜9 | なし | concatenated stream 対応 |
-| xz | XZ container、Apple Compression の LZMA、footer/padding | なし | concatenated stream 対応 |
-| zstd | RFC 8878、`.zst` / `.tar.zst` / `.tzst`、RPM payload、ZIP method 20/93、XXH64 checksum。辞書は非対応 | なし | 連結 frame・skippable frame 対応 |
-| LZ4 frame | `.lz4` / `.tar.lz4`、独立／連続block、stored block、header/block/contentのXXH32、宣言サイズ、legacy 8 MiB block | なし | 連結・skippable frame対応。外部辞書は非対応。legacyにはchecksum・宣言サイズがない |
-| UNIX compress (`.Z`) | LZW、9〜16 bit、block mode | なし | なし |
-| LZMA_Alone (`.lzma` / `.tlz`) | 13 byte header + raw LZMA。magic が無いため拡張子・properties・辞書サイズ・range coder 先頭 byte がすべて揃ったときだけ受理し、判定は最後に回す | なし | なし |
-| pbzx | `pbzx` + chunk size、chunk ごとの展開後サイズ / 格納長、XZ stream または生の chunk（macOS `pkgbuild --compression latest` の Payload、OTA）。展開結果が cpio なら cpio として列挙し、そうでなければ単一 stream | なし | なし。chunk ごとの宣言サイズを検証 |
-| lzip (`.lz` / `.tar.lz`) | `LZIP` + version 1 + 辞書サイズ 1 byte + LZMA-302eos（lc=3/lp=0/pb=2、end marker）+ CRC-32 / data size / member size の trailer。末尾の member size を辿って索引を作り、展開後サイズを open 時に確定 | なし | multimember 対応。member ごとに CRC-32・data size・LZMA stream の消費長を検証。末尾の余分な byte は `malformed` |
-| brotli (`.br` / `.tar.br` / `.tbr`) | RFC 7932 の stream（Apple Compression `COMPRESSION_BROTLI` で復号）。RFC 9841 の large window header（WBITS 10〜62）を解釈し、window を `maxDictionarySize` と照合。magic・サイズ・checksum が無いため、`.br` / `.tbr` の名前と有効な header、先頭 64 KiB の試し復号がそろったときだけ受理し、判定は最後に回す | なし | なし。単一 stream で、END 後の余分な byte は `malformed` |
-| 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz` / `.tbz2` / `.tar.bz2`、`.tar.lzma` / `.tlz`、`.txz` / `.tar.xz`、`.tar.zst` / `.tzst`、`.tar.lz4`、`.tar.lz`（`.tlz` は署名で LZMA_Alone / lzip を判別）、`.tar.br` / `.tbr`、`.taz` / `.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
-| ZIP / ZIP64 | stored (0)、Shrink (1、連続する部分クリア後も未使用 code を再利用)、Reduce (2〜5)、Implode (6)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、Zstandard (20/93)、XZ (95)、PPMd (98)、中央 directory、SFX。Finder / ditto の `__MACOSX/._name` AppleDouble sidecar は既定で resource fork に統合（`ReaderOptions.appleDoublePolicy`） | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001` のバイト分割、`.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP（ZIP64・100 巻以上）対応。最終巻・途中巻から URL open |
-| 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、Deflate64、BZip2、Zstandard（7-Zip ZS / NanaZip / libarchive の coder 04F71101）、Delta、Swap2/Swap4、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
-| RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
-| RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX、file copy（`rar -oi` の参照。同一内容の先行 entry の本文を返す `.file`） | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
-| LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
-| StuffIt / `.sit` | classic・StuffIt 5、method 0/1/2/3/5/6/8/13/14/15、MacBinary / AppleSingle / BinHex 4 の一段 unwrap | StuffIt 5 RC4、classic 改変 DES（wrapper の MKey が必要） | data/resource fork は別 entry。`.sea` は先頭署名、MZ `.exe` は header 検証付き走査。classic の分割セット（100 byte header の part、URL open で同じ directory の兄弟 part を番号順に連結し、resource fork も復元。既定上限 128 巻ちょうどの完結セットを受理）。AppleDouble sidecar は非対応 |
-| StuffIt X / `.sitx` | `StuffIt!`、未圧縮、Brimstone、Cyanide、Darkhorse、Deflate（window 10〜25）、Blend（全 4 submethod）、RC4-stored、Iron（BWT/ST4）、JPEG（mode 0/1/2） | AES / Blowfish / DES の CFB、RC4、複数暗号層、暗号化 catalog | solid・data/resource fork、MZ `.exe`。English（辞書組み込み）と x86 前処理。下記の制約を参照 |
+表は読み取り・展開範囲の概要です。方式・version・分割巻・検証条件は [完全な対応表](Documentation/formats.md#対応状況) を参照してください。
 
-> **Supported formats**
->
-> The table above lists every supported format. Its columns are, in order:
-> Format / Container and compression methods / Encryption / Multi-volume and multi-stream.
-> Most cells are method names, version numbers and identifiers that read the same in English;
-> `なし` means none. The cells that carry Japanese prose read as follows.
->
-> - **ISO 9660 / BIN+CUE**: PVD, Joliet, Rock Ridge (NM/CE/PX/SL/TF/ZF, deep hierarchies), multi-extent, stored,
->   and zisofs (ZF version 1 / `pz`, zlib blocks of 32–128 KiB, zero-filled blocks). A hybrid with UDF
->   prefers the UDF tree. Raw-sector images (ECMA-130 2352-byte sectors in Mode 1 or Mode 2 with an
->   8-byte sub-header, 2448-byte sectors with sub-channel data, and 2336-byte sectors; `.bin`, `.img`,
->   `.mdf`) open as the same `iso` / `udf`, and a `.cue` URL follows its data track's image. First
->   session only; EDC / ECC are not verified.
-> - **MacBinary / AppleSingle / BinHex 4**: a wrapper whose payload is not a StuffIt archive is
->   published as a one-file archive: the data fork (entry 0) and the resource fork
->   (`name/..namedfork/rsrc`). Name, type / creator, Finder flags and dates (MacBinary since 1904,
->   AppleSingle's File Dates Info) come from the header. A StuffIt payload still opens as StuffIt. Only
->   one layer is removed (a ZIP inside a MacBinary is published as a file).
-> - **WIM**: Windows Imaging 1.13 (`MSWIM`), stored / XPRESS ([MS-XCA] LZ77+Huffman) / LZX (the WIM
->   variant: 32 KiB chunks, E8 translation size 12,000,000), several images (prefixed `1/`, `2/`),
->   alternate data streams (`name:stream`), hard-link groups, symbolic-link and junction reparse points
->   ([MS-FSCC]), and per-resource SHA-1 verification. Split `.swm` sets expose only the first part's
->   metadata (resources in other parts are `unsupportedMethod`); solid / ESD (LZMS, version 0.14) is unsupported.
-> - **Compound File** (`.msi`, `.doc`, `.xls`, `.ppt`, `.msg`): [MS-CFB] version 3 (512-byte sectors) and 4
->   (4096-byte sectors, 64-bit sizes), FAT / DIFAT (including DIFAT sectors beyond the header) / mini FAT
->   and mini stream; storages are directories and streams are stored files. Storage CLSIDs
->   (`formatSpecific["clsid"]`) and modification times are exposed, and a name that starts with a control
->   character is spelled like 7-Zip's `[5]SummaryInformation`. Windows Installer's packed stream names
->   (`!_Tables`, `setup.cab`, …) are unpacked with the same mapping 7-Zip uses, keeping the stored UTF-16
->   name in `formatSpecific["storedName"]`. Cabinets inside MSI and Office property sets are not interpreted.
-> - **CHM**: HTML Help (ITSF version 3, the PMGL chunk chain of the ITSP directory), stored files of section 0
->   and the LZX `MSCompressed` section (windows of 32 KiB–2 MiB, a full LZX reset at every reset interval,
->   the 0x8000-byte block reset table, E8 translation). The user files under `/` and the `#SYSTEM`-style
->   format files are listed, the `::DataSpace/…` internals are not (as in 7-Zip). The most recent reset
->   interval is cached so files can be read in any order. Version 2 headers are parsed as Russotto
->   describes them but no sample exists.
-> - **ARJ** (`.arj`, DOS `.exe` self-extractors): main and local file headers (versions 1–11, ARJ32),
->   stored (0) and methods 1–3 (the LHA lh6 LZ77 + static Huffman stream with a 26 KB window),
->   directories, DOS `\` and PATHSYM names with archive-wide encoding detection (CP932 …), comments,
->   DOS dates, CRC-32, the technote's header search after an MZ stub, and methods 8 / 9 (no data).
->   Method 4 (compressed fastest), garbled (encrypted) files and continued multi-volume members are
->   listed but read as `unsupportedMethod`; extended headers are skipped.
-> - **Apple Disk Image** (`.dmg`, `.img`): UDIF (koly trailer + blkx tables with zero-fill / raw / zlib /
->   bzip2 / lzfse / lzma-in-xz chunks, the last four chunks cached) and raw HFS+ images (GPT, Apple
->   Partition Map or a bare volume). The HFS Plus / HFSX catalog is listed with files, directories,
->   symbolic links, hard links (resolved to the indirect node's content), resource forks as
->   `name/..namedfork/rsrc`, extents overflow, modification dates, permissions and type / creator; an ISO
->   9660 / UDF volume inside UDIF goes to those readers. ADC (UDCO) chunks and APFS are `unsupportedMethod`;
->   decmpfs-compressed files (UF_COMPRESSED) support types 1 / 3 / 4 / 7 / 8 / 9 / 10 / 11 / 12
->   (stored / zlib / LZVN / LZFSE, inline xattrs or 64 KiB resource-fork chunks). Type 1 stores raw bytes;
->   inline type 9 requires a `0xCC` prefix. Types 3 / 4 / 7 / 8 / 9 also extract byte-exactly with 7-Zip 26.03.
->   Types 5 / 13 / 14,
->   unknown types and fork-stored attributes are listed but read as `unsupportedMethod`;
->   only the first HFS+ volume of a multi-volume image is listed, and the extractor keeps refusing absolute
->   symbolic-link targets such as the `/Applications` link of application images.
-> - **UDF**: ECMA-167 / OSTA UDF 1.02–2.60, block sizes 512–4096, type 1 / sparable (sparing table) /
->   virtual (VAT, both the 1.50 and the 2.x layout) / metadata partitions (falling back to the mirror
->   file), file entries and extended file entries, inline data, multi-entry ICBs (strategy 4; strategy
->   4096 indirect entries are implemented from the specification but unverified because macOS's driver
->   rejects them), symbolic
->   links (path components and hdiutil's raw paths), and the `*UDF Macintosh Resource Fork` named
->   stream exposed as `..namedfork/rsrc`. Single volume; tag checksums, CRCs and locations are verified.
-> - **ar / .deb**: BSD long names, the SysV/GNU string table, stored. The symbol table is exposed;
->   only the `//` long-name table is hidden; a thin archive is explicitly rejected.
-> - **cpio**: bin (both byte orders), odc, newc, crc, hpbin, hpodc, stored. Concatenated archives,
->   symbolic links, and hard links keeping their declared size. `.cpgz` / `.cpio.<codec>` (gz / bz2 /
->   xz / zst / lz4 / lzma / lz / br / Z) and pbzx payloads are expanded and listed with CpioReader.
-> - **xar / .pkg**: TOC XML through a subset pull parser; a zlib, bzip2, lzma, xz or stored heap;
->   nested directories; symbolic links; hard links; `<name enctype="base64">`; the macOS flat
->   package. No multi-volume. The TOC checksum and `<extracted-checksum>` are verified, and a
->   `<file>` inside a `<subdoc>` never becomes an entry.
-> - **CAB**: CFHEADER / CFFOLDER / CFFILE / CFDATA, None, MSZIP and LZX (15–21 bit windows and
->   history across CFDATA blocks), the reserved areas, and UTF-8 names (attribs 0x80). Even when the multi-cabinet
->   flags are set, the files held in this cabinet are read normally and only a file that actually
->   spans cabinets is rejected. Quantum can be listed only. A cabinet behind a bounded PE / Mach-O
->   self-extractor prefix is found by the same signature scan as ZIP / RAR / 7z.
-> - **RPM**: the lead, the signature header and the main header; the cpio entries of the payload are
->   exposed directly, including stripped `07070X` (files over 4 GB since rpm 4.12; the default in rpm 6).
->   Names, sizes and modes come from header tags. The highest non-ghost file index in each hard-link set
->   carries the data; other members have zero bytes and ghosts are omitted. SHA-256 file digests are
->   checked on complete reads of members carrying data. gzip, bzip2, xz, lzma, zstd and stored payloads
->   share the same reader; the codec is decided by the magic at the start of the payload.
-> - **tar**: POSIX/ustar, pax, GNU long name and link, stored members, and GNU sparse entries
->   (old GNU typeflag `S`, pax 0.0 / 0.1 / 1.0; holes are zero-filled and the real size is published). The `._name`
->   AppleDouble sidecars written by macOS tar are merged into resource forks by default. No volume splitting.
-> - **gzip**: RFC 1952 with FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT, DEFLATE, CRC32 and ISIZE.
->   Concatenated members are supported.
-> - **bzip2, xz, UNIX compress (`.Z`)**: BZip2 block sizes 1 to 9; the XZ container with Apple
->   Compression's LZMA, footer and padding; LZW 9 to 16 bit with block mode. No encryption. bzip2
->   and xz support concatenated streams; `.Z` has none.
-> - **zstd**: RFC 8878 streams (`.zst`, `.tar.zst`, `.tzst`), RPM payloads and ZIP method 20/93,
->   including concatenated/skippable frames and XXH64 checksum verification. Dictionaries are unsupported.
-> - **LZ4 frame**: `.lz4` and `.tar.lz4`, independent/linked blocks, stored blocks,
->   XXH32 header/block/content checksums, concatenated/skippable frames, and legacy 8 MiB
->   blocks. External dictionaries are unsupported. Legacy frames have no checksum or declared size.
-> - **LZMA_Alone (`.lzma` / `.tlz`)**: a 13-byte header plus raw LZMA. Because the format has no magic, it is
->   accepted only when the extension, the properties, the dictionary size and the first byte of the
->   range coder all agree, and detection is left until last.
-> - **pbzx**: `pbzx` + chunk size, then per chunk an unpacked size, a stored length and an XZ stream or
->   raw bytes (the `Payload` of macOS `pkgbuild --compression latest` packages and OTA updates). A cpio
->   result is listed as cpio; anything else is a single stream. Every chunk's declared size is verified.
-> - **lzip (`.lz` / `.tar.lz`)**: `LZIP`, version 1, one coded dictionary-size byte, an LZMA-302eos stream
->   (lc=3 / lp=0 / pb=2, end marker) and a trailer of CRC-32, data size and member size. The member sizes
->   are walked backwards to index the file, so the expanded size is known at open. Multimember files are
->   supported; every member's CRC-32, data size and consumed stream length are verified, and trailing bytes
->   are `malformed`.
-> - **brotli (`.br` / `.tar.br` / `.tbr`)**: RFC 7932 streams decoded by Apple Compression's
->   `COMPRESSION_BROTLI`. The RFC 9841 large-window header (WBITS 10–62) is parsed and the window is checked
->   against `maxDictionarySize`. The format has no magic, size or checksum, so it is accepted only when a
->   `.br` / `.tbr` name, a valid header and a trial decode of the first 64 KiB all agree, and detection is
->   left until last. One stream only; bytes after the end are `malformed`.
-> - **Compressed tar**: `.tgz` / `.tar.gz`, `.tbz` / `.tbz2` / `.tar.bz2`, `.tar.lzma` / `.tlz`, `.txz` / `.tar.xz` and
->   `.tar.zst` / `.tzst`, `.tar.lz4`, `.tar.lz` (`.tlz` is resolved to LZMA_Alone or lzip by signature),
->   `.tar.br` / `.tbr` and `.taz` / `.tz` / `.tar.Z` are expanded and then listed with TarReader.
-> - **ZIP / ZIP64**: stored (0), Shrink (1), Reduce (2-5), Implode (6), Deflate (8), Deflate64 (9), BZip2 (12), LZMA (14),
->   Zstandard (20/93), XZ (95), PPMd (98), the central directory, SFX, `.zip.001` byte splits and split ZIP sets (`.z01`…`.zip`, `.zx01`…`.zipx`)
->   are supported, including ZIP64 and more than 99 segments. Open the last or a numbered segment by URL.
->   The `__MACOSX/._name` AppleDouble sidecars of Finder / ditto are merged into resource forks by
->   default (`ReaderOptions.appleDoublePolicy`).
-> - **7z**: the coder chain covers a folder in which a byte-consuming coder takes the output of
->   another coder as its input; Deflate64 (040109), the Zstandard coder 04F71101 written by 7-Zip ZS / NanaZip / libarchive,
->   Swap2/Swap4 byte-order filters, solid folders and a bounded Mach-O/PE SFX prefix are supported.
->   `.001` byte splits made with 7-Zip `-v`, solid and block splits are supported.
-> - **RAR4 / RAR5**: LZ and PPMd of the listed unpack versions, the listed filters, solid mode, and
->   a bounded SFX prefix. Multi-volume works from URL-backed input, including encrypted volumes for
->   RAR5. RAR5 file copies (`rar -oi` references) are exposed as `.file` entries that return the
->   contents of the identical earlier entry.
-> - **LHA / LZH**: header levels 0 to 3, the listed methods, the LHArk `-lh7-`, and a bounded SFX
->   prefix. No multi-volume; every member is independent (`solidGroup == -1`).
-> - **StuffIt / `.sit`**: classic split sets (parts with a 100-byte header) are reassembled from sibling
->   parts in the same directory when opened by URL, restoring both the data fork and the resource fork
->   that classic encryption needs.
-
-classic StuffIt の分割セット（各 part が署名 `B0 56` の 100 byte header を持つ）は、URL で開いた part の
-名前に含まれる part 番号の桁列を差し替えて同じ directory の兄弟（`name.sit.1` / `name.1.sit` /
-`name.sit.01` など）を 1 から順に集め、header を外して連結した [0, R) を resource fork、[R, R+D) を
-data fork として通常の StuffIt reader に渡します。どの part から開いても同じ結果で、`reopen()` は
-保持した part の handle を使います。Data からは、単独の part が R+D を覆う場合だけ開けます。
-`ReadLimits.maxVolumeCount` は既定 128 巻で、上限ちょうどの完結セットも受理します。次の part が
-実在するときに上限超過を報告し、上限 1 なら完結した `name.sit.1` を URL から開けます。
-
-StuffIt の `ArchiveFormat` は classic / StuffIt 5 とも `.stuffIt` (`"sit"`) です。
-`formatSpecific["container"]` が `classic` / `stuffit5` を示し、`macType`・`macCreator`・
-`finderFlags`・`fork` を保持します。resource fork は `<名前>/..namedfork/rsrc` として公開します。
-classic / StuffIt 5 も `ArchiveEntry.name` は親フォルダを含む完全な相対パスです。
-classic / StuffIt 5 で書庫の名前判定が Shift_JIS の場合、CP932 で読めない個別名だけ
-MacJapanese で再試行します。`nameEncoding` は `.shiftJIS` のままです。
-wrapper 自身の resource fork も reader が保持し、`SitC` または StuffIt 5 の書庫コメントを
-最初の entry の `formatSpecific["comment"]` に公開します。名前は `EncodingPolicy` に従い、
-未宣言の旧 Mac 名には MacRoman を既定候補として使います。
-
-password は UTF-8 bytes を使います。classic の暗号化 fork は wrapper 自身の `MKey` が必要で、
-resource fork のない素の `.sit` / `.sea` は
-`unsupportedMethod("StuffIt encryption without archive resource fork")` を返します。
-復号に必要な情報があれば、password 未設定は `passwordRequired`、検証値の不一致は
-`wrongPassword` です。復号後も `isEncrypted` は変わらず、展開後の CRC を検証します。
-classic の 8 バイト password は資料の 2 block 派生を優先し、CC0 の 4.5 書庫で確認した
-1 block 派生も MKey 検証付きで扱います。詳細は
-[slice 2 検証記録](Documentation/verification/2026-09-13-stuffit-slice2.md) を参照してください。
-
-StuffIt X は `.stuffItX` (`"sitx"`) として署名で判別し、同じ wrapper を一段だけ剥がします。
-名前は `EncodingPolicy` に従い、有効な UTF-8 を既定候補とします。catalog の key 10 の整列、
-type 9 に続く書庫コメント、kind 3 の補助 stream の実長を扱います。
-solid stream は前方を読み捨て、後方 seek で再起動し、全体の終端で CRC-32 または MD5 を検証します。
-途中の fork の読み取りだけでは stream 全体の checksum は確定しません。
-
-StuffIt X の password は正規化しない UTF-8 bytes です。AES（16/24/32 バイト鍵）、
-Blowfish（5〜56）、DES（8）、RC4（1〜1,024）を扱い、複数層は合計鍵長（最大 65,536）で
-一度派生して記録順に分割し、逆順に復号します。鍵は後方 seek 時も再利用します。
-データ暗号化は password なしで列挙でき、stream 取得時に `passwordRequired`、
-verifier 不一致は `wrongPassword` です。catalog が暗号化されている場合は open 時に
-password が必要で、未設定なら `PasswordProvider` を呼びます。
-
-MZ `.exe` は `maximumSFXScanSize`（既定・上限 1 MiB）内の候補を位置順に検証し、
-最初に header 検証を通る classic / StuffIt 5 / StuffIt X を開きます。
-ファイル URL では自動、Data / 任意 ByteSource では `scanForSFXInData: true` で有効です。
-classic の暗号化 `.exe` は書庫 resource fork がないため `unsupportedMethod` です。
-実行形式 stub 自体を実行することはありません。
-
-Brimstone (0) の catalog と data、Iron (6)、English (0) / x86 (2) 前処理を扱います。
-English 辞書は本体に組み込み、初回展開時に SHA-256 を検査します。resource bundle や追加ダウンロードは不要です。
-前処理は解凍後の要素全体に適用し、checksum 検証と fork 分割へ渡します。
-Iron は native の固定頻度上限 `(64,64,256)`、x86 は候補に 6 バイトを要求する native 末尾規則を採用します。
-Cyanide の tail-model byte は n=0〜255 を受理し、実際に復号した rank が 256 以上のときだけ `malformed` とします。
-JPEG (7) は mode 0 の保存、mode 1 の色 baseline、mode 2 の baseline / progressive を扱い、
-元の JPEG バイト列を復元します。restart、padding、tail、scan 間の表更新も保持します。
-出力・入力は `maxEntrySize`、係数ブロック数は `ReadLimits.maxJPEGBlocks`（既定 2,097,152）で制限します。
-24 MP の 4:4:4 と 48 MP の 4:2:0 はそれぞれ 1,125,000 ブロックで、既定の範囲に収まります。
-progressive の量子化係数 plane は最大 512 MiB です。
-entry 読み取り時の入力不足は `truncated`、構造の破損は `malformed`、未対応 profile は `unsupportedMethod` になります。
-Iron version 1 (33)、その他の前処理、Root 暗号、recovery、segment、base-N transport は後続対応です。
-単一の最終出力 digest と JPEG の key-6 入力 digest を検証します。後者は単層暗号にも対応します。
-反復 compression / preprocessing・複数 digest scope・JPEG の多層暗号中の key-6 digest は `unsupportedMethod` とします。
-CC0 の対象 20 書庫と、SMSSenderPro3osx.sitx の全 95 entry の名前・長さ・SHA-256 が支給期待値と一致しました。
-旧 vector と native 規則の差、支給比較スクリプトのオラクル範囲の差は
-[slice 4 検証記録](Documentation/verification/2026-09-13-stuffit-slice4.md) に記載しています。
-
-名前は ZIP/RAR4/LHA/tar/gzip FNAME の undecorated bytes に対して、書庫全体の多言語符号化判定を行い、format が宣言する Unicode 名を優先します。単一 file 形式の FNAME がない場合は
-source file の拡張子を除いた名前を entry 名にします。
-厳密 UTF-8 を最優先にし、legacy 候補は CoreFoundation に基づく復号表、文字集合、文字体系・綴りの規則で比較します。
-`likelyLanguage` は BCP-47 の主要 subtag、中国語の文字体系、`sr-Latn` を解釈し、証拠量で減衰する事前確率として使います。
-
-| 言語 | 自動判定の候補 |
-|---|---|
-| 日本語 | CP932、EUC-JP |
-| 中国語（簡体字） | GB18030（GBK / GB2312 を包含） |
-| 中国語（繁体字） | CP950、Big5-HKSCS（CP950 で復号不能の場合） |
-| 韓国語 | CP949（EUC-KR を包含） |
-| タイ語 / ベトナム語 | CP874・MacThai / CP1258 |
-| uk / ru / bg / sr / mk / be | CP1251、KOI8-U/R、CP866、ISO-8859-5、MacCyrillic、CP855、MacUkrainian |
-| es / pt / fr / de / it / en / da / nb / sv / fi / is / nl | CP1252、ISO-8859-15、MacRoman、CP850、CP865、MacIcelandic、ISO-8859-10、CP437 |
-| pl / cs / hu / ro / hr / sl / sk / sr-Latn | CP1250、ISO-8859-2、MacCE、ISO-8859-16、MacRomanian、CP852、MacCroatian |
-| ギリシア語 | CP1253、ISO-8859-7、CP737、CP869、MacGreek |
-| トルコ語 | CP1254、ISO-8859-9、CP857、MacTurkish |
-| ヘブライ語 | CP1255、ISO-8859-8、CP862、MacHebrew |
-| アラビア語 / ペルシア語 | CP1256、ISO-8859-6、CP864、MacArabic、MacFarsi |
-| リトアニア語 / ラトビア語 / エストニア語 | CP1257、ISO-8859-4、ISO-8859-13、CP775 |
-
-ISO-2022-JP、VISCII、TCVN3 は自動判定の対象外です。CP861 は CF の表が CP775 と同一のため候補に含めません。
-CP1256 の欠落8文字は判定用の表にだけ補っており、ペルシア語の ک などは、正しい encoding を選べても既存の CF 復号で復元できず、名前全体が fallback 表記になる場合があります。MacArabic / MacFarsi の CF が挿入する方向制御は採点から除きますが、reader の出力には残ります。
-既定の `likelyLanguage: "ja"` では、単独の韓国語・中国語の短名（8音節未満）が日本語に解決されることがあります。他アプリは対象の言語に合わせた `likelyLanguage` を渡してください。
-
-54 legacy候補・CLDRの40集合（測定39言語と補助の英語）を使用します（Unicode License v3、[NOTICE](NOTICE)）。漢字だけの短名、文字配置が重なる欧州系 code page、他の文字体系への交差復号には曖昧性・規則不足が残ります。候補に含まれることは正解率の保証ではありません。CP864 と生成codecのないMac系候補には統計評価の不足もあります。4方式の測定値、旧49群との比較、精度の残差、テスト結果と性能の測定値は[Task C-Bの検証記録](Documentation/verification/2026-09-14-name-encoding-languages.md)を参照してください。
-`kaito detect-encoding --check-orthography <tsv>` は正解 text に言語別の位置規則を適用し、違反位置を出力します。
-
-圧縮 tar の展開結果は `ReadLimits.inMemorySingleFileLimit` 以下なら memory、それより大きければ
-直ちに unlink した一時 file descriptor に保持します。どちらも同じ `TarReader` API を公開します。
-`reopen()` はこの展開済み source を共有し、再展開・一時 file の再作成を行いません。
-staging は chunk ごとに task の cancellation を確認します。
-
-> **Names and compressed tar staging**
->
-> Names are resolved by archive-wide multilingual encoding detection over the undecorated bytes
-> of ZIP, RAR4, LHA, tar and gzip FNAME, preferring any Unicode name the format declares. When a
-> single-file format carries no FNAME, the entry name is the source file name with its extension
-> removed.
->
-> The expansion of a compressed tar is held in memory when it is at or below
-> `ReadLimits.inMemorySingleFileLimit`, and otherwise in an immediately unlinked temporary file
-> descriptor. Both paths expose the same `TarReader` API.
-> `reopen()` shares that staged source without decoding or creating another temporary file.
-> Staging checks task cancellation at each chunk.
-
-LHA の directory 属性は method だけでなく末尾 separator と MS-DOS directory bit からも判定します。
-このため OS/2 の extended-attribute payload を持つ subdirectory も子 entry の親として扱えます。
-先頭 slash と drive prefix は除いて相対名にしますが、`..` は解決せず、展開層で従来どおり
-拒否します。古い writer が filename field の NUL より後ろへ付けた metadata は pathname に含めません。
-level 0〜3 の 0xFF と、文字コード復号後の backslash は directory separator として扱い、
-CP932 の二バイト文字の一部である 0x5C は保持します。level-0 Unix `U` 拡張の
-mtime / permissions / uid / gid も公開します。
-
-MacLHA の Macintosh OS marker を持つ member は、MacBinary / MacBinary II standard proposals に基づいて
-復号後の header が有効と確認できた場合だけ、data fork を `stream(_:)` / `read(_:)` に公開します。
-LHA CRC16 は padding と resource fork を含む MacBinary 全体と compatible trailing extension について検証し、
-MacBinary ではない member はそのまま返します。公開 `uncompressedSize` は互換性のため LHA header が
-宣言した envelope size を保持します。
-
-> **LHA directories and MacLHA**
->
-> LHA directory status is decided not only by the method but also by a trailing separator and the
-> MS-DOS directory bit. A subdirectory carrying an OS/2 extended-attribute payload can therefore act
-> as the parent of its child entries.
-> A leading slash and a drive prefix are removed to make the name relative, but `..` is not resolved
-> and is rejected by the extraction layer as before. Metadata that old writers appended after the NUL
-> in the filename field is not included in the pathname.
-> The 0xFF byte in levels 0 to 3, and a backslash after character-encoding decoding, are treated as
-> directory separators, while 0x5C as the trail byte of a two-byte CP932 character is preserved.
-> The mtime, permissions, uid and gid of the level-0 Unix `U` extension are also exposed.
->
-> For a member carrying the MacLHA Macintosh OS marker, the data fork is exposed through
-> `stream(_:)` and `read(_:)` only when the decoded header is confirmed valid against the MacBinary
-> and MacBinary II standard proposals. The LHA CRC16 is verified over the whole MacBinary envelope,
-> including padding and the resource fork, and over any compatible trailing extension; a member that
-> is not MacBinary is returned as is. The published `uncompressedSize` keeps the envelope size
-> declared by the LHA header, for compatibility.
-
-cooViewer の `book.lzh` は level 2 の `-lh0-` 4 member をすべて lhasa の black-box
-出力と SHA-256 比較しています。`-lh5-` の literal / match / preset-window vector も、
-hand-built archive を lhasa と KaitoKit の双方で展開して一致を確認しています。release の
-`kaito bench book.lzh 9` は open 0.049 ms、合計 33,104 bytes の extract 0.189 ms でした。
-
-RAR4 の `st1200-pts.rar` は 19 file 全件が RAR 7.23 の black-box 出力と一致し、
-PPMd↔LZ 変換の 241,647,978-byte entry も一致しました。さらに RAR4 corpus 20 書庫では
-47 regular file の byte count / SHA-256 と 5 symlink の名前 / target bytes が一致しました。
-既知 password 集合では oracle を得られない暗号化 entry が 1 件あり、破損した
-`seek_data_cursor0` 書庫は RAR 7.23 と KaitoKit の双方が拒否します。
-
-> **Differential testing against reference tools**
->
-> All four level-2 `-lh0-` members of cooViewer's `book.lzh` are compared by SHA-256 against the
-> black-box output of lhasa. The `-lh5-` literal, match and preset-window vectors are also confirmed
-> by extracting a hand-built archive with both lhasa and KaitoKit. A release build of
-> `kaito bench book.lzh 9` measured an open of 0.049 ms and an extract of 33,104 bytes in 0.189 ms.
->
-> For RAR4, all 19 files of `st1200-pts.rar` match the black-box output of RAR 7.23, including the
-> 241,647,978-byte entry that exercises the PPMd/LZ transition. Across a 20-archive RAR4 corpus, the
-> byte counts and SHA-256 of 47 regular files and the names and target bytes of 5 symlinks all match.
-> One encrypted entry has no oracle under the known password set, and the damaged
-> `seek_data_cursor0` archive is rejected by both RAR 7.23 and KaitoKit.
-
-RAR4 / RAR5 の URL-backed multi-volume は、最初の volume と同じ directory の deterministic
-sibling 名だけを、保持した directory descriptor から symlink を追わず regular file として開き、
-既定 128 volume の `ReadLimits.maxVolumeCount` で制限します。RAR4 は old / new numbering、
-RAR5 は `.partN.rar` と暗号化 data / header の継続に対応します。`reopen()` は検証済みの全
-volume handle を共有し、path を再解決しません。Data / 任意 `ByteSource` は sibling volume を
-一意に特定できないため、未解決の分割 entry を読むと
-`unsupportedMethod("multi-volume from Data")` を返します。
-
-> **Multi-volume RAR**
->
-> URL-backed multi-volume RAR4 and RAR5 open only deterministic sibling names in the same directory
-> as the first volume. They are opened as regular files from a retained directory descriptor without
-> following symbolic links, and are bounded by `ReadLimits.maxVolumeCount`, which defaults to 128
-> volumes. RAR4 supports old and new numbering; RAR5 supports `.partN.rar` and the continuation of
-> encrypted data and headers. `reopen()` shares all verified volume handles and does not re-resolve
-> paths. `Data` and custom `ByteSource` inputs cannot identify sibling volumes uniquely, so reading
-> an unresolved split entry returns `unsupportedMethod("multi-volume from Data")`.
-
-`.7z.001` / `.zip.001` などのバイト分割セットは、`ArchiveReader.open(url:)` と
-`FormatDetector.detect(url:)` が形式検出の前に連結します。空でない名前に続く 3 桁以上の
-ASCII 数字で値 1 の拡張子から開始し、桁幅を保持して `.999` の次は `.1000` へ進みます。
-欠番で探索を停止し、7z の末尾巻・中間巻の欠落は `truncated` になります。余分な末尾巻は
-末尾ゴミとして許容します（ZIP は末尾探索の 1 MiB 上限内）。既定上限は同じ
-`ReadLimits.maxVolumeCount = 128` で、探索可能な先頭巻では 0 以下を拒否し、1 以上は
-実在する巻数が上限を超えると `limitExceeded("split volume count")` を返します。
-兄弟巻は保持した親 descriptor から symlink を追わず regular file として開きます。
-先頭巻が symlink または identity 不一致なら兄弟探索をせず単独扱いにし、兄弟がない
-単巻 `.001` でも `.tar.gz` 等の拡張子ヒントを使います。`reopen()` は全巻の削除後も
-保持済み source を使います。`.002` 等から先頭へは戻らず、Data / 任意 `ByteSource` では
-兄弟を探索しません。分割セットの `rawRecord(of:)` は `nil` です。連結した RAR に volume
-フラグがある場合も一覧と完結 entry は読めますが、RAR 独自の続巻探索はせず、未解決の
-分割 entry は `unsupportedMethod("multi-volume from Data")` になります。
-
-> **Byte-split volume sets**
->
-> `ArchiveReader.open(url:)` and `FormatDetector.detect(url:)` concatenate `.7z.001`, `.zip.001`
-> and other byte splits before format detection. A nonempty stem and an ASCII numeric suffix of
-> at least three digits with value 1 are required. Width is preserved, growing from `.999` to
-> `.1000`. Discovery stops at the first gap; missing 7z volumes produce `truncated`. Stale trailing
-> volumes are tolerated (within ZIP's 1 MiB end-search bound). `ReadLimits.maxVolumeCount` defaults
-> to 128; discoverable sets reject zero or negative limits, and an existing volume beyond a positive
-> limit produces `limitExceeded("split volume count")`. Siblings must be regular files opened
-> without following symlinks under the retained directory descriptor. A symlink or changed first
-> volume is treated as a single file without sibling discovery. Even a single `.001` keeps extension
-> hints such as `.tar.gz`. `reopen()` retains the sources after all paths are deleted. Continuations
-> such as `.002` do not rewind; Data/custom-source opens do not discover siblings. `rawRecord(of:)`
-> returns `nil` for concatenated sets. A byte-split RAR bearing volume flags can list and read complete
-> entries, but unresolved RAR split entries return `unsupportedMethod("multi-volume from Data")`.
-
-RAR5 archive header の KDF は、個々の `count` を
-`ReaderOptions.maxRAR5KDFCountPower` (既定かつ上限 24) で制限します。さらに、header encryption
-を使う全 volume を通した実際の派生処理を `ReadLimits.maxRAR5HeaderKDFWork` で累積します。
-work は HMAC-SHA256 iteration 単位で、各 context を `2^count + 32` と数えます。既定値は
-`4 * (2^24 + 32)`、つまり最大コストの `count = 24` context 4 件分です。同じ
-`(password, salt, count)` context を複数 volume が
-再利用すると key cache が使われ、一度だけ加算されます。異なる context は volume をまたいで
-累積されます。
-
-RAR5 のサイズ不明 entry は `uncompressedSize == nil` のまま、復号器の終端まで逐次
-streaming します。`read(_:)` も宣言サイズを仮定せず、設定された上限内で段階的にバッファを
-増やします。codec の辞書サイズ上限は `ReadLimits.maxDictionarySize` で設定し、既定値は
-1 GiB です。
-
-> **RAR5 key derivation and unknown sizes**
->
-> The KDF for RAR5 archive headers bounds each individual `count` with
-> `ReaderOptions.maxRAR5KDFCountPower`, whose default and maximum are both 24. On top of that,
-> `ReadLimits.maxRAR5HeaderKDFWork` accumulates the derivations actually performed across every
-> volume that uses header encryption. Work is measured in HMAC-SHA256 iterations, counting each
-> context as `2^count + 32`. The default is `4 * (2^24 + 32)`, that is four contexts at the most
-> expensive `count = 24`. When several volumes reuse the same `(password, salt, count)` context the
-> key cache is used and the work is charged once. Different contexts accumulate across volumes.
->
-> A RAR5 entry of unknown size keeps `uncompressedSize == nil` and is streamed incrementally to the
-> decoder's end marker. `read(_:)` likewise assumes no declared size and grows its buffer in stages
-> within the configured limits. The codec dictionary size limit is set by
-> `ReadLimits.maxDictionarySize` and defaults to 1 GiB.
-
-ZIP の DOS 日時にはタイムゾーン情報がないため、現在のローカルタイムゾーンとして解釈します。
-Extended timestamp と NTFS timestamp は UTC の時刻として扱います。ZIP のローカルヘッダを
-open 時にすべて検証したい場合は `ReaderOptions(lazyLocalHeaders: false)` を指定してください。
-
-完全な ZipCrypto entry は 1 byte のヘッダ検査を通過した後の CRC 不一致・decoder の破損／入力不足を `wrongPassword` として報告するため、暗号化 stream 自体の破損も誤ったパスワードと判定される場合がありますが、WinZip AES は HMAC による区別を維持します。
-
-7zAES には独立した認証 tag がないため、KaitoKit は最初に復号した stream の CRC 不一致、
-または復号後の coder 構造が不正な場合を `wrongPassword` と判定します。このため、暗号化
-stream 自体の破損も `wrongPassword` として報告される場合があります。KDF の計算量上限は
-`ReaderOptions.maxSevenZipAESCyclesPower` で設定できます。
-
-> **ZIP timestamps and 7zAES**
->
-> A ZIP DOS timestamp carries no timezone, so it is interpreted in the current local timezone.
-> Extended timestamps and NTFS timestamps are treated as UTC. To validate every ZIP local header at
-> open time, pass `ReaderOptions(lazyLocalHeaders: false)`.
->
-> For complete ZipCrypto entries, CRC mismatches and malformed or truncated decoder output after
-> the one-byte header check passes are reported as `wrongPassword`, so corruption of the encrypted
-> stream may also be reported as a wrong password, while WinZip AES keeps its HMAC-based distinction.
->
-> 7zAES has no independent authentication tag, so KaitoKit reports `wrongPassword` when the CRC of
-> the first decrypted stream does not match, or when the decrypted coder structure is invalid. As a
-> consequence, corruption of the encrypted stream itself may also be reported as `wrongPassword`.
-> The KDF work limit is set by `ReaderOptions.maxSevenZipAESCyclesPower`.
-
-XZ は全 block と連結 stream の辞書を `maxDictionarySize` で制限します。
-AES暗号化されたZIP XZは、認証済み圧縮入力を最大4 MiB（`inMemorySingleFileLimit`がより小さければその値）まで
-メモリに保持し、それ以上は作成直後unlinkする非公開一時ファイルへ送ります。これにより全blockの事前検査が
-暗号文全体を繰り返し読み直すことを防ぎます。詳細は[ZIP追加検証](Documentation/verification/2026-09-18-zip-methods.md)を参照。
-空の LHA は正確な1 byteの終端と `.lha` / `.lzh` の名前 hint が必要です。
-名前のない Data / ByteSource からは終端だけで形式を識別しません。
-修正・全件検証は[リリース前横断検証](Documentation/verification/2026-09-17-release-hardening.md)を参照。
-
-> XZ checks every block and concatenated stream against `maxDictionarySize` before native decoding.
-> AES-encrypted ZIP XZ stages its authenticated compressed input once, retaining at most the lesser
-> of 4 MiB and `inMemorySingleFileLimit`; larger inputs use a private, immediately unlinked temporary
-> file. This keeps preflight reads linear and requires temporary disk space for large encrypted members.
-> An empty LHA requires exactly one terminator byte and a `.lha` / `.lzh` filename hint;
-> an unnamed Data / ByteSource cannot identify it from that ambiguous byte alone.
+| 形式群 | 読み取り・展開 | 暗号化 |
+|---|---|---|
+| tar / cpio（`.tar` / `.cpio` / `.cpgz` など） | ファイル一覧・展開、圧縮された tar / cpio | なし |
+| ZIP / ZIP64（`.zip` / `.zipx`） | 単一・分割書庫、自己解凍書庫 | ZipCrypto、WinZip AES-128/192/256 |
+| 7z（`.7z`） | 単一・分割書庫、自己解凍書庫 | 7zAES-256（data / header） |
+| RAR4 / RAR5（`.rar`） | 単一・分割書庫、自己解凍書庫（組み合わせに制限あり） | AES-128 / AES-256（data / header） |
+| LHA / LZH（`.lha` / `.lzh`） | 主要な圧縮方式、自己解凍書庫 | なし |
+| StuffIt classic / StuffIt 5（`.sit` / `.sea`） | data / resource fork、classic の分割書庫 | classic 改変 DES（条件あり）、StuffIt 5 RC4 |
+| StuffIt X（`.sitx`） | data / resource fork、JPEG の復元 | AES / Blowfish / DES / RC4、暗号化 catalog |
+| gzip / bzip2 / xz / zstd / LZ4 / LZMA / lzip / brotli / `.Z` / pbzx（`.gz` / `.bz2` / `.xz` など） | 単一ファイルと圧縮 tar / cpio | なし |
+| ISO 9660 / UDF・BIN/CUE（`.iso` / `.udf` / `.bin` / `.cue` など） | 通常・生 sector image、BIN/CUE の data track | なし |
+| MacBinary / AppleSingle / BinHex（`.bin` / `.as` / `.hqx`） | data / resource fork、名前・日時 | なし（StuffIt の本文は形式側で処理） |
+| Windows Imaging（`.wim` / `.swm`） | 複数 image のファイル一覧・展開（分割に制限あり） | なし |
+| Compound File（`.msi` / `.doc` / `.xls` / `.ppt` / `.msg`） | 内部ファイルの一覧・展開 | なし |
+| CHM（`.chm`）/ ARJ（`.arj` / `.exe`） | ヘルプファイル、ARJ の書庫・自己解凍書庫 | ARJ の暗号化ファイルは一覧のみ。他はなし |
+| xar（`.pkg`）/ CAB（`.cab`）/ RPM（`.rpm`）/ ar（`.deb` / `.a`） | 配布 package 内のファイル一覧・展開 | なし |
+| Apple Disk Image（`.dmg` / `.img`） | HFS+ / HFSX のファイル、内包 ISO / UDF | なし |
 
 ## 既知の制限
 
-- ISO は UDF > Rock Ridge（NM あり）> Joliet > PVD の順で名前の木を選びます（UDF の構造が壊れていれば
-  ISO 9660 側へ戻ります）。raw sector image、後続 session、interleaved / sparse の内容展開、
-  zisofs2（ZF version 2）と multi-extent の zisofs は未対応です。
-  長さ 0 の extent は LBA を検証しません（libarchive は空 file と symlink に 0xFFFFFFF0 を書きます）。
-- UDF は複数 volume の volume set、extended allocation descriptor（ext_ad）、device / FIFO / socket の
-  file type（`.other`）、resource fork 以外の named stream（数だけ `namedStreams` に記録）、multisession の
-  基準 sector S ≠ 0 に対応しません。7-Zip は symlink を含む UDF image を開けないため、検証の主オラクルは
-  macOS の UDF driver です。ISO 9660 側だけが zisofs を持つ hybrid（genisoimage `-udf -z`）では、UDF の木が
-  圧縮されたままの本文を返します（未確認の組み合わせ）。
-- WIM は solid / ESD（LZMS）、分割 `.swm` の他 part の resource、EFS 暗号化 file、symlink / junction 以外の
-  reparse point（`.other`）、security descriptor と Windows attribute の復元、integrity table の検証に対応しません。
-  chunk size は XPRESS が 4〜64 KiB の 2 冪、LZX が 32 KiB です。7-Zip は compressed WIM を書けないため、圧縮 fixture は自作 encoder の出力を
-  7-Zip が展開して検証したものです。
-- cpio は PWB、HP-UX device number の解釈、device node の再作成に対応しません。stripped `07070X` は RPM header が必要で、単体では検出しません。
-  hard link の 0-byte placeholder は内容を補完しません。圧縮 cpio は名前（`.cpgz` / `.cpio.<codec>`）で判断し、名前の無い Data からは連鎖しません。
-- CAB は None / MSZIP / LZX を展開します。Quantum は一覧できますが、読み取り時に
-  `unsupportedMethod` になります。複数 cabinet にまたがる file も同様です。
-- RPM は drpm、cpio でない payload、file list tags が不足した `07070X` を圧縮済み payload の 1 entry として公開します。
-  stripped の SHA-256 file digest は本文の完全読取時に照合し、他の digest algorithm は値の公開だけです。
-  hard link の 0-byte placeholder は補完しません。[検証記録](Documentation/verification/2026-09-22-rpm-stripped-payload.md)。
-- ACE は未対応です。ARJ は method 4（compressed fastest）、garbled（暗号化）、multi-volume の続き file が `unsupportedMethod` です。StuffIt X (`.sitx`) は上記の codec・前処理の制約があります。StuffIt の method 4/7/9〜12、classic の未記述の暗号 flag `0x10` は読み取り時に `unsupportedMethod` を返します。
-- ZIP は同名のリムーバブルメディアを交換する spanned、split PKSFX（先頭 `.exe`）、method 96 (JPEG)、97 (WavPack) を扱いません。
-  split ZIP は全巻が同じディレクトリに必要で、欠番は巻名付きエラーになります。既定上限は 128 巻、分割セットの damaged-directory recovery は対象外です。
-- ZIP / tar の AppleDouble sidecar（Finder / ditto の `__MACOSX/._name`、macOS tar の `._name`）は既定
-  （`ReaderOptions.appleDoublePolicy = .merge`）で一覧から消え、resource fork を持つものだけ
-  `name/..namedfork/rsrc`（`formatSpecific["fork"] = "resource"`）として data file の直後に並びます。Finder 情報と
-  xattr は復元しません。参照先が無い sidecar と AppleDouble でない `._` file はそのまま残り、暗号化された sidecar は
-  中身を確かめられないので残ります（`.hide` は `__MACOSX/` 配下を名前で隠します）。`.expose` で書庫どおりの一覧に
-  戻ります。
-- zstd の外部辞書は非対応です。Dictionary_ID が非零なら `unsupportedMethod` になります。
-- 7z は RISC-V filter (method 0x0B) と、7-Zip ZS の LZ4 / Brotli / LZ5 / Lizard coder を扱いません。Zstandard coder の properties は 3 byte または 5 byte だけを受理します。7-Zip ZS の FLZMA2 は標準の LZMA2（ID 21）として書かれるため、そのまま読めます。
-- RAR4 は unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成、SFX と multi-volume の組合せを
-  扱いません。RAR5 は compression version 1、SFX と multi-volume の組合せ、
-  サイズ不明の暗号化 stored entry を扱いません。
-- LHA は `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` を一覧できますが、読み取り時に
-  `unsupportedMethod` になります。resource fork は separate entry として公開しません。
-- XZ は Apple Compression が扱う XZ container が対象で、同 liblzma が知らない RISC-V filter 付き
-  stream は `unsupportedMethod("XZ RISC-V filter")` になります。LZMA_Alone は `.lzma` / `.tlz` 拡張子と妥当なheaderがあるときだけ対象です。gzip/bzip2/xz の
-  concatenated stream は一つの entry として連結した出力を返します。
-- lzip の version 0（2008 年以前の lzip 0.x）は `unsupportedMethod` です。空 member は単独 file のときだけ受理します。
-- tar の旧 GNU sparse（typeflag `S`、header 内の sparse 表と拡張 block）は展開できます。star の `SCHILY.filetype=sparse`、Solaris の `SUN.holesdata` は `unsupportedMethod` です。GNU sparse の major.minor が 1.0 以外の 1.x も同様です。[検証記録](Documentation/verification/2026-09-22-small-method-gaps.md)。
-- pbzx は展開結果の先頭が cpio magic でなければ単一 stream として公開します。chunk の展開後サイズの合計を open 時に確定し、`maxEntrySize` と chunk 数の上限（`maxMetadataRecordCount`）を適用します。
-- brotli は名前のない Data / ByteSource からは識別しません。checksum が無いため、破損した stream が error なく別の出力になることがあります。RFC 9841 の shared brotli framing（署名 `91 0A 42 52`）は brotli として識別せず `unsupportedFormat` になります。framing の無い shared dictionary 依存の stream は RFC 7932 と byte 上区別できないため識別できず、辞書の参照が先頭 64 KiB の試し復号に掛かれば `unsupportedFormat`、それより後ろなら読み取り中に `malformed`（または別の出力）になります。
-- gzip/bzip2/xz/brotli/`.Z` の出力サイズは読み終えるまで不明です。modern API では `nil`、compat API では
-  `entryHasSize == false` / `Int64.max` になります。
-- 圧縮 tar の判定には URL の拡張子 hint を使います。filename を持たない Data/任意 `ByteSource` は
-  単一 file stream として開きます。
-- 組込み cancellation token は未提供です。incremental 処理は caller が `EntryStream` の read loop を
-  終了して制御します。
-- 破損書庫の救済は既定で無効です。`ReaderOptions.recoverDamagedArchives = true` にすると、
-  ZIP（中央ディレクトリを失ったもの）・tar・LHA・RAR5 から読める entry を取り出せます。救済対象は
-  「EOCD が見つからない ZIP」であり、EOCD はあるが中央ディレクトリが壊れている ZIP は
-  従来どおり `malformed` です。7z はヘッダが末尾にあるため切り詰められた書庫を救済できません。
-  切れた entry は `ArchiveEntry.isIncomplete` が `true` になり、**CRC-32 / WinZip AES の HMAC /
-  MacBinary の CRC-16 をいずれも検証しません**。暗号化 entry から救済した byte は認証されて
-  いないため、信頼できない入力として扱ってください（password verifier は救済時も働くので、
-  誤ったパスワードは従来どおり `wrongPassword` になります）。完全な entry と健全な書庫の
-  読み取り結果は、この設定を有効にしても変わりません。
-- RAR5 の救済には意図的な制限が 2 つあります。後続巻が欠けた multi-volume 書庫は救済せず
-  従来どおり失敗します（次巻へまたがる entry を「完全」と偽らないため）。solid 群で切れた
-  member は `isIncomplete` として一覧に出ますが、読むと `truncated` になります（復号状態が
-  後続 member と連続するため）。なお暗号化された不完全 RAR5 entry は、認証されない byte を
-  返さず何も返しません。
-
-> **Known limitations**
->
-> - ISO selects its name tree in the order UDF > Rock Ridge (with NM) > Joliet > PVD (falling back to
->   ISO 9660 when the UDF structures are damaged). Raw sector images, later sessions, interleaved or
->   sparse content expansion, zisofs2 (ZF version 2) and zisofs on a multi-extent file are unsupported.
->   A zero-length extent's LBA is not validated (libarchive writes 0xFFFFFFF0 for empty files and symlinks).
-> - WIM does not support solid / ESD (LZMS), resources stored in other `.swm` parts, EFS-encrypted files,
->   reparse points other than symbolic links and junctions (`.other`), restoring security descriptors and
->   Windows attributes, or verifying the integrity table. XPRESS supports power-of-two chunks from 4 to 64 KiB; LZX requires 32 KiB. 7-Zip
->   cannot write compressed WIMs, so the compressed fixtures are the output of our own encoders verified by
->   7-Zip extraction.
-> - UDF does not support multi-volume volume sets, extended allocation descriptors (ext_ad), device /
->   FIFO / socket file types (`.other`), named streams other than the resource fork (only counted in
->   `namedStreams`), or a multisession base sector S ≠ 0. 7-Zip cannot open UDF images that contain a
->   symbolic link, so the primary verification oracle is macOS's own UDF driver. On a hybrid whose ISO
->   9660 side alone carries zisofs (genisoimage `-udf -z`), the UDF tree returns the still-compressed
->   bodies (an unverified combination).
-> - cpio does not support PWB, HP-UX device number interpretation, or recreating device
->   nodes. Stripped `07070X` requires an RPM header and is not detected as a standalone archive.
->   A 0-byte hard-link placeholder is not filled in with its target's content. Compressed cpio
->   is recognised by name (`.cpgz` / `.cpio.<codec>`) and is not chained from an unnamed `Data`.
-> - CAB extracts None, MSZIP and LZX. Quantum can be listed but fails with `unsupportedMethod`
->   when read, as does a file that spans several cabinets.
-> - RPM exposes drpm, non-cpio payloads and `07070X` without usable file-list tags as one compressed
->   payload entry. Stripped file digests other than SHA-256 are exposed without verification.
->   Hard-link placeholders remain empty. See the [verification record](Documentation/verification/2026-09-22-rpm-stripped-payload.md).
-> - ACE, ARJ method 4 / garbled files / continued multi-volume members, StuffIt X の範囲外 codec・前処理・暗号・recovery、StuffIt method 4/7/9〜12、classic 暗号 flag `0x10` は非対応です。
-> - ZIP does not handle same-name removable-media spanning, split PKSFX (`.exe` first segment),
->   or methods 96 (JPEG) and 97 (WavPack). Split ZIP requires every volume in one directory; a missing
->   volume is an error naming that file. The default limit is 128 volumes; damaged-directory recovery
->   is unavailable for split sets.
-> - AppleDouble sidecars in ZIP and tar (Finder / ditto `__MACOSX/._name`, macOS tar `._name`) disappear
->   from the listing under the default `ReaderOptions.appleDoublePolicy = .merge`; only those carrying a
->   resource fork appear as `name/..namedfork/rsrc` (`formatSpecific["fork"] = "resource"`) right after
->   their data file. Finder information and xattrs are not restored. Orphan sidecars and `._` files that
->   are not AppleDouble stay listed, and encrypted sidecars stay because they cannot be inspected
->   (`.hide` still removes everything below `__MACOSX/` by name). `.expose` lists the archive as stored.
-> - External zstd dictionaries are unsupported; a nonzero Dictionary_ID produces `unsupportedMethod`.
-> - 7z does not handle the RISC-V filter (method 0x0B) or the LZ4 / Brotli / LZ5 / Lizard coders of 7-Zip ZS.
->   The Zstandard coder accepts only 3- or 5-byte properties. 7-Zip ZS's FLZMA2 is written as standard
->   LZMA2 (ID 21) and reads as such.
-> - RAR4 does not handle unpack versions 15, 20 and 26, the custom VM, solid configurations whose
->   dictionary size changes, or SFX combined with multi-volume. RAR5 does not handle compression
->   version 1, SFX combined with multi-volume, or an encrypted stored entry
->   of unknown size.
-> - LHA can list `-pm1-`, `-pm2-`, `-lh2-` and `-lh3-` but fails with `unsupportedMethod` when
->   reading them. Resource forks are not exposed as separate entries.
-> - XZ covers the XZ container that Apple Compression handles; a stream carrying a RISC-V filter that
->   its liblzma does not know returns `unsupportedMethod("XZ RISC-V filter")`. Raw `.lzma` (LZMA_Alone) is covered only with a
->   `.lzma` extension. A concatenated gzip, bzip2 or xz stream is returned as one entry whose output
->   is the concatenation.
-> - lzip version 0 (pre-2008 lzip 0.x) is `unsupportedMethod`; an empty member is accepted only in a
->   single-member file.
-> - Old GNU sparse tar entries (typeflag `S`, sparse table and extension blocks) can be read. Star's
->   `SCHILY.filetype=sparse` and Solaris `SUN.holesdata` remain `unsupportedMethod`, as is any GNU sparse
->   major.minor other than 1.0 in the 1.x family.
-> - pbzx exposes a single stream unless the expanded bytes start with a cpio magic. The sum of the
->   chunks' unpacked sizes is fixed at open and checked against `maxEntrySize`; the chunk count is
->   bounded by `maxMetadataRecordCount`.
-> - brotli is never identified from an unnamed `Data` / `ByteSource`. Because the format has no checksum, a
->   corrupted stream may decode to different output without an error. The RFC 9841 shared brotli framing
->   (signature `91 0A 42 52`) is not identified as brotli and yields `unsupportedFormat`. A stream that depends
->   on a shared dictionary without framing is byte-compatible with RFC 7932 and cannot be told apart: it yields
->   `unsupportedFormat` when the dictionary reference falls inside the 64 KiB trial decode, and `malformed`
->   (or different output) during the read otherwise.
-> - The output size of gzip, bzip2, xz, brotli and `.Z` is unknown until the read completes. The modern API
->   reports `nil`; the compat API reports `entryHasSize == false` and `Int64.max`.
-> - Compressed tar detection uses the extension hint of the URL. A `Data` or custom `ByteSource`
->   with no filename is opened as a single-file stream.
-> - No built-in cancellation token is provided. Incremental work is controlled by the caller ending
->   the `EntryStream` read loop.
-> - Recovery of damaged archives is disabled by default. Setting
->   `ReaderOptions.recoverDamagedArchives = true` recovers the readable entries of ZIP (with a lost
->   central directory), tar, LHA and RAR5. Recovery applies to a ZIP whose EOCD cannot be found; a
->   ZIP that has an EOCD but a corrupt central directory is still `malformed`. 7z keeps its header at
->   the end, so a truncated 7z archive cannot be recovered. A truncated entry sets
->   `ArchiveEntry.isIncomplete` to `true` and **verifies none of CRC-32, the WinZip AES HMAC, or the
->   MacBinary CRC-16**. Bytes recovered from an encrypted entry are unauthenticated, so treat them as
->   untrusted input. The password verifier still runs during recovery, so a wrong password is still
->   reported as `wrongPassword`. Results for complete entries and undamaged archives are unchanged by
->   this setting.
-> - RAR5 recovery has two deliberate limits. A multi-volume archive missing a later volume is not
->   recovered and fails as before, so that an entry continuing into the next volume is never
->   presented as complete. A truncated member of a solid group is listed as `isIncomplete` but
->   returns `truncated` when read, because its decoder state is continuous with the following
->   members. An incomplete encrypted RAR5 entry returns nothing at all rather than unauthenticated
->   bytes.
+- ACE、RAR の旧方式や custom VM、一部の 7z / ZIP / LHA / StuffIt 方式は未対応です。[形式別の制限](Documentation/limitations.md#既知の制限)
+- APFS / ADC chunk、WIM solid / ESD や他 `.swm` part の resource、後続 ISO session などは対象外です。[完全な制限一覧](Documentation/limitations.md)
+- 名前のない `Data` では圧縮 tar / cpio の連鎖や brotli などを識別できません。名前の hint が必要な形式には URL を使ってください。[検出条件](Documentation/limitations.md)
+- 破損書庫の救済は opt-in です。不完全 entry の checksum / 認証は保証されません。[救済と RAR5 の例外](Documentation/limitations.md#既知の制限)
 
 ## 組み込みの注意
 
-`ArchiveReader` と `EntryStream` は thread-safe ではありません。一つの instance の操作は actor や
-serial queue で直列化し、並列展開には `reopen()` で作った独立 reader を使ってください。同じ
-`solidGroup >= 0` の entry は同じ worker へ割り当て、`solidGroup == -1` は entry 単位で並列化できます。
-
-`ReadLimits` は `maxEntrySize`、`maxTotalUncompressedSize`、`maxInMemorySize`、
-`inMemorySingleFileLimit`、`stagingFreeSpaceReserve`、`maxSevenZipHeaderKDFWork`、
-entry/metadata/path/dictionary/volume 上限などをまとめます。利用する corpus と
-端末の memory budget に合わせて open 前に設定してください。`read(_:)` より大きい entry は
-`EntryStream` で処理し、最後の 0 または error まで読み切って CRC と stream footer を確定します。
-`stagingFreeSpaceReserve` は一時 volume の空き容量下限（既定 1 GiB）です。disk staging の開始前と
-256 MiB 書き込みごとに確認し、下回れば `limitExceeded("staging free space")` を返します。
-`maxSevenZipHeaderKDFWork` は 7z の open 中に行う header KDF の SHA-256 round 総数を制限します
-（既定 `4 * (1 << 24)`）。cache hit と direct key は消費せず、entry 読み取り時の派生は対象外です。
-
-`Data(contentsOf:options:.mappedIfSafe)` は、呼出中に内容が変わらないローカルの単一 file で使います。
-RAR multi-volume は sibling file を解決できる `ArchiveReader.open(url:)` を使い、nested archive のように
-既に memory 上にある bytes は `open(data:)` を使います。SFX prefix scan は URL open で有効、Data と
-任意 `ByteSource` では `ReaderOptions.scanForSFXInData` が既定 `false` です。
-
-展開先 root は処理中に caller が排他的に所有し、別 thread/process から名前や directory を変更しないで
-ください。directory entry は子を展開した後、深い順に処理すると archive の最終日時と permissions を
-保持できます。
+- **Sandbox**: 入力・出力・分割巻の兄弟ファイルへのアクセス権を呼出側で管理します。[アクセスと staging](Documentation/embedding.md#sandbox-とファイルアクセス)
+- **スレッド**: reader / stream の操作を直列化し、並列処理は `reopen()` で独立 reader を作ります。[並列処理と solid 群](Documentation/embedding.md#組み込みの注意) / [展開順序](Documentation/embedding.md#書庫全体の展開順序)
+- **上限と検証**: `ReadLimits` を open 前に設定し、stream は最後まで読んで検証します。`stagingFreeSpaceReserve` と `maxSevenZipHeaderKDFWork` も調整できます。[資源上限](Documentation/embedding.md#組み込みの注意)
 
 > **Integration notes**
 >
-> `ArchiveReader` and `EntryStream` are not thread-safe. Serialize the operations of one instance
-> with an actor or a serial queue, and use independent readers created by `reopen()` for parallel
-> extraction. Assign entries sharing the same `solidGroup >= 0` to the same worker; entries with
-> `solidGroup == -1` can be parallelized one entry at a time.
->
-> `ReadLimits` collects `maxEntrySize`, `maxTotalUncompressedSize`, `maxInMemorySize`,
-> `inMemorySingleFileLimit`, `stagingFreeSpaceReserve`, `maxSevenZipHeaderKDFWork`, and the entry,
-> metadata, path, dictionary and volume limits. Configure
-> it before opening, to match your corpus and the device's memory budget. Handle entries larger than
-> `read(_:)` allows with `EntryStream`, reading through to the final 0 or error so that the CRC and
-> the stream footer are finalized.
-> `stagingFreeSpaceReserve` defaults to 1 GiB of available temporary-volume space. It is checked
-> before disk staging and every 256 MiB written; falling below it throws
-> `limitExceeded("staging free space")`. `maxSevenZipHeaderKDFWork` limits the aggregate SHA-256
-> rounds used by 7z header KDFs during open, defaulting to `4 * (1 << 24)`. Cache hits and direct
-> keys consume no rounds, and entry-time derivations are excluded.
->
-> Use `Data(contentsOf:options:.mappedIfSafe)` only for a local single file whose contents do not
-> change during the call. Use `ArchiveReader.open(url:)` for multi-volume RAR so that sibling files
-> can be resolved, and `open(data:)` for bytes already in memory, such as a nested archive. The SFX
-> prefix scan is enabled for URL opens; for `Data` and custom `ByteSource` inputs,
-> `ReaderOptions.scanForSFXInData` defaults to `false`.
->
-> The caller owns the destination root exclusively while extraction is in progress; do not rename or
-> restructure it from another thread or process. Processing directory entries after their children,
-> deepest first, preserves the final dates and permissions recorded in the archive.
+> Serialize each reader / stream; use `reopen()` for independent workers. Configure `ReadLimits`, including
+> `stagingFreeSpaceReserve` and `maxSevenZipHeaderKDFWork`, before opening. Read streams to completion for verification.
 
 ## コマンドライン
 
 ```console
-$ swift run kaito detect samples/book.tar
-tar
-$ swift run kaito list samples/book.zip
-0\t12345\tfile\tdeflate\tplain\t表紙.jpg
-$ swift run kaito list samples/book.zip --raw
-$ swift run kaito list samples/book-encrypted.7z -p secret
-$ swift run kaito extract samples/book.tar -o /tmp/book
-$ swift run kaito sha samples/book.tar
-$ swift run kaito sha samples/book-encrypted.7z -p secret
-$ swift run kaito bench samples/book.tar 5
-$ swift run kaito bench --data samples/book.tar 5
-$ swift run kaito bench --random samples/book-solid.7z 5
-$ swift run kaito bench --random samples/book-encrypted.7z 5 -p secret
+swift run kaito detect book.zip
+swift run kaito list book.zip
+swift run kaito extract book.zip -o /tmp/book
+swift run kaito list private.7z -p secret
+swift run kaito sha book.zip
 ```
 
-`sha` はエントリ順の SHA-256 と総合ダイジェストを出力し、別の展開実装との
-差分テストに利用できます。`sha` / `extract` は entry ごとの失敗を stderr へ報告して後続を処理し、
-失敗が一件でもあれば終了コード 1 を返します。`sha` の失敗行は `index<TAB>ERROR<TAB>message<TAB>name`、
-末尾は成功 entry だけを集計した `partial` となり、完全な `total` は出力しません。`list` は index、size、kind、method、暗号方式 (`plain`、
-`ZipCrypto`、`AES-128/192/256`、`7zAES-256`)、name の順でタブ区切り表示し、LHA では
-末尾に `level=N` を追加します。`--raw` は
-名前の format 上の論理バイト列を末尾へ 16 進数で併記します。LHA の 0x02 directory + 0x01
-filename は一つの path に組み立て、0xFF directory 区切りは `/` に正規化されます。
-`bench --data` は `mappedIfSafe` で作った `Data`
-から書庫を開き、map 作成を含む `open-median-ms` を表示します。`bench --random` は
-固定 seed で選んだ最大 20 件の非ディレクトリエントリをランダム順に読み、solid 書庫の
-後方シークを含むアクセスを再現可能な条件で計測します。表示する `bytes` は選択した
-エントリの合計です。
+`sha` / `extract` は entry ごとの失敗を報告して続行し、一件でも失敗すれば終了コード 1 です。
+`--raw`、`--forks`、`bench`、出力形式と計測条件は [CLI ガイド](Documentation/cli.md) を参照してください。
 
-StuffIt / StuffIt X の `list` は末尾に `fork=data` / `fork=resource` を追加します。
-StuffIt X は `solid=<stream ID>`（独立 fork は `-1`）も表示します。
-`sha` は支給 XADMaster オラクルに合わせ、既定では data fork のみを検証・表示します。
-resource だけのファイルは空 data fork の行を表示します。`sha --forks` は公開 entry の
-全 fork を検証・表示します。StuffIt の失敗詳細は stderr にだけ出し、stdout の行は数値サイズを保ちます。
-`extract` は data / hardlink → resource fork → directory の順に処理し、resource-only entry は
-空の通常ファイルに `com.apple.ResourceFork` を付けます。[展開・日本語名の検証記録](Documentation/verification/2026-09-13-stuffit-slice8.md)。
-支給 `compare.py`、password 付き StuffIt X・`.exe` は [slice 6 検証記録](Documentation/verification/2026-09-13-stuffit-slice6.md)、
-JPEG の 292 ストリームと Windows 2009 DES の追加照合は [slice 7 検証記録](Documentation/verification/2026-09-13-stuffit-slice7.md) に記載しています。
+## ドキュメント
 
-`bench` の時間は process 内の open / extract だけを複数回計測した median で、process 起動、
-SHA-256、標準出力は含みません。`swift run` には SwiftPM の planning / build も含まれるため、
-CLI 全体の性能は release build 済みの `.build/release/kaito` を直接実行して比較します。
-`sha` は再利用する 4 MiB buffer で逐次 hash します。release binary を warm 条件で直接測ると、
-変更前→変更後の median は book RAR5 が 155.346→155.431 ms、TIFF RAR5 が
-637.541→610.447 ms でした。最終確認の wall time はそれぞれ 0.15 / 0.61 s です。
-以前観測した約 0.62 秒の差は decoder ではなく、`swift run` の cold-start / build planning を
-測定へ混ぜたことが原因でした。
-
-`list`、`extract`、`sha`、`bench` は `-p <password>` を受け付けます。ヘッダも暗号化された
-7z / RAR は、一覧やベンチマークの開始時にも password が必要です。
-RAR3 は長いパスワードの旧 SHA-1 入力更新規則に対応します。
-writer と同じ最大127文字（UTF-16 候補は127 code units、Unix 候補は127 scalars）で区切ります。BMP 外の文字を含む RAR3 password は
-UTF-16 を先に試し、検証失敗時に Unix RAR の Unicode scalar 下位 16 bit 表現へ再試行します。
-file data は独立した stream で CRC を最後まで検証してから公開するため、この場合だけ追加の展開が生じます。
-
-RAR5 は先頭127 Unicode scalars の UTF-8 を優先し、有効な password 検査値が一致しなければ
-入力全体の UTF-8 を試します。127 scalars 以下の password は変更しません。
-
-圧縮 tar の編集用 `TarEditLayout` SPI は opt-in で配置・区切り・snapshot を記録します。
-`KAITOKIT_BENCH_TAR_EDIT_LAYOUT=1` で CLI の記録を有効にでき、
-[段階 A の検証記録](Documentation/verification/2026-09-25-tar-edit-layout.md)に golden・fuzz・計測結果をまとめています。
-`openSplicedCompressedTar` は保存した digest と image を使って継ぎの出力を検証します（[段階 B の検証記録](Documentation/verification/2026-09-25-tar-splice-verification.md)）。
-
-> **Command line**
->
-> `sha` prints the SHA-256 of each entry in order plus an overall digest, which can be used for
-> differential testing against another extraction implementation. `sha` and `extract` report a
-> per-entry failure on stderr, continue with the remaining entries, and exit with status 1 if any
-> entry failed. A failing `sha` line is `index<TAB>ERROR<TAB>message<TAB>name`, and the final line is
-> a `partial` covering only the successful entries; no complete `total` is printed. `list` prints
-> index, size, kind, method, encryption (`plain`, `ZipCrypto`, `AES-128/192/256`, `7zAES-256`) and
-> name, separated by tabs, appending `level=N` for LHA. `--raw` also prints the format-level logical
-> bytes of the name in hexadecimal at the end of the line. An LHA 0x02 directory plus 0x01 filename
-> is assembled into one path, and the 0xFF directory separator is normalized to `/`.
-> `bench --data` opens the archive from a `Data` created with `mappedIfSafe` and reports an
-> `open-median-ms` that includes creating the map. `bench --random` reads up to 20 non-directory
-> entries chosen with a fixed seed, in random order, so that access patterns including backward seeks
-> in a solid archive are measured reproducibly. The reported `bytes` is the total of the selected
-> entries.
->
-> `bench` times only the in-process open and extract, repeated and reported as a median; process
-> startup, SHA-256 and standard output are excluded. `swift run` also includes SwiftPM planning and
-> building, so compare whole-CLI performance by running a release-built `.build/release/kaito`
-> directly. `sha` hashes incrementally through a reused 4 MiB buffer. Measuring the release binary
-> directly under warm conditions, the before-to-after medians were 155.346 to 155.431 ms for the book
-> RAR5 and 637.541 to 610.447 ms for the TIFF RAR5, with final wall times of 0.15 and 0.61 s. The
-> roughly 0.62 second difference observed earlier came not from the decoder but from mixing the
-> `swift run` cold start and build planning into the measurement.
->
-> `list`, `extract`, `sha` and `bench` accept `-p <password>`. A 7z or RAR archive whose headers are
-> also encrypted needs the password even to start listing or benchmarking.
-> RAR3 supports the old SHA-1 input update rule for long passwords.
-> The password is cut at the same maximum of 127 characters as the writer uses (127 code units for
-> the UTF-16 candidate, 127 scalars for the Unix candidate). A RAR3 password containing characters
-> outside the BMP tries UTF-16 first and, if verification fails, retries with the low 16 bits of the
-> Unicode scalars as Unix RAR represents them. File data is published only after its CRC has been
-> verified to the end on an independent stream, so this case alone performs an extra expansion.
->
-> RAR5 prefers the UTF-8 of the first 127 Unicode scalars and, if no valid password check value
-> matches, tries the UTF-8 of the whole input. Passwords of 127 scalars or fewer are unchanged.
+| 読みたいこと | 文書 |
+|---|---|
+| 形式・方式・暗号化・分割巻の詳細 | [formats.md](Documentation/formats.md) / [limitations.md](Documentation/limitations.md) |
+| 展開順序・名前・stream・資源上限・Sandbox | [embedding.md](Documentation/embedding.md) |
+| CLI / 開発・framework・fuzz | [cli.md](Documentation/cli.md) / [development.md](Documentation/development.md) |
+| 設計・堅牢性・参照仕様 | [design.md](Documentation/design.md) |
+| XADMaster からの移行 | [migration-from-xadmaster.md](Documentation/migration-from-xadmaster.md) |
+| 名前の自動文字コード判定 | [name-encoding-design.md](Documentation/name-encoding-design.md) |
+| StuffIt の実装範囲と計画 | [stuffit-plan.md](Documentation/stuffit-plan.md) |
+| 実測・互換性・リリース検証 | [verification/](Documentation/verification/README.md) |
 
 ## 開発
-
-テストの構成（対象ごとのフォルダ、Support/ の共有 helper、環境変数の一覧、外部ツール、計測 harness）は
-[Tests/README.md](Tests/README.md) にまとめてある。
 
 ```console
 swift build
 swift test
-swift build -c release
-bash -n Scripts/build-framework.sh Scripts/fuzz/*.sh
-python3 -m py_compile Scripts/fuzz/mutate.py
 ```
 
-7zz / xz を使う差分テストは、`KAITO_7ZZ` / `KAITO_XZ`、`PATH`、既知の Homebrew path
-の順で executable を探します。通常は tool が無ければ該当テストを skip します。CI と同じく
-不足を failure にする場合は次のように実行します。
+[テスト構成・CI・framework・fuzz の開発手順](Documentation/development.md) を参照してください。
+過去のリリースレビュー: [0.9.0](Documentation/verification/2026-09-22-release-review-0.9.0.md)、[0.8.1](Documentation/verification/2026-09-22-release-review-0.8.1.md)。
 
-```console
-brew install sevenzip xz
-KAITO_REQUIRE_7ZZ=1 KAITO_REQUIRE_XZ=1 swift test
-```
+## ライセンス
 
-圧縮 payload を含む ZIP / 7z seed を実際の 7zz で作り、malformed / unusual archive の
-robustness mutant を ASan/UBSan build で走らせる手順は次のとおりです。AES seed の password は
-`KaitoFuzz` で、`--password` は暗号化されていない seed と同じ directory に対しても指定できます。
-
-```console
-Scripts/fuzz/make-compressed-seeds.sh /tmp/kaito-compressed-seeds
-Scripts/fuzz/run-mutants.sh --count 200 --password KaitoFuzz \
-  --require-payload-ranges /tmp/kaito-compressed-seeds
-```
-
-`Scripts/build-framework.sh` は Apple Silicon / Intel 両対応のユニバーサル `KaitoKit.framework` を生成します。SwiftPM を介さず利用する場合は、ネストされた `KaitoKitCompat` モジュールを見つけられるよう `-I Frameworks/KaitoKit.framework/Modules` も指定してください。
-
-設計判断、堅牢性規則、参照可能な仕様は [Documentation/design.md](Documentation/design.md)、
-XADMaster からの移行状況は
-[Documentation/migration-from-xadmaster.md](Documentation/migration-from-xadmaster.md) を参照してください。
-設計書が引く性能・安定性の実測ログは
-[Documentation/verification/](Documentation/verification/README.md) にあります。
-
-- [0.10.0 分割巻の公開 API の検証（2026-09-23）](Documentation/verification/2026-09-23-archive-volume-set.md): 巻名生成・保持 fd の同一性・reopen の引き継ぎ・回帰テスト・全件検証。
-- [0.9.0 リリースレビューの検証（2026-09-22）](Documentation/verification/2026-09-22-release-review-0.9.0.md): R1〜R11 の再現・修正・回帰テスト・全件検証。
-- [0.8.1 リリースレビューの検証（2026-09-22）](Documentation/verification/2026-09-22-release-review-0.8.1.md): R1〜R14 の修正前の失敗・回帰テスト・全件検証。
-
-> **Development**
->
-> Differential tests that use 7zz and xz look for the executables in the order `KAITO_7ZZ` and
-> `KAITO_XZ`, then `PATH`, then the known Homebrew paths. By default the affected tests are skipped
-> when a tool is absent. To make a missing tool a failure, as CI does, run the commands shown above
-> after installing them.
->
-> The commands above also show how to build ZIP and 7z seeds containing compressed payloads with a
-> real 7zz, then run malformed and unusual archive robustness mutants against an ASan/UBSan build.
-> The password for AES seeds is `KaitoFuzz`, and `--password` may also be given for a directory of
-> seeds that are not encrypted.
->
-> `Scripts/build-framework.sh` produces a universal `KaitoKit.framework` for both Apple Silicon and
-> Intel. When using it without SwiftPM, also pass `-I Frameworks/KaitoKit.framework/Modules` so that
-> the nested `KaitoKitCompat` module can be found.
->
-> For design decisions, robustness rules and the specifications that may be consulted, see
-> [Documentation/design.md](Documentation/design.md); for the state of migration from XADMaster, see
-> [Documentation/migration-from-xadmaster.md](Documentation/migration-from-xadmaster.md).
-> The measured performance and stability logs cited by the design document are in
-> [Documentation/verification/](Documentation/verification/README.md).
+[MIT](LICENSE)。XADMaster / The Unarchiver のコードは実装へ取り込んでいません。
+同梱データ・参照資料の出自は [NOTICE](NOTICE) と [設計書](Documentation/design.md) に記録しています。

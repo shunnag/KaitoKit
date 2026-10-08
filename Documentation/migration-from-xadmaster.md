@@ -4,6 +4,9 @@ KaitoKit は二つの API 層を提供します。既存コードを少ない変
 `KaitoKitCompat.KaitoArchive`（`XADArchive` typealias を含む）、新規コードでは throwing API、
 ストリーミング、`ReadLimits` を直接扱える `KaitoKit.ArchiveReader` を使います。
 
+初めて使う場合は [README のクイックスタート](../README.md#クイックスタート)、
+展開順序・並列処理・資源上限は [組み込みガイド](embedding.md) を参照してください。
+
 > **Migrating from XADMaster to KaitoKit**
 >
 > KaitoKit offers two API layers. To move existing code with minimal change, use
@@ -596,9 +599,9 @@ XADMaster は UDF を読めません。BIN/CUE などの生 sector image（2352 
 ## 11. 対応外形式・方式
 
 現時点で container reader を提供しない主な形式は ACE です（ARJ は対応。method 4・garbled・multi-volume の続き file は `unsupportedMethod`）。対応済み container 内でも次は
-未対応です（README の「既知の制限」の要約。未リリースの変更を含む現行 main の状態）。
+未対応です（[形式別の制限](limitations.md#既知の制限) の要約。未リリースの変更を含む現行 main の状態）。
 
-- ISO の raw 2352/2336-byte sector、後続 session、interleaved / sparse 展開、zisofs2（ZF version 2）。
+- ISO の後続 session、interleaved / sparse 展開、zisofs2（ZF version 2）。
   UDF の複数 volume、ext_ad、device / FIFO / socket、resource fork 以外の named stream。
 - Apple Disk Image の ADC（UDCO）chunk と APFS は `unsupportedMethod`。decmpfs の type 5 / 13 / 14
   （dataless / LZBITMAP）・未知の type・fork 格納の属性は一覧のみ。暗号化 image（`encrcdsa`）、
@@ -629,10 +632,10 @@ gzip、bzip2、xz、zstd、LZ4、LZMA (`.lzma`)、lzip (`.lz`)、brotli (`.br`)�
 > **11. Formats and methods that are not supported**
 >
 > The main format for which no container reader is provided today is ACE (ARJ is supported; its method 4, garbled files and continued multi-volume members are `unsupportedMethod`). Within the
-> containers that are supported, the following are not (a summary of "既知の制限" in the README for
+> containers that are supported, the following are not (a summary of the [per-format limitations](limitations.md#既知の制限) for
 > the current main branch, including unreleased changes):
 >
-> - ISO: raw 2352- and 2336-byte sectors, later sessions, interleaved or sparse expansion, and
+> - ISO: later sessions, interleaved or sparse expansion, and
 >   zisofs2 (ZF version 2). UDF: multi-volume sets, ext_ad, device / FIFO / socket files, and named
 >   streams other than the resource fork.
 > - Apple Disk Image: ADC (UDCO) chunks and APFS are `unsupportedMethod`. decmpfs types 5 / 13 / 14

@@ -97,11 +97,14 @@ struct ZstdPaddedBitReader {
     var remaining: Int { (p + 1 - lower) * 8 - consumed }
 
     @inline(__always)
-    mutating func refill() throws {
+    mutating func refill(minimumBits: Int = 64) throws {
         let next = p - (consumed >> 3)
         // D5 境界証明: 正常時 p >= s-1、従って [p-7,p] ⊂ [s-8,e) ⊂ allocation。
         // 不正な前方への超過は cold helper で拒否し、確保外の load は実行しない。
         if next < lower - 1 { try Self.underflow() }
+        // 同じ checkpoint で下限を検査し、現在の word に必要量があれば load を省く。
+        // consumed を正規化しない場合も remaining と read のビット位置は同一。
+        if consumed + minimumBits <= 63 { return }
         p = next
         consumed &= 7
         container = UInt64(littleEndian: base.loadUnaligned(fromByteOffset: p - 7, as: UInt64.self))

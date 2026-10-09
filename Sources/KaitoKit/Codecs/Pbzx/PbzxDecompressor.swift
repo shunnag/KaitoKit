@@ -66,6 +66,48 @@ final class PbzxDecompressor: Decompressor {
         return total
     }
 
+    static func parallel(source: any ByteSource, limits: ReadLimits, workers: Int) throws -> any Decompressor {
+        if workers > 1, let units = try? parallelUnits(source: source, limits: limits),
+           let decoder = ParallelIndependentDecompressor(units: units, limits: limits, workers: workers) {
+            return decoder
+        }
+        return try PbzxDecompressor(source: source, limits: limits)
+    }
+
+    static func parallelUnits(source: any ByteSource, limits: ReadLimits) throws -> [ParallelIndependentDecompressor.Unit] {
+        let decoder = try PbzxDecompressor(source: source, limits: limits)
+        var cursor = UInt64(PbzxHeader.size), total: UInt64 = 0
+        var units: [ParallelIndependentDecompressor.Unit] = []
+        while cursor < source.length {
+            guard units.count < limits.maxMetadataRecordCount else { throw KaitoError.limitExceeded("pbzx chunk count") }
+            let offset = cursor
+            let (unpacked, stored) = try decoder.chunkHeader(at: offset)
+            total = try Checked.add(total, unpacked)
+            try Checked.size(total, limit: limits.maxEntrySize)
+            let body = try Checked.add(offset, 16)
+            cursor = try Checked.add(body, stored)
+            let probe = try readByteRange(source: source, offset: body, count: Int(min(6, stored)))
+            var scratch: UInt64 = 1_048_576
+            if probe == [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00] {
+                let view = try BoundedByteSource(source: source, baseOffset: body, length: stored)
+                let layout = try XZResourceValidator.validate(source: view, dictionaryLimit: limits.maxDictionarySize)
+                let dictionary = layout.streams.flatMap(\.blocks).map(\.dictionarySize).max() ?? 0
+                // native XZ decoder の辞書と入力、filter scratch、layout の上限を予約する。
+                scratch = try Checked.add(Checked.add(dictionary, stored), scratch)
+            }
+            let chunkLength = cursor - offset
+            units.append(try .init(outputSize: unpacked, scratchBytes: scratch) {
+                // header を共有し、元の chunk 検証とエラーをそのまま使う。
+                let single = try ConcatenatedByteSource(segments: [
+                    SourceSegment(source: source, offset: 0, length: UInt64(PbzxHeader.size)),
+                    SourceSegment(source: source, offset: offset, length: chunkLength)
+                ], maximumLength: source.length, label: "pbzx chunk")
+                return try PbzxDecompressor(source: single, limits: limits)
+            })
+        }
+        return units
+    }
+
     private func chunkHeader(at offset: UInt64) throws -> (unpacked: UInt64, stored: UInt64) {
         guard try Checked.add(offset, 16) <= source.length else { throw KaitoError.truncated }
         let bytes = try readByteRange(source: source, offset: offset, count: 16)

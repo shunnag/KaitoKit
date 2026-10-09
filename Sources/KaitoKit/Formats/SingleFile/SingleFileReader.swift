@@ -143,6 +143,12 @@ final class SingleFileReader: FormatReader {
             return try ParallelBzip2Decompressor(source: source, limits: limits, recorder: recorder, workers: decodeThreads)
         } else if format == .xz {
             return try ParallelXZDecompressor(source: source, limits: limits, recorder: recorder, workers: decodeThreads)
+        } else if format == .zstd {
+            return try ZstdDecompressor.parallel(source: source, limits: limits, workers: decodeThreads)
+        } else if format == .lzip {
+            return try LzipDecompressor.parallel(source: source, limits: limits, workers: decodeThreads)
+        } else if format == .pbzx {
+            return try PbzxDecompressor.parallel(source: source, limits: limits, workers: decodeThreads)
         } else {
             return try Self.makeDecompressor(format: format, source: source, limits: limits, recorder: recorder)
         }

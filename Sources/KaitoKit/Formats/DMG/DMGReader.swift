@@ -16,9 +16,10 @@ final class DMGReader: FormatReader {
     private let body: Body
 
     /// UDIF なら展開後の disk、そうでなければ file 自身。
-    static func diskSource(for source: any ByteSource, limits: ReadLimits) throws -> any ByteSource {
+    static func diskSource(for source: any ByteSource, limits: ReadLimits,
+                           decodeThreads: Int = ReaderOptions.automaticDecodeThreads()) throws -> any ByteSource {
         if let trailer = try UDIFTrailer.read(source: source) {
-            return try UDIFDiskByteSource(file: source, trailer: trailer, limits: limits)
+            return try UDIFDiskByteSource(file: source, trailer: trailer, limits: limits, decodeThreads: decodeThreads)
         }
         return source
     }
@@ -88,7 +89,7 @@ final class DMGReader: FormatReader {
 
     init(source: any ByteSource, options: ReaderOptions) throws {
         let limits = options.limits
-        let disk = try Self.diskSource(for: source, limits: limits)
+        let disk = try Self.diskSource(for: source, limits: limits, decodeThreads: options.resolvedDecodeThreads)
         let candidates = try Self.volumeCandidates(disk: disk)
         if let offset = try candidates.first(where: { try Self.hasHFSPlusVolume(disk: disk, at: $0) }) {
             let listing = try HFSVolumeListing(volume: HFSPlusVolume(source: disk, baseOffset: offset), options: options)

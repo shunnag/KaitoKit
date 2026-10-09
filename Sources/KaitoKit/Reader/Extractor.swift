@@ -14,7 +14,7 @@ struct ExtractionResult {
 
 // KaitoKitCompat が path の判定（safeComponents）を共有するため package。dirfd の API は ExtractionDirectoryAccess にある。
 package enum Extractor {
-    private static let copyBufferSize = 256 * 1024
+    private static let copyBufferSize = 1 * 1_024 * 1_024
 
     static func extract(
         _ entry: ArchiveEntry,
@@ -511,25 +511,29 @@ package enum Extractor {
     }
 
     private static func write(_ stream: EntryStream, to descriptor: Int32) throws {
-        var buffer = [UInt8](repeating: 0, count: copyBufferSize)
+        let capacity = Int(max(1, min(UInt64(copyBufferSize), stream.remaining)))
+        let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: capacity, alignment: 8)
+        defer { buffer.deallocate() }
         while true {
-            let count = try buffer.withUnsafeMutableBytes { storage -> Int in
-                // 不変条件: storage は配列の全確保領域で、EntryStream はその範囲を越えて書かない。
-                try stream.read(into: storage)
-            }
+            try Task.checkCancellation()
+            let count = try stream.read(into: buffer)
+            try Task.checkCancellation()
             if count == 0 { break }
-            try buffer.withUnsafeBytes { storage in
-                // 不変条件: ..<count は直前に読み込んだ配列要素だけを指す。
-                try writeAll(UnsafeRawBufferPointer(rebasing: storage[..<count]), to: descriptor)
-            }
+            // Only bytes initialized by the immediately preceding read are written.
+            try writeAll(UnsafeRawBufferPointer(rebasing: buffer[..<count]), to: descriptor)
         }
     }
 
     private static func drain(_ stream: EntryStream) throws {
-        var buffer = [UInt8](repeating: 0, count: copyBufferSize)
-        while try buffer.withUnsafeMutableBytes({ storage in
-            try stream.read(into: storage)
-        }) > 0 {}
+        let capacity = Int(max(1, min(UInt64(copyBufferSize), stream.remaining)))
+        let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: capacity, alignment: 8)
+        defer { buffer.deallocate() }
+        while true {
+            try Task.checkCancellation()
+            let count = try stream.read(into: buffer)
+            try Task.checkCancellation()
+            if count == 0 { break }
+        }
     }
 
     private static func linkPath(

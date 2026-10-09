@@ -251,16 +251,16 @@ public final class EntryStream {
         let effectiveLimit = min(entrySizeLimit, inMemoryLimit)
         var result = Data()
         result.reserveCapacity(try Checked.toInt(min(effectiveLimit, 256 * 1_024)))
-        var buffer = [UInt8](repeating: 0, count: 256 * 1_024)
-
-        while !completionWasVerified {
-            let count = try buffer.withUnsafeMutableBytes { storage in
-                try read(into: storage)
+        _ = try [UInt8](unsafeUninitializedCapacity: 256 * 1_024) { storage, initializedCount in
+            while !completionWasVerified {
+                let count = try read(into: UnsafeMutableRawBufferPointer(storage))
+                guard count > 0 else { break }
+                initializedCount = max(initializedCount, count)
+                let newCount = try Checked.add(UInt64(result.count), UInt64(count))
+                try Checked.size(newCount, limit: effectiveLimit)
+                // Append only the prefix written by this read, even after a short read.
+                result.append(contentsOf: UnsafeBufferPointer(rebasing: storage[..<count]))
             }
-            guard count > 0 else { break }
-            let newCount = try Checked.add(UInt64(result.count), UInt64(count))
-            try Checked.size(newCount, limit: effectiveLimit)
-            result.append(contentsOf: buffer[..<count])
         }
         return result
     }

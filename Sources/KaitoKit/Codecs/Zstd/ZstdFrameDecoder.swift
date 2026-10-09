@@ -305,7 +305,8 @@ final class ZstdFrameDecoder {
             mlCells: UnsafePointer(matchTable.cells!), literals: literalBytes,
             output: UnsafeMutableRawPointer(output.baseAddress!), sequenceCount: sequenceCount,
             repeats: &repeats, windowSize: header.windowSize, historyCount: historyCount,
-            maximumBlockSize: header.maximumBlockSize, matchPath: tuning.matchPath)
+            maximumBlockSize: header.maximumBlockSize, matchPath: tuning.matchPath,
+            lazyRefill: tuning.lazySequenceRefill)
         self.repeats = repeats
         // D11: 検証済みの実長だけを借用する。outputSlack は返却・checksum・履歴に含めない。
         return UnsafeRawBufferPointer(start: output.baseAddress, count: count)
@@ -318,9 +319,9 @@ final class ZstdFrameDecoder {
                                          literals: UnsafeRawBufferPointer, output: UnsafeMutableRawPointer,
                                          sequenceCount: Int, repeats: inout (Int, Int, Int),
                                          windowSize: Int, historyCount: Int, maximumBlockSize: Int,
-                                         matchPath: ZstdTuning.MatchPath) throws -> Int {
+                                         matchPath: ZstdTuning.MatchPath, lazyRefill: Bool) throws -> Int {
         // D6: 全て値またはローカル変数。ループ内に class property / stored inout は無い。
-        // 初期幅 <= 9+8+9、consumed <= 8+26。短い stream は refill または厳密終端で拒否する。
+        // 初期幅 <= 9+8+9。短い stream は各 refill checkpoint または厳密終端で拒否する。
         var llState = bits.readUnchecked(logs.0)
         var ofState = bits.readUnchecked(logs.1)
         var mlState = bits.readUnchecked(logs.2)
@@ -333,13 +334,15 @@ final class ZstdFrameDecoder {
             let l = llCells[llState]
             let o = ofCells[ofState]
             let m = mlCells[mlState]
-            try bits.refill()
             let ofBits = Int(o.extraBits)
+            let mlBits = Int(m.extraBits), llBits = Int(l.extraBits)
+            // OF <= 24 なら extras 合計 <= 56。最大幅を使い、記号ごとの幅の加算を省く。
+            try bits.refill(minimumBits: lazyRefill ? 56 : 64)
             let offsetValue = Int(o.base) &+ bits.readUnchecked(ofBits)
-            // refill 後は >= 57 ビット。OF > 24 の時だけ補充し ML+LL <= 32 を確保する。
-            if ofBits > 24 { try bits.refill() }
-            let matchLength = Int(m.base) &+ bits.readUnchecked(Int(m.extraBits))
-            let literalLength = Int(l.base) &+ bits.readUnchecked(Int(l.extraBits))
+            // OF > 24 の時だけ、ML+LL の最大 32 ビットを別に確保する。
+            if ofBits > 24 { try bits.refill(minimumBits: lazyRefill ? 32 : 64) }
+            let matchLength = Int(m.base) &+ bits.readUnchecked(mlBits)
+            let literalLength = Int(l.base) &+ bits.readUnchecked(llBits)
             let offset = resolveOffset(offsetValue, literalLength: literalLength, repeats: &repeats)
             // 長さ <= 131074、offset < 2^32。64-bit Int への拡張後の加算は overflow しない。
             if literalLength > literalCount - literalPosition
@@ -358,7 +361,7 @@ final class ZstdFrameDecoder {
             copyMatch(output: output.advanced(by: outputCount), length: matchLength, offset: offset, path: matchPath)
             outputCount &+= matchLength
             if index + 1 < sequenceCount {
-                try bits.refill()
+                try bits.refill(minimumBits: lazyRefill ? 26 : 64)
                 // 状態幅 <= 9+9+8 <= 57、順序は LL, ML, OF。最後の sequence は遷移しない。
                 llState = Int(l.nextBaseline) &+ bits.readUnchecked(Int(l.stateBits))
                 mlState = Int(m.nextBaseline) &+ bits.readUnchecked(Int(m.stateBits))
@@ -399,6 +402,12 @@ final class ZstdFrameDecoder {
     }
 
     @inline(__always)
+    private static func copy32(from source: UnsafeRawPointer, to target: UnsafeMutableRawPointer) {
+        copy16(from: source, to: target)
+        copy16(from: source.advanced(by: 16), to: target.advanced(by: 16))
+    }
+
+    @inline(__always)
     private static func copyLiterals(from source: UnsafeRawPointer, to target: UnsafeMutableRawPointer, length: Int) {
         var position = 0
         repeat {
@@ -415,6 +424,14 @@ final class ZstdFrameDecoder {
         // 従って storage の余白は読まず、literal は D1/D2 から読む。storage 全体のゼロ初期化は不要。
         if offset >= 16, path == .automatic {
             var position = 0
+            if offset >= 32, length > 16 {
+                repeat {
+                    // 入力 32 byte は現在位置より前。最終超過 <= 31 は outputSlack 内。
+                    copy32(from: output.advanced(by: position - offset), to: output.advanced(by: position))
+                    position &+= 32
+                } while position < length
+                return
+            }
             repeat {
                 // offset >= 16: [o-off+16k, +16) は現在位置 o+16k 以下の初期化済み履歴。
                 copy16(from: output.advanced(by: position - offset), to: output.advanced(by: position))

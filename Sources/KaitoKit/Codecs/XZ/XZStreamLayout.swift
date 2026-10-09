@@ -17,5 +17,6 @@ struct XZStreamLayout: Sendable {
         let payloadSize: UInt64
         let unpaddedSize: UInt64
         let outputSize: UInt64
+        let dictionarySize: UInt64
     }
 }

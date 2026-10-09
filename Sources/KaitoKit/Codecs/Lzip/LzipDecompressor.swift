@@ -152,6 +152,25 @@ final class LzipDecompressor: Decompressor {
         self.members = try LzipMemberIndex(source: source, limits: limits).members
     }
 
+    static func parallel(source: any ByteSource, limits: ReadLimits, workers: Int) throws -> any Decompressor {
+        if workers > 1, let units = try? parallelUnits(source: source, limits: limits),
+           let decoder = ParallelIndependentDecompressor(units: units, limits: limits, workers: workers) {
+            return decoder
+        }
+        return try LzipDecompressor(source: source, limits: limits)
+    }
+
+    static func parallelUnits(source: any ByteSource, limits: ReadLimits) throws -> [ParallelIndependentDecompressor.Unit] {
+        try LzipMemberIndex(source: source, limits: limits).members.map { member in
+            // LZMA の保持辞書 + 入力・確率・match buffer。出力は Unit が別途予約する。
+            let scratch = try Checked.add(min(member.dictionarySize, max(1, member.dataSize)), 1_048_576)
+            return try .init(outputSize: member.dataSize, scratchBytes: scratch) {
+                let body = try BoundedByteSource(source: source, baseOffset: member.offset, length: member.size)
+                return try LzipDecompressor(source: body, limits: limits)
+            }
+        }
+    }
+
     func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
         if let terminalError { throw terminalError }
         guard !buffer.isEmpty, !isFinished else { return 0 }

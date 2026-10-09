@@ -1,12 +1,14 @@
+// Frozen test-only decoder from d1b13d0; keep independent of production optimizations.
+@testable import KaitoKit
 import Foundation
 
 // ZIP method 98 の二バイトパラメータと既知の展開サイズを受け取る。
 // 失敗は latch しない。throw した時点で model と range coder は途中まで進んでいるので、instance を破棄する。
-final class PPMdVarIDecoder: Decompressor {
+final class BaselinePPMdVarIDecoder: Decompressor {
     private let expectedSize: UInt64
-    private let rangeDecoder: PPMdVarIRangeDecoder?
+    private let rangeDecoder: BaselinePPMdVarIRangeDecoder?
     /// Test hook: ZipPPMdTests が model の復元回数と arena の解放を読む。
-    internal let model: PPMdVarIModel
+    internal let model: BaselinePPMdVarIModel
     private var producedSize: UInt64 = 0
 
     init(
@@ -28,10 +30,10 @@ final class PPMdVarIDecoder: Decompressor {
         guard end <= source.length else { throw KaitoError.truncated }
         self.expectedSize = expectedSize
         // 空の entry では range coder の初期化も EOF escape の消費も不要。
-        rangeDecoder = expectedSize == 0 ? nil : try PPMdVarIRangeDecoder(
+        rangeDecoder = expectedSize == 0 ? nil : try BaselinePPMdVarIRangeDecoder(
             source: source, offset: offset, endOffset: end
         )
-        model = try PPMdVarIModel(maximumOrder: order, memorySize: memorySize, restoreMethod: restoreMethod)
+        model = try BaselinePPMdVarIModel(maximumOrder: order, memorySize: memorySize, restoreMethod: restoreMethod)
         if expectedSize == 0 { model.releaseArena() }
     }
 
@@ -41,15 +43,10 @@ final class PPMdVarIDecoder: Decompressor {
         guard !buffer.isEmpty, !isFinished else { return 0 }
         guard let rangeDecoder else { throw KaitoError.truncated }
         let count = Int(min(UInt64(min(buffer.count, 256 * 1024)), expectedSize - producedSize))
-        var completed = 0
-        do {
-            try model.decode(into: UnsafeMutableRawBufferPointer(rebasing: buffer[..<count]),
-                             using: rangeDecoder, completed: &completed)
-        } catch {
-            producedSize += UInt64(completed)
-            throw error
+        for i in 0..<count {
+            buffer[i] = try model.decodeByte(using: rangeDecoder)
+            producedSize += 1
         }
-        producedSize += UInt64(completed)
         if isFinished { model.releaseArena() }
         return count
     }

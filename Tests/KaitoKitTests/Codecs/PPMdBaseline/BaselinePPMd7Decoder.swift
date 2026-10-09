@@ -1,18 +1,20 @@
+// Frozen test-only decoder from d1b13d0; keep independent of production optimizations.
+@testable import KaitoKit
 import Foundation
 
 // 参照仕様: 公開ドメインの LZMA SDK `C/Ppmd7.c`、`C/Ppmd7.h`、
 // `C/Ppmd7Dec.c` と Dmitry Shkarin の PPMd var.H model description。
 // 7z 固有の carryless range coder と 5-byte properties を境界検査付きで再実装する
-// （range coder は SevenZipPPMdRangeDecoder.swift）。
+// （range coder は BaselineSevenZipPPMdRangeDecoder.swift）。
 
 // 7z が使用する PPMd7（variant H）のストリーミング decoder。
 // 失敗は latch しない。throw した時点で model と range coder は途中まで進んでいるので、instance を破棄する。
-final class PPMd7Decoder: Decompressor {
+final class BaselinePPMd7Decoder: Decompressor {
     private static let outputChunkSize = 256 * 1_024
 
     private let expectedSize: UInt64
-    private let rangeDecoder: SevenZipPPMdRangeDecoder
-    private let model: PPMd7Model
+    private let rangeDecoder: BaselineSevenZipPPMdRangeDecoder
+    private let model: BaselinePPMd7Model
     private var producedSize: UInt64 = 0
 
     // 検証済みの圧縮範囲から PPMd7 decoder を生成する。
@@ -44,12 +46,12 @@ final class PPMd7Decoder: Decompressor {
         guard endOffset <= source.length else { throw KaitoError.truncated }
 
         self.expectedSize = expectedSize
-        self.rangeDecoder = try SevenZipPPMdRangeDecoder(
+        self.rangeDecoder = try BaselineSevenZipPPMdRangeDecoder(
             source: source,
             offset: offset,
             endOffset: endOffset
         )
-        self.model = try PPMd7Model(
+        self.model = try BaselinePPMd7Model(
             maximumOrder: order,
             memorySize: memorySize
         )
@@ -68,7 +70,9 @@ final class PPMd7Decoder: Decompressor {
             UInt64(Self.outputChunkSize),
             remaining
         ))
-        try model.decode(into: UnsafeMutableRawBufferPointer(rebasing: buffer[..<count]), using: rangeDecoder)
+        for index in 0..<count {
+            buffer[index] = try model.decodeByte(using: rangeDecoder)
+        }
         producedSize = try Checked.add(producedSize, UInt64(count))
         return count
     }

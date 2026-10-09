@@ -1,3 +1,5 @@
+// Frozen test-only decoder from d1b13d0; keep independent of production optimizations.
+@testable import KaitoKit
 import Foundation
 
 #if canImport(Darwin)
@@ -11,7 +13,7 @@ import Glibc
 // null 参照、AlignOffset、割り当て優先順位、free-list の挿入順序、単方向
 // glue walk、`UnitsStart - Text > requestedBytes` の厳密比較を維持する。
 // 永続参照は Swift pointer ではなく、常に Base からの offset とする。
-final class PPMd7Suballocator {
+final class BaselinePPMd7Suballocator {
     typealias Offset = UInt32
 
     static let unitSize = 12
@@ -39,8 +41,8 @@ final class PPMd7Suballocator {
         return result
     }()
 
-    // Unsafe pointer の不変条件: checkedInt / checkedOffset、または model の
-    // context/state 全体の検査で Base 内の byte 範囲を検証してからアクセスする。
+    // Unsafe pointer の不変条件: すべての load/store/copy は checkedInt または
+    // checkedOffset で Base 内の byte 範囲を検証してから実行する。
     private let storage: UnsafeMutableRawPointer
     // SDK の Size。textBaseOffset から始まる利用可能 byte 数。
     let size: Int
@@ -231,40 +233,6 @@ final class PPMd7Suballocator {
     @inline(__always)
     func storeUInt32(_ value: UInt32, at offset: Offset) throws {
         let index = try checkedInt(offset, byteCount: 4)
-        var little = value.littleEndian
-        memcpy(storage.advanced(by: index), &little, 4)
-    }
-
-    // Fixed-layout fields only: the caller must first validate the complete
-    // context/state/block and must not reuse these offsets after allocator mutation.
-    @inline(__always)
-    func uncheckedGet8(_ index: Int) -> UInt8 {
-        storage.load(fromByteOffset: index, as: UInt8.self)
-    }
-
-    @inline(__always)
-    func uncheckedPut8(_ value: UInt8, _ index: Int) {
-        storage.storeBytes(of: value, toByteOffset: index, as: UInt8.self)
-    }
-
-    @inline(__always)
-    func uncheckedGet16(_ index: Int) -> UInt16 {
-        UInt16(littleEndian: storage.loadUnaligned(fromByteOffset: index, as: UInt16.self))
-    }
-
-    @inline(__always)
-    func uncheckedPut16(_ value: UInt16, _ index: Int) {
-        var little = value.littleEndian
-        memcpy(storage.advanced(by: index), &little, 2)
-    }
-
-    @inline(__always)
-    func uncheckedGet32(_ index: Int) -> UInt32 {
-        UInt32(littleEndian: storage.loadUnaligned(fromByteOffset: index, as: UInt32.self))
-    }
-
-    @inline(__always)
-    func uncheckedPut32(_ value: UInt32, _ index: Int) {
         var little = value.littleEndian
         memcpy(storage.advanced(by: index), &little, 4)
     }
@@ -503,17 +471,17 @@ final class PPMd7Suballocator {
         )
     }
 
-    @inline(__always)
     private func checkedInt(_ offset: Offset, byteCount: Int) throws -> Int {
         let value = Int(offset)
-        guard byteCount >= 0, byteCount <= size,
-              UInt(bitPattern: value - textBaseOffset) <= UInt(size - byteCount) else {
+        guard byteCount >= 0,
+              value >= textBaseOffset,
+              value <= arenaEndOffset,
+              byteCount <= arenaEndOffset - value else {
             throw KaitoError.malformed("PPMd7 arena offset is out of range")
         }
         return value
     }
 
-    @inline(__always)
     private func checkedOffset(_ value: Int, byteCount: Int) throws -> Offset {
         guard value >= textBaseOffset,
               value <= arenaEndOffset,
@@ -525,7 +493,6 @@ final class PPMd7Suballocator {
         return Offset(value)
     }
 
-    @inline(__always)
     private func checkedUnitOffset(_ value: Int, byteCount: Int) throws -> Offset {
         let offset = try checkedOffset(value, byteCount: byteCount)
         guard value >= unitsStartOffset,
@@ -566,7 +533,6 @@ final class PPMd7Suballocator {
         return Offset(result)
     }
 
-    @inline(__always)
     private static func add(_ offset: Offset, _ bytes: Int) throws -> Offset {
         let (result, overflow) = Int(offset).addingReportingOverflow(bytes)
         guard bytes >= 0, !overflow, result <= Int(UInt32.max) else {

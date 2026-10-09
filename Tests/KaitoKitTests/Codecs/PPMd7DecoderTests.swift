@@ -170,6 +170,28 @@ final class PPMd7DecoderTests: XCTestCase {
         XCTAssertNotNil(try allocator.allocateUnits(3))
     }
 
+    func testArenaFieldBoundsWithUnalignedMemorySize() throws {
+        for size: UInt64 in [2048, 2049, 2050, 2051] {
+            let allocator = try PPMd7Suballocator(memorySize: size)
+            let start = UInt32(allocator.textBaseOffset)
+            let end = UInt32(allocator.arenaEndOffset)
+            for offset in [start, end - 4] {
+                try allocator.storeUInt32(0x12345678, at: offset)
+                XCTAssertEqual(try allocator.uint32(at: offset), 0x12345678)
+            }
+            for offset in [end - 3, end, end + 1, UInt32.max] {
+                XCTAssertThrowsError(try allocator.uint32(at: offset)) {
+                    XCTAssertEqual($0 as? KaitoError, .malformed("PPMd7 arena offset is out of range"))
+                }
+            }
+            if start > 0 {
+                XCTAssertThrowsError(try allocator.byte(at: start - 1))
+            }
+            XCTAssertThrowsError(try allocator.checkedBytes(at: start, count: -1))
+            XCTAssertThrowsError(try allocator.checkedBytes(at: start, count: Int.max))
+        }
+    }
+
     private func drainOneByteAtATime(_ decoder: PPMd7Decoder) throws -> Data {
         var result = Data()
         var byte: UInt8 = 0

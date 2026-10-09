@@ -1,8 +1,10 @@
+// Frozen test-only decoder from d1b13d0; keep independent of production optimizations.
+@testable import KaitoKit
 import Foundation
 
 // Dmitry Shkarin の公開ドメイン原典 SubAlloc.hpp（var.I rev.1）の移植。
 // 参照はすべて Base からの offset。先頭の予約領域で null と HeapStart を区別する。
-final class PPMdVarISuballocator {
+final class BaselinePPMdVarISuballocator {
     typealias Offset = UInt32
     static let unitSize = 12
     static let heapStart: Offset = 12
@@ -312,8 +314,8 @@ final class PPMdVarISuballocator {
     @inline(__always)
     func checkedInt(_ offset: Offset, count: Int) throws -> Int {
         let value = Int(offset)
-        guard storage != nil, count >= 0, count <= size,
-              UInt(bitPattern: value - Int(Self.heapStart)) <= UInt(size - count) else { throw invalid() }
+        guard storage != nil, value >= Int(Self.heapStart), value <= end,
+              count >= 0, count <= end - value else { throw invalid() }
         return value
     }
 
@@ -385,6 +387,5 @@ final class PPMdVarISuballocator {
         let s = try checkedInt(source, count: count), d = try checkedInt(destination, count: count)
         memmove(storage!.advanced(by: d), storage!.advanced(by: s), count)
     }
-    @inline(__always)
     private func invalid() -> KaitoError { .malformed("invalid PPMd var.I arena reference") }
 }

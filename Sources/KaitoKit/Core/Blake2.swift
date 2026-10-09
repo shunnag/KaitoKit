@@ -12,10 +12,10 @@ import Foundation
 struct Blake2s: Sendable {
     private static let blockSize = 64
     private static let outputSize = 32
-    private static let initializationVector: [UInt32] = [
+    private static let initializationVector = SIMD8<UInt32>(
         0x6A09_E667, 0xBB67_AE85, 0x3C6E_F372, 0xA54F_F53A,
-        0x510E_527F, 0x9B05_688C, 0x1F83_D9AB, 0x5BE0_CD19,
-    ]
+        0x510E_527F, 0x9B05_688C, 0x1F83_D9AB, 0x5BE0_CD19
+    )
     private static let permutations: [[UInt8]] = [
         [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
         [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
@@ -29,8 +29,9 @@ struct Blake2s: Sendable {
         [10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0],
     ]
 
-    private var chainingValue: [UInt32]
-    private var buffered: [UInt8] = []
+    private var chainingValue: SIMD8<UInt32>
+    private var buffered = SIMD8<UInt64>(repeating: 0)
+    private var bufferedCount = 0
     private var compressedByteCount: UInt64 = 0
     private let isLastNode: Bool
     private var finalDigest: Data?
@@ -68,12 +69,11 @@ struct Blake2s: Sendable {
         parameters[15] = innerHashLength
 
         var state = Self.initializationVector
-        for word in 0..<state.count {
+        for word in 0..<8 {
             state[word] ^= Self.loadUInt32LE(parameters, word * 4)
         }
         self.chainingValue = state
         self.isLastNode = isLastNode
-        buffered.reserveCapacity(Self.blockSize)
     }
 
     mutating func update(_ data: Data) {
@@ -87,52 +87,65 @@ struct Blake2s: Sendable {
     mutating func update(_ input: UnsafeRawBufferPointer) {
         precondition(finalDigest == nil, "cannot update a finalized BLAKE2s")
         guard !input.isEmpty else { return }
-        let source = input.bindMemory(to: UInt8.self)
         var inputIndex = 0
-
-        if !buffered.isEmpty {
-            let needed = Self.blockSize - buffered.count
-            let copied = min(needed, input.count)
-            buffered.append(contentsOf: source[..<copied])
+        if bufferedCount > 0 {
+            let copied = min(Self.blockSize - bufferedCount, input.count)
+            appendToBuffer(UnsafeRawBufferPointer(rebasing: input[..<copied]))
             inputIndex += copied
-            if buffered.count < Self.blockSize || inputIndex == input.count {
-                return
-            }
-            // Copy before mutating `self`: the array storage must not remain
-            // borrowed while `compress` updates the chaining value.
-            let block = buffered
-            compressedByteCount &+= UInt64(Self.blockSize)
-            block.withUnsafeBytes { compress($0, isFinalBlock: false) }
-            buffered.removeAll(keepingCapacity: true)
+            if bufferedCount < Self.blockSize || inputIndex == input.count { return }
+            compressBufferedBlock()
         }
-
-        // Preserve the final full block so finalization can set its last-block bit.
+        // Only compress a full block when at least one more byte follows.
         while input.count - inputIndex > Self.blockSize {
-            let end = inputIndex + Self.blockSize
             compressedByteCount &+= UInt64(Self.blockSize)
-            compress(
-                UnsafeRawBufferPointer(rebasing: input[inputIndex..<end]),
-                isFinalBlock: false
-            )
-            inputIndex = end
+            compress(UnsafeRawBufferPointer(rebasing: input[inputIndex..<(inputIndex + Self.blockSize)]),
+                     isFinalBlock: false)
+            inputIndex += Self.blockSize
         }
-        if inputIndex < input.count {
-            buffered.append(contentsOf: source[inputIndex..<input.count])
+        appendToBuffer(UnsafeRawBufferPointer(rebasing: input[inputIndex...]))
+    }
+
+    private mutating func appendToBuffer(_ bytes: UnsafeRawBufferPointer) {
+        guard !bytes.isEmpty else { return }
+        withUnsafeMutableBytes(of: &buffered) { target in
+            target.baseAddress!.advanced(by: bufferedCount).copyMemory(from: bytes.baseAddress!, byteCount: bytes.count)
+        }
+        bufferedCount += bytes.count
+    }
+
+    private mutating func compressBufferedBlock() {
+        var block = buffered
+        compressedByteCount &+= UInt64(Self.blockSize)
+        withUnsafeBytes(of: &block) { compress($0, isFinalBlock: false) }
+        bufferedCount = 0
+    }
+
+    // A full stripe block can be compressed directly if this leaf has more
+    // input in the same call. Only the last block per leaf needs retaining.
+    fileprivate mutating func updateBlock(_ block: UnsafeRawBufferPointer, moreFollows: Bool) {
+        precondition(finalDigest == nil && block.count == Self.blockSize)
+        precondition(bufferedCount == 0 || bufferedCount == Self.blockSize)
+        if bufferedCount == Self.blockSize { compressBufferedBlock() }
+        if moreFollows {
+            compressedByteCount &+= UInt64(Self.blockSize)
+            compress(block, isFinalBlock: false)
+        } else {
+            appendToBuffer(block)
         }
     }
 
     mutating func finalize() -> Data {
         if let finalDigest { return finalDigest }
 
-        compressedByteCount &+= UInt64(buffered.count)
-        var finalBlock = [UInt8](repeating: 0, count: Self.blockSize)
-        if !buffered.isEmpty {
-            finalBlock.replaceSubrange(0..<buffered.count, with: buffered)
+        compressedByteCount &+= UInt64(bufferedCount)
+        var finalBlock = buffered
+        withUnsafeMutableBytes(of: &finalBlock) { bytes in
+            bytes[bufferedCount...].initializeMemory(as: UInt8.self, repeating: 0)
+            compress(UnsafeRawBufferPointer(bytes), isFinalBlock: true)
         }
-        finalBlock.withUnsafeBytes { compress($0, isFinalBlock: true) }
 
         var digest = [UInt8](repeating: 0, count: Self.outputSize)
-        for word in chainingValue.indices {
+        for word in 0..<8 {
             let value = chainingValue[word]
             let offset = word * 4
             digest[offset] = UInt8(truncatingIfNeeded: value)
@@ -142,7 +155,7 @@ struct Blake2s: Sendable {
         }
         let result = Data(digest)
         finalDigest = result
-        buffered.removeAll(keepingCapacity: false)
+        bufferedCount = 0
         return result
     }
 
@@ -158,17 +171,15 @@ struct Blake2s: Sendable {
         isFinalBlock: Bool
     ) {
         precondition(block.count == Self.blockSize)
-        let bytes = block.bindMemory(to: UInt8.self)
-        var message = [UInt32](repeating: 0, count: 16)
-        for word in 0..<message.count {
-            let offset = word * 4
-            message[word] = UInt32(bytes[offset])
-                | UInt32(bytes[offset + 1]) << 8
-                | UInt32(bytes[offset + 2]) << 16
-                | UInt32(bytes[offset + 3]) << 24
+        var message = SIMD16<UInt32>(repeating: 0)
+        var working = SIMD16<UInt32>(repeating: 0)
+        for word in 0..<16 {
+            message[word] = UInt32(littleEndian: block.loadUnaligned(fromByteOffset: word * 4, as: UInt32.self))
         }
-
-        var working = chainingValue + Self.initializationVector
+        for word in 0..<8 {
+            working[word] = chainingValue[word]
+            working[word + 8] = Self.initializationVector[word]
+        }
         working[12] ^= UInt32(truncatingIfNeeded: compressedByteCount)
         working[13] ^= UInt32(truncatingIfNeeded: compressedByteCount >> 32)
         if isFinalBlock {
@@ -189,13 +200,14 @@ struct Blake2s: Sendable {
             mix(&working, 2, 7, 8, 13, message[Int(permutation[12])], message[Int(permutation[13])])
             mix(&working, 3, 4, 9, 14, message[Int(permutation[14])], message[Int(permutation[15])])
         }
-        for index in chainingValue.indices {
+        for index in 0..<8 {
             chainingValue[index] ^= working[index] ^ working[index + 8]
         }
     }
 
+    @inline(__always)
     private func mix(
-        _ state: inout [UInt32],
+        _ state: inout SIMD16<UInt32>,
         _ ai: Int,
         _ bi: Int,
         _ ci: Int,
@@ -286,7 +298,8 @@ struct Blake2sp: Sendable {
 
         while input.count - offset >= Self.blockSize {
             let end = offset + Self.blockSize
-            submitBlock(UnsafeRawBufferPointer(rebasing: input[offset..<end]))
+            submitBlock(UnsafeRawBufferPointer(rebasing: input[offset..<end]),
+                        moreFollows: input.count - offset > Self.lanes * Self.blockSize)
             offset = end
         }
         if offset < input.count {
@@ -329,10 +342,10 @@ struct Blake2sp: Sendable {
         return hash.finalize()
     }
 
-    private mutating func submitBlock(_ block: UnsafeRawBufferPointer) {
+    private mutating func submitBlock(_ block: UnsafeRawBufferPointer, moreFollows: Bool = false) {
         precondition(block.count == Self.blockSize)
         let lane = Int(stripedBlockCount & UInt64(Self.lanes - 1))
-        leaves[lane].update(block)
+        leaves[lane].updateBlock(block, moreFollows: moreFollows)
         stripedBlockCount &+= 1
     }
 }

@@ -6,6 +6,27 @@
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-10
+
+復号並列数の公開設定と、decoder・暗号・ハッシュ・展開 I/O の高速化をまとめた release。
+
+### 追加
+
+- `ReaderOptions.decodeThreads` を追加。nil は CPU 構成・物理メモリ・電力方針から自動で決め、
+  明示値は `ReaderOptions.decodeThreadsRange`（1...1024）に丸める。自動値は open 時に固定し、reopen に引き継ぐ。
+  `ReaderOptions.automaticDecodeThreads(powerPolicy:)` で現在の自動値を取得できる。
+- `ReaderOptions.decodePowerPolicy` と公開 enum `DecodePowerPolicy` を追加。
+  既定の `.reduceInLowPowerMode`、温度上昇時も減らす `.reduceInLowPowerModeOrThermalPressure`、
+  電力・温度による削減をしない `.alwaysUseAllCores` を選べる。明示した並列数には作用しない。
+- `ReadLimits.parallelDecodeMemory` を追加。nil は物理メモリの 50% を並列復号の保持予算にする。
+  CPU 構成を取得する `CPUTopology` を `@_spi(Parallelism)` で公開し、process 共通の leaf decode pool が
+  実行中の job 数を active logical CPU 数以下に保つ。
+- `kaito` の list / sha / extract / bench に `--threads N|auto`、sha に `--sink` を追加。
+  `sha --sink` は SHA-256 の計算を省き、同じ entry を読み切って byte 数を集計する。
+- `Tests/Measurement/decode-ab/` に固定 seed の corpus 生成器と A/B 計測 harness を追加。
+  通常の `kaito sha` の一致を先に確かめ、交互順の別 process 計測を JSONL に保存する。
+  高精度 wall time・peak RSS・取得できる性能 counter と best / median / round 比を記録する。
+
 ### 変更
 
 - README を採用・導入向けに整理し、詳細を [対応形式](Documentation/formats.md)、
@@ -19,6 +40,24 @@
   `macos-26` / `macos-26-intel` に運び、コンパイルせず全 suite と Asia/Tokyo の LHA golden を検査する。
   cooViewer が Xcode 26 で使う framework script の旧 module 配置の分岐は残す。
 
+- XZ / bzip2 の固定 8 worker / 512 MiB 上限をなくし、自動並列数・共通 pool・保持予算に従う。
+  圧縮 tar / cpio の staging に加え、単独 `.xz` / `.bz2` stream も並列復号する。
+- 複数 frame の zstd、複数 member の lzip、pbzx の chunk を並列復号し、入力順に出力する。
+  単一単位、サイズが不明、予算不足の場合は直列経路に戻す。
+- UDIF（DMG）の後続 chunk を並列に先読みする。検索と LRU 更新が O(1) の cache にし、
+  復号中は lock を解放する。同じ chunk の重複復号を防ぎ、先読みの error は要求時に返す。
+- LZ4 の履歴・出力を再利用する flat buffer にまとめ、literal / match をワイドコピーする。
+  XXH32 は非整列 load、BLAKE2s / BLAKE2sp は block ごとの allocation を省く。
+- AES-CBC の任意位置読み取りを直前の暗号 block を含む一括読みにし、CommonCrypto の CBC で復号する。
+  WinZip AES-CTR は二つの UInt64 で counter を更新し、鍵流 buffer を再利用する。
+- Deflate64 の Huffman 復号を 64-bit reservoir と一次・二次 table にする。
+  zstd は必要な時だけ bit reservoir を補充し、長い match を 32 byte 単位でコピーする。
+- PPMd H / I の arena accessor と復号 loop を高速化し、検証済み field の参照と入力 buffer を再利用する。
+- RAR5 の非 solid entry は既知の展開サイズに合わせて window を縮小し、不要なゼロ初期化を省く。
+  Huffman の quick table を 10 bit にする。LZMA / LZMA2 も entry ごとの入力領域と初期化を小さくする。
+- 展開の write buffer を最大 1 MiB にし、圧縮入力 chunk を範囲長に合わせる。
+  extract / drain は chunk ごとに取消しを検査する。
+
 ### 修正
 
 - 文書の古い制限記述を訂正した。BIN/CUE の raw sector image は対応済みのため、
@@ -27,6 +66,14 @@
 
 - 制限 umask の互換テストが子 process でも現在の xctest を使い、SIP で消える `DYLD_*` を
   shell 内で復元する。同梱した Xcode 27 runner で macOS 26 上の試験を継続できる。
+
+展開 byte 列・既存の error と ReadLimits は維持し、worker 数で出力は変わらない。
+並列数を増やすと保持予算内でメモリ使用量が増える。M4 Max の 256 MiB の単独 `.xz` は
+自動要求 16 threads で peak RSS が約14 MB → 約300 MB になった。
+既知の小さな性能後退は非圧縮性の multi-block tar.xz の約5 ms。
+8 → 16 worker ではメモリ帯域が律速になる。絶対値は機械と入力に依存する。
+56 書庫の通常の `kaito sha` はすべて一致した。
+[decode 性能の検証記録と生データ](Documentation/verification/2026-10-10-decode-performance.md)。
 
 ## [0.12.1] - 2026-09-30
 

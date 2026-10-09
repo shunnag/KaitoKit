@@ -5,8 +5,6 @@ public import Foundation
 /// 枠の走査は計画時と recorder 設定時（直列ならその init）に二度行う。
 /// throw と deinit は worker を待たずに放棄する。throw 後の instance は再利用しない。
 final class ParallelXZDecompressor: Decompressor {
-    private static let maximumWorkerCount = 8
-    private static let defaultMemoryBudget = 512 * 1_048_576
     private static let defaultTargetJobOutput = 16 * 1_048_576
     private static let outputChunkSize = 256 * 1_024
     private static let abandonmentCheckInterval = 1_048_576
@@ -44,16 +42,19 @@ final class ParallelXZDecompressor: Decompressor {
         let bytes: Data
         let reservation: Reservation
     }
+    /// queue の保持から結果へ予約を渡す。可変値に触れるのは実行された leaf 一つだけ。
+    private final class PendingJob: @unchecked Sendable {
+        var reservation: Reservation?
+        init(_ reservation: Reservation) { self.reservation = reservation }
+    }
     private final class Workers: @unchecked Sendable {
         private let condition = NSCondition()
-        private let queue = DispatchQueue(label: "KaitoKit.xz", attributes: .concurrent)
-        private let slots: DispatchSemaphore
+        private let group = LeafDecodePool.Group()
         private let diagnostics: Diagnostics?
         private var abandoned = false
         private var results: [Int: Result<Decoded, any Error>] = [:]
 
-        init(count: Int, diagnostics: Diagnostics?) {
-            slots = DispatchSemaphore(value: count)
+        init(diagnostics: Diagnostics?) {
             self.diagnostics = diagnostics
         }
         var isAbandoned: Bool {
@@ -61,17 +62,18 @@ final class ParallelXZDecompressor: Decompressor {
         }
         func abandon() {
             condition.lock(); abandoned = true; results.removeAll(); condition.broadcast(); condition.unlock()
+            LeafDecodePool.shared.cancel(group: group)
         }
         func submit(_ job: Job, id: Int, source: any ByteSource,
                     stream: XZStreamLayout.Stream, limits: ReadLimits, last: Bool) {
-            let reservation = Reservation(job.heldBytes, diagnostics: diagnostics)
-            queue.async { [self, reservation] in
-                slots.wait()
-                defer { slots.signal() }
+            let pending = PendingJob(Reservation(job.heldBytes, diagnostics: diagnostics))
+            LeafDecodePool.shared.submit(group: group) { [self] in
                 guard !isAbandoned else { return }
                 diagnostics?.worker(1)
                 defer { diagnostics?.worker(-1) }
-                let result = Result {
+                var result: Result<Decoded, any Error>? = Result {
+                    let reservation = pending.reservation!
+                    pending.reservation = nil
                     let synthetic = try XZSyntheticStream.make(source: source, stream: stream, blocks: stream.blocks[job.blocks])
                     let decoder = try XZDecompressor(source: synthetic, limits: limits)
                     let capacity = try Checked.toInt(Checked.add(UInt64(job.outputSize), 1))
@@ -97,6 +99,8 @@ final class ParallelXZDecompressor: Decompressor {
                 }
                 condition.lock()
                 if !abandoned { results[id] = result }
+                // 結果の所有者を辞書だけにしてから consumer を起こす。
+                result = nil
                 condition.broadcast(); condition.unlock()
             }
         }
@@ -142,25 +146,24 @@ final class ParallelXZDecompressor: Decompressor {
     private var finished = false
 
     /// - Parameters:
-    ///   - workers: worker 数を制限する検査用指定。本番の呼出元は渡さない。
-    ///   - memoryBudget: 圧縮・出力領域の予約上限。本番の呼出元は渡さない。
+    ///   - workers: reader が open 時に解決した要求並列数。
     ///   - targetJobOutput: job をまとめる出力目標。本番の呼出元は渡さない。
     ///   - diagnostics: 観測値の記録先。本番の呼出元は渡さない。
     init(source: any ByteSource, limits: ReadLimits, recorder: CompressedTarMapRecorder? = nil,
-         workers: Int = min(ParallelXZDecompressor.maximumWorkerCount, ProcessInfo.processInfo.activeProcessorCount),
-         memoryBudget: Int = ParallelXZDecompressor.defaultMemoryBudget,
+         workers: Int = ReaderOptions.automaticDecodeThreads(),
          targetJobOutput: Int = ParallelXZDecompressor.defaultTargetJobOutput,
          diagnostics: Diagnostics? = nil) throws {
         self.source = source; self.limits = limits; self.recorder = recorder
+        let memoryBudget = limits.resolvedParallelDecodeMemory()
         let layout = try XZResourceValidator.validate(source: source, dictionaryLimit: limits.maxDictionarySize)
         if layout.streams.count == 1, let stream = layout.streams.first, stream.blocks.count >= 2 {
             let planned = try Self.plan(stream.blocks, target: UInt64(max(1, targetJobOutput)))
             let perJobBytes = planned.map(\.heldBytes).max()!
-            let count = max(1, min(max(1, workers), max(0, memoryBudget) / perJobBytes - Self.spareJobCount))
+            let count = max(1, min(max(1, workers), planned.count, memoryBudget / perJobBytes - Self.spareJobCount))
             if count >= 2 {
                 try XZResourceValidator.validate(source: source, dictionaryLimit: limits.maxDictionarySize, recorder: recorder)
                 self.stream = stream; self.jobs = planned; self.workerCount = count
-                self.workers = Workers(count: count, diagnostics: diagnostics)
+                self.workers = Workers(diagnostics: diagnostics)
                 // recorder の再読と probe・結果受渡しに二つの job 分を予約する。
                 spareReservation = Reservation(try Checked.toInt(Checked.mul(UInt64(perJobBytes), UInt64(Self.spareJobCount))),
                                                diagnostics: diagnostics)

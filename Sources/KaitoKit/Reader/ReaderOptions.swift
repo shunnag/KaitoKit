@@ -8,6 +8,20 @@ public protocol PasswordProvider: Sendable {
 
 /// Options used while opening and reading an archive.
 public struct ReaderOptions: Sendable {
+    /// 明示的な復号並列数の受理範囲。範囲外は最寄りの境界に丸める。
+    public static let decodeThreadsRange = 1...1024
+    @TaskLocal static var testingAutomaticThreads: (@Sendable (DecodePowerPolicy) -> Int)?
+    private var automaticThreadsSnapshot: Int?
+
+    /// XZ / bzip2 の要求並列数。nil は CPU 構成・物理メモリ・電力方針から open 時に解決する。
+    /// メモリ予算と process 共通の実行枠は別に適用する。reopen は同じ解決値を引き継ぐ。
+    public var decodeThreads: Int? {
+        didSet { decodeThreads = decodeThreads.map(Self.clampedDecodeThreads) }
+    }
+
+    /// 自動復号並列数の電力方針。decodeThreads が nil のときだけ適用する。
+    public var decodePowerPolicy: DecodePowerPolicy
+
     /// 7z の編集用の生値を記録する。reopen は値と記録を引き継ぐ。
     @_spi(SevenZipEditLayout) public var recordsSevenZipEditLayout: Bool = false
 
@@ -95,8 +109,12 @@ public struct ReaderOptions: Sendable {
         maximumSFXScanSize: UInt64 = 1 * 1_024 * 1_024,
         scanForSFXInData: Bool = false,
         recoverDamagedArchives: Bool = false,
-        appleDoublePolicy: AppleDoublePolicy = .merge
+        appleDoublePolicy: AppleDoublePolicy = .merge,
+        decodeThreads: Int? = nil,
+        decodePowerPolicy: DecodePowerPolicy = .reduceInLowPowerMode
     ) {
+        self.decodeThreads = decodeThreads.map(Self.clampedDecodeThreads)
+        self.decodePowerPolicy = decodePowerPolicy
         self.appleDoublePolicy = appleDoublePolicy
         self.maximumSFXScanSize = min(
             maximumSFXScanSize,
@@ -112,6 +130,43 @@ public struct ReaderOptions: Sendable {
         self.maxSevenZipAESCyclesPower = min(maxSevenZipAESCyclesPower, 62)
         self.maxRAR5KDFCountPower = min(maxRAR5KDFCountPower, 24)
         self.verifyRAR5Blake2sp = verifyRAR5Blake2sp
+    }
+
+    /// 表示時点の自動要求並列数。reader は open 時に一度解決し、codec のメモリ予算は別に適用する。
+    public static func automaticDecodeThreads(powerPolicy: DecodePowerPolicy = .reduceInLowPowerMode) -> Int {
+        if let testingAutomaticThreads { return testingAutomaticThreads(powerPolicy) }
+        let process = ProcessInfo.processInfo
+        return automaticDecodeThreads(topology: .current, physicalMemory: process.physicalMemory,
+            lowPowerMode: process.isLowPowerModeEnabled, thermalState: process.thermalState, policy: powerPolicy)
+    }
+
+    static func automaticDecodeThreads(topology: CPUTopology, physicalMemory: UInt64,
+                                       lowPowerMode: Bool, thermalState: ProcessInfo.ThermalState,
+                                       policy: DecodePowerPolicy) -> Int {
+        let n = topology.activeLogicalCPUs
+        let thermalPressure = thermalState == .serious || thermalState == .critical
+        let reduced = policy != .alwaysUseAllCores && (lowPowerMode
+            || (policy == .reduceInLowPowerModeOrThermalPressure && thermalPressure))
+        let half = n / 2 + n % 2
+        let lowest = topology.performanceLevels.count >= 2 ? topology.performanceLevels.last!.logicalCPUs : half
+        let requested = reduced ? max(1, min(half, lowest)) : n
+        return max(1, Int(min(UInt64(requested), max(1, physicalMemory / (1 << 30)))))
+    }
+
+    var resolvedDecodeThreads: Int {
+        decodeThreads ?? automaticThreadsSnapshot ?? Self.automaticDecodeThreads(powerPolicy: decodePowerPolicy)
+    }
+
+    func resolvingDecodeThreads() -> Self {
+        var result = self
+        if decodeThreads == nil, automaticThreadsSnapshot == nil {
+            result.automaticThreadsSnapshot = Self.automaticDecodeThreads(powerPolicy: decodePowerPolicy)
+        }
+        return result
+    }
+
+    private static func clampedDecodeThreads(_ value: Int) -> Int {
+        max(decodeThreadsRange.lowerBound, min(decodeThreadsRange.upperBound, value))
     }
 }
 

@@ -1,3 +1,5 @@
+import Foundation
+
 /// Resource limits applied while parsing and reading an archive.
 public struct ReadLimits: Sendable, Equatable {
     /// Maximum declared or produced size of a single entry.
@@ -18,6 +20,11 @@ public struct ReadLimits: Sendable, Equatable {
     /// Minimum available space on the temporary volume while staging to disk.
     /// The default is 1 GiB, checked before spilling and every 256 MiB written.
     public var stagingFreeSpaceReserve: UInt64
+
+    /// XZ / bzip2 並列復号の保持 byte 予算。nil は物理メモリの 50%。
+    /// decoder ごとに適用し、二つの job を保持できなければ直列で復号する。
+    /// codec の辞書上限は maxDictionarySize で別に制限する。
+    public var parallelDecodeMemory: UInt64?
 
     /// Maximum number of entries accepted from one archive.
     public var maxEntryCount: Int
@@ -72,6 +79,7 @@ public struct ReadLimits: Sendable, Equatable {
     ///     retained in memory. The default is 64 MiB.
     ///   - stagingFreeSpaceReserve: Minimum available temporary-volume space
     ///     while staging to disk. The default is 1 GiB.
+    ///   - parallelDecodeMemory: 並列復号の保持 byte 予算。nil は物理メモリの 50%。
     ///   - maxEntryCount: Maximum number of entries. The default is one million.
     ///   - maxMetadataSize: Maximum single metadata allocation. The default is 16 MiB.
     ///     The ZIP central directory uses `maxTotalMetadataSize` instead.
@@ -103,13 +111,15 @@ public struct ReadLimits: Sendable, Equatable {
         maxJPEGBlocks: Int = 2_097_152,
         maxVolumeCount: Int = 128,
         maxRAR5HeaderKDFWork: UInt64 = 4 * ((UInt64(1) << 24) + 32),
-        maxSevenZipHeaderKDFWork: UInt64 = 4 * (UInt64(1) << 24)
+        maxSevenZipHeaderKDFWork: UInt64 = 4 * (UInt64(1) << 24),
+        parallelDecodeMemory: UInt64? = nil
     ) {
         self.maxEntrySize = maxEntrySize
         self.maxTotalUncompressedSize = maxTotalUncompressedSize
         self.maxInMemorySize = maxInMemorySize
         self.inMemorySingleFileLimit = inMemorySingleFileLimit
         self.stagingFreeSpaceReserve = stagingFreeSpaceReserve
+        self.parallelDecodeMemory = parallelDecodeMemory
         self.maxEntryCount = max(0, maxEntryCount)
         self.maxMetadataSize = maxMetadataSize
         self.maxMetadataRecordCount = max(0, maxMetadataRecordCount)
@@ -120,5 +130,9 @@ public struct ReadLimits: Sendable, Equatable {
         self.maxVolumeCount = max(0, maxVolumeCount)
         self.maxRAR5HeaderKDFWork = maxRAR5HeaderKDFWork
         self.maxSevenZipHeaderKDFWork = maxSevenZipHeaderKDFWork
+    }
+
+    func resolvedParallelDecodeMemory(physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Int {
+        Int(clamping: parallelDecodeMemory ?? physicalMemory / 2)
     }
 }

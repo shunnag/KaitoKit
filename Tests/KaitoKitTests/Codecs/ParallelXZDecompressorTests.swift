@@ -55,8 +55,8 @@ final class ParallelXZDecompressorTests: XCTestCase {
             source.reset()
             let diagnostics = ParallelXZDecompressor.Diagnostics()
             let recorder = CompressedTarMapRecorder(format: .xz)
-            let decoder = try ParallelXZDecompressor(source: source, limits: ReadLimits(), recorder: recorder,
-                                                     workers: 8, memoryBudget: budget, targetJobOutput: 131_072, diagnostics: diagnostics)
+            let decoder = try ParallelXZDecompressor(source: source, limits: ReadLimits(parallelDecodeMemory: UInt64(budget)), recorder: recorder,
+                                                     workers: 64, targetJobOutput: 131_072, diagnostics: diagnostics)
             XCTAssertEqual(try drain(decoder, bufferSize: 65_536), body)
             XCTAssertEqual(diagnostics.fellBackToSerial, fallback)
             XCTAssertNotNil(recorder.finish(imageLength: UInt64(body.count), archiveLength: source.length).map)

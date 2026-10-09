@@ -2,6 +2,22 @@
 
 [README](../README.md#コマンドライン) の基本操作に加え、出力形式・差分検証・計測・password の規則を説明します。
 
+## 復号の並列数
+
+`list` / `sha` / `extract` / `bench` は `--threads N`（1〜1024）または `--threads auto` を受け付けます。
+既定は `auto`。`ReaderOptions.decodeThreads` に対応し、XZ / bzip2 の単独 stream と圧縮 tar の staging に
+適用します。自動値は CPU 構成と物理メモリから open 時に一度決め、Low Power Mode では減らします。
+保持予算は既定で物理メモリの 50%。実行中 job は process 共通の CPU 数上限を共有し、超える要求は queue に入ります。
+範囲外・値なし・重複した `--threads` は usage error です。出力 byte と SHA は並列数によらず同一です。
+
+```console
+kaito sha --threads 1 payload.xz
+kaito sha --threads 16 payload.xz
+kaito list archive.tar.bz2 --threads auto
+kaito extract payload.bz2 -o unpacked --threads 4
+kaito bench --threads 36 archive.tar.xz 5
+```
+
 ## 名前の文字コードを診断する
 
 `detect-encoding` は TSV に記録した名前の元 byte 列から文字コード・確信度・復号名を表示する診断用コマンドです。

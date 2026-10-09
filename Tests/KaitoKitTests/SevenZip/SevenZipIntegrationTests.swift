@@ -8,6 +8,35 @@ import XCTest
 final class SevenZipIntegrationTests: XCTestCase {
     // MARK: - coder の連鎖と 7zz との照合
 
+    func testManyTinyNonSolidLZMAAndLZMA2Entries() throws {
+        try SevenZipTestSupport.requireSevenZip()
+        let temporary = try SevenZipTestSupport.temporaryDirectory(label: "7z-tiny-entries")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let source = temporary.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+        var payloads: [String: Data] = [:]
+        let names = (0..<96).map { "entry-\($0).bin" }
+        for (index, name) in names.enumerated() {
+            let size = 1 + (index * 7_919) % 16_384
+            let pattern = Array("tiny LZMA entry \(index) 日本語 abcabcabc\n".utf8)
+            let payload = Data((0..<size).map { pattern[$0 % pattern.count] })
+            payloads[name] = payload
+            try SevenZipTestSupport.write(payload, relativePath: name, below: source)
+        }
+        for method in ["LZMA:d=4m", "LZMA2:d=4m", "LZMA2:d=4m:lc=0:lp=0", "LZMA2:d=4m:lc=4:lp=0"] {
+            let archive = temporary.appendingPathComponent("\(method).7z")
+            try SevenZipTestSupport.makeArchive(
+                sourceDirectory: source, paths: names, archiveURL: archive,
+                options: ["-m0=\(method)", "-ms=off", "-mhc=off"]
+            )
+            let reader = try ArchiveReader.open(url: archive)
+            XCTAssertEqual(reader.entries.count, names.count)
+            for entry in reader.entries {
+                XCTAssertEqual(try reader.read(entry), payloads[entry.name], method)
+            }
+        }
+    }
+
     func testStreamingCoderChainCheckedInFixture() throws {
         let archive = try ZipTestSupport.checkedInFixture(
             "sevenzip/chain-lzma-lzma-lzma2-bcj2.7z"

@@ -78,6 +78,8 @@ def measure(binary, arguments, backend):
         process.returncode = os.waitstatus_to_exitcode(status)
         errors.seek(0)
         diagnostics = errors.read().decode("utf-8", errors="replace")
+    wall_time_l = None
+    counters = {"instructions": None, "cycles": None, "peak_footprint": None}
     if backend == "time-l":
         times = re.search(r"^\s*([\d.]+) real\s+([\d.]+) user\s+([\d.]+) sys\s*$",
                           diagnostics, re.MULTILINE)
@@ -85,14 +87,24 @@ def measure(binary, arguments, backend):
                         diagnostics, re.MULTILINE)
         if not times or not rss:
             raise ValueError("time -l metrics are missing: " + diagnostics)
-        wall, user, system = map(float, times.groups())
+        wall_time_l, user, system = map(float, times.groups())
         max_rss = int(rss.group(1))  # Darwin time(1) / wait4 とも bytes。
+        for key, label in (("instructions", "instructions retired"),
+                           ("cycles", "cycles elapsed"),
+                           ("peak_footprint", "peak memory footprint")):
+            value = re.search(r"^\s*(\d+)\s+" + re.escape(label) + r"\s*$",
+                              diagnostics, re.MULTILINE)
+            if value:
+                counters[key] = int(value.group(1))
     else:
-        wall, user, system = elapsed, usage.ru_utime, usage.ru_stime
+        user, system = usage.ru_utime, usage.ru_stime
         max_rss = usage.ru_maxrss
-    return {"wall": wall, "user": user, "sys": system, "max_rss": max_rss,
-            "exit_code": process.returncode, "timing_backend": backend,
-            "stderr": diagnostics}
+    result = {"wall": elapsed, "wall_time_l": wall_time_l,
+              "user": user, "sys": system, "max_rss": max_rss, **counters,
+              "exit_code": process.returncode, "timing_backend": backend}
+    if process.returncode != 0:
+        result["stderr"] = diagnostics
+    return result
 
 
 def load_records(path, repair=False):
@@ -249,7 +261,7 @@ def run(args):
 
 
 def ratio(branch, base):
-    return branch / base if base > 0 else None
+    return branch / base if branch is not None and base is not None and base > 0 else None
 
 
 def number(value):
@@ -261,9 +273,10 @@ def summary(path, metric):
     if not records or records[0].get("type") != "machine":
         raise ValueError("Missing machine record")
     config = records[0]["config"]
+    unit = ("bytes" if metric in ("max_rss", "peak_footprint") else
+            "count" if metric in ("instructions", "cycles") else "seconds")
     print("metric={} ({}), backend={}, same={}".format(
-        metric, "bytes" if metric == "max_rss" else "seconds",
-        config["timing_backend"], config["same"]))
+        metric, unit, config["timing_backend"], config["same"]))
     groups = {}
     mismatches = set()
     failures = 0
@@ -275,7 +288,7 @@ def summary(path, metric):
                 failures += 1
                 continue
             group = groups.setdefault((record["archive"], record["mode"]), {})
-            group.setdefault(record["round"], {})[record["side"]] = record[metric]
+            group.setdefault(record["round"], {})[record["side"]] = record.get(metric)
     print("archive\tmode\tpairs\tbase-best\tbase-median\tbranch-best\tbranch-median"
           "\tbest-B/A\tmedian-B/A\tround-B/A")
     for (archive, mode), rounds in sorted(groups.items()):
@@ -284,14 +297,19 @@ def summary(path, metric):
                  if "base" in sides and "branch" in sides]
         if not pairs:
             continue
-        before = [sides["base"] for _, sides in pairs]
-        after = [sides["branch"] for _, sides in pairs]
+        available = [(index, sides) for index, sides in pairs
+                     if sides["base"] is not None and sides["branch"] is not None]
+        before = [sides["base"] for _, sides in available]
+        after = [sides["branch"] for _, sides in available]
+        base_best, branch_best = min(before, default=None), min(after, default=None)
+        base_median = statistics.median(before) if before else None
+        branch_median = statistics.median(after) if after else None
         per_round = ",".join("{}:{}".format(index + 1, number(ratio(sides["branch"], sides["base"])))
                              for index, sides in pairs)
-        print("\t".join([archive, "sha --sink" if mode == "sink" else mode, str(len(pairs)),
-              number(min(before)), number(statistics.median(before)), number(min(after)),
-              number(statistics.median(after)), number(ratio(min(after), min(before))),
-              number(ratio(statistics.median(after), statistics.median(before))), per_round]))
+        print("\t".join([archive, "sha --sink" if mode == "sink" else mode, str(len(available)),
+              number(base_best), number(base_median), number(branch_best), number(branch_median),
+              number(ratio(branch_best, base_best)), number(ratio(branch_median, base_median)),
+              per_round]))
     for archive in sorted(mismatches):
         print("MISMATCH\t{}\ttiming skipped".format(archive))
     if failures:
@@ -310,7 +328,8 @@ def main():
     parser.add_argument("--manifest", help="make-corpus.sh manifest.json")
     parser.add_argument("--out", help="resumable JSONL output")
     parser.add_argument("--summary", metavar="JSONL", help="print paired best / median / round ratios")
-    parser.add_argument("--metric", choices=("wall", "user", "sys", "max_rss"), default="wall")
+    parser.add_argument("--metric", choices=("wall", "user", "sys", "max_rss", "instructions",
+                                           "cycles", "peak_footprint"), default="wall")
     args = parser.parse_args()
     if not args.summary:
         if not args.base or (not args.branch and not args.same) or not args.manifest or not args.out:

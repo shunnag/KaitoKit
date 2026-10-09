@@ -54,17 +54,22 @@ python3 Tests/Measurement/decode-ab/ab.py --summary /tmp/kaito-decode-ab.jsonl -
 通常の `sha` の stdout と終了コードを先に照合する。不一致の書庫は timing を止め、JSONL に記録する。
 各 mode を既定 5 round、base→branch / branch→base と交互に実行する。
 各 round の前に書庫全体を読んで warm にし、各 sample は別 process の `/usr/bin/time -l` で
-wall / user / sys（秒）と max RSS（bytes）を測る。stdout は `/dev/null` に送る。
+user / sys（秒）と max RSS（bytes）を測る。wall は `perf_counter` の経過時間（秒）を使い、
+10 ms 単位の `time -l` real は `wall_time_l` に残す。取得できる場合は `instructions`・`cycles`（数）と
+`peak_footprint`（bytes）も記録し、取得できなければ `null` とする。stdout は `/dev/null` に送る。
+sample の stderr 全文は終了コードが 0 以外の場合だけ保存する。
 起動・metadata 解析・標準出力の整形・decoder の CRC 検証は時間に含む。
 
 JSONL の先頭は machine 情報・toolchain・指定 revision・binary / manifest の digest。
 同じ引数で再実行すると保存済み sample を飛ばす。`--rounds` を増やして続けられる。
 不一致や失敗をやり直す場合、条件を変える場合は新しい `--out` を使う。
 summary は両側が成功した round だけの best / median と branch/base・各 round の比を表示する。
-`time -l` の 0.00 秒への丸めで分母が 0 なら比は `n/a`。実測には十分大きい corpus を使う。
+`--metric instructions|cycles|peak_footprint` も選べる。値が無い round は対比較から除き、比は `n/a`。
+user / sys の丸めなどで分母が 0 の場合も比は `n/a`。wall に `time -l` real を使った旧 JSONL と混ぜず、
+新しい `--out` を使う。実測には十分大きい corpus を使う。
 
-sandbox が `time -l` の `sysctl kern.clockrate` を拒否する場合だけ、`perf_counter` / `wait4` に
-切り替え、その理由と計測元を記録する。機械情報の取得失敗も残す。
+sandbox が `time -l` の `sysctl kern.clockrate` を拒否する場合だけ、user / sys / max RSS を
+`wait4` に切り替え、その理由と計測元を記録する。機械情報の取得失敗も残す。
 この代替は smoke の確認に使い、本計測は sandbox 外で行う。異なる計測元の結果を混ぜない。
 
 計測中は build・test・他の処理を止め、電源・温度条件を揃える。

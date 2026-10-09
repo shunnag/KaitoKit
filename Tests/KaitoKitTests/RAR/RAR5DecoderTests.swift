@@ -47,6 +47,119 @@ final class RAR5DecoderTests: XCTestCase {
         }
     }
 
+    func testNonSolidMatchesBeforeOutputKeepTheOriginalError() throws {
+        // A fresh non-solid decoder has no history: the old zero-filled ring
+        // rejects this token instead of emitting zeros. Keep its exact error,
+        // including the declared window, when the retained window is smaller.
+        var bits = RAR5DecoderBitWriter()
+        for index in 0..<20 { bits.append(index < 2 ? 1 : 0, count: 4) }
+        for index in 0..<430 {
+            bits.append(index == 262 || index == 306 ? 1 : 0, count: 1)
+        }
+        bits.append(0, count: 1) // length two
+        bits.append(0, count: 1) // distance one, before any literal
+        let packed = makeRawBlock(
+            payload: bits.bytes, validBitCount: bits.validBitsInFinalByte,
+            includesTables: true, isLast: true
+        )
+        for dictionary in [128 * 1_024, 4 * 1_024 * 1_024] {
+            for size: UInt64? in [2, nil] {
+                let decoder = try RAR5Decoder(
+                    source: DataByteSource(data: packed), offset: 0,
+                    compressedSize: UInt64(packed.count), expectedSize: size,
+                    dictionarySize: UInt64(dictionary), limits: ReadLimits()
+                )
+                let expected = size.map(String.init) ?? "unknown"
+                for _ in 0..<2 {
+                    XCTAssertThrowsError(try drain(decoder, bufferSize: 1)) {
+                        XCTAssertEqual($0 as? KaitoError, .malformed(
+                            "RAR5 invalid LZ match at output 0: distance 1, length 2, window \(dictionary), expected \(expected)"
+                        ))
+                    }
+                    XCTAssertFalse(decoder.isFinished)
+                }
+            }
+        }
+    }
+
+    func testManyTinyNonSolidEntriesWithLargeDeclaredDictionaries() throws {
+        var files: [Data] = []
+        var expected: [Data] = []
+        for index in 0..<128 {
+            let size = 1 + (index * 7_919) % 16_384
+            let payload = Data(repeating: UInt8(index), count: size)
+            let packed = makeLiteralBlock(
+                byte: UInt8(index), count: size, includesTables: true, isLast: true
+            )
+            expected.append(payload)
+            files.append(RAR5TestSupport.storedFile(
+                name: "entry-\(index).bin", contents: packed,
+                unpackedSize: UInt64(size), dataCRC32: CRC32.checksum(payload),
+                compressionInfo: (3 << 7) | (5 << 10) // method 3, 4 MiB
+            ))
+        }
+        let reader = try ArchiveReader.open(data: RAR5TestSupport.archive(blocks: files))
+        XCTAssertEqual(reader.entries.count, expected.count)
+        XCTAssertTrue(reader.entries.allSatisfy { $0.solidGroup == -1 })
+        for index in expected.indices {
+            XCTAssertEqual(try reader.read(reader.entries[index]), expected[index])
+        }
+        // Independent entry streams must remain usable when their reads overlap.
+        let first = try reader.stream(reader.entries[0])
+        let last = try reader.stream(reader.entries[127])
+        XCTAssertEqual(try KaitoKitTests.drain(last, bufferSize: 7), expected[127])
+        XCTAssertEqual(try KaitoKitTests.drain(first, bufferSize: 1), expected[0])
+    }
+
+    func testKnownOutputAndFullWindowDecodeIdenticallyAtPowerOfTwoBoundaries() throws {
+        for size in [131_071, 131_072, 131_073, 262_143, 262_144, 262_145] {
+            let packed = makeLiteralBlock(
+                byte: 65, count: size, includesTables: true, isLast: true
+            )
+            let expected = Data(repeating: 65, count: size)
+            for knownSize: UInt64? in [UInt64(size), nil] {
+                let decoder = try RAR5Decoder(
+                    source: DataByteSource(data: packed), offset: 0,
+                    compressedSize: UInt64(packed.count), expectedSize: knownSize,
+                    dictionarySize: 4 * 1_024 * 1_024, limits: ReadLimits()
+                )
+                XCTAssertEqual(try drain(decoder, bufferSize: 8_191), expected)
+            }
+        }
+        let matches = makeSyntheticSolidStateBlocks().first
+        for knownSize: UInt64? in [22, nil] {
+            let decoder = try RAR5Decoder(
+                source: DataByteSource(data: matches), offset: 0,
+                compressedSize: UInt64(matches.count), expectedSize: knownSize,
+                dictionarySize: 4 * 1_024 * 1_024, limits: ReadLimits()
+            )
+            XCTAssertEqual(try drain(decoder, bufferSize: 1), Data("ABCDEFGHHHQRQRSTRSUVRS".utf8))
+        }
+    }
+
+    func testTinyEntryStillChecksDeclaredDictionaryLimitAndGrammar() throws {
+        let packed = makeLiteralBlock(byte: 65, count: 1, includesTables: true, isLast: true)
+        XCTAssertThrowsError(try RAR5Decoder(
+            source: DataByteSource(data: packed), offset: 0,
+            compressedSize: UInt64(packed.count), expectedSize: 1,
+            dictionarySize: 4 * 1_024 * 1_024,
+            limits: ReadLimits(maxDictionarySize: 128 * 1_024)
+        )) { error in
+            guard case .limitExceeded = error as? KaitoError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+        XCTAssertThrowsError(try RAR5Decoder(
+            source: DataByteSource(data: packed), offset: 0,
+            compressedSize: UInt64(packed.count), expectedSize: 1,
+            dictionarySize: 192 * 1_024, limits: ReadLimits()
+        )) { error in
+            XCTAssertEqual(error as? KaitoError, .unsupportedMethod(
+                "RAR5 decoder requires a power-of-two dictionary"
+            ))
+        }
+    }
+
     func testLiteralBlocksStreamThroughOneByteReadsAndReuseTables() throws {
         let firstCount = 257
         let secondCount = 513
@@ -247,7 +360,7 @@ final class RAR5DecoderTests: XCTestCase {
                 )
             }
             // Rebuilding must erase the earlier short code from the primary
-            // table. Codes longer than ten bits use the full fallback.
+            // table. Codes longer than ten bits use canonical decoding.
             let prefix = makeLiteralBlock(
                 byte: 65, count: 1, includesTables: true, isLast: false
             )

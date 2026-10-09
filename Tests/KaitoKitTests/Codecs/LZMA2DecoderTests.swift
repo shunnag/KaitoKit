@@ -14,6 +14,32 @@ final class LZMA2DecoderTests: XCTestCase {
         XCTAssertTrue(decoder.isFinished)
     }
 
+    func testPropertyResetsGrowAndShrinkTheActiveLiteralModels() throws {
+        // 7zz 26.04 generated the lc=4 (0x5e) vector with
+        // -m0=LZMA2:lc=4:lp=0:pb=2:d=64k -ms=off -mhc=off.
+        let vectors = [
+            try Hex.data("e00011000800003099abddc0cb070000"), // lc=0
+            try Hex.data("e0001100085d00309888aa0207d00000"), // lc=3
+            try Hex.data("e0001100085e00309888aa0207d00000"), // lc=4
+        ]
+        var stream = Data()
+        var expected = Data()
+        let payload = Data("abcabcabcabcabcabc".utf8)
+        for index in [0, 2, 1, 0, 1, 2, 0] {
+            // Dictionary resets make each independently generated range stream
+            // valid. Models must also reset to the newly active property count.
+            stream.append(vectors[index].dropLast())
+            expected.append(payload)
+        }
+        stream.append(0)
+        for size in [1, 7, 128] {
+            XCTAssertEqual(
+                try drain(makeDecoder(stream, expectedSize: UInt64(expected.count)), bufferSize: size),
+                expected
+            )
+        }
+    }
+
     func testUncompressedChunks() throws {
         let stream = try Hex.data(
             "010002616263" + // dictionary reset: abc

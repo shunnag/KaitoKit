@@ -116,7 +116,9 @@ public final class LZMADecoder: Decompressor {
             configuration: configuration,
             retainedDictionarySize: retainedDictionarySize,
             expectedSize: expectedSize,
-            literalProbabilityCapacity: literalCount
+            literalProbabilityCapacity: literalCount,
+            inputBufferCapacity: Int(min(UInt64(Self.inputBufferSize), max(1, compressedSize))),
+            initializeProbabilities: true
         )
 
         // 既知サイズ 0 でも range-coder 初期値を読み、空または切れた入力を受理しない。
@@ -135,7 +137,9 @@ public final class LZMADecoder: Decompressor {
         configuration: LZMAProperties,
         retainedDictionarySize: UInt64,
         expectedSize: UInt64?,
-        literalProbabilityCapacity: Int
+        literalProbabilityCapacity: Int,
+        inputBufferCapacity: Int,
+        initializeProbabilities: Bool
     ) throws {
         let dictionaryCount = try Checked.toInt(retainedDictionarySize)
         guard dictionaryCount > 0 else {
@@ -165,7 +169,7 @@ public final class LZMADecoder: Decompressor {
             free(dictionaryRaw)
             throw KaitoError.limitExceeded("unable to allocate LZMA probability models")
         }
-        let inputAllocationSize = Self.inputBufferSize &+ Self.maximumBytesPerSymbol
+        let inputAllocationSize = inputBufferCapacity &+ Self.maximumBytesPerSymbol
         guard let inputRaw = malloc(inputAllocationSize) else {
             free(probabilityRaw)
             free(dictionaryRaw)
@@ -196,13 +200,16 @@ public final class LZMADecoder: Decompressor {
             to: UInt64.self,
             capacity: Self.matchBatchCapacity
         )
-        dictionaryPointer.initialize(repeating: 0, count: dictionaryCount)
-        probabilityPointer.initialize(
-            repeating: Self.probabilityInitialValue,
-            count: probabilityCount
-        )
-        inputPointer.initialize(repeating: 0, count: inputAllocationSize)
-        matchBatchPointer.initialize(repeating: 0, count: Self.matchBatchCapacity)
+        // History references are checked against dictionaryBytesAvailable;
+        // range input is written and its 64-byte sentinel cleared by refill;
+        // match-batch entries are written before the returned count exposes them.
+        // These trivial raw buffers do not need eager initialization.
+        if initializeProbabilities {
+            probabilityPointer.initialize(
+                repeating: Self.probabilityInitialValue,
+                count: probabilityCount
+            )
+        }
 
         self.rangeDecoder = nil
         self.expectedSize = expectedSize
@@ -233,7 +240,8 @@ public final class LZMADecoder: Decompressor {
     convenience init(
         lzma2DictionarySize: UInt64,
         expectedSize: UInt64?,
-        dictionarySizeLimit: UInt64
+        dictionarySizeLimit: UInt64,
+        compressedSizeHint: UInt64? = nil
     ) throws {
         try Checked.size(lzma2DictionarySize, limit: dictionarySizeLimit)
         let retainedDictionarySize: UInt64
@@ -253,26 +261,29 @@ public final class LZMADecoder: Decompressor {
             configuration: defaultConfiguration,
             retainedDictionarySize: retainedDictionarySize,
             expectedSize: nil,
-            literalProbabilityCapacity: Self.maximumLZMA2LiteralProbabilities
+            literalProbabilityCapacity: Self.maximumLZMA2LiteralProbabilities,
+            inputBufferCapacity: Int(min(
+                LZMA2ChunkHeader.maximumPackedChunkSize,
+                max(1, compressedSizeHint ?? LZMA2ChunkHeader.maximumPackedChunkSize)
+            )),
+            // The first compressed LZMA2 chunk must reset coding state. Raw
+            // chunks do not consult probabilities, so initialize only on reset.
+            initializeProbabilities: false
         )
         finished = true
     }
 
     deinit {
         if let base = probabilities.baseAddress {
-            base.deinitialize(count: probabilities.count)
             free(UnsafeMutableRawPointer(base))
         }
         if let base = dictionary.baseAddress {
-            base.deinitialize(count: dictionary.count)
             free(UnsafeMutableRawPointer(base))
         }
         if let base = inputStorage.baseAddress {
-            base.deinitialize(count: inputStorage.count)
             free(UnsafeMutableRawPointer(base))
         }
         if let base = matchBatchStorage.baseAddress {
-            base.deinitialize(count: matchBatchStorage.count)
             free(UnsafeMutableRawPointer(base))
         }
     }
@@ -828,7 +839,11 @@ public final class LZMADecoder: Decompressor {
     private func resetCodingState() {
         probabilities.baseAddress?.update(
             repeating: Self.probabilityInitialValue,
-            count: probabilities.count
+            // Properties can change only with a coding-state reset. Initialize
+            // every model active under the new properties, including newly
+            // activated contexts, without touching the unused literal tail.
+            count: LZMAProbabilityOffset.literals
+                + (LZMAProperties.literalCoderSize << (literalContextBits + literalPositionBits))
         )
         state = 0
         rep0 = 0

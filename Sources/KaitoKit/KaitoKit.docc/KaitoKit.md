@@ -28,6 +28,7 @@ over the same input. Existing XADMaster-shaped call sites can import the separat
 ### Configuration
 
 - ``ReaderOptions``
+- ``DecodePowerPolicy``
 - ``ReadLimits``
 - ``EncodingPolicy``
 - ``ExtractionOptions``

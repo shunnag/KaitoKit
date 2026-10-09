@@ -80,6 +80,7 @@ var limits = ReadLimits()
 limits.maxEntrySize = 2 * 1_024 * 1_024 * 1_024
 limits.maxTotalUncompressedSize = 16 * 1_024 * 1_024 * 1_024
 limits.maxInMemorySize = 256 * 1_024 * 1_024
+limits.parallelDecodeMemory = 512 * 1_024 * 1_024
 
 let configured = try ArchiveReader.open(
     url: url,
@@ -91,6 +92,27 @@ let workerReader = try configured.reopen()
 An `ArchiveReader` and an `EntryStream` are stateful and not thread-safe. Give each actor or worker
 its own reopened reader. Entries with the same nonnegative `solidGroup` belong to one dependency
 group; `-1` identifies an independent entry.
+
+XZ and bzip2 streams, including compressed-tar staging, decode in parallel automatically.
+``ReaderOptions/decodeThreads`` defaults to `nil`: active logical CPUs are limited by the number of
+whole GiB of physical memory (at least one). ``DecodePowerPolicy/reduceInLowPowerMode`` is the
+default: Low Power Mode reduces the request to the smaller of half the active CPUs, rounded up,
+and the lowest performance level's logical CPU count when there are multiple levels.
+``DecodePowerPolicy/reduceInLowPowerModeOrThermalPressure`` also reduces it at serious or critical
+thermal pressure; ``DecodePowerPolicy/alwaysUseAllCores`` skips the power and thermal reduction.
+The reader takes one snapshot at open and carries it through `reopen()`.
+
+Set `decodeThreads` explicitly to request a count independent of the power policy. Values outside
+``ReaderOptions/decodeThreadsRange`` (`1...1024`) are clamped on initialization and assignment;
+automatic requests have no fixed core-count cap. ``ReaderOptions/automaticDecodeThreads(powerPolicy:)``
+returns the current automatic request for display in a UI.
+
+``ReadLimits/parallelDecodeMemory`` defaults to `nil`, meaning 50% of physical memory per decoder.
+Each decoder limits its in-flight jobs and scratch reservations to this budget and falls back to
+serial decoding when parallel work does not fit. Dictionary allocations remain governed by
+`maxDictionarySize`. Running leaf jobs across all readers share one process-wide pool bounded by
+active logical CPUs; larger requests queue. Thread counts preserve output bytes and errors are
+reported in stream order.
 
 For a stable local single file, `Data(contentsOf:options:.mappedIfSafe)` can avoid an eager copy.
 Prefer URL opening for multi-volume RAR, and use streaming rather than mapped output for large

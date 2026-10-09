@@ -5,11 +5,14 @@ func runList(_ arguments: [String]) throws {
     var path: String?
     var printRaw = false
     var password: String?
+    var threads = DecodeThreadsArgument()
     var cursor = ArgumentCursor(arguments)
     while let argument = cursor.next() {
         if argument == "--raw" {
             guard !printRaw else { throw CLIError.usage(usage) }
             printRaw = true
+        } else if argument == "--threads" {
+            try threads.parse(from: &cursor)
         } else if argument == "-p" {
             password = try cursor.value(unlessSet: password)
         } else if path == nil {
@@ -21,7 +24,7 @@ func runList(_ arguments: [String]) throws {
     }
     guard let path else { throw CLIError.usage(usage) }
 
-    let reader = try openArchive(path, password: password)
+    let reader = try openArchive(path, password: password, decodeThreads: threads.value)
     for entry in reader.entries {
         let size = entry.uncompressedSize.map { String($0) } ?? "-"
         let encryption = entry.formatSpecific["encryption"].flatMap {

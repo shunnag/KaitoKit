@@ -17,10 +17,10 @@ let usage = """
 usage:
   kaito detect <archive>
   kaito \(detectEncodingUsage)
-  kaito list <archive> [--raw] [-p <password>]
-  kaito extract <archive> -o <directory> [-p <password>]
-  kaito sha <archive> [--forks] [-p <password>]
-  kaito bench [--data] [--random] <archive> [reps] [-p <password>]
+  kaito list <archive> [--raw] [-p <password>] [--threads <N|auto>]
+  kaito extract <archive> -o <directory> [-p <password>] [--threads <N|auto>]
+  kaito sha <archive> [--forks] [-p <password>] [--threads <N|auto>]
+  kaito bench [--data] [--random] <archive> [reps] [-p <password>] [--threads <N|auto>]
 """
 
 func hexadecimal<S: Sequence>(_ bytes: S) -> String where S.Element == UInt8 {
@@ -53,8 +53,8 @@ func oneLine(_ value: String) -> String {
     return result
 }
 
-func openArchive(_ path: String, password: String? = nil) throws -> ArchiveReader {
-    var options = ReaderOptions(password: password)
+func openArchive(_ path: String, password: String? = nil, decodeThreads: Int? = nil) throws -> ArchiveReader {
+    var options = ReaderOptions(password: password, decodeThreads: decodeThreads)
     options.recordsSevenZipEditLayout = environmentFlag("KAITOKIT_BENCH_7Z_EDIT_LAYOUT")
     options.recordsTarEditLayout = environmentFlag("KAITOKIT_BENCH_TAR_EDIT_LAYOUT")
     return try ArchiveReader.open(

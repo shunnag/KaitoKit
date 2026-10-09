@@ -1,3 +1,5 @@
+import KaitoKit
+
 /// サブコマンドの引数を先頭から順に読む。
 ///
 /// flag の重複や位置引数の数の検査はコマンドごとに異なるため、呼出側が行う。
@@ -22,5 +24,23 @@ struct ArgumentCursor {
     mutating func value(unlessSet current: String?) throws -> String {
         guard current == nil, let value = next() else { throw CLIError.usage(usage) }
         return value
+    }
+}
+
+/// auto を含め、--threads の重複・範囲外を全コマンドで同じ規則で拒否する。
+struct DecodeThreadsArgument {
+    private var supplied: String?
+    private(set) var value: Int?
+
+    mutating func parse(from cursor: inout ArgumentCursor) throws {
+        let text = try cursor.value(unlessSet: supplied)
+        if text == "auto" { value = nil }
+        else {
+            guard let count = Int(text), ReaderOptions.decodeThreadsRange.contains(count) else {
+                throw CLIError.usage("threads must be auto or between 1 and 1024\n\(usage)")
+            }
+            value = count
+        }
+        supplied = text
     }
 }

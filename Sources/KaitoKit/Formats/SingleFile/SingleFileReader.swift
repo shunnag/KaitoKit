@@ -7,6 +7,7 @@ final class SingleFileReader: FormatReader {
     let nameEncoding: String.Encoding?
 
     private let source: any ByteSource
+    private let decodeThreads: Int
     private var gzipHeaderLength: UInt64?
 
     var tarSpliceGzipHeaderLength: UInt64? { gzipHeaderLength }
@@ -25,6 +26,7 @@ final class SingleFileReader: FormatReader {
             throw KaitoError.limitExceeded("archive entry count")
         }
         self.source = source
+        self.decodeThreads = options.resolvedDecodeThreads
         self.format = format
 
         var storedName = Self.fallbackName(fallbackFileName, format: format)
@@ -121,7 +123,7 @@ final class SingleFileReader: FormatReader {
             throw KaitoError.notFound("single-file entry index \(entry.index)")
         }
         return try EntryStream(
-            decompressor: Self.makeDecompressor(format: format, source: source, limits: limits),
+            decompressor: makeStreamDecompressor(limits: limits),
             length: entry.uncompressedSize,
             expectedCRC32: nil,
             entryIndex: 0,
@@ -131,17 +133,19 @@ final class SingleFileReader: FormatReader {
 
     func stagingStream(limits: ReadLimits, recorder: CompressedTarMapRecorder?) throws -> EntryStream {
         if let gzipHeaderLength { recorder?.prepareGzip(headerLength: gzipHeaderLength) }
-        let decoder: any Decompressor
-        if format == .bzip2 {
-            decoder = try ParallelBzip2Decompressor(source: source, recorder: recorder)
-        } else if format == .xz {
-            decoder = try ParallelXZDecompressor(source: source, limits: limits, recorder: recorder)
-        } else {
-            decoder = try Self.makeDecompressor(format: format, source: source, limits: limits, recorder: recorder)
-        }
         return try EntryStream(
-            decompressor: decoder,
+            decompressor: makeStreamDecompressor(limits: limits, recorder: recorder),
             length: entries[0].uncompressedSize, expectedCRC32: nil, entryIndex: 0, limits: limits)
+    }
+
+    private func makeStreamDecompressor(limits: ReadLimits, recorder: CompressedTarMapRecorder? = nil) throws -> any Decompressor {
+        if format == .bzip2 {
+            return try ParallelBzip2Decompressor(source: source, limits: limits, recorder: recorder, workers: decodeThreads)
+        } else if format == .xz {
+            return try ParallelXZDecompressor(source: source, limits: limits, recorder: recorder, workers: decodeThreads)
+        } else {
+            return try Self.makeDecompressor(format: format, source: source, limits: limits, recorder: recorder)
+        }
     }
 
     static func makeDecompressor(

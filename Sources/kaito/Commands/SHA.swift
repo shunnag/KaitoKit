@@ -37,12 +37,15 @@ private func entrySHA256(
 func runSHA(_ arguments: [String]) throws {
     var path: String?
     var password: String?
+    var threads = DecodeThreadsArgument()
     var allForks = false
     var cursor = ArgumentCursor(arguments)
     while let argument = cursor.next() {
         // --forks は重複しても受け付ける。
         if argument == "--forks" {
             allForks = true
+        } else if argument == "--threads" {
+            try threads.parse(from: &cursor)
         } else if argument == "-p" {
             password = try cursor.value(unlessSet: password)
         } else {
@@ -53,7 +56,7 @@ func runSHA(_ arguments: [String]) throws {
         }
     }
     guard let path else { throw CLIError.usage(usage) }
-    let reader = try openArchive(path, password: password)
+    let reader = try openArchive(path, password: password, decodeThreads: threads.value)
     var total = SHA256()
     // Hash incrementally so `sha` does not allocate each complete entry and
     // traverse it again after decompression. Reuse one buffer for the archive.

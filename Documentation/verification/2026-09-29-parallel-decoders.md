@@ -1,5 +1,9 @@
 # 2026-09-29 圧縮 tar の staging の並列復号（xz block 並列、bzip2 block 単位）の検証記録（KaitoKit）
 
+2026-10-10 P1 / D1 で単独 `.xz` / `.bz2` stream にも適用し、固定 8 worker / 512 MiB 上限を
+CPU 構成・電力方針・物理メモリからの自動値と process 共通 leaf pool に置き換えた。
+以下の計測と「残る手」は 2026-09-29 時点の記録。現在の設定は [組み込み](../embedding.md#組み込みの注意) を参照。
+
 KaitoAccelLab（GPU / NPU の検証、https://github.com/shunnag/KaitoAccelLab）が「CPU 側に残る伸びしろ」として挙げた項目を本流で検証し実現した記録。
 方針は Fable advisor と相談して決め、実装は Codex（worktree ごとに独立 thread）、計測・審査・文書は orchestrator。
 

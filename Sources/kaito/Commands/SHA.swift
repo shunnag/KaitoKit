@@ -5,20 +5,21 @@ import KaitoKit
 private func entrySHA256(
     _ entry: ArchiveEntry,
     reader: ArchiveReader,
-    buffer: inout [UInt8]
-) throws -> (byteCount: UInt64, digest: SHA256.Digest) {
+    buffer: inout [UInt8],
+    sink: Bool
+) throws -> (byteCount: UInt64, digest: SHA256.Digest?) {
     guard entry.kind != .directory else {
-        return (0, SHA256.hash(data: Data()))
+        return (0, sink ? nil : SHA256.hash(data: Data()))
     }
 
     let stream = try reader.stream(entry)
     var byteCount: UInt64 = 0
-    var digest = SHA256()
+    var digest = sink ? nil : SHA256()
     while true {
         let count = try buffer.withUnsafeMutableBytes { storage -> Int in
             let count = try stream.read(into: storage)
             if count > 0 {
-                digest.update(
+                digest?.update(
                     bufferPointer: UnsafeRawBufferPointer(rebasing: storage[..<count])
                 )
             }
@@ -31,18 +32,21 @@ private func entrySHA256(
         }
         byteCount = nextCount.partialValue
     }
-    return (byteCount, digest.finalize())
+    return (byteCount, digest?.finalize())
 }
 
 func runSHA(_ arguments: [String]) throws {
     var path: String?
     var password: String?
     var allForks = false
+    var sink = false
     var cursor = ArgumentCursor(arguments)
     while let argument = cursor.next() {
         // --forks は重複しても受け付ける。
         if argument == "--forks" {
             allForks = true
+        } else if argument == "--sink" {
+            sink = true
         } else if argument == "-p" {
             password = try cursor.value(unlessSet: password)
         } else {
@@ -54,7 +58,8 @@ func runSHA(_ arguments: [String]) throws {
     }
     guard let path else { throw CLIError.usage(usage) }
     let reader = try openArchive(path, password: password)
-    var total = SHA256()
+    var total = sink ? nil : SHA256()
+    var totalBytes: UInt64 = 0
     // Hash incrementally so `sha` does not allocate each complete entry and
     // traverse it again after decompression. Reuse one buffer for the archive.
     var buffer = [UInt8](repeating: 0, count: 4 * 1_024 * 1_024)
@@ -68,8 +73,8 @@ func runSHA(_ arguments: [String]) throws {
     for entry in reader.entries {
         do {
             let resourceView = stuffItFamily && !allForks && entry.formatSpecific["fork"] == "resource"
-            let result = resourceView ? (byteCount: UInt64(0), digest: SHA256.hash(data: Data()))
-                : try entrySHA256(entry, reader: reader, buffer: &buffer)
+            let result = resourceView ? (byteCount: UInt64(0), digest: sink ? nil : SHA256.hash(data: Data()))
+                : try entrySHA256(entry, reader: reader, buffer: &buffer, sink: sink)
             var name = entry.name
             if stuffItFamily {
                 name = entry.pathComponents.joined(separator: "/")
@@ -80,9 +85,18 @@ func runSHA(_ arguments: [String]) throws {
                     name = components.joined(separator: "/")
                 }
             }
-            let digestText = hexadecimal(result.digest)
-            total.update(data: Data(digestText.utf8))
-            print("\(stuffItFamily ? rows : entry.index)\t\(result.byteCount)\t\(digestText)\t\(oneLine(name))")
+            if let digest = result.digest {
+                let digestText = hexadecimal(digest)
+                total?.update(data: Data(digestText.utf8))
+                print("\(stuffItFamily ? rows : entry.index)\t\(result.byteCount)\t\(digestText)\t\(oneLine(name))")
+            } else {
+                let nextTotal = totalBytes.addingReportingOverflow(result.byteCount)
+                guard !nextTotal.overflow else {
+                    throw KaitoError.limitExceeded("SHA-256 byte count")
+                }
+                totalBytes = nextTotal.partialValue
+                print("\(stuffItFamily ? rows : entry.index)\t\(result.byteCount)\t\(oneLine(name))")
+            }
             rows += 1
         } catch {
             failures += 1
@@ -94,7 +108,7 @@ func runSHA(_ arguments: [String]) throws {
     }
 
     // 欠落した member がある場合、完全な archive digest と誤認させない。
-    let totalText = hexadecimal(total.finalize())
+    let totalText = total.map { hexadecimal($0.finalize()) } ?? String(totalBytes)
     if failures > 0 {
         print("partial\t\(rows)\t\(totalText)\t")
         throw EntryFailures(count: failures)

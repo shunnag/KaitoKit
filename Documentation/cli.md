@@ -37,6 +37,7 @@ $ swift run kaito list samples/book.zip --raw
 $ swift run kaito list samples/book-encrypted.7z -p secret
 $ swift run kaito extract samples/book.tar -o /tmp/book
 $ swift run kaito sha samples/book.tar
+$ swift run kaito sha --sink samples/book.tar
 $ swift run kaito sha samples/book-encrypted.7z -p secret
 $ swift run kaito bench samples/book.tar 5
 $ swift run kaito bench --data samples/book.tar 5
@@ -57,6 +58,12 @@ filename は一つの path に組み立て、0xFF directory 区切りは `/` に
 固定 seed で選んだ最大 20 件の非ディレクトリエントリをランダム順に読み、solid 書庫の
 後方シークを含むアクセスを再現可能な条件で計測します。表示する `bytes` は選択した
 エントリの合計です。
+
+`sha --sink` は同じ走査・逐次復号を行い、SHA-256 を計算せず byte 数だけを出力します。
+entry 行は `index<TAB>bytes<TAB>name`、末尾は `total<TAB>rows<TAB>bytes<TAB>` です。
+失敗行と終了コードは通常の `sha` と同じで、末尾の `partial` は成功 entry の byte 数だけを集計します。
+`--forks`・`-p` も併用できます。[decode の A/B 計測](../Tests/Measurement/decode-ab/README.md)で
+通常の `sha` による一致確認、`list` / `sha --sink` の交互計測を行います。
 
 StuffIt / StuffIt X の `list` は末尾に `fork=data` / `fork=resource` を追加します。
 StuffIt X は `solid=<stream ID>`（独立 fork は `-1`）も表示します。
@@ -108,6 +115,11 @@ RAR5 は先頭127 Unicode scalars の UTF-8 を優先し、有効な password �
 > entries chosen with a fixed seed, in random order, so that access patterns including backward seeks
 > in a solid archive are measured reproducibly. The reported `bytes` is the total of the selected
 > entries.
+>
+> `sha --sink` performs the same traversal and streaming decode without computing SHA-256.
+> Entry rows are `index<TAB>bytes<TAB>name`; the final row is `total<TAB>rows<TAB>bytes<TAB>`.
+> Failures retain the usual error rows and exit status, with a `partial` counting only successful
+> bytes. `--forks` and `-p` also apply. See the [decode A/B harness](../Tests/Measurement/decode-ab/README.md).
 >
 > `bench` times only the in-process open and extract, repeated and reported as a median; process
 > startup, SHA-256 and standard output are excluded. `swift run` also includes SwiftPM planning and

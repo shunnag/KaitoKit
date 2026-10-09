@@ -19,7 +19,7 @@ usage:
   kaito \(detectEncodingUsage)
   kaito list <archive> [--raw] [-p <password>]
   kaito extract <archive> -o <directory> [-p <password>]
-  kaito sha <archive> [--forks] [-p <password>]
+  kaito sha <archive> [--sink] [--forks] [-p <password>]
   kaito bench [--data] [--random] <archive> [reps] [-p <password>]
 """
 

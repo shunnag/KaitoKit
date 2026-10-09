@@ -558,6 +558,22 @@ final class CLISmokeTests: XCTestCase {
         XCTAssertEqual(lines[0], "0\t\(contents.count)\t\(digest)\tlarge.bin")
     }
 
+    func testSHASinkCountsBytesAcrossReusableBufferBoundary() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let archive = temporary.appendingPathComponent("cli-sink.tar")
+        let contents = Data(repeating: 0xA5, count: 4 * 1_024 * 1_024 + 17)
+        try TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "dir/", type: 0x35),
+            HandTarEntry(name: "dir/large.bin", contents: contents),
+            HandTarEntry(name: "empty", contents: Data()),
+        ]).write(to: archive)
+
+        let expected = "0\t0\tdir/\n1\t\(contents.count)\tdir/large.bin\n2\t0\tempty\ntotal\t3\t\(contents.count)\t\n"
+        XCTAssertEqual(try KaitoCLI.run(["sha", "--sink", archive.path]), expected)
+        XCTAssertEqual(try KaitoCLI.run(["sha", archive.path, "--sink"]), expected)
+    }
+
     // MARK: - bench
 
     func testBenchSupportsMappedDataAndLegacyArgumentOrder() throws {
@@ -702,6 +718,11 @@ final class CLISmokeTests: XCTestCase {
         XCTAssertTrue(hashes[0].hasSuffix("\t\(name)"))
         XCTAssertTrue(hashes[1].hasPrefix("total\t1\t"))
 
+        XCTAssertEqual(
+            try KaitoCLI.run(["sha", "--sink", archive.path, "-p", password]),
+            "0\t\(contents.count)\t\(name)\ntotal\t1\t\(contents.count)\t\n"
+        )
+
         let benchmark = try KaitoCLI.run(
             ["bench", "-p", password, "--data", archive.path, "1"]
         ).split(separator: "\n")
@@ -792,7 +813,7 @@ final class CLISmokeTests: XCTestCase {
             HandLHAEntry(name: "dir", method: "-lhd-", headerLevel: 2, permissions: 0o500),
         ]).write(to: archive)
         let output = temporary.appendingPathComponent("output")
-        for arguments in [["sha", archive.path], ["extract", archive.path, "-o", output.path]] {
+        for arguments in [["sha", archive.path], ["sha", "--sink", archive.path], ["extract", archive.path, "-o", output.path]] {
             let process = Process()
             let stdout = Pipe()
             let stderr = Pipe()
@@ -813,6 +834,10 @@ final class CLISmokeTests: XCTestCase {
                 XCTAssertTrue(text.contains("partial\t2\t"))
                 XCTAssertTrue(text.contains("0\tERROR\t"))
                 XCTAssertFalse(text.contains("total\t"))
+                if arguments.contains("--sink") {
+                    XCTAssertTrue(text.contains("1\t\(payload.count)\tdir/good.txt\n"))
+                    XCTAssertTrue(text.contains("partial\t2\t\(payload.count)\t\n"))
+                }
             }
         }
         XCTAssertEqual(try Data(contentsOf: output.appendingPathComponent("dir/good.txt")), payload)

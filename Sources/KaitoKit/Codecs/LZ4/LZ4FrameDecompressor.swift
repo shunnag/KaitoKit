@@ -22,8 +22,8 @@ final class LZ4FrameDecompressor: Decompressor {
     private var produced: UInt64 = 0
     private var frameProduced: UInt64 = 0
     private var checksum = XXH32()
-    private var history: [UInt8] = []
-    private var pending: [UInt8] = []
+    private let decoded = LZ4BlockBuffer()
+    private var encoded: [UInt8] = []
     private var pendingOffset = 0
     private var sawFrame = false
     private var terminalError: (any Error)?
@@ -62,9 +62,9 @@ final class LZ4FrameDecompressor: Decompressor {
         if let terminalError { throw terminalError }
         guard !buffer.isEmpty, !isFinished else { return 0 }
         do {
-            while pendingOffset == pending.count {
+            while pendingOffset == decoded.outputCount {
                 try Task.checkCancellation()
-                pending.removeAll(keepingCapacity: false)
+                decoded.finishBlock(keepHistory: header?.independent == false)
                 pendingOffset = 0
                 if let header {
                     let word = try input.integer(4)
@@ -76,40 +76,32 @@ final class LZ4FrameDecompressor: Decompressor {
                             throw KaitoError.malformed("LZ4 frame content size mismatch")
                         }
                         self.header = nil
-                        history.removeAll(keepingCapacity: false)
+                        decoded.reset()
                         continue
                     }
                     try Self.charge(&blockCount, limits: limits)
                     let count = try header.blockSize(word)
-                    let encoded = try input.read(count)
+                    try input.read(count, into: &encoded)
                     if header.blockChecksum, try input.integer(4) != UInt64(XXH32.digest(encoded)) {
                         throw KaitoError.checksumMismatch(entry: 0)
                     }
                     let remaining = limits.maxEntrySize - produced
                     let maximum = Int(min(UInt64(header.maximumBlockSize), remaining))
-                    let output: [UInt8]
                     if word & Self.uncompressedBlockFlag != 0 {
                         try Checked.size(UInt64(count), limit: remaining)
-                        output = encoded
+                        encoded.withUnsafeBytes { decoded.store($0) }
                     } else {
-                        output = try LZ4BlockDecoder.decode(encoded, history: history, maximumSize: maximum)
+                        try encoded.withUnsafeBytes {
+                            try LZ4BlockDecoder.decode($0, into: decoded, maximumSize: maximum)
+                        }
                     }
-                    frameProduced = try Checked.add(frameProduced, UInt64(output.count))
-                    produced = try Checked.add(produced, UInt64(output.count))
+                    frameProduced = try Checked.add(frameProduced, UInt64(decoded.outputCount))
+                    produced = try Checked.add(produced, UInt64(decoded.outputCount))
                     if let size = header.contentSize, frameProduced > size {
                         throw KaitoError.malformed("LZ4 frame output exceeds content size")
                     }
-                    if header.contentChecksum { checksum.update(output[...]) }
-                    if !header.independent {
-                        if output.count >= Self.historySize {
-                            history = Array(output.suffix(Self.historySize))
-                        } else {
-                            let retained = min(history.count, Self.historySize - output.count)
-                            history = Array(history.suffix(retained)) + output
-                        }
-                    }
-                    pending = output
-                    if !pending.isEmpty { break }
+                    if header.contentChecksum { decoded.withOutputBytes { checksum.update($0) } }
+                    if decoded.outputCount > 0 { break }
                 } else if legacy {
                     guard let count = try Self.nextLegacyBlockSize(input) else {
                         legacy = false
@@ -117,9 +109,12 @@ final class LZ4FrameDecompressor: Decompressor {
                     }
                     try Self.charge(&blockCount, limits: limits)
                     let maximum = Int(min(UInt64(Self.legacyBlockSize), limits.maxEntrySize - produced))
-                    pending = try LZ4BlockDecoder.decode(input.read(count), history: [], maximumSize: maximum)
-                    produced = try Checked.add(produced, UInt64(pending.count))
-                    if !pending.isEmpty { break }
+                    try input.read(count, into: &encoded)
+                    try encoded.withUnsafeBytes {
+                        try LZ4BlockDecoder.decode($0, into: decoded, maximumSize: maximum)
+                    }
+                    produced = try Checked.add(produced, UInt64(decoded.outputCount))
+                    if decoded.outputCount > 0 { break }
                 } else {
                     if input.remaining == 0 {
                         guard sawFrame else { throw KaitoError.truncated }
@@ -147,11 +142,11 @@ final class LZ4FrameDecompressor: Decompressor {
                     header = next
                     frameProduced = 0
                     checksum = XXH32()
-                    history.removeAll(keepingCapacity: false)
+                    decoded.reset()
                 }
             }
-            let count = min(buffer.count, pending.count - pendingOffset)
-            pending.withUnsafeBytes { bytes in
+            let count = min(buffer.count, decoded.outputCount - pendingOffset)
+            decoded.withOutputBytes { bytes in
                 buffer.copyMemory(from: UnsafeRawBufferPointer(rebasing: bytes[pendingOffset..<(pendingOffset + count)]))
             }
             pendingOffset += count
@@ -283,6 +278,23 @@ private final class LZ4FrameInput {
         let result = try readByteRange(source: source, offset: position, count: count)
         position += UInt64(count)
         return result
+    }
+
+    // Keep the encoded block allocation for the next block; honor short reads.
+    func read(_ count: Int, into result: inout [UInt8]) throws {
+        guard count >= 0, UInt64(count) <= remaining else { throw KaitoError.truncated }
+        if result.count > count { result.removeLast(result.count - count) }
+        if result.count < count { result.append(contentsOf: repeatElement(0, count: count - result.count)) }
+        var filled = 0
+        try result.withUnsafeMutableBytes { bytes in
+            while filled < count {
+                let offset = try Checked.add(position, UInt64(filled))
+                let actual = try source.read(into: UnsafeMutableRawBufferPointer(rebasing: bytes[filled..<count]), at: offset)
+                guard actual > 0, actual <= count - filled else { throw KaitoError.truncated }
+                filled += actual
+            }
+        }
+        position += UInt64(count)
     }
 
     func peekInteger(_ count: Int) throws -> UInt64 {

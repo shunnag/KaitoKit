@@ -42,8 +42,8 @@ struct UDIFTrailer {
 }
 
 /// blkx の 1 chunk（BLKXChunkEntry）。sector は disk 全体に対する絶対 sector 番号にしてある。
-struct UDIFChunk {
-    enum Kind {
+struct UDIFChunk: Sendable {
+    enum Kind: Sendable {
         case zero            // 0x00000000: 0 埋め
         case raw             // 0x00000001
         case ignore          // 0x00000002: 読まない領域（0 として見せる）
@@ -74,7 +74,6 @@ struct UDIFBlockTable {
 }
 
 /// koly + XML plist から chunk 表を組み立て、展開後の disk 全体を 512 byte sector の連続として見せる。
-// cache は lock で守る。
 final class UDIFDiskByteSource: ByteSource, @unchecked Sendable {
     let trailer: UDIFTrailer
     let tables: [UDIFBlockTable]
@@ -83,13 +82,13 @@ final class UDIFDiskByteSource: ByteSource, @unchecked Sendable {
     let length: UInt64
     private let file: any ByteSource
     private let limits: ReadLimits
-    private let lock = NSLock()
-    private var cache: [(index: Int, data: [UInt8])] = []
-    private static let cacheEntries = 4
+    private let cache: UDIFChunkCache
     /// 1 chunk の展開後サイズの上限（hdiutil は 2048 sector = 1 MiB）。
     static let maximumChunkBytes: UInt64 = 64 << 20
 
-    init(file: any ByteSource, trailer: UDIFTrailer, limits: ReadLimits) throws {
+    init(file: any ByteSource, trailer: UDIFTrailer, limits: ReadLimits,
+         decodeThreads: Int = ReaderOptions.automaticDecodeThreads(),
+         pool: LeafDecodePool = .shared, diagnostics: UDIFChunkCache.Diagnostics? = nil) throws {
         self.file = file
         self.trailer = trailer
         self.limits = limits
@@ -160,7 +159,11 @@ final class UDIFDiskByteSource: ByteSource, @unchecked Sendable {
         }
         self.tables = tables
         chunks = all
+        cache = UDIFChunkCache(chunks: all, budget: limits.resolvedParallelDecodeMemory(),
+                               decodeThreads: decodeThreads, pool: pool, diagnostics: diagnostics)
     }
+
+    deinit { cache.abandon() }
 
     /// `offset` を含む chunk の index（隙間なら nil）。
     private func chunkIndex(containing offset: UInt64) -> Int? {
@@ -187,8 +190,21 @@ final class UDIFDiskByteSource: ByteSource, @unchecked Sendable {
     func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
         guard offset < length, !buffer.isEmpty else { return 0 }
         let count = Int(min(UInt64(buffer.count), length - offset))
+        do {
+            try Task.checkCancellation()
+            let sequential = cache.beginRead(at: offset, count: count)
+            return try read(into: buffer, at: offset, count: count, sequential: sequential)
+        } catch is CancellationError {
+            cache.abandon()
+            throw CancellationError()
+        }
+    }
+
+    private func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64,
+                      count: Int, sequential: Bool) throws -> Int {
         var written = 0
         while written < count {
+            try Task.checkCancellation()
             let position = offset + UInt64(written)
             guard let index = chunkIndex(containing: position) else {
                 let gapEnd = nextChunkOffset(after: position)
@@ -200,10 +216,14 @@ final class UDIFDiskByteSource: ByteSource, @unchecked Sendable {
             let chunk = chunks[index]
             let inChunk = Int(position - chunk.byteOffset)
             let take = Int(min(UInt64(count - written), chunk.byteCount - UInt64(inChunk)))
+            // raw / zero は割当てず直接読む。圧縮 chunk の葉だけ先読みする。
+            let ahead = sequential || written > 0
             switch chunk.kind {
             case .zero, .ignore:
+                prefetch(after: index, sequential: ahead)
                 buffer.baseAddress!.advanced(by: written).initializeMemory(as: UInt8.self, repeating: 0, count: take)
             case .raw:
+                prefetch(after: index, sequential: ahead)
                 var total = 0
                 while total < take {
                     let read = try file.read(into: UnsafeMutableRawBufferPointer(rebasing: buffer[(written + total)..<(written + take)]),
@@ -212,8 +232,8 @@ final class UDIFDiskByteSource: ByteSource, @unchecked Sendable {
                     total += read
                 }
             default:
-                let decoded = try decodedChunk(index)
-                decoded.withUnsafeBytes { bytes in
+                let decoded = try decodedChunk(index, sequential: ahead)
+                decoded.bytes.withUnsafeBytes { bytes in
                     buffer.baseAddress!.advanced(by: written).copyMemory(from: bytes.baseAddress!.advanced(by: inChunk), byteCount: take)
                 }
             }
@@ -222,25 +242,35 @@ final class UDIFDiskByteSource: ByteSource, @unchecked Sendable {
         return written
     }
 
-    private func decodedChunk(_ index: Int) throws -> [UInt8] {
-        lock.lock()
-        defer { lock.unlock() }
-        if let hit = cache.firstIndex(where: { $0.index == index }) {
-            let entry = cache.remove(at: hit)
-            cache.append(entry)
-            return entry.data
+    private func prefetch(after index: Int, sequential: Bool) {
+        guard sequential else { return }
+        let file = file, limits = limits
+        cache.prefetch(after: index) { chunk, cancelled in
+            try Self.decode(chunk, file: file, limits: limits, cancelled: cancelled)
         }
-        let chunk = chunks[index]
+    }
+
+    private func decodedChunk(_ index: Int, sequential: Bool) throws -> UDIFChunkCache.Decoded {
+        let file = file, limits = limits
+        return try cache.read(index, sequential: sequential) { chunk, cancelled in
+            try Self.decode(chunk, file: file, limits: limits, cancelled: cancelled)
+        }
+    }
+
+    private static func decode(_ chunk: UDIFChunk, file: any ByteSource, limits: ReadLimits,
+                               cancelled: @Sendable () -> Bool) throws -> [UInt8] {
+        try Task.checkCancellation()
+        if cancelled() { throw CancellationError() }
         guard chunk.byteCount <= Self.maximumChunkBytes else { throw KaitoError.unsupportedMethod("UDIF chunk of \(chunk.byteCount) bytes") }
         let expected = Int(chunk.byteCount)
         let output: [UInt8]
         switch chunk.kind {
         case .zlib:
-            output = try Self.drain(DeflateDecompressor(source: file, offset: chunk.dataOffset, compressedSize: chunk.dataLength, zlibWrapped: true), expected: expected)
+            output = try Self.drain(DeflateDecompressor(source: file, offset: chunk.dataOffset, compressedSize: chunk.dataLength, zlibWrapped: true), expected: expected, cancelled: cancelled)
         case .bzip2:
-            output = try Self.drain(Bzip2Decompressor(source: file, offset: chunk.dataOffset, compressedSize: chunk.dataLength), expected: expected)
+            output = try Self.drain(Bzip2Decompressor(source: file, offset: chunk.dataOffset, compressedSize: chunk.dataLength), expected: expected, cancelled: cancelled)
         case .xz:
-            output = try Self.drain(XZDecompressor(source: file, offset: chunk.dataOffset, compressedSize: chunk.dataLength, limits: limits), expected: expected)
+            output = try Self.drain(XZDecompressor(source: file, offset: chunk.dataOffset, compressedSize: chunk.dataLength, limits: limits), expected: expected, cancelled: cancelled)
         case .lzfse:
             let input = try readByteRange(source: file, offset: chunk.dataOffset, count: Int(chunk.dataLength))
             var result = [UInt8](repeating: 0, count: expected)
@@ -258,17 +288,21 @@ final class UDIFDiskByteSource: ByteSource, @unchecked Sendable {
         case .zero, .raw, .ignore:
             fatalError("handled inline")
         }
-        cache.append((index, output))
-        if cache.count > Self.cacheEntries { cache.removeFirst() }
+        if cancelled() { throw CancellationError() }
+        try Task.checkCancellation()
         return output
     }
 
-    private static func drain(_ decompressor: any Decompressor, expected: Int) throws -> [UInt8] {
+    private static func drain(_ decompressor: any Decompressor, expected: Int,
+                              cancelled: @Sendable () -> Bool) throws -> [UInt8] {
         var result = [UInt8](repeating: 0, count: expected)
         var filled = 0
         try result.withUnsafeMutableBytes { bytes in
             while filled < expected {
-                let count = try decompressor.read(into: UnsafeMutableRawBufferPointer(rebasing: bytes[filled...]))
+                try Task.checkCancellation()
+                if cancelled() { throw CancellationError() }
+                let end = min(expected, filled + 1_048_576)
+                let count = try decompressor.read(into: UnsafeMutableRawBufferPointer(rebasing: bytes[filled..<end]))
                 if count == 0 { break }
                 filled += count
             }

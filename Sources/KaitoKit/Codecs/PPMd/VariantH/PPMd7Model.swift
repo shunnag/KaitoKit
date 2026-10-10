@@ -15,12 +15,14 @@ private final class PPMd7ArenaSEEContext {
         count = 4
     }
 
+    @inline(__always)
     func mean() -> Int {
         let value = (summary & 0xffff) >> shift
         summary = (summary - value) & 0xffff
         return max(value, 1)
     }
 
+    @inline(__always)
     func update() {
         guard shift < 7 else { return }
         count -= 1
@@ -147,6 +149,14 @@ final class PPMd7Model {
         characterMask.deallocate()
     }
 
+    // The concrete coder lets the optimizer specialize the complete symbol loop.
+    func decode(into buffer: UnsafeMutableRawBufferPointer, using decoder: SevenZipPPMdRangeDecoder) throws {
+        for index in 0..<buffer.count {
+            buffer[index] = try decodeByte(using: decoder)
+        }
+    }
+
+    @inline(__always)
     func decodeByte<Decoder: PPMd7RangeDecoding>(using decoder: Decoder) throws -> UInt8 {
         var minimumContext = maximumContext
         try requireContext(minimumContext)
@@ -219,6 +229,7 @@ final class PPMd7Model {
         return symbol
     }
 
+    @inline(__always)
     private func decodeSymbol1<Decoder: PPMd7RangeDecoding>(
         in context: Offset,
         using decoder: Decoder
@@ -252,7 +263,7 @@ final class PPMd7Model {
                     }
                 } else {
                     previousSuccess = 0
-                    try update1(context: context, stateIndex: index)
+                    try update1(context: context, state: state, frequency: frequency, scale: scale)
                 }
                 return
             }
@@ -272,6 +283,7 @@ final class PPMd7Model {
         foundState = Self.null
     }
 
+    @inline(__always)
     private func decodeBinarySymbol<Decoder: PPMd7RangeDecoding>(
         in context: Offset,
         using decoder: Decoder
@@ -328,6 +340,7 @@ final class PPMd7Model {
         }
     }
 
+    @inline(__always)
     private func decodeSymbol2<Decoder: PPMd7RangeDecoding>(
         in context: Offset,
         using decoder: Decoder
@@ -397,6 +410,7 @@ final class PPMd7Model {
         foundState = Self.null
     }
 
+    @inline(__always)
     private func escapeEstimator(for context: Offset) throws -> PPMd7ArenaSEEContext? {
         let stats = try numberOfStats(in: context)
         if stats == 255 { return nil }
@@ -423,16 +437,14 @@ final class PPMd7Model {
         return seeContexts[row][column]
     }
 
-    private func update1(context: Offset, stateIndex: Int) throws {
-        let stateCount = try numberOfStats(in: context) + 1
-        guard stateIndex > 0, stateIndex < stateCount else {
-            throw KaitoError.malformed("invalid PPMd7 update index")
-        }
-        let state = try stateRef(in: context, index: stateIndex)
-        let newFrequency = Int(try stateFrequency(at: state)) + 4
+    // Called only after decodeSymbol1 validates the entire state block and selects
+    // an index greater than zero. The preceding six-byte state is in that block.
+    @inline(__always)
+    private func update1(context: Offset, state: Offset, frequency: Int, scale: Int) throws {
+        let newFrequency = frequency + 4
         try setStateFrequency(newFrequency, at: state)
-        try setSummaryFrequency(try summaryFrequency(of: context) + 4, of: context)
-        let previous = try stateRef(in: context, index: stateIndex - 1)
+        try setSummaryFrequency(scale + 4, of: context)
+        let previous = state - Offset(Self.stateSize)
         if newFrequency > Int(try stateFrequency(at: previous)) {
             try swapStates(state, previous)
             foundState = previous
@@ -442,6 +454,7 @@ final class PPMd7Model {
         }
     }
 
+    @inline(__always)
     private func update2(context: Offset, state: Offset) throws {
         foundState = state
         let frequency = Int(try stateFrequency(at: state)) + 4
@@ -998,6 +1011,12 @@ final class PPMd7Model {
 
     // MARK: - パック済みアリーナへのアクセス
 
+    // Contexts (12 bytes) and states (6 bytes) are checked at each reference
+    // boundary. Those checks cover their fixed-offset fields, so individual
+    // fields use unchecked accessors without repeating allocator bounds checks.
+    // Offsets loaded from the arena still pass requireContext/requireStateBlock
+    // before dereference; successor/text/free-list validation remains in place.
+
     @inline(__always)
     private func requireContext(_ context: Offset) throws {
         guard context != Self.null else {
@@ -1014,31 +1033,33 @@ final class PPMd7Model {
     @inline(__always)
     private func numberOfStats(in context: Offset) throws -> Int {
         try requireContext(context)
-        let count = Int(try allocator.uint16(at: context))
+        let count = Int(allocator.uncheckedGet16(Int(context)))
         guard (1...256).contains(count) else {
             throw KaitoError.malformed("PPMd7 context state count is out of range")
         }
         return count - 1
     }
 
+    @inline(__always)
     private func setNumberOfStats(_ value: Int, in context: Offset) throws {
         try requireContext(context)
         guard (0...255).contains(value) else {
             throw KaitoError.malformed("PPMd7 context state count is out of range")
         }
-        try allocator.storeUInt16(UInt16(value + 1), at: context)
+        allocator.uncheckedPut16(UInt16(value + 1), Int(context))
     }
 
     @inline(__always)
     private func suffix(of context: Offset) throws -> Offset {
         try requireContext(context)
-        return try allocator.uint32(at: try Self.add(context, 8))
+        return allocator.uncheckedGet32(Int(context) + 8)
     }
 
+    @inline(__always)
     private func setSuffix(_ suffix: Offset, of context: Offset) throws {
         try requireContext(context)
         if suffix != Self.null { try requireContext(suffix) }
-        try allocator.storeUInt32(suffix, at: try Self.add(context, 8))
+        allocator.uncheckedPut32(suffix, Int(context) + 8)
     }
 
     @inline(__always)
@@ -1046,15 +1067,16 @@ final class PPMd7Model {
         guard try numberOfStats(in: context) != 0 else {
             throw KaitoError.malformed("PPMd7 binary context has no summary frequency")
         }
-        return Int(try allocator.uint16(at: try Self.add(context, 2)))
+        return Int(allocator.uncheckedGet16(Int(context) + 2))
     }
 
+    @inline(__always)
     private func setSummaryFrequency(_ value: Int, of context: Offset) throws {
         guard try numberOfStats(in: context) != 0,
               value > 0, value <= Int(UInt16.max) else {
             throw KaitoError.malformed("PPMd7 summary frequency is out of range")
         }
-        try allocator.storeUInt16(UInt16(value), at: try Self.add(context, 2))
+        allocator.uncheckedPut16(UInt16(value), Int(context) + 2)
     }
 
     @inline(__always)
@@ -1063,15 +1085,16 @@ final class PPMd7Model {
         guard stats != 0 else {
             throw KaitoError.malformed("PPMd7 binary context has no state array")
         }
-        let result = try allocator.uint32(at: try Self.add(context, 4))
+        let result = allocator.uncheckedGet32(Int(context) + 4)
         try requireStateBlock(result, stateCount: stats + 1)
         return result
     }
 
+    @inline(__always)
     private func setStatsRef(_ states: Offset, of context: Offset, stateCount: Int) throws {
         try requireContext(context)
         try requireStateBlock(states, stateCount: stateCount)
-        try allocator.storeUInt32(states, at: try Self.add(context, 4))
+        allocator.uncheckedPut32(states, Int(context) + 4)
     }
 
     @inline(__always)
@@ -1098,56 +1121,61 @@ final class PPMd7Model {
             throw KaitoError.malformed("PPMd7 state index is out of range")
         }
         if stats == 0 {
-            return try Self.add(context, 2)
+            return context + 2
         }
-        let base = try statsRef(of: context)
-        return try Self.add(base, index * Self.stateSize)
+        let base = allocator.uncheckedGet32(Int(context) + 4)
+        try requireStateBlock(base, stateCount: count)
+        return base + Offset(index * Self.stateSize)
     }
 
+    @inline(__always)
     private func loadState(at state: Offset) throws -> StateValue {
         try requirePackedState(state)
         return StateValue(
-            symbol: try allocator.byte(at: state),
-            frequency: try allocator.byte(at: try Self.add(state, 1)),
-            successor: try allocator.uint32(at: try Self.add(state, 2))
+            symbol: allocator.uncheckedGet8(Int(state)),
+            frequency: allocator.uncheckedGet8(Int(state) + 1),
+            successor: allocator.uncheckedGet32(Int(state) + 2)
         )
     }
 
+    @inline(__always)
     private func storeState(_ value: StateValue, at state: Offset) throws {
         try requirePackedState(state)
         _ = try successorKind(value.successor)
-        try allocator.storeByte(value.symbol, at: state)
-        try allocator.storeByte(value.frequency, at: try Self.add(state, 1))
-        try allocator.storeUInt32(value.successor, at: try Self.add(state, 2))
+        allocator.uncheckedPut8(value.symbol, Int(state))
+        allocator.uncheckedPut8(value.frequency, Int(state) + 1)
+        allocator.uncheckedPut32(value.successor, Int(state) + 2)
     }
 
     @inline(__always)
     private func stateSymbol(at state: Offset) throws -> UInt8 {
         try requirePackedState(state)
-        return try allocator.byte(at: state)
+        return allocator.uncheckedGet8(Int(state))
     }
 
     @inline(__always)
     private func stateFrequency(at state: Offset) throws -> UInt8 {
         try requirePackedState(state)
-        return try allocator.byte(at: try Self.add(state, 1))
+        return allocator.uncheckedGet8(Int(state) + 1)
     }
 
+    @inline(__always)
     private func setStateFrequency(_ frequency: Int, at state: Offset) throws {
         try requirePackedState(state)
-        try allocator.storeByte(try byteFrequency(frequency), at: try Self.add(state, 1))
+        allocator.uncheckedPut8(try byteFrequency(frequency), Int(state) + 1)
     }
 
     @inline(__always)
     private func stateSuccessor(at state: Offset) throws -> Offset {
         try requirePackedState(state)
-        return try allocator.uint32(at: try Self.add(state, 2))
+        return allocator.uncheckedGet32(Int(state) + 2)
     }
 
+    @inline(__always)
     private func setStateSuccessor(_ successor: Offset, at state: Offset) throws {
         try requirePackedState(state)
         _ = try successorKind(successor)
-        try allocator.storeUInt32(successor, at: try Self.add(state, 2))
+        allocator.uncheckedPut32(successor, Int(state) + 2)
     }
 
     @inline(__always)
@@ -1179,6 +1207,7 @@ final class PPMd7Model {
         return .context(successor)
     }
 
+    @inline(__always)
     private func swapStates(_ lhs: Offset, _ rhs: Offset) throws {
         guard lhs != rhs else { return }
         let left = try loadState(at: lhs)
@@ -1187,6 +1216,7 @@ final class PPMd7Model {
         try storeState(left, at: rhs)
     }
 
+    @inline(__always)
     private func indexOfSymbol(_ symbol: UInt8, in context: Offset) throws -> Int? {
         let count = try numberOfStats(in: context) + 1
         if count == 1 {
@@ -1364,6 +1394,7 @@ final class PPMd7Model {
         if suffix != Self.null { try requireContext(suffix) }
     }
 
+    @inline(__always)
     private func byteFrequency(_ value: Int) throws -> UInt8 {
         guard value >= 0, value <= Int(UInt8.max) else {
             throw KaitoError.malformed("PPMd7 state frequency is out of range")
@@ -1371,10 +1402,12 @@ final class PPMd7Model {
         return UInt8(value)
     }
 
+    @inline(__always)
     private static func units(forStateCount count: Int) -> Int {
         (count + 1) >> 1
     }
 
+    @inline(__always)
     private static func add(_ offset: Offset, _ bytes: Int) throws -> Offset {
         let (result, overflow) = Int(offset).addingReportingOverflow(bytes)
         guard bytes >= 0, !overflow, result >= 0,
@@ -1409,10 +1442,12 @@ final class PPMd7Model {
         return result
     }
 
+    @inline(__always)
     private static func highBits3(_ symbol: UInt8) -> Int {
         symbol < 0x40 ? 0 : 1 << 3
     }
 
+    @inline(__always)
     private static func highBits4(_ symbol: UInt8) -> Int {
         symbol < 0x40 ? 0 : 1 << 4
     }

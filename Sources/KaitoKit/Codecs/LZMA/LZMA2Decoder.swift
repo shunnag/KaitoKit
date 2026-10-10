@@ -98,7 +98,8 @@ public final class LZMA2Decoder: Decompressor {
         self.lzma = try LZMADecoder(
             lzma2DictionarySize: dictionarySize,
             expectedSize: expectedSize,
-            dictionarySizeLimit: dictionarySizeLimit
+            dictionarySizeLimit: dictionarySizeLimit,
+            compressedSizeHint: compressedSize
         )
     }
 

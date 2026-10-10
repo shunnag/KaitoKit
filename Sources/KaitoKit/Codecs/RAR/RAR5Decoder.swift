@@ -108,11 +108,12 @@ final class RAR5Decoder: Decompressor {
             window = raw.bindMemory(to: UInt8.self, capacity: size)
             windowSize = size
             windowMask = size - 1
-            window.initialize(repeating: 0, count: size)
+            // validateMatch requires distance <= historySize. All readable
+            // history is written by literals/matches before it is referenced,
+            // including in a continuing solid group; no zero fill is observable.
         }
 
         deinit {
-            window.deinitialize(count: windowSize)
             free(UnsafeMutableRawPointer(window))
         }
     }
@@ -120,6 +121,8 @@ final class RAR5Decoder: Decompressor {
     private let input: UnsafeMutablePointer<UInt8>
     private let inputCount: Int
     private let solidState: SolidState
+    // Preserve diagnostics for the logical dictionary when storage is smaller.
+    private let describedWindowSize: Int
     private let expectedSize: UInt64?
     private let maximumFilterCount: Int
     // Most compressed entries do not use a standard filter. Allocate these
@@ -231,7 +234,19 @@ final class RAR5Decoder: Decompressor {
                 }
                 state = suppliedSolidState
             } else {
-                state = try SolidState(dictionarySize: dictionarySize)
+                // Only independent entries with a known total output size
+                // can retain less than the declared dictionary. The ring still
+                // needs a power-of-two mask; solid coordinators supply the full
+                // group window and never take this path. Declared-size limits
+                // and grammar validation have already run above.
+                var retainedSize = requiredDictionarySize
+                if let expectedSize, expectedSize < dictionarySize {
+                    retainedSize = Self.minimumDictionarySize
+                    while UInt64(retainedSize) < expectedSize {
+                        retainedSize *= 2
+                    }
+                }
+                state = try SolidState(dictionarySize: UInt64(retainedSize))
             }
         } catch {
             free(inputRaw)
@@ -240,6 +255,7 @@ final class RAR5Decoder: Decompressor {
         self.input = inputRaw.bindMemory(to: UInt8.self, capacity: allocationCount)
         self.inputCount = inputCount
         self.solidState = state
+        self.describedWindowSize = suppliedSolidState?.windowSize ?? requiredDictionarySize
         self.expectedSize = expectedSize
         self.maximumFilterCount = limits.maxMetadataRecordCount
         self.filterInput = nil
@@ -247,9 +263,9 @@ final class RAR5Decoder: Decompressor {
         self.codeLengths = .allocate(capacity: Self.combinedTableCount)
         self.bitCodeLengths = .allocate(capacity: Self.bitLengthSymbolCount)
 
-        input.initialize(repeating: 0, count: allocationCount)
-        codeLengths.initialize(repeating: 0, count: Self.combinedTableCount)
-        bitCodeLengths.initialize(repeating: 0, count: Self.bitLengthSymbolCount)
+        // Input and table lengths are fully written before use. Only the
+        // speculative bit-reader padding must be zero even on truncated input.
+        input.advanced(by: inputCount).initialize(repeating: 0, count: Self.sentinelByteCount)
         do {
             var filled = 0
             while filled < inputCount {
@@ -282,7 +298,6 @@ final class RAR5Decoder: Decompressor {
     }
 
     deinit {
-        input.deinitialize(count: inputCount + Self.sentinelByteCount)
         free(UnsafeMutableRawPointer(input))
         if let filterInput { free(UnsafeMutableRawPointer(filterInput)) }
         if let filterOutput { free(UnsafeMutableRawPointer(filterOutput)) }
@@ -859,7 +874,6 @@ final class RAR5Decoder: Decompressor {
     }
 
     private func readTables(from bits: inout RAR5RawBitReader) throws {
-        bitCodeLengths.update(repeating: 0, count: Self.bitLengthSymbolCount)
         // RAR5 table descriptions are self-contained. A block without the
         // table flag reuses the last tables, but a present description does
         // not delta its lengths against the preceding block.
@@ -1071,7 +1085,7 @@ final class RAR5Decoder: Decompressor {
             let match = failedMatch ?? (produced: produced, distance: 0, length: 0)
             let describedExpectedSize = expectedSize.map(String.init) ?? "unknown"
             return .malformed(
-                "RAR5 invalid LZ match at output \(match.produced): distance \(match.distance), length \(match.length), window \(solidState.windowSize), expected \(describedExpectedSize)"
+                "RAR5 invalid LZ match at output \(match.produced): distance \(match.distance), length \(match.length), window \(describedWindowSize), expected \(describedExpectedSize)"
             )
         case .unsupportedFilter: return .unsupportedMethod("RAR5 filter type \(failedFilterType)")
         case .filterBehindOutput: return .malformed("RAR5 filter starts behind emitted output")
@@ -1108,7 +1122,7 @@ final class RAR5Decoder: Decompressor {
 
 /// Raw MSB-first reader. The owner guarantees at least eight sentinel bytes
 /// beyond the physical payload, while `bitLimit` is the authoritative boundary.
-private struct RAR5RawBitReader {
+struct RAR5RawBitReader {
     let pointer: UnsafePointer<UInt8>
     let bitLimit: Int
     var bitPosition = 0
@@ -1138,29 +1152,41 @@ private struct RAR5RawBitReader {
     }
 }
 
-/// Ten-bit primary Huffman lookup with a full fifteen-bit fallback, following
-/// KaitoKit's RAR29 table. Entry high bits hold code length and low sixteen bits
-/// hold the symbol. Both tables are allocated once and rebuilt in place.
-private final class RAR5HuffmanTable {
+/// Ten-bit quick lookup with canonical decoding for eleven- to fifteen-bit
+/// codes. Only the small quick table is expanded; counts, code boundaries and
+/// sorted symbols are retained and rebuilt in place.
+final class RAR5HuffmanTable {
     private static let primaryBits = 10
     private static let primaryCount = 1 << primaryBits
     private static let lookupBits = 15
-    private static let lookupCount = 1 << lookupBits
-    private let lookup: UnsafeMutablePointer<UInt32>
+    private static let lengthCount = lookupBits + 1
     private let primary: UnsafeMutablePointer<UInt32>
+    private let metadata: UnsafeMutablePointer<Int>
+    private let counts: UnsafeMutablePointer<Int>
+    private let firstCodes: UnsafeMutablePointer<Int>
+    private let symbolOffsets: UnsafeMutablePointer<Int>
+    private let nextCodes: UnsafeMutablePointer<Int>
+    private var symbols: UnsafeMutablePointer<UInt32>
+    private var symbolCapacity = 306
+    private var maximumLength = 0
 
     init() {
         primary = .allocate(capacity: Self.primaryCount)
+        metadata = .allocate(capacity: Self.lengthCount * 4)
+        counts = metadata
+        firstCodes = metadata.advanced(by: Self.lengthCount)
+        symbolOffsets = metadata.advanced(by: Self.lengthCount * 2)
+        nextCodes = metadata.advanced(by: Self.lengthCount * 3)
+        symbols = .allocate(capacity: symbolCapacity)
+        // A table may be queried before its first build (an absent optional
+        // alphabet). decode must still return nil in that case.
         primary.initialize(repeating: 0, count: Self.primaryCount)
-        lookup = .allocate(capacity: Self.lookupCount)
-        lookup.initialize(repeating: 0, count: Self.lookupCount)
     }
 
     deinit {
-        primary.deinitialize(count: Self.primaryCount)
         primary.deallocate()
-        lookup.deinitialize(count: Self.lookupCount)
-        lookup.deallocate()
+        metadata.deallocate()
+        symbols.deallocate()
     }
 
     func build(
@@ -1169,9 +1195,10 @@ private final class RAR5HuffmanTable {
         requireSymbol: Bool
     ) throws {
         primary.update(repeating: 0, count: Self.primaryCount)
-        lookup.update(repeating: 0, count: Self.lookupCount)
-        var counts = [Int](repeating: 0, count: Self.lookupBits + 1)
+        metadata.update(repeating: 0, count: Self.lengthCount * 4)
+        maximumLength = 0
         var symbolCount = 0
+        var longest = 0
         for index in 0..<count {
             let length = Int(lengths[index])
             guard length <= Self.lookupBits else {
@@ -1180,6 +1207,7 @@ private final class RAR5HuffmanTable {
             if length > 0 {
                 counts[length] += 1
                 symbolCount += 1
+                longest = max(longest, length)
             }
         }
         if requireSymbol, symbolCount == 0 {
@@ -1187,8 +1215,8 @@ private final class RAR5HuffmanTable {
         }
         guard symbolCount > 0 else { return }
 
-        var next = [Int](repeating: 0, count: Self.lookupBits + 1)
         var code = 0
+        var offset = 0
         for length in 1...Self.lookupBits {
             let (sum, overflow) = code.addingReportingOverflow(counts[length - 1])
             guard !overflow else { throw KaitoError.malformed("RAR5 Huffman count overflow") }
@@ -1197,34 +1225,41 @@ private final class RAR5HuffmanTable {
                 throw KaitoError.malformed("RAR5 Huffman table is oversubscribed")
             }
             code = shifted
-            next[length] = code
+            firstCodes[length] = code
+            nextCodes[length] = code
+            symbolOffsets[length] = offset
+            offset += counts[length]
+        }
+        if symbolCount > symbolCapacity {
+            symbols.deallocate()
+            symbolCapacity = symbolCount
+            symbols = .allocate(capacity: symbolCapacity)
         }
 
         for symbol in 0..<count {
             let length = Int(lengths[symbol])
             guard length > 0 else { continue }
-            let prefix = next[length]
-            next[length] += 1
-            guard next[length] <= 1 << length else {
+            let prefix = nextCodes[length]
+            nextCodes[length] += 1
+            guard nextCodes[length] <= 1 << length else {
                 throw KaitoError.malformed("RAR5 Huffman code is oversubscribed")
             }
             let repetitions = 1 << (Self.lookupBits - length)
             let start = prefix << (Self.lookupBits - length)
-            guard start >= 0, repetitions <= Self.lookupCount - start else {
+            guard start >= 0, repetitions <= (1 << Self.lookupBits) - start else {
                 throw KaitoError.malformed("RAR5 Huffman lookup range is invalid")
             }
             let entry = UInt32(length << 16 | symbol)
-            lookup.advanced(by: start).update(repeating: entry, count: repetitions)
+            symbols[symbolOffsets[length] + prefix - firstCodes[length]] = entry
             if length <= Self.primaryBits {
                 let primaryStart = prefix << (Self.primaryBits - length)
                 let primaryRepetitions = 1 << (Self.primaryBits - length)
-                // The canonical prefix was validated above; truncating its
-                // padding from fifteen to ten bits preserves the table bound.
                 primary.advanced(by: primaryStart).update(
                     repeating: entry, count: primaryRepetitions
                 )
             }
         }
+        maximumLength = longest
     }
 
     @inline(__always)
@@ -1232,7 +1267,16 @@ private final class RAR5HuffmanTable {
         guard bits.bitPosition < bits.bitLimit else { return nil }
         let prefix = bits.peekPadded(Self.lookupBits)
         var entry = primary[prefix >> (Self.lookupBits - Self.primaryBits)]
-        if entry == 0 { entry = lookup[prefix] }
+        if entry == 0 {
+            guard maximumLength > Self.primaryBits else { return nil }
+            for length in (Self.primaryBits + 1)...maximumLength {
+                let index = (prefix >> (Self.lookupBits - length)) - firstCodes[length]
+                if index >= 0, index < counts[length] {
+                    entry = symbols[symbolOffsets[length] + index]
+                    break
+                }
+            }
+        }
         let length = Int(entry >> 16)
         guard length > 0, length <= bits.bitLimit - bits.bitPosition else { return nil }
         bits.bitPosition += length

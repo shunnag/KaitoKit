@@ -668,110 +668,94 @@ struct WinZipAESCTR: Sendable {
     private static let blockSize = 16
     private static let maximumBlocksPerCall = (256 * 1_024) / blockSize
 
-    private let encryptionKey: Data
-    private var counter = [UInt8](repeating: 0, count: blockSize)
-    private var pendingKeyStream: [UInt8] = []
+    private let encryptor: CommonCryptoECBEncryptor
+    private var counterLow: UInt64 = 0
+    private var counterHigh: UInt64 = 0
+    private var keyStream: [UInt8] = []
     private var pendingOffset = 0
 
     init(encryptionKey: Data, streamOffset: UInt64 = 0) throws {
         guard [16, 24, 32].contains(encryptionKey.count) else {
             throw KaitoError.malformed("invalid AES key length \(encryptionKey.count)")
         }
-        self.encryptionKey = encryptionKey
-
-        // counter は次の makeKeyStream で先に increment されるため、対象 block の
-        // 0-based index を little-endian で初期値にする。
-        var blockIndex = streamOffset / UInt64(Self.blockSize)
-        for index in 0..<MemoryLayout<UInt64>.size {
-            counter[index] = UInt8(truncatingIfNeeded: blockIndex)
-            blockIndex >>= 8
-        }
+        encryptor = CommonCryptoECBEncryptor(key: encryptionKey)
+        // Increment before emitting: the first encrypted counter is one.
+        counterLow = streamOffset / UInt64(Self.blockSize)
         let intraBlockOffset = Int(streamOffset % UInt64(Self.blockSize))
         if intraBlockOffset > 0 {
-            pendingKeyStream = try makeKeyStream(blockCount: 1)
+            try makeKeyStream(blockCount: 1)
             pendingOffset = intraBlockOffset
         }
     }
 
-    // テスト専用の一括復号と CTR のテストが使う。読取経路は transformInPlace を使う。
-    mutating func transform(_ input: Data) throws -> Data {
-        guard !input.isEmpty else {
-            return Data()
-        }
+    // Internal counter positioning also lets tests reach 128-bit carry/exhaustion
+    // boundaries that a UInt64 byte offset cannot represent.
+    init(encryptionKey: Data, counterLow: UInt64, counterHigh: UInt64) throws {
+        try self.init(encryptionKey: encryptionKey)
+        self.counterLow = counterLow
+        self.counterHigh = counterHigh
+    }
 
+    // テスト専用の一括復号。読取経路は transformInPlace を使う。
+    mutating func transform(_ input: Data) throws -> Data {
+        guard !input.isEmpty else { return Data() }
         var output = [UInt8](input)
-        try output.withUnsafeMutableBytes { buffer in
-            try transformInPlace(buffer)
-        }
+        try output.withUnsafeMutableBytes { try transformInPlace($0) }
         return Data(output)
     }
 
-    mutating func transformInPlace(
-        _ output: UnsafeMutableRawBufferPointer
-    ) throws {
+    mutating func transformInPlace(_ output: UnsafeMutableRawBufferPointer) throws {
         guard !output.isEmpty else { return }
         var outputOffset = 0
-
-        if pendingOffset < pendingKeyStream.count {
-            let available = pendingKeyStream.count - pendingOffset
-            let count = min(available, output.count)
-            for index in 0..<count {
-                output[index] ^= pendingKeyStream[pendingOffset + index]
+        if pendingOffset < keyStream.count {
+            let count = min(keyStream.count - pendingOffset, output.count)
+            keyStream.withUnsafeBytes {
+                xorBytes(UnsafeMutableRawBufferPointer(rebasing: output[..<count]),
+                         with: UnsafeRawBufferPointer(rebasing: $0[pendingOffset..<(pendingOffset + count)]))
             }
             pendingOffset += count
             outputOffset += count
-            if pendingOffset == pendingKeyStream.count {
-                pendingKeyStream.removeAll(keepingCapacity: true)
-                pendingOffset = 0
-            }
         }
-
         while outputOffset < output.count {
             let remaining = output.count - outputOffset
             let requestedBlocks = remaining / Self.blockSize
                 + (remaining.isMultiple(of: Self.blockSize) ? 0 : 1)
-            let blockCount = min(requestedBlocks, Self.maximumBlocksPerCall)
-            let keyStream = try makeKeyStream(blockCount: blockCount)
+            try makeKeyStream(blockCount: min(requestedBlocks, Self.maximumBlocksPerCall))
             let count = min(remaining, keyStream.count)
-
-            for index in 0..<count {
-                output[outputOffset + index] ^= keyStream[index]
+            keyStream.withUnsafeBytes {
+                xorBytes(UnsafeMutableRawBufferPointer(rebasing: output[outputOffset..<(outputOffset + count)]), with: $0)
             }
             outputOffset += count
-
-            if count < keyStream.count {
-                pendingKeyStream = keyStream
-                pendingOffset = count
-            }
+            pendingOffset = count
         }
     }
 
-    private mutating func makeKeyStream(blockCount: Int) throws -> [UInt8] {
+    private mutating func makeKeyStream(blockCount: Int) throws {
         guard blockCount > 0, blockCount <= Self.maximumBlocksPerCall else {
             throw KaitoError.malformed("invalid AES-CTR block count")
         }
-
-        var counterBlocks = [UInt8]()
-        counterBlocks.reserveCapacity(blockCount * Self.blockSize)
-        for _ in 0..<blockCount {
-            try incrementCounter()
-            counterBlocks.append(contentsOf: counter)
-        }
-        return try ZipCommonCrypto.aesECBEncrypt(
-            blocks: counterBlocks,
-            key: encryptionKey
-        )
-    }
-
-    private mutating func incrementCounter() throws {
-        for index in counter.indices {
-            let (value, overflow) = counter[index].addingReportingOverflow(1)
-            counter[index] = value
-            if !overflow {
-                return
+        let count = blockCount * Self.blockSize
+        if keyStream.count > count { keyStream.removeLast(keyStream.count - count) }
+        if keyStream.count < count { keyStream.append(contentsOf: repeatElement(0, count: count - keyStream.count)) }
+        try keyStream.withUnsafeMutableBytes { blocks in
+            for block in 0..<blockCount {
+                let (low, carry) = counterLow.addingReportingOverflow(1)
+                counterLow = low
+                if carry {
+                    let (high, exhausted) = counterHigh.addingReportingOverflow(1)
+                    counterHigh = high
+                    guard !exhausted else { throw KaitoError.limitExceeded("WinZip AES-CTR counter exhausted") }
+                }
+                blocks.storeBytes(of: counterLow.littleEndian, toByteOffset: block * Self.blockSize, as: UInt64.self)
+                blocks.storeBytes(of: counterHigh.littleEndian, toByteOffset: block * Self.blockSize + 8, as: UInt64.self)
+            }
+            do {
+                try encryptor.encryptInPlace(blocks)
+            } catch let error as CommonCryptoPrimitives.Failure {
+                throw KaitoError.malformed("CommonCrypto AES-ECB failed (\(error.status), \(error.outputLength) bytes)")
             }
         }
-        throw KaitoError.limitExceeded("WinZip AES-CTR counter exhausted")
+        pendingOffset = 0
     }
 }
 

@@ -19,6 +19,21 @@ entry/metadata/path/dictionary/volume 上限などをまとめます。利用す
 `maxSevenZipHeaderKDFWork` は 7z の open 中に行う header KDF の SHA-256 round 総数を制限します
 （既定 `4 * (1 << 24)`）。cache hit と direct key は消費せず、entry 読み取り時の派生は対象外です。
 
+XZ / bzip2 は単独 stream と圧縮 tar の staging で自動並列復号します。
+`ReaderOptions.decodeThreads` は既定 `nil`。active logical CPU 数と物理メモリの GiB 数（最低 1）の
+小さい方を要求し、固定の core 数上限はありません。既定の `decodePowerPolicy = .reduceInLowPowerMode`
+は Low Power Mode で、active CPU の半数（切上げ）と最低性能 level の logical CPU 数（複数 level の場合）
+の小さい方へ減らします。`.reduceInLowPowerModeOrThermalPressure` は serious / critical の温度でも減らし、
+`.alwaysUseAllCores` は電力・温度による削減をしません。open 時に一度解決し、`reopen()` も同じ値を使います。
+明示値は `ReaderOptions.decodeThreadsRange = 1...1024` に init・代入時とも丸め、電力方針は適用しません。
+UI 表示には `ReaderOptions.automaticDecodeThreads(powerPolicy:)` で表示時点の自動値を取得できます。
+
+`ReadLimits.parallelDecodeMemory` は並列復号の保持 byte 予算で、既定 `nil` は物理メモリの 50% です。
+decoder ごとに job と作業領域の予約を予算内に抑え、並列化できなければ直列へ戻ります。
+辞書は `maxDictionarySize` で別に制限します。全 reader の実行中 leaf job は process 共通 pool で
+active logical CPU 数以下に抑え、要求が多ければ queue で待ちます。スレッド数によらず出力は同一で、
+エラーは stream 順に返します。
+
 `Data(contentsOf:options:.mappedIfSafe)` は、呼出中に内容が変わらないローカルの単一 file で使います。
 RAR multi-volume は sibling file を解決できる `ArchiveReader.open(url:)` を使い、nested archive のように
 既に memory 上にある bytes は `open(data:)` を使います。SFX prefix scan は URL open で有効、Data と
@@ -46,6 +61,19 @@ RAR multi-volume は sibling file を解決できる `ArchiveReader.open(url:)` 
 > `limitExceeded("staging free space")`. `maxSevenZipHeaderKDFWork` limits the aggregate SHA-256
 > rounds used by 7z header KDFs during open, defaulting to `4 * (1 << 24)`. Cache hits and direct
 > keys consume no rounds, and entry-time derivations are excluded.
+>
+> XZ / bzip2 standalone streams and compressed-tar staging decode in parallel by default.
+> `ReaderOptions.decodeThreads == nil` resolves once at open from active logical CPUs and whole
+> GiB of physical memory, with no fixed core-count cap. The default `DecodePowerPolicy.reduceInLowPowerMode`
+> reduces the request in Low Power Mode to the smaller of half the active CPUs (rounded up) and
+> the lowest performance level's logical count when multiple levels exist. The thermal-pressure
+> policy also reduces at serious / critical; `alwaysUseAllCores` skips power / thermal reduction.
+> Explicit counts are clamped to `ReaderOptions.decodeThreadsRange` (`1...1024`) and ignore the
+> power policy. `reopen()` preserves the snapshot. Use `automaticDecodeThreads(powerPolicy:)` for UI display.
+> `ReadLimits.parallelDecodeMemory == nil` allows 50% of physical memory per decoder; in-flight
+> jobs and scratch reservations are budgeted, with serial fallback when parallel work does not fit.
+> `maxDictionarySize` separately limits dictionaries. A shared process-wide pool bounds running leaf
+> jobs to active logical CPUs. Output bytes and stream-order errors are independent of thread count.
 >
 > Use `Data(contentsOf:options:.mappedIfSafe)` only for a local single file whose contents do not
 > change during the call. Use `ArchiveReader.open(url:)` for multi-volume RAR so that sibling files

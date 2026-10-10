@@ -18,16 +18,16 @@ struct XXH32 {
         (value << shift) | (value >> (32 - shift))
     }
 
-    private static func word(_ bytes: ArraySlice<UInt8>, _ offset: Int) -> UInt32 {
-        UInt32(bytes[offset]) | UInt32(bytes[offset + 1]) << 8
-            | UInt32(bytes[offset + 2]) << 16 | UInt32(bytes[offset + 3]) << 24
+    @inline(__always)
+    private static func word(_ bytes: UnsafeRawBufferPointer, _ offset: Int) -> UInt32 {
+        UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt32.self))
     }
 
     private static func round(_ accumulator: UInt32, _ lane: UInt32) -> UInt32 {
         rotate(accumulator &+ lane &* p2, 13) &* p1
     }
 
-    private mutating func stripe(_ bytes: ArraySlice<UInt8>, _ offset: Int) {
+    private mutating func stripe(_ bytes: UnsafeRawBufferPointer, _ offset: Int) {
         a = Self.round(a, Self.word(bytes, offset))
         b = Self.round(b, Self.word(bytes, offset + 4))
         c = Self.round(c, Self.word(bytes, offset + 8))
@@ -36,18 +36,22 @@ struct XXH32 {
     }
 
     mutating func update(_ bytes: ArraySlice<UInt8>) {
+        bytes.withUnsafeBytes { update($0) }
+    }
+
+    mutating func update(_ bytes: UnsafeRawBufferPointer) {
         length &+= UInt32(truncatingIfNeeded: bytes.count)
-        var offset = bytes.startIndex
+        var offset = 0
         if !tail.isEmpty {
             let count = min(16 - tail.count, bytes.count)
             tail.append(contentsOf: bytes[offset..<(offset + count)])
             offset += count
             if tail.count == 16 {
-                stripe(tail[...], 0)
+                tail.withUnsafeBytes { stripe($0, 0) }
                 tail.removeAll(keepingCapacity: true)
             }
         }
-        while bytes.endIndex - offset >= 16 {
+        while bytes.count - offset >= 16 {
             stripe(bytes, offset)
             offset += 16
         }
@@ -60,9 +64,11 @@ struct XXH32 {
             : Self.p5
         hash &+= length
         var offset = 0
-        while tail.count - offset >= 4 {
-            hash = Self.rotate(hash &+ Self.word(tail[...], offset) &* Self.p3, 17) &* Self.p4
-            offset += 4
+        tail.withUnsafeBytes { bytes in
+            while bytes.count - offset >= 4 {
+                hash = Self.rotate(hash &+ Self.word(bytes, offset) &* Self.p3, 17) &* Self.p4
+                offset += 4
+            }
         }
         while offset < tail.count {
             hash = Self.rotate(hash &+ UInt32(tail[offset]) &* Self.p5, 11) &* Self.p1

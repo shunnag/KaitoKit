@@ -5,10 +5,11 @@ import Foundation
 // 兄弟: variant H の SevenZipPPMdRangeDecoder（7z）と RARPPMdRangeDecoder（RAR）は PPMd7RangeDecoding
 // 経由で PPMd7Model が使う。一覧: Core/BitReader.swift の先頭。
 final class PPMdVarIRangeDecoder {
+    private static let bufferSize = 64 * 1024
     private let source: any ByteSource
     private let endOffset: UInt64
     private var sourceOffset: UInt64
-    private var bytes = [UInt8](repeating: 0, count: 64 * 1024)
+    private let bytes: UnsafeMutableRawPointer
     private var byteOffset = 0
     private var byteCount = 0
     private var low: UInt32 = 0
@@ -21,9 +22,13 @@ final class PPMdVarIRangeDecoder {
         self.source = source
         self.sourceOffset = offset
         self.endOffset = endOffset
+        // Allocate after validating the range. Any subsequent throw occurs with
+        // a fully initialized instance, so deinit releases the owned buffer.
+        self.bytes = .allocate(byteCount: Self.bufferSize, alignment: 1)
         for _ in 0..<4 { code = (code << 8) | UInt32(try readByte()) }
     }
 
+    @inline(__always)
     func threshold(total: Int) throws -> Int {
         guard total > 0, total <= Int(UInt16.max) else {
             throw KaitoError.malformed("invalid PPMd var.I frequency total")
@@ -33,12 +38,14 @@ final class PPMdVarIRangeDecoder {
         return try currentCount()
     }
 
+    @inline(__always)
     func shiftThreshold() throws -> Int {
         scale = 1 << 14
         range >>= 14
         return try currentCount()
     }
 
+    @inline(__always)
     private func currentCount() throws -> Int {
         guard range != 0 else { throw KaitoError.malformed("PPMd var.I range collapsed") }
         let value = (code &- low) / range
@@ -48,6 +55,7 @@ final class PPMdVarIRangeDecoder {
         return Int(value)
     }
 
+    @inline(__always)
     func remove(low start: Int, high: Int) throws {
         guard start >= 0, start < high, high <= scale else {
             throw KaitoError.malformed("invalid PPMd var.I subrange")
@@ -57,6 +65,7 @@ final class PPMdVarIRangeDecoder {
         guard range != 0 else { throw KaitoError.malformed("PPMd var.I range collapsed") }
     }
 
+    @inline(__always)
     func normalize() throws {
         // 各反復は圧縮範囲内の一バイトを消費し、無限ループを防ぐ。
         while true {
@@ -71,25 +80,30 @@ final class PPMdVarIRangeDecoder {
         }
     }
 
+    deinit { bytes.deallocate() }
+
+    @inline(__always)
     private func readByte() throws -> UInt8 {
-        // SevenZipPPMdRangeDecoder の補充処理は兄弟コピーで、両方ともバイト単位の経路にあるためインラインに保つ。
-        if byteOffset == byteCount {
-            guard sourceOffset < endOffset else { throw KaitoError.truncated }
-            let requested = Int(min(UInt64(bytes.count), endOffset - sourceOffset))
-            // 読み込み失敗後に古いバッファを再利用しないよう、位置と有効長を同時に初期化する。
-            byteOffset = 0
-            byteCount = 0
-            byteCount = try bytes.withUnsafeMutableBytes { storage in
-                try source.read(
-                    into: UnsafeMutableRawBufferPointer(rebasing: storage[..<requested]),
-                    at: sourceOffset
-                )
-            }
-            guard byteCount > 0, byteCount <= requested else { throw KaitoError.truncated }
-            sourceOffset = try Checked.add(sourceOffset, UInt64(byteCount))
-        }
-        let result = bytes[byteOffset]
+        // refill publishes only a validated count; 0 <= byteOffset < byteCount
+        // covers this load even when the ByteSource returns a short read.
+        if byteOffset == byteCount { try refill() }
+        let result = bytes.load(fromByteOffset: byteOffset, as: UInt8.self)
         byteOffset += 1
         return result
+    }
+
+    @inline(never)
+    private func refill() throws {
+        guard sourceOffset < endOffset else { throw KaitoError.truncated }
+        let requested = Int(min(UInt64(Self.bufferSize), endOffset - sourceOffset))
+        byteOffset = 0
+        byteCount = 0
+        let count = try source.read(
+            into: UnsafeMutableRawBufferPointer(start: bytes, count: requested),
+            at: sourceOffset
+        )
+        guard count > 0, count <= requested else { throw KaitoError.truncated }
+        byteCount = count
+        sourceOffset = try Checked.add(sourceOffset, UInt64(byteCount))
     }
 }

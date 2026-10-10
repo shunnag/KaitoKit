@@ -49,6 +49,76 @@ final class ZstdDifferentialTests: XCTestCase {
                                       standardInput: input).standardOutput
     }
 
+    func testKnownSizeParallelFramesAndRefillMutationsAgainstSerial() throws {
+        let tool = try tool()
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "zstd-parallel")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("text")
+        let body = wordText(393_227)
+        try body.write(to: file)
+        var frames: [Data] = []
+        let limits = ReadLimits(maxEntrySize: 32 << 20, maxDictionarySize: 128 << 20)
+        for options in [["-1"], ["-3"], ["-19"], ["-3", "--long=27"]] {
+            for check in ["--check", "--no-check"] {
+                let encoded = try ZipTestSupport.checkedRun(tool, arguments:
+                    ["-q", "-c", "--single-thread", "--content-size", check] + options + [file.path]).standardOutput
+                XCTAssertEqual(try decode(encoded), body)
+                XCTAssertEqual(try decode(encoded, tuning: ZstdTuning(lazySequenceRefill: false)), body)
+                frames.append(encoded)
+            }
+        }
+        let skip = Data([0x50, 0x2a, 0x4d, 0x18, 3, 0, 0, 0, 1, 2, 3])
+        let joined = frames.reduce(skip) { $0 + $1 + skip }
+        var expected = Data()
+        for _ in frames { expected.append(body) }
+        XCTAssertEqual(try ZipTestSupport.checkedRun(tool, arguments: ["-q", "-d", "-c"], standardInput: joined).standardOutput, expected)
+        for workers in [1, 2, 4, 8, 16, 36, 64] {
+            let decoder = try ZstdDecompressor.parallel(source: DataByteSource(joined), limits: limits, workers: workers)
+            XCTAssertEqual(decoder is ParallelIndependentDecompressor, workers > 1)
+            XCTAssertEqual(try drain(decoder, bufferSize: 65_537), expected)
+        }
+        let noSize = try compress(body, tool: tool, options: ["-3", "--long=27", "--no-content-size"])
+        let fallback = try ZstdDecompressor.parallel(source: DataByteSource(noSize + noSize), limits: limits, workers: 64)
+        XCTAssertTrue(fallback is ZstdDecompressor)
+        XCTAssertEqual(try drain(fallback, bufferSize: 127), body + body)
+
+        func result(_ bytes: Data, old: Bool) -> Result<Data, KaitoError> {
+            do { return .success(try decode(bytes, tuning: ZstdTuning(lazySequenceRefill: !old))) }
+            catch {
+                guard let error = error as? KaitoError else {
+                    XCTFail("unexpected error: \(error)")
+                    return .failure(.malformed("unexpected test error"))
+                }
+                return .failure(error)
+            }
+        }
+        // 元の常時 refill と、同じ検査を行う遅延 refill で byte / error を照合する。
+        for encoded in frames {
+            for index in 0..<96 {
+                var changed = encoded
+                let offset = (index * 104_729 + 11) % changed.count
+                changed[offset] ^= 1 << (index % 8)
+                XCTAssertEqual(result(changed, old: false), result(changed, old: true), "mutation \(offset)")
+            }
+        }
+        // 中間 frame の checksum は先行 frame の bytes を返した後に同じエラーになる。
+        var corrupt = frames[2]; corrupt[corrupt.count - 1] ^= 1
+        let broken = frames[0] + skip + corrupt + frames[4]
+        for workers in [2, 4, 8, 16, 36, 64] {
+            let decoder = try ZstdDecompressor.parallel(source: DataByteSource(broken), limits: limits, workers: workers)
+            XCTAssertTrue(decoder is ParallelIndependentDecompressor)
+            var received = Data(), buffer = [UInt8](repeating: 0, count: 65_537)
+            XCTAssertThrowsError(try {
+                while true {
+                    let count = try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }
+                    if count == 0 { break }
+                    received.append(contentsOf: buffer.prefix(count))
+                }
+            }()) { XCTAssertEqual($0 as? KaitoError, .checksumMismatch(entry: 0)) }
+            XCTAssertTrue(received.starts(with: body))
+        }
+    }
+
     private func compare(_ encoded: Data, expected: Data, tool: String, chunk: Int = 65_536) throws {
         let reference = try ZipTestSupport.checkedRun(tool, arguments: ["-q", "-d", "-c"],
                                                      standardInput: encoded).standardOutput

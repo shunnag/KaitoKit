@@ -73,6 +73,48 @@ final class ZstdDecompressor: Decompressor {
         }
     }
 
+    static func parallel(source: any ByteSource, limits: ReadLimits, workers: Int) throws -> any Decompressor {
+        if workers > 1, let units = try? parallelUnits(source: source, limits: limits),
+           let decoder = ParallelIndependentDecompressor(units: units, limits: limits, workers: workers) {
+            return decoder
+        }
+        // 構造走査の失敗も元の read の位置で報告する。未知 content size と単一 frame は直列。
+        return try ZstdDecompressor(source: source, limits: limits)
+    }
+
+    static func parallelUnits(source: any ByteSource, limits: ReadLimits) throws -> [ParallelIndependentDecompressor.Unit]? {
+        let input = try ZstdInput(source: source, offset: 0, size: source.length)
+        var units: [ParallelIndependentDecompressor.Unit] = []
+        var total: UInt64 = 0
+        while input.remaining > 0 {
+            let offset = input.position
+            let magic = try input.integer(4)
+            if ZstdFrameHeader.isSkippable(magic) {
+                try input.skip(input.integer(4))
+                continue
+            }
+            guard magic == ZstdFrameHeader.magic else { throw KaitoError.malformed("zstd frame magic") }
+            let header = try ZstdFrameHeader(input: input, limits: limits)
+            guard let size = header.contentSize, units.count < limits.maxMetadataRecordCount else { return nil }
+            total = try Checked.add(total, size)
+            try Checked.size(total, limit: limits.maxEntrySize)
+            var last = false
+            while !last {
+                let block = try header.blockHeader(input)
+                try input.skip(UInt64(block.type == .rle ? 1 : block.size))
+                last = block.last
+            }
+            if header.checksum { try input.skip(4) }
+            let compressedSize = input.position - offset
+            // prepareBlock の倍増上限（再確保時は旧 buffer も生存）+ scratch / entropy tables / 先読み。
+            let scratch = try Checked.add(Checked.mul(UInt64(header.retainedWindowSize), 4), 1_048_576)
+            units.append(try .init(outputSize: size, scratchBytes: scratch) {
+                try ZstdDecompressor(source: source, offset: offset, compressedSize: compressedSize, limits: limits)
+            })
+        }
+        return units
+    }
+
     // ブロックの実体を展開せず、全フレームの宣言サイズと構造を確認する。
     static func contentSize(source: any ByteSource, limits: ReadLimits) throws -> UInt64? {
         let input = try ZstdInput(source: source, offset: 0, size: source.length)

@@ -29,6 +29,7 @@ private struct BenchArguments {
     let useMappedData: Bool
     let useRandomAccess: Bool
     let password: String?
+    let decodeThreads: Int?
 }
 
 private func parseBench(_ arguments: [String]) throws -> BenchArguments {
@@ -36,6 +37,7 @@ private func parseBench(_ arguments: [String]) throws -> BenchArguments {
     var useMappedData = false
     var useRandomAccess = false
     var password: String?
+    var threads = DecodeThreadsArgument()
     var cursor = ArgumentCursor(arguments)
     while let argument = cursor.next() {
         if argument == "--data" {
@@ -44,6 +46,8 @@ private func parseBench(_ arguments: [String]) throws -> BenchArguments {
         } else if argument == "--random" {
             guard !useRandomAccess else { throw CLIError.usage(usage) }
             useRandomAccess = true
+        } else if argument == "--threads" {
+            try threads.parse(from: &cursor)
         } else if argument == "-p" {
             password = try cursor.value(unlessSet: password)
         } else {
@@ -69,7 +73,8 @@ private func parseBench(_ arguments: [String]) throws -> BenchArguments {
         repetitions: repetitions,
         useMappedData: useMappedData,
         useRandomAccess: useRandomAccess,
-        password: password
+        password: password,
+        decodeThreads: threads.value
     )
 }
 
@@ -129,10 +134,10 @@ func runBench(_ arguments: [String]) throws {
             )
             reader = try ArchiveReader.open(
                 data: mappedData,
-                options: ReaderOptions(password: parsed.password)
+                options: ReaderOptions(password: parsed.password, decodeThreads: parsed.decodeThreads)
             )
         } else {
-            reader = try openArchive(parsed.archive, password: parsed.password)
+            reader = try openArchive(parsed.archive, password: parsed.password, decodeThreads: parsed.decodeThreads)
         }
         let openEnd = DispatchTime.now().uptimeNanoseconds
         openTimes.append(elapsedMilliseconds(since: openStart, until: openEnd))

@@ -70,7 +70,8 @@ public final class Deflate64Decompressor: Decompressor {
         )
         self.fixedDistanceDecoder = try Deflate64HuffmanDecoder(
             lengths: [UInt8](repeating: 5, count: 32),
-            alphabet: "fixed distance"
+            alphabet: "fixed distance",
+            primaryBits: 7
         )
     }
 
@@ -251,16 +252,52 @@ public final class Deflate64Decompressor: Decompressor {
             throw KaitoError.malformed("invalid Deflate64 match distance")
         }
 
-        while matchRemaining > 0, outputOffset < limit {
-            let sourceOffset: Int
-            if windowOffset >= matchDistance {
-                sourceOffset = windowOffset - matchDistance
+        var count = min(matchRemaining, limit - outputOffset)
+        if let expectedSize {
+            // Emit the same allowed prefix before reporting an oversized match.
+            count = Int(min(UInt64(count), expectedSize - totalOutput))
+        }
+        let nextOutput = try Checked.add(totalOutput, UInt64(count))
+        let destination = buffer.baseAddress!.advanced(by: outputOffset)
+        window.withUnsafeMutableBytes { history in
+            let base = history.baseAddress!
+            let source = (windowOffset + Self.windowSize - matchDistance) & (Self.windowSize - 1)
+            if matchDistance == 1 {
+                destination.initializeMemory(as: UInt8.self, repeating: history[source], count: count)
             } else {
-                sourceOffset = windowOffset + Self.windowSize - matchDistance
+                // Seed at most one period from history, splitting at the ring edge.
+                let seed = min(count, matchDistance)
+                let first = min(seed, Self.windowSize - source)
+                destination.copyMemory(from: base.advanced(by: source), byteCount: first)
+                if first < seed {
+                    destination.advanced(by: first).copyMemory(from: base, byteCount: seed - first)
+                }
+                // Expand overlapping LZ matches from the initialized output prefix.
+                // Each source/destination pair is disjoint, even for distances 2...7.
+                var copied = seed
+                while copied < count {
+                    let run = min(copied, count - copied)
+                    destination.advanced(by: copied).copyMemory(from: destination, byteCount: run)
+                    copied += run
+                }
             }
-            let byte = window[sourceOffset]
-            try emit(byte, into: buffer, at: &outputOffset)
-            matchRemaining -= 1
+            // Only the last 64 KiB can remain in history. This also handles the
+            // Deflate64 maximum match (65538) and distance 65536 without aliasing.
+            let retained = min(count, Self.windowSize)
+            let skipped = count - retained
+            let start = (windowOffset + skipped) & (Self.windowSize - 1)
+            let first = min(retained, Self.windowSize - start)
+            base.advanced(by: start).copyMemory(from: destination.advanced(by: skipped), byteCount: first)
+            if first < retained {
+                base.copyMemory(from: destination.advanced(by: skipped + first), byteCount: retained - first)
+            }
+        }
+        windowOffset = (windowOffset + count) & (Self.windowSize - 1)
+        outputOffset += count
+        totalOutput = nextOutput
+        matchRemaining -= count
+        if matchRemaining > 0, outputOffset < limit {
+            throw KaitoError.malformed("Deflate64 output exceeds the expected size")
         }
 
         if matchRemaining == 0 {
@@ -322,7 +359,8 @@ public final class Deflate64Decompressor: Decompressor {
         }
         let codeLengthDecoder = try Deflate64HuffmanDecoder(
             lengths: codeLengthLengths,
-            alphabet: "code-length"
+            alphabet: "code-length",
+            primaryBits: 7
         )
 
         let totalCount = literalCount + distanceCount
@@ -395,7 +433,8 @@ public final class Deflate64Decompressor: Decompressor {
         } else {
             distance = try Deflate64HuffmanDecoder(
                 lengths: distanceLengths,
-                alphabet: "distance"
+                alphabet: "distance",
+                primaryBits: 7
             )
         }
         return (literal, distance)
@@ -413,9 +452,42 @@ public final class Deflate64Decompressor: Decompressor {
         lengths.append(contentsOf: repeatElement(value, count: count))
     }
 
+    @inline(__always)
     private func decode(using decoder: Deflate64HuffmanDecoder) throws -> Int {
-        try decoder.decode {
-            UInt8(truncatingIfNeeded: try self.readBits(1))
+        // Speculative refill uses only bytes already fetched by readBits/refillInput.
+        // Never read the source just for lookahead: a short terminal code or an
+        // invalid prefix must win over a later truncation or source error.
+        if availableBits < decoder.maximumLength {
+            while availableBits <= 56, inputOffset < inputCount {
+                bitReservoir |= UInt64(input[inputOffset]) << availableBits
+                inputOffset += 1
+                availableBits += 8
+            }
+        }
+        while true {
+            var entry = decoder.table[Int(bitReservoir & decoder.primaryMask)]
+            if availableBits >= Int(entry.bitCount), entry.value <= -2 {
+                let offset = Int(-entry.value - 2)
+                let mask = (UInt64(1) << entry.lookupBits) - 1
+                entry = decoder.table[offset + Int((bitReservoir >> decoder.primaryBits) & mask)]
+            }
+            let count = Int(entry.bitCount)
+            if availableBits < count {
+                // Zero padding a lookup is safe only when all bits needed by that
+                // result are present. Invalid slots carry the first missing edge's
+                // depth, preserving malformed versus truncated for incomplete trees.
+                let byte = try readCompressedByte()
+                bitReservoir |= UInt64(byte) << availableBits
+                availableBits += 8
+                continue
+            }
+            bitReservoir >>= count
+            availableBits -= count
+            bitAlignment = (bitAlignment + count) & 7
+            guard entry.value >= 0 else {
+                throw KaitoError.malformed("invalid Deflate64 \(decoder.alphabet) Huffman code")
+            }
+            return Int(entry.value)
         }
     }
 
@@ -557,11 +629,20 @@ private struct Deflate64HuffmanDecoder {
         var symbol: Int?
     }
 
-    private let nodes: [Node]
-    private let maximumLength: Int
-    private let alphabet: String
+    // Nonnegative value: symbol; -1: invalid prefix; <= -2: secondary offset.
+    struct Entry {
+        let value: Int32
+        let bitCount: UInt8
+        let lookupBits: UInt8
+    }
 
-    init(lengths: [UInt8], alphabet: String) throws {
+    let table: [Entry]
+    let primaryBits: Int
+    let primaryMask: UInt64
+    let maximumLength: Int
+    let alphabet: String
+
+    init(lengths: [UInt8], alphabet: String, primaryBits: Int = 9) throws {
         var counts = [Int](repeating: 0, count: 16)
         var maximumLength = 0
         for lengthByte in lengths {
@@ -643,33 +724,53 @@ private struct Deflate64HuffmanDecoder {
             nodes[nodeIndex].symbol = symbol
         }
 
-        self.nodes = nodes
-        self.maximumLength = maximumLength
-        self.alphabet = alphabet
-    }
+        // Keep the original canonical-tree validation above, including its error
+        // messages and acceptance of incomplete alphabets. The tree is used only
+        // to construct tables and is not retained by the streaming decoder.
+        let rootBits = min(primaryBits, maximumLength)
+        let invalid = Entry(value: -1, bitCount: 0, lookupBits: 0)
+        var table = [Entry](repeating: invalid, count: 1 << rootBits)
 
-    func decode(nextBit: () throws -> UInt8) throws -> Int {
-        var nodeIndex = 0
-        for _ in 0..<maximumLength {
-            let bit = try nextBit()
-            guard bit <= 1 else {
-                throw KaitoError.malformed("invalid Deflate64 bit value")
+        func lookup(node: Int, bits: Int, count: Int, depth: Int) -> (Entry, Int?) {
+            var index = node
+            for step in 0..<count {
+                let bit = (bits >> step) & 1
+                let child = bit == 0 ? nodes[index].zeroChild : nodes[index].oneChild
+                guard let child else {
+                    return (Entry(value: -1, bitCount: UInt8(depth + step + 1), lookupBits: 0), nil)
+                }
+                index = child
+                if let symbol = nodes[index].symbol {
+                    return (Entry(value: Int32(symbol), bitCount: UInt8(depth + step + 1), lookupBits: 0), nil)
+                }
             }
-            let child = bit == 0
-                ? nodes[nodeIndex].zeroChild
-                : nodes[nodeIndex].oneChild
-            guard let child else {
-                throw KaitoError.malformed(
-                    "invalid Deflate64 \(alphabet) Huffman code"
-                )
+            return (invalid, index)
+        }
+
+        func depthBelow(_ index: Int) -> Int {
+            if nodes[index].symbol != nil { return 0 }
+            return 1 + max(nodes[index].zeroChild.map(depthBelow) ?? 0,
+                           nodes[index].oneChild.map(depthBelow) ?? 0)
+        }
+
+        for prefix in 0..<(1 << rootBits) {
+            let (entry, node) = lookup(node: 0, bits: prefix, count: rootBits, depth: 0)
+            guard let node else {
+                table[prefix] = entry
+                continue
             }
-            nodeIndex = child
-            if let symbol = nodes[nodeIndex].symbol {
-                return symbol
+            let extraBits = depthBelow(node)
+            let offset = table.count
+            table[prefix] = Entry(value: -Int32(offset) - 2,
+                                  bitCount: UInt8(rootBits), lookupBits: UInt8(extraBits))
+            for suffix in 0..<(1 << extraBits) {
+                table.append(lookup(node: node, bits: suffix, count: extraBits, depth: rootBits).0)
             }
         }
-        throw KaitoError.malformed(
-            "unterminated Deflate64 \(alphabet) Huffman code"
-        )
+        self.table = table
+        self.primaryBits = rootBits
+        self.primaryMask = UInt64((1 << rootBits) - 1)
+        self.maximumLength = maximumLength
+        self.alphabet = alphabet
     }
 }

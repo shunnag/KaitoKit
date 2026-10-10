@@ -41,10 +41,15 @@ final class PPMdVarIDecoder: Decompressor {
         guard !buffer.isEmpty, !isFinished else { return 0 }
         guard let rangeDecoder else { throw KaitoError.truncated }
         let count = Int(min(UInt64(min(buffer.count, 256 * 1024)), expectedSize - producedSize))
-        for i in 0..<count {
-            buffer[i] = try model.decodeByte(using: rangeDecoder)
-            producedSize += 1
+        var completed = 0
+        do {
+            try model.decode(into: UnsafeMutableRawBufferPointer(rebasing: buffer[..<count]),
+                             using: rangeDecoder, completed: &completed)
+        } catch {
+            producedSize += UInt64(completed)
+            throw error
         }
+        producedSize += UInt64(completed)
         if isFinished { model.releaseArena() }
         return count
     }

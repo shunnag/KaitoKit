@@ -2,6 +2,22 @@
 
 [README](../README.md#コマンドライン) の基本操作に加え、出力形式・差分検証・計測・password の規則を説明します。
 
+## 復号の並列数
+
+`list` / `sha` / `extract` / `bench` は `--threads N`（1〜1024）または `--threads auto` を受け付けます。
+既定は `auto`。`ReaderOptions.decodeThreads` に対応し、XZ / bzip2 の単独 stream と圧縮 tar の staging に
+適用します。自動値は CPU 構成と物理メモリから open 時に一度決め、Low Power Mode では減らします。
+保持予算は既定で物理メモリの 50%。実行中 job は process 共通の CPU 数上限を共有し、超える要求は queue に入ります。
+範囲外・値なし・重複した `--threads` は usage error です。出力 byte と SHA は並列数によらず同一です。
+
+```console
+kaito sha --threads 1 payload.xz
+kaito sha --threads 16 payload.xz
+kaito list archive.tar.bz2 --threads auto
+kaito extract payload.bz2 -o unpacked --threads 4
+kaito bench --threads 36 archive.tar.xz 5
+```
+
 ## 名前の文字コードを診断する
 
 `detect-encoding` は TSV に記録した名前の元 byte 列から文字コード・確信度・復号名を表示する診断用コマンドです。
@@ -37,6 +53,7 @@ $ swift run kaito list samples/book.zip --raw
 $ swift run kaito list samples/book-encrypted.7z -p secret
 $ swift run kaito extract samples/book.tar -o /tmp/book
 $ swift run kaito sha samples/book.tar
+$ swift run kaito sha --sink samples/book.tar
 $ swift run kaito sha samples/book-encrypted.7z -p secret
 $ swift run kaito bench samples/book.tar 5
 $ swift run kaito bench --data samples/book.tar 5
@@ -57,6 +74,12 @@ filename は一つの path に組み立て、0xFF directory 区切りは `/` に
 固定 seed で選んだ最大 20 件の非ディレクトリエントリをランダム順に読み、solid 書庫の
 後方シークを含むアクセスを再現可能な条件で計測します。表示する `bytes` は選択した
 エントリの合計です。
+
+`sha --sink` は同じ走査・逐次復号を行い、SHA-256 を計算せず byte 数だけを出力します。
+entry 行は `index<TAB>bytes<TAB>name`、末尾は `total<TAB>rows<TAB>bytes<TAB>` です。
+失敗行と終了コードは通常の `sha` と同じで、末尾の `partial` は成功 entry の byte 数だけを集計します。
+`--forks`・`-p` も併用できます。[decode の A/B 計測](../Tests/Measurement/decode-ab/README.md)で
+通常の `sha` による一致確認、`list` / `sha --sink` の交互計測を行います。
 
 StuffIt / StuffIt X の `list` は末尾に `fork=data` / `fork=resource` を追加します。
 StuffIt X は `solid=<stream ID>`（独立 fork は `-1`）も表示します。
@@ -108,6 +131,11 @@ RAR5 は先頭127 Unicode scalars の UTF-8 を優先し、有効な password �
 > entries chosen with a fixed seed, in random order, so that access patterns including backward seeks
 > in a solid archive are measured reproducibly. The reported `bytes` is the total of the selected
 > entries.
+>
+> `sha --sink` performs the same traversal and streaming decode without computing SHA-256.
+> Entry rows are `index<TAB>bytes<TAB>name`; the final row is `total<TAB>rows<TAB>bytes<TAB>`.
+> Failures retain the usual error rows and exit status, with a `partial` counting only successful
+> bytes. `--forks` and `-p` also apply. See the [decode A/B harness](../Tests/Measurement/decode-ab/README.md).
 >
 > `bench` times only the in-process open and extract, repeated and reported as a median; process
 > startup, SHA-256 and standard output are excluded. `swift run` also includes SwiftPM planning and

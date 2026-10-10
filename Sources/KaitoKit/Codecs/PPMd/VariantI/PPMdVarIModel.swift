@@ -27,11 +27,13 @@ final class PPMdVarIModel {
             shift = UInt8(truncatingIfNeeded: signature >> 16)
             count = UInt8(truncatingIfNeeded: signature >> 24)
         }
+        @inline(__always)
         mutating func mean() -> Int {
             let result = sum >> shift
             sum &-= result
             return Int(result) + (result == 0 ? 1 : 0)
         }
+        @inline(__always)
         mutating func update() {
             if shift < 7 {
                 count &-= 1
@@ -123,6 +125,17 @@ final class PPMdVarIModel {
 
     func releaseArena() { arena.release() }
 
+    // completed is local to the caller, avoiding a class-property update for
+    // every byte while preserving the decoder's progress if a symbol throws.
+    func decode(into buffer: UnsafeMutableRawBufferPointer, using decoder: PPMdVarIRangeDecoder,
+                completed: inout Int) throws {
+        for index in 0..<buffer.count {
+            buffer[index] = try decodeByte(using: decoder)
+            completed += 1
+        }
+    }
+
+    @inline(__always)
     func decodeByte(using decoder: PPMdVarIRangeDecoder) throws -> UInt8 {
         // 前の symbol の正規化を次の要求まで遅延し、既知サイズの末尾で入力を要求しない。
         if needsNormalization { try decoder.normalize() }
@@ -185,6 +198,7 @@ final class PPMdVarIModel {
         }
     }
 
+    @inline(__always)
     private func decodeBinSymbol(_ c: Offset, _ decoder: PPMdVarIRangeDecoder) throws {
         let p = try oneState(c)
         var s = try state(p)
@@ -214,6 +228,7 @@ final class PPMdVarIModel {
         }
     }
 
+    @inline(__always)
     private func decodeSymbol1(_ c: Offset, _ decoder: PPMdVarIRangeDecoder) throws {
         let base = try stats(c), n = try numStats(c), total = try sum(c)
         let count = try decoder.threshold(total: total)
@@ -246,6 +261,7 @@ final class PPMdVarIModel {
         foundState = 0
     }
 
+    @inline(__always)
     private func update1(_ c: Offset, _ p: Offset) throws {
         foundState = p
         let f = try frequency(p) + 4
@@ -259,6 +275,7 @@ final class PPMdVarIModel {
         }
     }
 
+    @inline(__always)
     private func update2(_ c: Offset, _ p: Offset) throws {
         foundState = p
         let f = try frequency(p) + 4
@@ -269,6 +286,7 @@ final class PPMdVarIModel {
         runLength = initialRunLength
     }
 
+    @inline(__always)
     private func makeEscFreq2(_ c: Offset) throws -> (index: Int?, scale: Int) {
         let n = try numStats(c)
         if n == 255 { return (nil, 1) }
@@ -283,6 +301,7 @@ final class PPMdVarIModel {
         return (i, see[i].mean())
     }
 
+    @inline(__always)
     private func decodeSymbol2(_ c: Offset, _ decoder: PPMdVarIRangeDecoder) throws {
         let estimator = try makeEscFreq2(c)
         let n = try numStats(c), base = try stats(c)
@@ -814,6 +833,7 @@ final class PPMdVarIModel {
         try arena.requireUnit(c)
         return try arena.get32(arena.advance(c, 8))
     }
+    @inline(__always)
     private func stats(_ c: Offset) throws -> Offset {
         let n = try numStats(c)
         // numStats が検証した 12 バイトの文脈内に、4 バイトの参照が収まる。
@@ -826,18 +846,23 @@ final class PPMdVarIModel {
         try arena.requireUnit(c)
         return try arena.advance(c, 2)
     }
+    @inline(__always)
     private func setNumStats(_ c: Offset, _ n: Int) throws {
         guard (0...255).contains(n) else { throw malformed("invalid state count") }
         try arena.put8(UInt8(n), c)
     }
+    @inline(__always)
     private func setFlags(_ c: Offset, _ value: Int) throws {
         try arena.put8(UInt8(truncatingIfNeeded: value), arena.advance(c, 1))
     }
+    @inline(__always)
     private func setSum(_ c: Offset, _ value: Int) throws {
         guard (0...Int(UInt16.max)).contains(value) else { throw malformed("invalid frequency sum") }
         try arena.put16(UInt16(value), arena.advance(c, 2))
     }
+    @inline(__always)
     private func setStats(_ c: Offset, _ p: Offset) throws { try arena.put32(p, arena.advance(c, 4)) }
+    @inline(__always)
     private func setSuffix(_ c: Offset, _ p: Offset) throws { try arena.put32(p, arena.advance(c, 8)) }
     @inline(__always)
     private func at(_ base: Offset, _ index: Int) throws -> Offset {
@@ -850,13 +875,16 @@ final class PPMdVarIModel {
     private func frequency(_ p: Offset) throws -> Int { Int(try arena.get8(arena.advance(p, 1))) }
     @inline(__always)
     private func successor(_ p: Offset) throws -> Offset { try arena.get32(arena.advance(p, 2)) }
+    @inline(__always)
     private func setFrequency(_ p: Offset, _ value: Int) throws {
         guard (0...255).contains(value) else { throw malformed("invalid state frequency") }
         try arena.put8(UInt8(value), arena.advance(p, 1))
     }
+    @inline(__always)
     private func setSuccessor(_ p: Offset, _ value: Offset) throws {
         try arena.put32(value, arena.advance(p, 2))
     }
+    @inline(__always)
     private func state(_ p: Offset) throws -> State {
         guard p >= arena.unitsStart else { throw malformed("state outside unit area") }
         let i = try arena.checkedInt(p, count: Self.stateSize)
@@ -868,6 +896,7 @@ final class PPMdVarIModel {
         State(symbol: arena.uncheckedGet8(i), frequency: Int(arena.uncheckedGet8(i + 1)),
               successor: arena.uncheckedGet32(i + 2))
     }
+    @inline(__always)
     private func writeState(_ p: Offset, _ value: State) throws {
         let i = try arena.checkedInt(p, count: Self.stateSize)
         arena.uncheckedPut8(value.symbol, i)
@@ -875,15 +904,18 @@ final class PPMdVarIModel {
         arena.uncheckedPut8(UInt8(value.frequency), i + 1)
         arena.uncheckedPut32(value.successor, i + 2)
     }
+    @inline(__always)
     private func copyState(_ source: Offset, _ destination: Offset) throws {
         try arena.copy(from: source, to: destination, count: Self.stateSize)
     }
+    @inline(__always)
     private func swap(_ a: Offset, _ b: Offset) throws {
         if a == b { return }
         let saved = try state(a)
         try copyState(b, a)
         try writeState(b, saved)
     }
+    @inline(__always)
     private func findState(_ c: Offset, _ symbol: UInt8) throws -> Offset {
         let n = try numStats(c), base = try n == 0 ? oneState(c) : stats(c)
         // 複数状態は stats の全範囲検査、単一状態は oneState の文脈検査に含まれる。
@@ -893,5 +925,6 @@ final class PPMdVarIModel {
         }
         throw malformed("suffix symbol is missing")
     }
+    @inline(__always)
     private func malformed(_ message: String) -> KaitoError { .malformed("PPMd var.I: " + message) }
 }

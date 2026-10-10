@@ -312,8 +312,8 @@ final class PPMdVarISuballocator {
     @inline(__always)
     func checkedInt(_ offset: Offset, count: Int) throws -> Int {
         let value = Int(offset)
-        guard storage != nil, value >= Int(Self.heapStart), value <= end,
-              count >= 0, count <= end - value else { throw invalid() }
+        guard storage != nil, count >= 0, count <= size,
+              UInt(bitPattern: value - Int(Self.heapStart)) <= UInt(size - count) else { throw invalid() }
         return value
     }
 
@@ -385,5 +385,6 @@ final class PPMdVarISuballocator {
         let s = try checkedInt(source, count: count), d = try checkedInt(destination, count: count)
         memmove(storage!.advanced(by: d), storage!.advanced(by: s), count)
     }
+    @inline(__always)
     private func invalid() -> KaitoError { .malformed("invalid PPMd var.I arena reference") }
 }

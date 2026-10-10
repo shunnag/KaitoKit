@@ -14,7 +14,7 @@ final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
     private let source: any ByteSource
     private let endOffset: UInt64
     private var sourceOffset: UInt64
-    private var bytes = [UInt8](repeating: 0, count: bufferSize)
+    private let bytes: UnsafeMutableRawPointer = .allocate(byteCount: bufferSize, alignment: 1)
     private var byteOffset = 0
     private var byteCount = 0
 
@@ -38,6 +38,7 @@ final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
         }
     }
 
+    @inline(__always)
     func threshold(total: Int) throws -> Int {
         guard total > 0, total <= Int(UInt16.max) else {
             throw KaitoError.malformed("invalid PPMd7 frequency total")
@@ -53,6 +54,7 @@ final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
         return Int(value)
     }
 
+    @inline(__always)
     func remove(start: Int, size: Int) throws {
         guard start >= 0, size > 0 else {
             throw KaitoError.malformed("invalid PPMd7 subrange")
@@ -67,6 +69,7 @@ final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
     }
 
     // escape 側なら true、binary symbol 側なら false を返す。
+    @inline(__always)
     func decodeBinary(probability: Int) throws -> Bool {
         guard probability > 0, probability < 1 << 14 else {
             throw KaitoError.malformed("invalid PPMd7 binary probability")
@@ -85,6 +88,7 @@ final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
         return true
     }
 
+    @inline(__always)
     func normalize() throws {
         while range < Self.topValue {
             range <<= 8
@@ -92,27 +96,30 @@ final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
         }
     }
 
+    deinit { bytes.deallocate() }
+
+    @inline(__always)
     private func readByte() throws -> UInt8 {
-        // PPMdVarIRangeDecoder の補充処理は兄弟コピーで、両方ともバイト単位の経路にあるためインラインに保つ。
-        if byteOffset == byteCount {
-            guard sourceOffset < endOffset else { throw KaitoError.truncated }
-            let remaining = try Checked.sub(endOffset, sourceOffset)
-            let requested = try Checked.toInt(min(UInt64(bytes.count), remaining))
-            byteOffset = 0
-            byteCount = try bytes.withUnsafeMutableBytes { storage in
-                // source へ公開する領域は endOffset までの requested byte に限定する。
-                try source.read(
-                    into: UnsafeMutableRawBufferPointer(rebasing: storage[..<requested]),
-                    at: sourceOffset
-                )
-            }
-            guard byteCount > 0, byteCount <= requested else {
-                throw KaitoError.truncated
-            }
-            sourceOffset = try Checked.add(sourceOffset, UInt64(byteCount))
-        }
-        let result = bytes[byteOffset]
+        // refill publishes only a validated count; 0 <= byteOffset < byteCount
+        // covers this load even when the ByteSource returns a short read.
+        if byteOffset == byteCount { try refill() }
+        let result = bytes.load(fromByteOffset: byteOffset, as: UInt8.self)
         byteOffset += 1
         return result
+    }
+
+    @inline(never)
+    private func refill() throws {
+        guard sourceOffset < endOffset else { throw KaitoError.truncated }
+        let requested = Int(min(UInt64(Self.bufferSize), endOffset - sourceOffset))
+        byteOffset = 0
+        byteCount = 0
+        let count = try source.read(
+            into: UnsafeMutableRawBufferPointer(start: bytes, count: requested),
+            at: sourceOffset
+        )
+        guard count > 0, count <= requested else { throw KaitoError.truncated }
+        byteCount = count
+        sourceOffset = try Checked.add(sourceOffset, UInt64(byteCount))
     }
 }

@@ -6,8 +6,6 @@ import Foundation
 /// 検証済みの出力を再生時に読み捨てるため、返す byte 列に重複はない。
 /// 失敗時には worker を放棄する。throw 後の instance は破棄する。
 final class ParallelBzip2Decompressor: Decompressor {
-    /// 同時に復号する worker 数の上限。
-    private static let maximumWorkerCount = 8
     /// 一区間の圧縮 byte 数の上限。init の既定値でもある。
     private static let maximumIntervalSize = 8 * 1_048_576
     /// 一区間の展開 byte 数の上限。init の既定値でもある。
@@ -50,46 +48,66 @@ final class ParallelBzip2Decompressor: Decompressor {
         case decoded(Decoded)
         case invalid
     }
+    /// queue の入力を結果公開前に解放する。可変値に触れるのは実行された leaf 一つだけ。
+    private final class PendingInput: @unchecked Sendable {
+        var bytes: Data
+        var reservation: Reservation?
+        init(_ bytes: Data, diagnostics: Diagnostics?) {
+            self.bytes = bytes
+            reservation = Reservation(bytes.count, diagnostics: diagnostics)
+        }
+        func release() { bytes = Data(); reservation = nil }
+    }
     private final class Workers: @unchecked Sendable {
         private let condition = NSCondition()
-        private let queue = DispatchQueue(label: "KaitoKit.bzip2", attributes: .concurrent)
-        private let slots: DispatchSemaphore
+        private let group = LeafDecodePool.Group()
         private var abandoned = false
+        private var tickets: [Int: LeafDecodePool.Ticket] = [:]
         private var results: [Int: Outcome] = [:]
         let diagnostics: Diagnostics?
         let outputLimit: Int
 
-        init(count: Int, outputLimit: Int, diagnostics: Diagnostics?) {
-            slots = DispatchSemaphore(value: count)
+        init(outputLimit: Int, diagnostics: Diagnostics?) {
             self.outputLimit = outputLimit; self.diagnostics = diagnostics
         }
         var isAbandoned: Bool {
             condition.lock(); defer { condition.unlock() }; return abandoned
         }
         func abandon() {
-            condition.lock(); abandoned = true; results.removeAll(); condition.broadcast(); condition.unlock()
+            condition.lock(); abandoned = true; results.removeAll(); tickets.removeAll(); condition.broadcast(); condition.unlock()
+            LeafDecodePool.shared.cancel(group: group)
         }
         func submit(_ bytes: Data, id: Int) {
-            let inputReservation = Reservation(bytes.count, diagnostics: diagnostics)
-            queue.async { [self, inputReservation] in
-                slots.wait()
-                defer { slots.signal(); withExtendedLifetime(inputReservation) {} }
+            let input = PendingInput(bytes, diagnostics: diagnostics)
+            let ticket = LeafDecodePool.shared.submit(group: group) { [self] in
                 guard !isAbandoned else { return }
                 diagnostics?.worker(1)
                 defer { diagnostics?.worker(-1) }
-                let result = decode(bytes).map(Outcome.decoded) ?? .invalid
+                var result: Outcome? = decode(input.bytes).map(Outcome.decoded) ?? .invalid
+                input.release()
                 condition.lock()
                 if !abandoned { results[id] = result }
+                result = nil
                 condition.broadcast(); condition.unlock()
             }
+            condition.withLock { if !abandoned { tickets[id] = ticket } }
         }
         func take(_ id: Int) throws -> Outcome {
+            var hasWaited = false
             while true {
+                try Task.checkCancellation()
                 condition.lock()
-                if let result = results.removeValue(forKey: id) { condition.unlock(); return result }
+                if let result = results.removeValue(forKey: id) { tickets.removeValue(forKey: id); condition.unlock(); return result }
                 if abandoned { condition.unlock(); return .invalid }
+                let ticket = tickets[id]
+                condition.unlock()
+                // まず Dispatch に譲り、1 poll 待っても未開始の葉だけを lock の外で実行する。
+                if hasWaited, let ticket, LeafDecodePool.shared.runInline(ticket) { continue }
+                condition.lock()
+                if results[id] != nil || abandoned { condition.unlock(); continue }
                 _ = condition.wait(until: Date(timeIntervalSinceNow: ParallelBzip2Decompressor.resultPollInterval))
                 condition.unlock()
+                hasWaited = true
                 try Task.checkCancellation()
             }
         }
@@ -146,12 +164,13 @@ final class ParallelBzip2Decompressor: Decompressor {
     private let workerCount: Int
     private let workers: Workers
     private let diagnostics: Diagnostics?
-    private let scannerReservation: Reservation
+    private var scannerReservation: Reservation?
     private var scanner: Bzip2BlockScanner?
     private var jobs: [Job] = []
     private var nextJob = 0
     private var scanningFinished = false
     private var fallbackOffset: UInt64?
+    private var scanningError: (any Error)?
     private var serial: Bzip2Decompressor?
     private var serialSkip: UInt64 = 0
     private var outputStreamStart: UInt64?
@@ -161,27 +180,31 @@ final class ParallelBzip2Decompressor: Decompressor {
     private var finished = false
 
     /// - Parameters:
+    ///   - limits: 並列復号の保持 byte 予算。
+    ///   - workers: reader が open 時に解決した要求並列数。
     ///   - injectedCandidates: Test hook: 偽の stream 開始候補（絶対 byte offset）。
     ///   - injectedBitCandidates: Test hook: 偽の block 開始候補（絶対 bit offset）。
     ///   - diagnostics: Test hook: 観測値の記録先。本番の呼出元は渡さない。
-    init(source: any ByteSource, recorder: CompressedTarMapRecorder? = nil,
-         workers: Int = min(ParallelBzip2Decompressor.maximumWorkerCount, ProcessInfo.processInfo.activeProcessorCount),
+    init(source: any ByteSource, limits: ReadLimits = ReadLimits(), recorder: CompressedTarMapRecorder? = nil,
+         workers: Int = ReaderOptions.automaticDecodeThreads(),
          maximumCompressedSize: Int = ParallelBzip2Decompressor.maximumIntervalSize,
          maximumOutputSize: Int = ParallelBzip2Decompressor.maximumIntervalOutputSize,
          injectedCandidates: [UInt64] = [], injectedBitCandidates: [UInt64] = [], diagnostics: Diagnostics? = nil) throws {
         self.source = source; self.recorder = recorder
-        self.workerCount = max(1, min(Self.maximumWorkerCount, workers))
         let compressedLimit = max(Bzip2StreamLayout.headerLength, min(Self.maximumIntervalSize, maximumCompressedSize))
         let outputLimit = max(1, min(Self.maximumIntervalOutputSize, maximumOutputSize))
+        let scannerBytes = 4 * compressedLimit + Bzip2BlockScanner.readSize + Bzip2StreamLayout.headerLength
+        let perJobBytes = compressedLimit + outputLimit
+        let budget = limits.resolvedParallelDecodeMemory()
+        self.workerCount = max(1, min(max(1, workers), max(0, budget - scannerBytes) / perJobBytes))
         self.diagnostics = diagnostics
-        self.workers = Workers(count: workerCount, outputLimit: outputLimit, diagnostics: diagnostics)
+        self.workers = Workers(outputLimit: outputLimit, diagnostics: diagnostics)
+        if workerCount < 2 { try fallBack(at: 0); return }
         // 窓、再 framing の一時コピー、候補配列、読み込み領域を含む予約。
-        self.scannerReservation = Reservation(4 * compressedLimit + Bzip2BlockScanner.readSize + Bzip2StreamLayout.headerLength,
-                                              diagnostics: diagnostics)
+        self.scannerReservation = Reservation(scannerBytes, diagnostics: diagnostics)
         self.scanner = try Bzip2BlockScanner(source: source, compressedLimit: compressedLimit, outputLimit: outputLimit,
                                             recordsChecksum: recorder != nil, injectedCandidates: injectedCandidates,
                                             injectedBitCandidates: injectedBitCandidates)
-        if workerCount < 2 { try fallBack(at: 0) }
     }
     deinit { workers.abandon() }
     var isFinished: Bool { serial?.isFinished ?? finished }
@@ -208,6 +231,8 @@ final class ParallelBzip2Decompressor: Decompressor {
                 try fillJobs()
                 if jobs.isEmpty {
                     if let fallbackOffset { try fallBack(at: fallbackOffset); continue }
+                    if let scanningError { throw scanningError }
+                    scanner = nil; scannerReservation = nil
                     finished = true; return 0
                 }
                 let job = jobs.removeFirst()
@@ -226,13 +251,14 @@ final class ParallelBzip2Decompressor: Decompressor {
             }
         } catch {
             workers.abandon()
+            current = nil; scanner = nil; scannerReservation = nil
             throw error
         }
     }
 
     private func fallBack(at offset: UInt64) throws {
         workers.abandon(); diagnostics?.fallback()
-        jobs = []; scanner = nil; current = nil
+        jobs = []; scanner = nil; scannerReservation = nil; current = nil; scanningError = nil
         serialSkip = outputStreamStart == offset ? streamOutput : 0
         serial = try Bzip2Decompressor(source: source, offset: offset, compressedSize: Checked.sub(source.length, offset),
                                       concatenatedStreams: true, recorder: recorder)
@@ -255,7 +281,15 @@ final class ParallelBzip2Decompressor: Decompressor {
     private func fillJobs() throws {
         // 消費済みの出力を解放してから、最大 W 区間までを投入する。
         while !scanningFinished, jobs.count < workerCount, let scanner {
-            switch try scanner.next() {
+            let next: Bzip2BlockScanner.Result
+            do { next = try scanner.next() }
+            catch is CancellationError { throw CancellationError() }
+            catch {
+                // 先読みの失敗より、先行する run の検証結果を先に受け取る。
+                scanningError = error; scanningFinished = true
+                return
+            }
+            switch next {
             case .run(let run):
                 let job = Job(id: nextJob, streamStart: run.streamStart, end: run.end)
                 nextJob += 1; jobs.append(job); workers.submit(run.bytes, id: job.id)

@@ -25,21 +25,20 @@ func readByteRange(
     guard end <= source.length else { throw KaitoError.truncated }
     guard count > 0 else { return [] }
 
-    var result = [UInt8](repeating: 0, count: count)
-    var filled = 0
-    while filled < count {
-        let readOffset = try Checked.add(offset, UInt64(filled))
-        let actual = try result.withUnsafeMutableBytes { storage in
-            // filled..<count は未充填の確保済み領域で、source へそれ以外を公開しない。
-            try source.read(
-                into: UnsafeMutableRawBufferPointer(rebasing: storage[filled..<count]),
+    return try [UInt8](unsafeUninitializedCapacity: count) { storage, initializedCount in
+        while initializedCount < count {
+            let readOffset = try Checked.add(offset, UInt64(initializedCount))
+            let bytes = UnsafeMutableRawBufferPointer(storage)
+            // initializedCount..<count は未充填の確保済み領域だけを指す。
+            let actual = try source.read(
+                into: UnsafeMutableRawBufferPointer(rebasing: bytes[initializedCount..<count]),
                 at: readOffset
             )
+            guard actual > 0, actual <= count - initializedCount else {
+                throw KaitoError.truncated
+            }
+            // A short read or throw must never publish the unwritten suffix.
+            initializedCount += actual
         }
-        guard actual > 0, actual <= count - filled else {
-            throw KaitoError.truncated
-        }
-        filled += actual
     }
-    return result
 }

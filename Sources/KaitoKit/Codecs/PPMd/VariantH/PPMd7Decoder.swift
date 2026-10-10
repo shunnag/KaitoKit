@@ -68,9 +68,7 @@ final class PPMd7Decoder: Decompressor {
             UInt64(Self.outputChunkSize),
             remaining
         ))
-        for index in 0..<count {
-            buffer[index] = try model.decodeByte(using: rangeDecoder)
-        }
+        try model.decode(into: UnsafeMutableRawBufferPointer(rebasing: buffer[..<count]), using: rangeDecoder)
         producedSize = try Checked.add(producedSize, UInt64(count))
         return count
     }

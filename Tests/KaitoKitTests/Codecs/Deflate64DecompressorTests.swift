@@ -273,7 +273,7 @@ final class Deflate64DecompressorTests: XCTestCase {
         try KaitoKitTests.drain(decoder, bufferSize: bufferSize, maxReads: 10_000)
     }
 
-    private static func fixedCodes() -> [Deflate64TestCode] {
+    static func fixedCodes() -> [Deflate64TestCode] {
         var lengths = [UInt8](repeating: 0, count: 288)
         for symbol in 0...143 { lengths[symbol] = 8 }
         for symbol in 144...255 { lengths[symbol] = 9 }
@@ -282,7 +282,7 @@ final class Deflate64DecompressorTests: XCTestCase {
         return canonicalCodes(lengths)
     }
 
-    private static func canonicalCodes(_ lengths: [UInt8]) -> [Deflate64TestCode] {
+    static func canonicalCodes(_ lengths: [UInt8]) -> [Deflate64TestCode] {
         var counts = [Int](repeating: 0, count: 16)
         for length in lengths where length != 0 {
             counts[Int(length)] += 1
@@ -307,12 +307,12 @@ final class Deflate64DecompressorTests: XCTestCase {
     }
 }
 
-private struct Deflate64TestCode {
+struct Deflate64TestCode {
     let bits: Int
     let length: Int
 }
 
-private struct Deflate64TestBitWriter {
+struct Deflate64TestBitWriter {
     private var bytes: [UInt8] = []
     private var currentByte: UInt8 = 0
     private var bitOffset = 0

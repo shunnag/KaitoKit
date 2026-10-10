@@ -1,4 +1,5 @@
 import Foundation
+private import CommonCrypto
 
 // 検証済みの暗号範囲を、対象 block と直前の暗号 block だけで復号する。
 struct AESCBCRandomAccess: Sendable {
@@ -52,31 +53,45 @@ struct AESCBCRandomAccess: Sendable {
             ciphertextOffset,
             try Checked.mul(firstBlock, UInt64(Self.blockSize))
         )
+        let prefixCount = firstBlock == 0 ? 0 : Self.blockSize
+        // A single source range contains the CBC IV and all requested blocks.
         let ciphertext = try readByteRange(
             source: source,
-            offset: encryptedOffset,
-            count: encryptedCount
+            offset: try Checked.sub(encryptedOffset, UInt64(prefixCount)),
+            count: encryptedCount + prefixCount
         )
-        let firstPrevious: [UInt8]
-        if firstBlock == 0 {
-            firstPrevious = iv
-        } else {
-            let previousOffset = try Checked.sub(encryptedOffset, UInt64(Self.blockSize))
-            firstPrevious = try readByteRange(
-                source: source,
-                offset: previousOffset,
-                count: Self.blockSize
-            )
+        var plaintext = [UInt8](repeating: 0, count: encryptedCount)
+        var written = 0
+        let status = key.withUnsafeBytes { keyBytes in
+            ciphertext.withUnsafeBytes { input in
+                iv.withUnsafeBytes { initialIV in
+                    plaintext.withUnsafeMutableBytes { output in
+                        // Per-call cryptor: ByteSource permits concurrent reads.
+                        CCCrypt(CCOperation(kCCDecrypt), CCAlgorithm(kCCAlgorithmAES), CCOptions(0),
+                            keyBytes.baseAddress, key.count,
+                            prefixCount == 0 ? initialIV.baseAddress : input.baseAddress,
+                            input.baseAddress!.advanced(by: prefixCount), encryptedCount,
+                            output.baseAddress, output.count, &written)
+                    }
+                }
+            }
         }
-
-        var plaintext = try decryptECB(ciphertext, key)
-        for block in 0..<blockCount {
-            let base = block * Self.blockSize
-            for index in 0..<Self.blockSize {
-                let previous = block == 0
-                    ? firstPrevious[index]
-                    : ciphertext[base - Self.blockSize + index]
-                plaintext[base + index] ^= previous
+        if status != kCCSuccess || written != encryptedCount {
+            // Preserve the format-specific ECB callback's error cases/text if
+            // CommonCrypto rejects an input. Valid CBC input takes the path above.
+            let blocks = Array(ciphertext.dropFirst(prefixCount))
+            plaintext = try decryptECB(blocks, key)
+            plaintext.withUnsafeMutableBytes { output in
+                ciphertext.withUnsafeBytes { input in
+                    iv.withUnsafeBytes { initialIV in
+                        xorBytes(UnsafeMutableRawBufferPointer(rebasing: output[..<Self.blockSize]),
+                                 with: prefixCount == 0 ? initialIV : UnsafeRawBufferPointer(rebasing: input[..<Self.blockSize]))
+                        if encryptedCount > Self.blockSize {
+                            xorBytes(UnsafeMutableRawBufferPointer(rebasing: output[Self.blockSize...]),
+                                     with: UnsafeRawBufferPointer(rebasing: input[prefixCount..<(prefixCount + encryptedCount - Self.blockSize)]))
+                        }
+                    }
+                }
             }
         }
 

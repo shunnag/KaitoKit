@@ -21,7 +21,7 @@ public struct ReadLimits: Sendable, Equatable {
     /// The default is 1 GiB, checked before spilling and every 256 MiB written.
     public var stagingFreeSpaceReserve: UInt64
 
-    /// XZ / bzip2 並列復号の保持 byte 予算。nil は物理メモリの 50%。
+    /// 並列復号の保持 byte 予算。nil は物理メモリの 50%。
     /// decoder ごとに適用し、二つの job を保持できなければ直列で復号する。
     /// codec の辞書上限は maxDictionarySize で別に制限する。
     public var parallelDecodeMemory: UInt64?

@@ -11,8 +11,6 @@ final class SevenZipFolderCoordinator {
     private var generation: UInt64 = 0
     private var checksum = CRC32()
     private var completionVerified = false
-    private var resetIndex: [LZMA2ResetPoint]?
-    private var resetIndexWasBuilt = false
     private var checksumCoversWholeFolder = true
 
     init(factory: SevenZipFolderDecoderFactory) {
@@ -97,14 +95,12 @@ final class SevenZipFolderCoordinator {
 
     private func restartForBackwardSeek(target: UInt64) throws {
         do {
-            if !resetIndexWasBuilt {
-                do {
-                    resetIndex = try factory.makeDictionaryResetIndex()
-                } catch KaitoError.limitExceeded {
-                    // index は seek 最適化なので、上限超過時は安全な先頭再開へ退避する。
-                    resetIndex = nil
-                }
-                resetIndexWasBuilt = true
+            let resetIndex: [LZMA2ResetPoint]?
+            do {
+                resetIndex = try factory.makeDictionaryResetIndex()
+            } catch KaitoError.limitExceeded {
+                // index は seek 最適化なので、上限超過時は安全な先頭再開へ退避する。
+                resetIndex = nil
             }
             if let point = resetIndex?.last(where: {
                 $0.isRestartable && $0.uncompressedOffset <= target

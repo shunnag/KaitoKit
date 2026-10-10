@@ -22,6 +22,7 @@ final class SevenZipReader: FormatReader {
 
     private let source: any ByteSource
     private let limits: ReadLimits
+    private let decodeThreads: Int
     private let maximumAESCyclesPower: UInt8
     private let streams: SevenZipStreamsInfo?
     private let packedRanges: [[Int: SevenZipPackRange]]
@@ -30,6 +31,7 @@ final class SevenZipReader: FormatReader {
     private let keyCache: SevenZipAESKeyCache
     private let packedStreamVerifier: SevenZipPackedStreamVerifier
     private var coordinators: [Int: SevenZipFolderCoordinator] = [:]
+    private var resetIndexCaches: [Int: SevenZipLZMA2ResetIndexCache] = [:]
     private var password: String?
 
     var resolvedPassword: String? { password }
@@ -41,6 +43,7 @@ final class SevenZipReader: FormatReader {
     init(source: any ByteSource, options: ReaderOptions, baseOffset: UInt64 = 0) throws {
         self.source = source
         self.limits = options.limits
+        self.decodeThreads = options.resolvedDecodeThreads
         self.maximumAESCyclesPower = options.maxSevenZipAESCyclesPower
 
         let editRecorder = options.recordsSevenZipEditLayout ? SevenZipEditRecorder() : nil
@@ -100,6 +103,7 @@ final class SevenZipReader: FormatReader {
                  editState: SevenZipEditState?) {
         self.source = source
         self.limits = options.limits
+        self.decodeThreads = options.resolvedDecodeThreads
         self.maximumAESCyclesPower = options.maxSevenZipAESCyclesPower
         self.entries = entries
         self.streams = streams
@@ -112,8 +116,8 @@ final class SevenZipReader: FormatReader {
     }
 
     func reopened(options: ReaderOptions) -> sending (any FormatReader)? {
-        // folder coordinator、検証済み pack の記録、導出済みの鍵（header の復号に使った鍵を含む）は
-        // reader の境界を越えて共有しない。
+        // folder coordinator、reset index、検証済み pack の記録、導出済みの鍵
+        // （header の復号に使った鍵を含む）は reader の境界を越えて共有しない。
         SevenZipReader(source: source, options: options, entries: entries,
                        streams: streams, packedRanges: packedRanges, records: records, editState: editState)
     }
@@ -140,6 +144,13 @@ final class SevenZipReader: FormatReader {
         self.password = password
         keyCache.removeAll()
         coordinators.removeAll(keepingCapacity: false)
+    }
+
+    private func resetIndexCache(for folderIndex: Int) -> SevenZipLZMA2ResetIndexCache {
+        if let cached = resetIndexCaches[folderIndex] { return cached }
+        let cache = SevenZipLZMA2ResetIndexCache()
+        resetIndexCaches[folderIndex] = cache
+        return cache
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
@@ -175,7 +186,8 @@ final class SevenZipReader: FormatReader {
                 password: password,
                 keyCache: keyCache,
                 maximumAESCyclesPower: maximumAESCyclesPower,
-                packedStreamVerifier: packedStreamVerifier
+                packedStreamVerifier: packedStreamVerifier,
+                workers: decodeThreads
             )
             return try EntryStream(
                 decompressor: factory.makeDecoder(),
@@ -200,7 +212,9 @@ final class SevenZipReader: FormatReader {
                 password: password,
                 keyCache: keyCache,
                 maximumAESCyclesPower: maximumAESCyclesPower,
-                packedStreamVerifier: packedStreamVerifier
+                packedStreamVerifier: packedStreamVerifier,
+                workers: decodeThreads,
+                resetIndexCache: resetIndexCache(for: substream.folderIndex)
             )
             coordinator = SevenZipFolderCoordinator(factory: factory)
             if folderHasMultipleSubstreams {

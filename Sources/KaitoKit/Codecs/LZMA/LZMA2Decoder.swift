@@ -55,6 +55,7 @@ public final class LZMA2Decoder: Decompressor {
     private var uncompressedChunkPosition = 0
     private var outputPosition: UInt64 = 0
     private var finished = false
+    private var endsAtDictionaryReset = false
 
     /// Creates an LZMA2 decoder over a validated byte-source range.
     ///
@@ -111,6 +112,7 @@ public final class LZMA2Decoder: Decompressor {
         originalCompressedSize: UInt64,
         properties: [UInt8],
         restartingAt resetPoint: LZMA2ResetPoint,
+        endingAt nextResetPoint: LZMA2ResetPoint? = nil,
         expectedSize: UInt64?,
         dictionarySizeLimit: UInt64
     ) throws {
@@ -131,8 +133,12 @@ public final class LZMA2Decoder: Decompressor {
         guard LZMA2ChunkHeader.resetsDictionary(control: control) else {
             throw KaitoError.malformed("LZMA2 restart point is not a dictionary reset")
         }
+        let end = nextResetPoint?.compressedOffset ?? originalEnd
+        guard end > resetPoint.compressedOffset, end <= originalEnd else {
+            throw KaitoError.malformed("LZMA2 reset range is outside the stream")
+        }
         let remainingCompressedSize = try Checked.sub(
-            originalEnd,
+            end,
             resetPoint.compressedOffset
         )
         try self.init(
@@ -143,6 +149,9 @@ public final class LZMA2Decoder: Decompressor {
             expectedSize: expectedSize,
             dictionarySizeLimit: dictionarySizeLimit
         )
+        // index で検証した次の reset 直前を単位の終端とする。最後の単位は
+        // 元 stream の end control を読み、従来どおり終端とサイズを確かめる。
+        endsAtDictionaryReset = nextResetPoint != nil
         if let properties = resetPoint.lzmaProperties {
             try lzma.preloadLZMA2Properties(properties)
             resets.acceptPreloadedProperties()
@@ -218,8 +227,7 @@ public final class LZMA2Decoder: Decompressor {
         return written
     }
 
-    // 後方 seek の初回だけ呼ぶ header scan。各 chunk の payload は確保せず seek で
-    // 飛ばし、辞書 reset 制御 byte と累積出力位置だけを bounded 配列へ記録する。
+    // 後方 seek の header scan は task の cancellation 状態に依存しない。
     static func makeDictionaryResetIndex(
         source: any ByteSource,
         offset: UInt64,
@@ -227,6 +235,41 @@ public final class LZMA2Decoder: Decompressor {
         expectedSize: UInt64?,
         maximumPointCount: Int = maximumResetPointCount
     ) throws -> [LZMA2ResetPoint] {
+        try scanDictionaryResetIndex(
+            source: source, offset: offset, compressedSize: compressedSize,
+            expectedSize: expectedSize, maximumPointCount: maximumPointCount,
+            singleResetOutputLimit: nil, checksCancellation: false
+        ) ?? []
+    }
+
+    // 二つ目の dictionary reset が探索上限までに現れなければ nil（直列）を返す。
+    // 現れた場合だけ終端まで検証し、後方 seek と共用できる完全な index を作る。
+    static func makeParallelDictionaryResetIndex(
+        source: any ByteSource,
+        offset: UInt64,
+        compressedSize: UInt64,
+        expectedSize: UInt64?,
+        maximumPointCount: Int,
+        singleResetOutputLimit: UInt64
+    ) throws -> [LZMA2ResetPoint]? {
+        try scanDictionaryResetIndex(
+            source: source, offset: offset, compressedSize: compressedSize,
+            expectedSize: expectedSize, maximumPointCount: maximumPointCount,
+            singleResetOutputLimit: singleResetOutputLimit, checksCancellation: true
+        )
+    }
+
+    // payload は seek で飛ばし、header byte だけを位置指定で読む。通常の 256 KiB
+    // 先読みを使わず、live decoder と同じ parser・reset tracker の検査順を保つ。
+    private static func scanDictionaryResetIndex(
+        source: any ByteSource,
+        offset: UInt64,
+        compressedSize: UInt64,
+        expectedSize: UInt64?,
+        maximumPointCount: Int,
+        singleResetOutputLimit: UInt64?,
+        checksCancellation: Bool
+    ) throws -> [LZMA2ResetPoint]? {
         guard maximumPointCount >= 0 else {
             throw KaitoError.limitExceeded("too many LZMA2 dictionary reset points")
         }
@@ -236,7 +279,8 @@ public final class LZMA2Decoder: Decompressor {
 
         var reader = try ByteReader(
             source: BoundedByteSource(source: source, baseOffset: 0, length: endOffset),
-            offset: offset
+            offset: offset,
+            bufferCapacity: 1
         )
         var outputOffset: UInt64 = 0
         var resets = LZMA2ResetTracker()
@@ -245,6 +289,11 @@ public final class LZMA2Decoder: Decompressor {
         var pendingRawResetPointIndices: [Int] = []
 
         while true {
+            if checksCancellation { try Task.checkCancellation() }
+            if let singleResetOutputLimit, result.count < 2,
+               outputOffset > singleResetOutputLimit {
+                return nil
+            }
             let controlOffset = reader.offset
             let control = try reader.readUInt8()
             // raw dictionary reset の点の上限は size より先に確かめる。上限超過（呼出元は先頭からの
@@ -345,6 +394,13 @@ public final class LZMA2Decoder: Decompressor {
     }
 
     private func beginNextChunk() throws {
+        if endsAtDictionaryReset, reader.offset == endOffset {
+            guard outputPosition == expectedSize else {
+                throw KaitoError.malformed("LZMA2 output size does not match the expected size")
+            }
+            finished = true
+            return
+        }
         let controlOffset = reader.offset
         let control = try reader.readUInt8()
         let header = try LZMA2ChunkHeader(

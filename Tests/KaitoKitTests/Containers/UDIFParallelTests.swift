@@ -241,6 +241,22 @@ final class UDIFParallelTests: XCTestCase {
         XCTAssertEqual(failures.withLock { $0 }, [])
     }
 
+    func testReadersExceedingActiveCPUsFinishMultiChunkDecode() async throws {
+        let image = try Self.image((0..<24).map { try Self.chunk(0x8000_0005, seed: $0) })
+        let readers = max(12, 2 * ProcessInfo.processInfo.activeProcessorCount)
+        try await withThrowingTaskGroup(of: Data.self) { group in
+            for _ in 0..<readers {
+                group.addTask {
+                    let disk = try Self.disk(image, threads: 16)
+                    return Data(try readByteRange(source: disk, offset: 0, count: image.body.count))
+                }
+            }
+            var completed = 0
+            for try await bytes in group { XCTAssertEqual(bytes, image.body); completed += 1 }
+            XCTAssertEqual(completed, readers)
+        }
+    }
+
     func testAbandonmentReleasesQueuedJobsWithoutRetainingTheDisk() throws {
         let image = try Self.image((0..<24).map { try Self.chunk(0x8000_0005, seed: $0) })
         let gate = GateSource(image.data, range: image.packedRanges[1]), pool = LeafDecodePool(capacity: 1)

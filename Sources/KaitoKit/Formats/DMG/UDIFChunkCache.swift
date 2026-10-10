@@ -60,12 +60,14 @@ final class UDIFChunkCache: @unchecked Sendable {
         private let condition = NSCondition()
         private var cancelled = false
         private var result: Result<[UInt8], any Error>?
+        private var ticket: LeafDecodePool.Ticket?
         // cache lock が守る。要求済みの仕事は seek によって取り消さない。
         var demanded: Bool
         init(reservation: Reservation?, demanded: Bool) { self.reservation = reservation; self.demanded = demanded }
         var isCancelled: Bool { condition.withLock { cancelled } }
+        func setTicket(_ ticket: LeafDecodePool.Ticket) { condition.withLock { if !cancelled { self.ticket = ticket } } }
         func cancel() {
-            condition.lock(); cancelled = true; result = nil; condition.broadcast(); condition.unlock()
+            condition.lock(); cancelled = true; result = nil; ticket = nil; condition.broadcast(); condition.unlock()
         }
         func perform(_ chunk: UDIFChunk, index: Int, diagnostics: Diagnostics?, decode: Decode) {
             guard !isCancelled else { return }
@@ -77,12 +79,18 @@ final class UDIFChunkCache: @unchecked Sendable {
             outcome = nil
             condition.broadcast(); condition.unlock()
         }
-        func value() throws -> Result<[UInt8], any Error> {
+        func value(pool: LeafDecodePool) throws -> Result<[UInt8], any Error> {
             while true {
                 try Task.checkCancellation()
                 condition.lock()
                 if cancelled { condition.unlock(); throw Abandoned() }
                 if let result { condition.unlock(); return result }
+                let ticket = ticket
+                condition.unlock()
+                // cache / condition の lock を持たず、要求中の chunk だけを caller が復号する。
+                if let ticket, pool.runInline(ticket) { continue }
+                condition.lock()
+                if cancelled || result != nil { condition.unlock(); continue }
                 _ = condition.wait(until: Date(timeIntervalSinceNow: 0.05))
                 condition.unlock()
             }
@@ -159,7 +167,7 @@ final class UDIFChunkCache: @unchecked Sendable {
             // 直列 fallback も同じ in-flight 表を使い、復号中は cache lock を解放する。
             if serial { work.perform(chunks[index], index: index, diagnostics: diagnostics, decode: decode) }
             do {
-                let result = try work.value()
+                let result = try work.value(pool: pool)
                 lock.withLock {
                     if pending[index] === work {
                         pending.removeValue(forKey: index)
@@ -193,7 +201,8 @@ final class UDIFChunkCache: @unchecked Sendable {
     private func submit(_ work: Work, index: Int, decode: @escaping Decode) {
         let chunk = chunks[index], diagnostics = diagnostics
         // 登録と submit の間に cancel されないよう、cache lock 内で enqueue まで済ませる。
-        pool.submit(group: work.group) { work.perform(chunk, index: index, diagnostics: diagnostics, decode: decode) }
+        let ticket = pool.submit(group: work.group) { work.perform(chunk, index: index, diagnostics: diagnostics, decode: decode) }
+        work.setTicket(ticket)
     }
 
     private func fill(after index: Int, decode: @escaping Decode) {

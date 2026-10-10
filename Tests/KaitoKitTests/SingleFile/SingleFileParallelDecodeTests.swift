@@ -78,6 +78,24 @@ final class SingleFileParallelDecodeTests: XCTestCase {
     private func rawPbzx(_ body: Data) -> Data { big(UInt64(body.count)) + big(UInt64(body.count)) + body }
     private var pbzxHeader: Data { Data("pbzx".utf8) + big(1 << 20) }
 
+    func testZstdReadersExceedingActiveCPUsFinishMultiFrameDecode() async throws {
+        let body = ParallelXZTestSupport.random(196_613), frame = rawZstd(body)
+        let packed = frame + frame + frame + frame, expected = body + body + body + body
+        let readers = max(12, 2 * ProcessInfo.processInfo.activeProcessorCount)
+        try await withThrowingTaskGroup(of: Data.self) { group in
+            for _ in 0..<readers {
+                group.addTask {
+                    let decoder = try ZstdDecompressor.parallel(source: DataByteSource(packed), limits: ReadLimits(), workers: 16)
+                    XCTAssertTrue(decoder is ParallelIndependentDecompressor)
+                    return try drain(decoder, bufferSize: 65_537)
+                }
+            }
+            var completed = 0
+            for try await bytes in group { XCTAssertEqual(bytes, expected); completed += 1 }
+            XCTAssertEqual(completed, readers)
+        }
+    }
+
     private final class OrderingProbe: @unchecked Sendable {
         private let lock = NSLock()
         private var failed = false

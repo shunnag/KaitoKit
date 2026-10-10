@@ -166,3 +166,19 @@ RSS は process 全体の値であり、並列 job の予算とは測定範囲�
 0.0869 → 0.0918 s（1.0565、約5 ms 増加）。`list` も0.0695 → 0.0741 s。
 8 → 16 worker ではメモリ帯域が律速になる入力で、並列数を増やしても短縮しない。
 この corpus の計測を、全形式・全機械での性能保証にはしない。
+
+## 最終 revision の scheduling 修正と再確認
+
+GitHub Actions の 3 CPU runner で、12 reader の同時復号 test が 6 時間止まった。`sample` では
+3本の cooperative thread がすべて結果待ちの `NSCondition` にあり、leaf を実行する thread は0本、
+dispatch は `_pthread_workqueue_addthreads` で thread を要求したまま得られなかった。
+M4 Max でも reader 数を active CPU 数の2倍（32）にすると同じく止まった。
+
+修正後は、consumer が待つ id の leaf が未開始なら（pool の待ち行列内でも Dispatch へ投入済みでも）
+自分の thread で実行する。後から始まった Dispatch の block は本体を省き、実行枠の計上だけを行う。
+inline 実行は実行枠と peak に数えない。reader 数 `max(12, 2 × active CPU)` の XZ / bzip2 / zstd / UDIF の
+同時読み取り test を追加し、CI の test job に60分の timeout を付けた。
+
+再確認は同じ MacBook で `7307881` と修正版を比較した。全56書庫の identity gate は一致、
+3 round の `sha --sink` best 比は0.95〜1.05で、bzip2 系の5書庫を7 round で測り直した median 比は
+0.98〜1.02。上の表の数値は `7307881` の計測のまま使う。

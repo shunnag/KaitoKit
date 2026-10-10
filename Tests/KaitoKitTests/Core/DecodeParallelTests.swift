@@ -44,11 +44,12 @@ final class DecodeParallelTests: XCTestCase {
         }
     }
 
-    func testTwelveConcurrentReadersWithSixteenThreadsShareHardwarePool() async throws {
+    func testReadersExceedingActiveCPUsWithSixteenThreadsShareHardwarePool() async throws {
         let xz = try Self.xz.get(), bzip2 = try Self.bzip2.get()
+        let readers = max(12, 2 * ProcessInfo.processInfo.activeProcessorCount)
         for fixture in [xz, bzip2] {
             try await withThrowingTaskGroup(of: Data.self) { group in
-                for index in 0..<12 {
+                for index in 0..<readers {
                     group.addTask {
                         let reader = try ArchiveReader.open(data: fixture.packed,
                             options: ReaderOptions(decodeThreads: 16, decodePowerPolicy: index.isMultiple(of: 2)
@@ -62,12 +63,12 @@ final class DecodeParallelTests: XCTestCase {
                     XCTAssertEqual(bytes, fixture.body)
                     completed += 1
                 }
-                XCTAssertEqual(completed, 12)
+                XCTAssertEqual(completed, readers)
             }
         }
         XCTAssertGreaterThan(LeafDecodePool.shared.peakRunningJobs, 1)
         XCTAssertLessThanOrEqual(LeafDecodePool.shared.peakRunningJobs, LeafDecodePool.shared.capacity)
-        print("DecodeParallel pool: peak=\(LeafDecodePool.shared.peakRunningJobs), cap=\(LeafDecodePool.shared.capacity), readers=12, requested=16")
+        print("DecodeParallel pool: peak=\(LeafDecodePool.shared.peakRunningJobs), cap=\(LeafDecodePool.shared.capacity), readers=\(readers), requested=16")
     }
 
     func testPoolCancellationReleasesQueuedCapturesAndKeepsOtherReadersRunning() {
@@ -83,8 +84,8 @@ final class DecodeParallelTests: XCTestCase {
         defer { release.signal() }
         let cancelled = LeafDecodePool.Group()
         var capture: CapturedInput? = CapturedInput()
-        weak var queuedCapture = capture
-        pool.submit(group: cancelled) { [capture] in
+        weak let queuedCapture = capture
+        let ticket = pool.submit(group: cancelled) { [capture] in
             withExtendedLifetime(capture) {}
             XCTFail("cancelled queued leaf must not run")
         }
@@ -92,6 +93,7 @@ final class DecodeParallelTests: XCTestCase {
         XCTAssertNotNil(queuedCapture)
         pool.cancel(group: cancelled)
         XCTAssertNil(queuedCapture, "abandon must release queued input without waiting for a slot")
+        XCTAssertFalse(pool.runInline(ticket), "cancelled tickets must not retain or run their body")
         pool.submit(group: LeafDecodePool.Group()) { completed.signal() }
         release.signal()
         XCTAssertEqual(completed.wait(timeout: .now() + 2), .success)

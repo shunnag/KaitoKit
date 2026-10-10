@@ -60,6 +60,8 @@
 
 ### 修正
 
+- consumer が自分の未開始の leaf job を inline で実行し、reader 数が active CPU 数以上など、
+  待機する reader が全 thread を占有しても復号が deadlock しないようにした。
 - 文書の古い制限記述を訂正した。BIN/CUE の raw sector image は対応済みのため、
   [制限](Documentation/limitations.md) と日英の移行ガイドから ISO raw sector image の「未対応」を除いた。
   英語の LZMA_Alone の拡張子を `.lzma` のみから `.lzma` / `.tlz` に訂正した。

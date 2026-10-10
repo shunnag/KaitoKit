@@ -52,6 +52,7 @@ final class ParallelXZDecompressor: Decompressor {
         private let group = LeafDecodePool.Group()
         private let diagnostics: Diagnostics?
         private var abandoned = false
+        private var tickets: [Int: LeafDecodePool.Ticket] = [:]
         private var results: [Int: Result<Decoded, any Error>] = [:]
 
         init(diagnostics: Diagnostics?) {
@@ -61,13 +62,13 @@ final class ParallelXZDecompressor: Decompressor {
             condition.lock(); defer { condition.unlock() }; return abandoned
         }
         func abandon() {
-            condition.lock(); abandoned = true; results.removeAll(); condition.broadcast(); condition.unlock()
+            condition.lock(); abandoned = true; results.removeAll(); tickets.removeAll(); condition.broadcast(); condition.unlock()
             LeafDecodePool.shared.cancel(group: group)
         }
         func submit(_ job: Job, id: Int, source: any ByteSource,
                     stream: XZStreamLayout.Stream, limits: ReadLimits, last: Bool) {
             let pending = PendingJob(Reservation(job.heldBytes, diagnostics: diagnostics))
-            LeafDecodePool.shared.submit(group: group) { [self] in
+            let ticket = LeafDecodePool.shared.submit(group: group) { [self] in
                 guard !isAbandoned else { return }
                 diagnostics?.worker(1)
                 defer { diagnostics?.worker(-1) }
@@ -103,13 +104,20 @@ final class ParallelXZDecompressor: Decompressor {
                 result = nil
                 condition.broadcast(); condition.unlock()
             }
+            condition.withLock { if !abandoned { tickets[id] = ticket } }
         }
         func take(_ id: Int) throws -> Decoded {
             while true {
                 try Task.checkCancellation()
                 condition.lock()
-                if let result = results.removeValue(forKey: id) { condition.unlock(); return try result.get() }
+                if let result = results.removeValue(forKey: id) { tickets.removeValue(forKey: id); condition.unlock(); return try result.get() }
                 if abandoned { condition.unlock(); throw CancellationError() }
+                let ticket = tickets[id]
+                condition.unlock()
+                // 葉が結果を公開する lock の外で実行し、再確認してから待つ。
+                if let ticket, LeafDecodePool.shared.runInline(ticket) { continue }
+                condition.lock()
+                if results[id] != nil || abandoned { condition.unlock(); continue }
                 _ = condition.wait(until: Date(timeIntervalSinceNow: ParallelXZDecompressor.resultPollInterval))
                 condition.unlock()
             }

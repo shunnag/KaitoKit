@@ -97,6 +97,7 @@ final class ParallelIndependentDecompressor: Decompressor {
             condition.withLock { if !abandoned { tickets[id] = ticket } }
         }
         func take(_ id: Int) throws -> Result<Decoded, any Error> {
+            var hasWaited = false
             while true {
                 try Task.checkCancellation()
                 condition.lock()
@@ -104,12 +105,13 @@ final class ParallelIndependentDecompressor: Decompressor {
                 if abandoned { condition.unlock(); throw CancellationError() }
                 let ticket = tickets[id]
                 condition.unlock()
-                // 葉が結果を公開する lock の外で実行し、再確認してから待つ。
-                if let ticket, LeafDecodePool.shared.runInline(ticket) { continue }
+                // まず Dispatch に譲り、1 poll 待っても未開始の葉だけを lock の外で実行する。
+                if hasWaited, let ticket, LeafDecodePool.shared.runInline(ticket) { continue }
                 condition.lock()
                 if results[id] != nil || abandoned { condition.unlock(); continue }
                 _ = condition.wait(until: Date(timeIntervalSinceNow: 0.05))
                 condition.unlock()
+                hasWaited = true
             }
         }
     }

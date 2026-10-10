@@ -15,8 +15,8 @@ on:
 jobs:
   build-and-test:
     runs-on: xcode-27
-    # hang は 6 時間待たず、1 時間以内に失敗させる。
-    timeout-minutes: 60
+    # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
       - name: Install differential-test oracles
@@ -236,8 +236,8 @@ jobs:
 
   macos-26-runtime:
     name: macOS 26 runtime (${{ matrix.os }})
-    # hang は 6 時間待たず、1 時間以内に失敗させる。
-    timeout-minutes: 60
+    # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:

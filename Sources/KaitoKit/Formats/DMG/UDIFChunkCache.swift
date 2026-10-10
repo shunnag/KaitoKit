@@ -80,6 +80,7 @@ final class UDIFChunkCache: @unchecked Sendable {
             condition.broadcast(); condition.unlock()
         }
         func value(pool: LeafDecodePool) throws -> Result<[UInt8], any Error> {
+            var hasWaited = false
             while true {
                 try Task.checkCancellation()
                 condition.lock()
@@ -87,12 +88,13 @@ final class UDIFChunkCache: @unchecked Sendable {
                 if let result { condition.unlock(); return result }
                 let ticket = ticket
                 condition.unlock()
-                // cache / condition の lock を持たず、要求中の chunk だけを caller が復号する。
-                if let ticket, pool.runInline(ticket) { continue }
+                // まず Dispatch に譲り、1 poll 待っても未開始の葉だけを lock の外で実行する。
+                if hasWaited, let ticket, pool.runInline(ticket) { continue }
                 condition.lock()
                 if cancelled || result != nil { condition.unlock(); continue }
                 _ = condition.wait(until: Date(timeIntervalSinceNow: 0.05))
                 condition.unlock()
+                hasWaited = true
             }
         }
     }

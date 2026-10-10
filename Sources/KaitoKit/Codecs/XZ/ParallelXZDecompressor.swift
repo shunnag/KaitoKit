@@ -107,6 +107,7 @@ final class ParallelXZDecompressor: Decompressor {
             condition.withLock { if !abandoned { tickets[id] = ticket } }
         }
         func take(_ id: Int) throws -> Decoded {
+            var hasWaited = false
             while true {
                 try Task.checkCancellation()
                 condition.lock()
@@ -114,12 +115,13 @@ final class ParallelXZDecompressor: Decompressor {
                 if abandoned { condition.unlock(); throw CancellationError() }
                 let ticket = tickets[id]
                 condition.unlock()
-                // 葉が結果を公開する lock の外で実行し、再確認してから待つ。
-                if let ticket, LeafDecodePool.shared.runInline(ticket) { continue }
+                // まず Dispatch に譲り、1 poll 待っても未開始の葉だけを lock の外で実行する。
+                if hasWaited, let ticket, LeafDecodePool.shared.runInline(ticket) { continue }
                 condition.lock()
                 if results[id] != nil || abandoned { condition.unlock(); continue }
                 _ = condition.wait(until: Date(timeIntervalSinceNow: ParallelXZDecompressor.resultPollInterval))
                 condition.unlock()
+                hasWaited = true
             }
         }
         private func validateIndex(source: any ByteSource, range: Range<UInt64>) throws {

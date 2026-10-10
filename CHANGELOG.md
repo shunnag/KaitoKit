@@ -60,7 +60,8 @@
 
 ### 修正
 
-- consumer が自分の未開始の leaf job を inline で実行し、reader 数が active CPU 数以上など、
+- consumer はまず1 poll interval（50 ms、broadcast で早く戻る）待って Dispatch に実行機会を譲り、
+  結果がまだなく、自分の leaf job が未開始なら inline で実行し、reader 数が active CPU 数以上など、
   待機する reader が全 thread を占有しても復号が deadlock しないようにした。
 - 文書の古い制限記述を訂正した。BIN/CUE の raw sector image は対応済みのため、
   [制限](Documentation/limitations.md) と日英の移行ガイドから ISO raw sector image の「未対応」を除いた。

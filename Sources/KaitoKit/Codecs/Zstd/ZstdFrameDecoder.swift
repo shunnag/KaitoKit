@@ -402,7 +402,7 @@ final class ZstdFrameDecoder {
             }
             // 長さ <= 131074、offset < 2^32。pointer の差は確保済み領域内で overflow しない。
             // offset <= 0 と二つの上限超過を、符号無し比較一つで判定する。
-            let available = (out + literalLength) - historyStart
+            let available = (out - historyStart) &+ literalLength
             if literalLength > literalEnd - literal
                 || literalLength &+ matchLength > outputEnd - out
                 || UInt(bitPattern: offset &- 1) >= UInt(bitPattern: min(windowSize, available)) {
@@ -494,7 +494,7 @@ final class ZstdFrameDecoder {
         // 従って storage の余白は読まず、literal は D1/D2 から読む。storage 全体のゼロ初期化は不要。
         if Policy.path == .automatic {
             if offset >= 32 {
-                // 入力 32 byte は現在位置より前。length >= 3 なので超過 <= 29 は outputSlack 内。
+                // 入力 32 byte は現在位置より前。最終 chunk の超過 <= 31 は outputSlack（32 byte）内。
                 copy32(from: output.advanced(by: 0 &- offset), to: output)
                 if length > 32 {
                     var position = 32

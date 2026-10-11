@@ -402,6 +402,23 @@ final class ZstdTests: XCTestCase {
         }
     }
 
+    func testWildCopiesAtEveryAlignmentAndMaximumBlockEnd() throws {
+        let prefix = (0..<64).map { UInt8(truncatingIfNeeded: $0 * 13 + $0 / 17) }
+        for offset in [16, 17, 31, 32, 33, 64] {
+            for literalCount in 0..<16 {
+                let literals = Array(prefix.prefix(literalCount))
+                let matchCount = (128 << 10) - literalCount
+                let code = Int.bitWidth - 1 - (offset + 3).leadingZeroBitCount
+                let sequence = rleSequence(literals: literals, ll: UInt8(literalCount), of: UInt8(code), ml: 52,
+                                           extra: [(offset + 3 - (1 << code), code), (matchCount - 65_539, 16)])
+                let encoded = frame(block(prefix, type: 0, last: false) + block(sequence), window: 0x38)
+                var expected = prefix + literals
+                for _ in 0..<matchCount { expected.append(expected[expected.count - offset]) }
+                XCTAssertEqual(try decode(encoded), Data(expected), "offset=\(offset), literals=\(literalCount)")
+            }
+        }
+    }
+
     // MARK: - header・entropy・sequence・上限
 
     func testReservedFieldsBlockBoundsSizesChecksumAndDictionary() throws {
@@ -661,6 +678,24 @@ final class ZstdTests: XCTestCase {
                     hash.update(UnsafeRawBufferPointer(start: nil, count: 0))
                     XCTAssertEqual(hash.value, expected.value, "start=\(start), chunk=\(chunk)")
                 }
+            }
+        }
+    }
+
+    func testXXH64LargeStripeLoopAfterEveryPartialTail() throws {
+        let plain = try decode(fixture("text-l3.zst"))
+        let input = Array(plain)
+        var expected = XXH64()
+        // 1 byte 更新は bulk stripe に入らず、tail の stripe 経路だけを使う。
+        for index in input.indices { expected.update(input[index...index]) }
+        let storage = [UInt8](repeating: 0xa5, count: 7) + input
+        storage.withUnsafeBytes { bytes in
+            for prefix in 0...32 {
+                var actual = XXH64()
+                actual.update(UnsafeRawBufferPointer(rebasing: bytes[7..<(7 + prefix)]))
+                actual.update(UnsafeRawBufferPointer(start: nil, count: 0))
+                actual.update(UnsafeRawBufferPointer(rebasing: bytes[(7 + prefix)..<bytes.count]))
+                XCTAssertEqual(actual.value, expected.value, "prefix=\(prefix)")
             }
         }
     }

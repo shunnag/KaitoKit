@@ -132,7 +132,10 @@ public struct ReadLimits: Sendable, Equatable {
         self.maxSevenZipHeaderKDFWork = maxSevenZipHeaderKDFWork
     }
 
-    func resolvedParallelDecodeMemory(physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Int {
+    // 物理メモリは process の生存中に変わらない。sysctl を folder ごとに繰り返さない。
+    private static let cachedPhysicalMemory = ProcessInfo.processInfo.physicalMemory
+
+    func resolvedParallelDecodeMemory(physicalMemory: UInt64 = cachedPhysicalMemory) -> Int {
         Int(clamping: parallelDecodeMemory ?? physicalMemory / 2)
     }
 }

@@ -67,6 +67,20 @@ final class LeafDecodePool: @unchecked Sendable {
         return true
     }
 
+    /// 未開始の葉を実行せずに捨てる。既に実行先が決まっていれば false。
+    @discardableResult
+    func discard(_ ticket: Ticket) -> Bool {
+        let body = lock.withLock {
+            let body = claim(ticket, as: .cancelled)
+            if body != nil { pending.removeAll { $0 === ticket } }
+            return body
+        }
+        guard let body else { return false }
+        // captured object の deinit は pool の lock の外で行う。
+        withExtendedLifetime(body) {}
+        return true
+    }
+
     // pool lock 内だけで呼ぶ。body は実行先へ移し、ticket に入力の capture を残さない。
     private func claim(_ ticket: Ticket, as state: Ticket.State) -> (@Sendable () -> Void)? {
         guard ticket.state == .unclaimed else { return nil }

@@ -6,19 +6,40 @@
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-11
+
+7z / RAR5 / XZ / zstd / LZMA の復号を速くし、小さな entry の多い書庫を先行して並列復号する release。
+展開する byte 列と、壊れた入力でエラーまでに返す byte は 0.13.0 と同じ。
+
 ### 変更
 
+- 7z の単一 LZMA2 folder を dictionary reset の位置で区切り、区間ごとに並列復号して入力順に返す。
+  reset の索引は folder ごとに header だけを読んで作り、結果（reset がないことを含む）を再利用する。
+  BCJ などの filter は直列の段で通す。
+- 非 solid 7z で順方向に読まれている間、後続の 1 MiB 以下の独立 folder を batch にまとめて先行復号する。
+  非 solid・暗号化なし・既知サイズの RAR5 member も同様に batch で先行復号する。保持量は復号の並列数と
+  `ReadLimits.parallelDecodeMemory` の範囲に収め、worker が失敗した entry は直列に復号し直す。
 - 単独 `.xz` と圧縮 tar / cpio の xz staging を、filter chain が LZMA2 だけで check 種別が
   none / CRC32 / CRC64 / SHA-256 の stream について KaitoKit 自身の LZMA2 decoder で復号する
   （`XZNativeDecompressor`）。単一 block は直列に、複数 block は `ParallelXZDecompressor` の job ごとに使う。
   BCJ / Delta などの前置 filter と予約 check 種別は従来どおり Apple Compression に渡す。
-  出力は Apple Compression 経路と同一。壊れた入力でも同じ結果になるよう、直列経路は復号済み出力を
-  256 KiB 保留してから返し、自身の decoder が失敗したら Apple Compression 経路を先頭から再生して
-  続きの byte とそのエラーをそのまま返す。並列 job は失敗した job を Apple Compression でやり直す。
-  M4 Max の 1 thread で 158 MiB の `small.single.tar.xz` が user 0.73 → 0.61 s、256 MiB の text が
-  1.12 → 0.89 s、非圧縮性 256 MiB が 0.20 → 0.14 s（複数 block の並列復号も user 時間が 15〜30% 減）。
-- LZMA2 の非圧縮 chunk を、`Data` を介さず 64 KiB の一時領域へ直接写す（`ByteReader.read(into:)`）。
+  壊れた入力でも同じ結果になるよう、直列経路は復号済み出力を 256 KiB 保留してから返し、自身の decoder が
+  失敗したら Apple Compression 経路を先頭から再生して続きの byte とそのエラーをそのまま返す。
+  並列 job は失敗した job を Apple Compression でやり直す。
+- LZMA の新規 match を復号と同じ frame で検証・copy し、大きな辞書では copy をまとめる。
+- RAR5 の復号 loop の状態を局所変数に置き、match を ring へ一度だけ書く。member ごとの窓・表・入力領域を
+  再利用し、Huffman 表は使う範囲だけ初期化する。
+- zstd の sequence 復号で、二語の bit reader、16 byte の FSE cell、match 種別ごとの特殊化、
+  32 byte の wildcopy を使う。XXH64 の4 lane を loop の間だけ局所変数に置く。
+  CRC32 の期待値がない entry（単独 `.zst` など）では EntryStream の CRC32 計算を省く。
+- 7z folder ごとの初期化（ByteReader buffer、確率表、物理メモリ量の取得）と、
+  LZMA2 の非圧縮 chunk の一時 `Data` を減らす。
 - RAR5・非 solid 7z・`.xz` の entry stream を開くタスクを取り消すと、`CancellationError` が返る場合がある。
+- MacBook M4 Max の `kaito sha --sink`（自動並列数）で 0.13.0 比:
+  小ファイル 50,000 件の非 solid 7z 1.70 → 0.24 s、RAR5 0.95 → 0.23 s（BLAKE2 付き 1.41 → 0.30 s）、
+  256 MiB の text RAR5 0.68 → 0.47 s、単一 block の text `.tar.xz` 1.18 → 0.96 s、
+  text `.zst` 0.19 → 0.16 s、text 7z solid 0.96 → 0.86 s。詳細は
+  [検証記録](Documentation/verification/2026-10-11-decode-performance.md)。
 
 ### 修正
 

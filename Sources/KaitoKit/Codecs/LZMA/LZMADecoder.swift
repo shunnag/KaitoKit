@@ -747,14 +747,26 @@ public final class LZMADecoder: Decompressor {
     }
 
     private func resetCodingState() {
-        probabilities.baseAddress?.update(
-            repeating: Self.probabilityInitialValue,
+        if let base = probabilities.baseAddress {
             // Properties can change only with a coding-state reset. Initialize
             // every model active under the new properties, including newly
             // activated contexts, without touching the unused literal tail.
-            count: LZMAProbabilityOffset.literals
+            let count = LZMAProbabilityOffset.literals
                 + (LZMAProperties.literalCoderSize << (literalContextBits + literalPositionBits))
-        )
+            // 1,024 (0x0400) の UInt16 を並べる。count は確保済み要素数以下で、
+            // 8 byte pattern の fill は要素単位の store より速い。
+            var pattern: (UInt16, UInt16, UInt16, UInt16) = (
+                Self.probabilityInitialValue, Self.probabilityInitialValue,
+                Self.probabilityInitialValue, Self.probabilityInitialValue
+            )
+            withUnsafeBytes(of: &pattern) { patternBytes in
+                memset_pattern8(
+                    UnsafeMutableRawPointer(base),
+                    patternBytes.baseAddress!,
+                    count &* MemoryLayout<UInt16>.stride
+                )
+            }
+        }
         state = 0
         rep0 = 0
         rep1 = 0

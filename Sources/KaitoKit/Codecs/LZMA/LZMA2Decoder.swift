@@ -92,9 +92,11 @@ public final class LZMA2Decoder: Decompressor {
         self.endOffset = endOffset
         self.expectedSize = expectedSize
         // 外側の ByteReader も folder の検証済み packed 範囲だけを読み、後続 member を消費しない。
+        // buffer は stream 全長を超えて確保しない（小さな folder を大量に開く場合の確保と zero 埋めを省く）。
         self.reader = try ByteReader(
             source: BoundedByteSource(source: source, baseOffset: 0, length: endOffset),
-            offset: offset
+            offset: offset,
+            bufferCapacity: Int(min(UInt64(ByteReader.bufferSize), compressedSize))
         )
         self.lzma = try LZMADecoder(
             lzma2DictionarySize: dictionarySize,

@@ -17,10 +17,12 @@ private struct SevenZipVerifiedPackKey: Hashable {
 
 // PackInfo CRC は entry を初めて読む時に固定長 buffer で検証し、reader 内で共有する。
 // 巨大 packed stream を open 時に走査せず、同じ range の再検証も避ける。
-final class SevenZipPackedStreamVerifier {
+// 先行復号の葉からも使うため、検証済み集合は lock で守る（読み取り自体は lock の外）。
+final class SevenZipPackedStreamVerifier: @unchecked Sendable {
     private static let bufferSize = 256 * 1_024
 
     private let source: any ByteSource
+    private let lock = NSLock()
     private var verified = Set<SevenZipVerifiedPackKey>()
 
     init(source: any ByteSource) {
@@ -35,7 +37,7 @@ final class SevenZipPackedStreamVerifier {
                 size: range.size,
                 crc32: expected
             )
-            if verified.contains(key) { continue }
+            if lock.withLock({ verified.contains(key) }) { continue }
 
             var checksum = CRC32()
             var position: UInt64 = 0
@@ -63,7 +65,7 @@ final class SevenZipPackedStreamVerifier {
             guard checksum.value == expected else {
                 throw KaitoError.checksumMismatch(entry: -1)
             }
-            verified.insert(key)
+            lock.withLock { _ = verified.insert(key) }
         }
     }
 }

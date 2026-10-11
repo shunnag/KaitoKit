@@ -15,14 +15,23 @@ final class ParallelXZDecompressor: Decompressor {
     final class Diagnostics: @unchecked Sendable {
         private let lock = NSLock()
         private var live = 0, peak = 0, held = 0, peakHeld = 0
-        private var fallback = false
+        private var fallback = false, native = false, replays = 0, nativeJobFailures = 0
         var liveWorkers: Int { lock.withLock { live } }
         var peakWorkers: Int { lock.withLock { peak } }
         var peakHeldBytes: Int { lock.withLock { peakHeld } }
         var fellBackToSerial: Bool { lock.withLock { fallback } }
+        /// KaitoKit 自身の LZMA2 decoder を選んだかどうか（直列・並列のどちらでも）。
+        var usedNativeDecoder: Bool { lock.withLock { native } }
+        /// 直列の native decoder が失敗して Compression 経路を再生した回数。
+        var compressionReplays: Int { lock.withLock { replays } }
+        /// 並列 job の native 復号が失敗して Compression 経路でやり直した回数。
+        var nativeJobFallbacks: Int { lock.withLock { nativeJobFailures } }
         fileprivate func worker(_ delta: Int) { lock.withLock { live += delta; peak = max(peak, live) } }
         fileprivate func bytes(_ delta: Int) { lock.withLock { held += delta; peakHeld = max(peakHeld, held) } }
         fileprivate func fallBack() { lock.withLock { fallback = true } }
+        fileprivate func useNative() { lock.withLock { native = true } }
+        func replayedWithCompression() { lock.withLock { replays += 1 } }
+        fileprivate func nativeJobFailed() { lock.withLock { nativeJobFailures += 1 } }
     }
 
     private final class Reservation: Sendable {
@@ -65,8 +74,30 @@ final class ParallelXZDecompressor: Decompressor {
             condition.lock(); abandoned = true; results.removeAll(); tickets.removeAll(); condition.broadcast(); condition.unlock()
             LeafDecodePool.shared.cancel(group: group)
         }
+        /// KaitoKit 自身の LZMA2 decoder で job を復号する。失敗したら nil を返し、呼出元は
+        /// Compression 経路で同じ job をやり直して、その結果（出力かエラー）を採用する。
+        /// 中断だけはそのまま投げる。
+        private func decodeNatively(_ job: Job, source: any ByteSource, stream: XZStreamLayout.Stream,
+                                    limits: ReadLimits) throws -> Data? {
+            var output = Data(count: job.outputSize)
+            do {
+                try output.withUnsafeMutableBytes { destination in
+                    try XZNativeDecompressor.decodeBlocks(
+                        stream.blocks[job.blocks], stream: stream, source: source, limits: limits,
+                        into: destination, pieceSize: ParallelXZDecompressor.abandonmentCheckInterval,
+                        isAbandoned: { isAbandoned })
+                }
+                return output
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                diagnostics?.nativeJobFailed()
+                return nil
+            }
+        }
+
         func submit(_ job: Job, id: Int, source: any ByteSource,
-                    stream: XZStreamLayout.Stream, limits: ReadLimits, last: Bool) {
+                    stream: XZStreamLayout.Stream, limits: ReadLimits, last: Bool, native: Bool) {
             let pending = PendingJob(Reservation(job.heldBytes, diagnostics: diagnostics))
             let ticket = LeafDecodePool.shared.submit(group: group) { [self] in
                 guard !isAbandoned else { return }
@@ -75,6 +106,10 @@ final class ParallelXZDecompressor: Decompressor {
                 var result: Result<Decoded, any Error>? = Result {
                     let reservation = pending.reservation!
                     pending.reservation = nil
+                    if native, let output = try decodeNatively(job, source: source, stream: stream, limits: limits) {
+                        if last { try validateIndex(source: source, range: stream.indexRange) }
+                        return Decoded(bytes: output, reservation: reservation)
+                    }
                     let synthetic = try XZSyntheticStream.make(source: source, stream: stream, blocks: stream.blocks[job.blocks])
                     let decoder = try XZDecompressor(source: synthetic, limits: limits)
                     let capacity = try Checked.toInt(Checked.add(UInt64(job.outputSize), 1))
@@ -143,8 +178,9 @@ final class ParallelXZDecompressor: Decompressor {
     private let source: any ByteSource
     private let limits: ReadLimits
     private let recorder: CompressedTarMapRecorder?
-    private var serial: XZDecompressor?
+    private var serial: (any Decompressor)?
     private var stream: XZStreamLayout.Stream?
+    private var native = false
     private var jobs: [Job] = []
     private var workers: Workers?
     private var workerCount = 0
@@ -159,13 +195,18 @@ final class ParallelXZDecompressor: Decompressor {
     ///   - workers: reader が open 時に解決した要求並列数。
     ///   - targetJobOutput: job をまとめる出力目標。本番の呼出元は渡さない。
     ///   - diagnostics: 観測値の記録先。本番の呼出元は渡さない。
+    ///   - useNativeDecoder: false なら全経路を Apple Compression で復号する。比較試験が使う。
     init(source: any ByteSource, limits: ReadLimits, recorder: CompressedTarMapRecorder? = nil,
          workers: Int = ReaderOptions.automaticDecodeThreads(),
          targetJobOutput: Int = ParallelXZDecompressor.defaultTargetJobOutput,
-         diagnostics: Diagnostics? = nil) throws {
+         diagnostics: Diagnostics? = nil, useNativeDecoder: Bool = true) throws {
         self.source = source; self.limits = limits; self.recorder = recorder
         let memoryBudget = limits.resolvedParallelDecodeMemory()
         let layout = try XZResourceValidator.validate(source: source, dictionaryLimit: limits.maxDictionarySize)
+        // LZMA2 だけの chain と既知の check 種別なら、KaitoKit 自身の LZMA2 decoder で復号する。
+        let native = useNativeDecoder && XZNativeDecompressor.isEligible(layout)
+        self.native = native
+        if native { diagnostics?.useNative() }
         if layout.streams.count == 1, let stream = layout.streams.first, stream.blocks.count >= 2 {
             let planned = try Self.plan(stream.blocks, target: UInt64(max(1, targetJobOutput)))
             let perJobBytes = planned.map(\.heldBytes).max()!
@@ -181,7 +222,15 @@ final class ParallelXZDecompressor: Decompressor {
             }
         }
         diagnostics?.fallBack()
-        serial = try XZDecompressor(source: source, limits: limits, recorder: recorder)
+        if native {
+            if let recorder {
+                try XZResourceValidator.validate(source: source, dictionaryLimit: limits.maxDictionarySize, recorder: recorder)
+            }
+            serial = XZNativeDecompressor(source: source, layout: layout, limits: limits, recorder: recorder,
+                                          diagnostics: diagnostics)
+        } else {
+            serial = try XZDecompressor(source: source, limits: limits, recorder: recorder)
+        }
     }
     deinit { workers?.abandon() }
     var isFinished: Bool { serial?.isFinished ?? finished }
@@ -222,7 +271,7 @@ final class ParallelXZDecompressor: Decompressor {
         guard let stream, let workers else { return }
         while submitted < jobs.count, submitted - emitted < workerCount {
             workers.submit(jobs[submitted], id: submitted, source: source, stream: stream,
-                           limits: limits, last: submitted == jobs.count - 1)
+                           limits: limits, last: submitted == jobs.count - 1, native: native)
             submitted += 1
         }
     }

@@ -23,7 +23,7 @@
 | tar | POSIX/ustar、pax、GNU long name/link、stored member、GNU sparse（旧 GNU `S` 型、pax 0.0 / 0.1 / 1.0。穴は 0 で埋め、実サイズと `GNU.sparse.name` の名前を公開）。macOS tar の `._name` AppleDouble sidecar は既定で resource fork に統合 | なし | volume 分割なし |
 | gzip | RFC 1952、FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT、DEFLATE、CRC32/ISIZE | なし | concatenated member 対応 |
 | bzip2 | BZip2 block size 1〜9 | なし | concatenated stream 対応 |
-| xz | XZ container、Apple Compression の LZMA、footer/padding | なし | concatenated stream 対応 |
+| xz | XZ container、LZMA2（KaitoKit 自身の decoder。BCJ / Delta などの filter chain と予約 check 種別は Apple Compression）、CRC32 / CRC64 / SHA-256 check、Index / footer / padding | なし | concatenated stream 対応 |
 | zstd | RFC 8878、`.zst` / `.tar.zst` / `.tzst`、RPM payload、ZIP method 20/93、XXH64 checksum。辞書は非対応 | なし | 連結 frame・skippable frame 対応 |
 | LZ4 frame | `.lz4` / `.tar.lz4`、独立／連続block、stored block、header/block/contentのXXH32、宣言サイズ、legacy 8 MiB block | なし | 連結・skippable frame対応。外部辞書は非対応。legacyにはchecksum・宣言サイズがない |
 | UNIX compress (`.Z`) | LZW、9〜16 bit、block mode | なし | なし |

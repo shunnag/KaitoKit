@@ -11,11 +11,12 @@ struct LZMA2ResetPoint: Sendable, Equatable {
     /// Output offset immediately before the reset chunk.
     let uncompressedOffset: UInt64
 
-    // raw reset (0x01) の後でも直前の LZMA property を再利用できるように保存する。
+    // reset 点から再開する decoder へ先に読み込む LZMA property。raw reset (0x01) の点では
+    // 直前の chunk の値を保存する。
     let lzmaProperties: UInt8?
 
-    // 0x01 は dictionary だけを reset し、LZMA 確率 state は保持する。
-    // そのため次の compressed chunk が state reset しない場合は単独再開できない。
+    // 0x01 の後の LZMA chunk は property 付きの 0xC0 以上でなければならず
+    // （`LZMA2ResetTracker`）、index 走査が完走した点はすべて単独で再開できる。
     var isRestartable: Bool
 
     init(
@@ -51,7 +52,9 @@ public final class LZMA2Decoder: Decompressor {
 
     private var resets = LZMA2ResetTracker()
     private var compressedChunkIsActive = false
+    // 非圧縮 chunk の一時保管。最大 64 KiB を一度だけ確保し、count と position で使用範囲を追う。
     private var uncompressedChunk: [UInt8] = []
+    private var uncompressedChunkCount = 0
     private var uncompressedChunkPosition = 0
     private var outputPosition: UInt64 = 0
     private var finished = false
@@ -174,8 +177,8 @@ public final class LZMA2Decoder: Decompressor {
         var written = 0
 
         while written < capacity, !finished {
-            if uncompressedChunkPosition < uncompressedChunk.count {
-                let available = uncompressedChunk.count - uncompressedChunkPosition
+            if uncompressedChunkPosition < uncompressedChunkCount {
+                let available = uncompressedChunkCount - uncompressedChunkPosition
                 let amount = min(available, capacity - written)
                 let end = uncompressedChunkPosition + amount
                 let bytes = uncompressedChunk[uncompressedChunkPosition..<end]
@@ -192,8 +195,8 @@ public final class LZMA2Decoder: Decompressor {
                 uncompressedChunkPosition = end
                 written += amount
                 outputPosition = try Checked.add(outputPosition, UInt64(amount))
-                if uncompressedChunkPosition == uncompressedChunk.count {
-                    uncompressedChunk.removeAll(keepingCapacity: true)
+                if uncompressedChunkPosition == uncompressedChunkCount {
+                    uncompressedChunkCount = 0
                     uncompressedChunkPosition = 0
                 }
                 continue
@@ -286,7 +289,6 @@ public final class LZMA2Decoder: Decompressor {
         var resets = LZMA2ResetTracker()
         var currentLZMAProperties: UInt8?
         var result: [LZMA2ResetPoint] = []
-        var pendingRawResetPointIndices: [Int] = []
 
         while true {
             if checksCancellation { try Task.checkCancellation() }
@@ -311,10 +313,6 @@ public final class LZMA2Decoder: Decompressor {
 
             switch header {
             case .end:
-                // この後に LZMA chunk がない raw reset は独立再開できる。
-                for index in pendingRawResetPointIndices {
-                    result[index].isRestartable = true
-                }
                 guard reader.offset == endOffset else {
                     throw KaitoError.malformed("bytes follow the LZMA2 end control")
                 }
@@ -325,15 +323,15 @@ public final class LZMA2Decoder: Decompressor {
 
             case let .uncompressed(size, resetsDictionary):
                 if resetsDictionary {
+                    // raw 0x01 の後の LZMA chunk は property と coding state を持つ 0xC0 以上に
+                    // 限られる（reset tracker が検査する）ので、この点から単独で再開できる。
                     result.append(
                         LZMA2ResetPoint(
                             compressedOffset: controlOffset,
                             uncompressedOffset: outputOffset,
-                            lzmaProperties: currentLZMAProperties,
-                            isRestartable: false
+                            lzmaProperties: currentLZMAProperties
                         )
                     )
-                    pendingRawResetPointIndices.append(result.count - 1)
                 }
                 outputOffset = try Self.checkedOutputEnd(
                     position: outputOffset,
@@ -344,16 +342,10 @@ public final class LZMA2Decoder: Decompressor {
                 guard next <= endOffset else { throw KaitoError.truncated }
                 try reader.seek(to: next)
 
-            case let .compressed(unpackedSize, packedSize, resetsDictionary, resetsState, properties):
+            case let .compressed(unpackedSize, packedSize, resetsDictionary, _, properties):
                 if let properties {
                     currentLZMAProperties = properties
                 }
-                // raw 0x01 自体は coding state を reset しない。最初の後続
-                // compressed chunk で state が reset される場合だけ再開可能になる。
-                for index in pendingRawResetPointIndices {
-                    result[index].isRestartable = resetsState
-                }
-                pendingRawResetPointIndices.removeAll(keepingCapacity: true)
 
                 if resetsDictionary {
                     guard result.count < maximumPointCount else {
@@ -429,7 +421,15 @@ public final class LZMA2Decoder: Decompressor {
                 adding: size,
                 expectedSize: expectedSize
             )
-            uncompressedChunk = Array(try reader.readBytes(try Checked.toInt(size)))
+            let count = try Checked.toInt(size)
+            if uncompressedChunk.count < count {
+                uncompressedChunk = [UInt8](repeating: 0, count: Int(LZMA2ChunkHeader.maximumRawChunkSize))
+            }
+            // readBytes と同じ truncated 条件で、Data を介さず一時保管へ直接写す。
+            try uncompressedChunk.withUnsafeMutableBytes { storage in
+                try reader.read(into: UnsafeMutableRawBufferPointer(rebasing: storage[..<count]))
+            }
+            uncompressedChunkCount = count
             uncompressedChunkPosition = 0
 
         case let .compressed(unpackedSize, packedSize, resetsDictionary, resetsState, properties):

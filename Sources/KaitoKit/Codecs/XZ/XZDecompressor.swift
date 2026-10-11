@@ -6,7 +6,8 @@ import Foundation
 
 /// A streaming XZ decoder backed by Apple Compression.
 final class XZDecompressor: Decompressor {
-    private static let chunkSize = 256 * 1_024
+    /// 入力の補充単位と、一回の read で返す出力の上限。`XZNativeDecompressor.holdback` はこの値に合わせる。
+    static let chunkSize = 256 * 1_024
     private static let signature: [UInt8] = [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]
 
     private var input: ChunkedSourceInput

@@ -181,7 +181,7 @@ LHA level 0 / 1 の DOS 日時も parse 単位の `DOSTimestampDecoder` を使�
 2. RAR/CBR(RAR 2.9/3.x, RAR 5.x, solid, 分割、暗号化)
 3. 7z/CB7(LZMA, LZMA2, PPMd, BCJ/BCJ2, Delta, Swap2/Swap4, Deflate, BZip2, AES-256, solid/ブロック)
 4. LHA/LZH(lh0, lh4〜lh7, lh1, lz4/lz5/lzs, ヘッダ level 0/1/2, SJIS 名, 0x46 コードページ)
-5. tar 系(ustar/pax/GNU)+ gz/bz2/xz/zstd(xz は Compression framework)
+5. tar 系(ustar/pax/GNU)+ gz/bz2/xz/zstd(xz の LZMA2 だけの chain は自前の LZMA2 decoder、filter 付き chain は Compression framework)
 6. ISO 9660（PVD / Joliet / Rock Ridge、multi-extent、stored）
 7. 後段候補: CAB(Quantum), StuffIt/SIT(要検討), ARJ, ACE
 

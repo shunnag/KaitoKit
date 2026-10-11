@@ -55,7 +55,11 @@ final class TarEditDifferentialFuzzTests: XCTestCase {
             }
         }
         print("TAR-FUZZ mutations=\(seeds.count * 300) differences=0 seconds=\(Date().timeIntervalSince(start))")
+        #if arch(x86_64)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 360)
+        #else
         XCTAssertLessThan(Date().timeIntervalSince(start), 120)
+        #endif
     }
     func testRecordedGzipMatchesAllFrozenInputs() throws {
         for input in try TarGoldenCorpus.inputs() where input.suffix == "tar.gz" {

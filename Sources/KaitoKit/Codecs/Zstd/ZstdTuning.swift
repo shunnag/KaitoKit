@@ -5,6 +5,5 @@ struct ZstdTuning: Sendable {
     var pairTableThreshold: Int = Self.defaultPairTableThreshold
     var huffmanFastLoop = true
     var matchPath: MatchPath = .automatic
-    var lazySequenceRefill = true
     static let `default` = Self()
 }

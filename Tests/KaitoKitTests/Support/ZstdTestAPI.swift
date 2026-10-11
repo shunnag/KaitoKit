@@ -3,8 +3,8 @@
 @testable import KaitoKit
 
 extension ZstdScratchBuffer {
-    /// 配列を frame と同じ前 8 / 後 32 byte の余白付き scratch に写し、有効範囲の view を body の間だけ渡す。
-    /// 前余白は ZstdPaddedBitReader の word load（D5）に、後余白は literal の 16 byte copy（D2）に必要。
+    /// 配列を frame と同じ前 16 / 後 32 byte の余白付き scratch に写し、有効範囲の view を body の間だけ渡す。
+    /// 前余白は ZstdPaddedBitReader / ZstdSequenceBitReader の word load（D5）に、後余白は literal の 16 byte copy（D2）に必要。
     static func withPaddedCopy<Result>(
         of bytes: [UInt8], _ body: (UnsafeRawBufferPointer) throws -> Result
     ) rethrows -> Result {

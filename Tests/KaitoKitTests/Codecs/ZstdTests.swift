@@ -402,6 +402,23 @@ final class ZstdTests: XCTestCase {
         }
     }
 
+    func testWildCopiesAtEveryAlignmentAndMaximumBlockEnd() throws {
+        let prefix = (0..<64).map { UInt8(truncatingIfNeeded: $0 * 13 + $0 / 17) }
+        for offset in [16, 17, 31, 32, 33, 64] {
+            for literalCount in 0..<16 {
+                let literals = Array(prefix.prefix(literalCount))
+                let matchCount = (128 << 10) - literalCount
+                let code = Int.bitWidth - 1 - (offset + 3).leadingZeroBitCount
+                let sequence = rleSequence(literals: literals, ll: UInt8(literalCount), of: UInt8(code), ml: 52,
+                                           extra: [(offset + 3 - (1 << code), code), (matchCount - 65_539, 16)])
+                let encoded = frame(block(prefix, type: 0, last: false) + block(sequence), window: 0x38)
+                var expected = prefix + literals
+                for _ in 0..<matchCount { expected.append(expected[expected.count - offset]) }
+                XCTAssertEqual(try decode(encoded), Data(expected), "offset=\(offset), literals=\(literalCount)")
+            }
+        }
+    }
+
     // MARK: - header・entropy・sequence・上限
 
     func testReservedFieldsBlockBoundsSizesChecksumAndDictionary() throws {
@@ -503,6 +520,71 @@ final class ZstdTests: XCTestCase {
         XCTAssertEqual(try decode(frame(initial + setOffset + minusOne)), Data("abcdefghijfghjfg".utf8))
     }
 
+    func testRepeatOffsetRotationAcrossSequencesBlocksAndLiteralLengths() throws {
+        // RFC 8878 §3.1.1.5 の repeat offset: 値 1...3 の選択、LL == 0 のずれ、repeat1 - 1、3 本の履歴の回転を
+        // block をまたいで追う。参照模型は test 内の素朴な実装で、hot loop の実装とは独立している。
+        let seed = Array("abcdefghijklmnopqrstuvwxyz0123456789".utf8)
+        var expected = seed
+        var repeats = [1, 4, 8]
+        var blocks = block(seed, type: 0, last: false)
+        // (literal, OF code, extra, ML)。OF code 0 は値 1、code 1 は値 2|3、code 2 は値 4..7（直接距離 1..4）。
+        let steps: [(literal: UInt8?, code: UInt8, extra: Int, matchLength: Int)] = [
+            (nil, 2, 3, 5),        // 直接距離 4 → repeats (4, 1, 4)
+            (nil, 0, 0, 3),        // LL 0, 値 1 → selected 2 → 1 と入替 → (1, 4, 4)
+            (0x41, 0, 0, 4),       // LL 1, 値 1 → repeat1 = 1 のまま
+            (0x42, 1, 1, 3),       // LL 1, 値 3 → repeat3 = 4 を先頭に → (4, 1, 4)
+            (nil, 1, 1, 6),        // LL 0, 値 3 → selected 4 → repeat1 - 1 = 3 → (3, 4, 1)
+            (0x43, 1, 0, 3),       // LL 1, 値 2 → repeat2 = 4 → (4, 3, 1)
+            (nil, 1, 0, 3),        // LL 0, 値 2 → selected 3 → repeat3 = 1 → (1, 4, 3)
+            (nil, 2, 0, 8),        // 直接距離 1 → (1, 1, 4)
+            (0x44, 2, 2, 3),       // 直接距離 3 → (3, 1, 1)
+            (nil, 0, 0, 20),       // LL 0, 値 1 → selected 2 → (1, 3, 1)、距離 1 の長い match
+        ]
+        for (index, step) in steps.enumerated() {
+            let literals: [UInt8] = step.literal.map { [$0] } ?? []
+            let value = (1 << Int(step.code)) + step.extra
+            let offset: Int
+            if value > 3 {
+                offset = value - 3
+                repeats = [offset, repeats[0], repeats[1]]
+            } else {
+                switch value + (literals.isEmpty ? 1 : 0) {
+                case 1: offset = repeats[0]
+                case 2: offset = repeats[1]; repeats = [offset, repeats[0], repeats[2]]
+                case 3: offset = repeats[2]; repeats = [offset, repeats[0], repeats[1]]
+                default: offset = repeats[0] - 1; repeats = [offset, repeats[0], repeats[1]]
+                }
+            }
+            expected += literals
+            for _ in 0..<step.matchLength { expected.append(expected[expected.count - offset]) }
+            blocks += block(rleSequence(literals: literals, ll: UInt8(literals.count), of: step.code,
+                                        ml: UInt8(step.matchLength - 3), extra: [(step.extra, Int(step.code))]),
+                            last: index == steps.count - 1)
+        }
+        XCTAssertEqual(try decode(frame(blocks, window: 0)), Data(expected))
+        XCTAssertEqual(try decode(frame(blocks, window: 0), tuning: ZstdTuning(matchPath: .byteThenPeriod)), Data(expected))
+
+        // 1 block 内の複数 sequence でも repeat 状態は sequence ごとに更新される。RLE table は全 sequence で
+        // 同じ符号なので、OF code 0・LL 0・ML 3 を 4 回繰り返すと repeat1/repeat2 が毎回入れ替わる。
+        let prefix = block(Array("0123456789".utf8), type: 0, last: false)
+        let fourSequences: [UInt8] = [0, 4, 0x54, 0, 0, 0] + bits([])
+        var model = Array("0123456789".utf8)
+        var pair = (1, 4)
+        for _ in 0..<4 {
+            pair = (pair.1, pair.0)
+            for _ in 0..<3 { model.append(model[model.count - pair.0]) }
+        }
+        XCTAssertEqual(try decode(frame(prefix + block(fourSequences), window: 0)), Data(model))
+        XCTAssertEqual(model.count, 22)
+
+        // repeat1 - 1 が 0 になる参照は履歴 guard が同じ error で拒否する。
+        let one = block(rleSequence(literals: [0x61], ll: 1, of: 2, extra: [(0, 2)]), last: false)
+        let zero = block(rleSequence(of: 1, extra: [(1, 1)]))
+        XCTAssertThrowsError(try decode(frame(one + zero, window: 0))) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("zstd match exceeds history"))
+        }
+    }
+
     func testWindowAndOutputLimitsTarAliasesAndTemporaryStaging() throws {
         let data = try fixture("long-window.zst")
         let limits = ReadLimits(maxDictionarySize: 1 << 16)
@@ -596,6 +678,24 @@ final class ZstdTests: XCTestCase {
                     hash.update(UnsafeRawBufferPointer(start: nil, count: 0))
                     XCTAssertEqual(hash.value, expected.value, "start=\(start), chunk=\(chunk)")
                 }
+            }
+        }
+    }
+
+    func testXXH64LargeStripeLoopAfterEveryPartialTail() throws {
+        let plain = try decode(fixture("text-l3.zst"))
+        let input = Array(plain)
+        var expected = XXH64()
+        // 1 byte 更新は bulk stripe に入らず、tail の stripe 経路だけを使う。
+        for index in input.indices { expected.update(input[index...index]) }
+        let storage = [UInt8](repeating: 0xa5, count: 7) + input
+        storage.withUnsafeBytes { bytes in
+            for prefix in 0...32 {
+                var actual = XXH64()
+                actual.update(UnsafeRawBufferPointer(rebasing: bytes[7..<(7 + prefix)]))
+                actual.update(UnsafeRawBufferPointer(start: nil, count: 0))
+                actual.update(UnsafeRawBufferPointer(rebasing: bytes[(7 + prefix)..<bytes.count]))
+                XCTAssertEqual(actual.value, expected.value, "prefix=\(prefix)")
             }
         }
     }

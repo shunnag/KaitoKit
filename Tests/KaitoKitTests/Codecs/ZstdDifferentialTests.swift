@@ -63,7 +63,7 @@ final class ZstdDifferentialTests: XCTestCase {
                 let encoded = try ZipTestSupport.checkedRun(tool, arguments:
                     ["-q", "-c", "--single-thread", "--content-size", check] + options + [file.path]).standardOutput
                 XCTAssertEqual(try decode(encoded), body)
-                XCTAssertEqual(try decode(encoded, tuning: ZstdTuning(lazySequenceRefill: false)), body)
+                XCTAssertEqual(try decode(encoded, tuning: ZstdTuning(matchPath: .eightByteChunks)), body)
                 frames.append(encoded)
             }
         }
@@ -83,7 +83,7 @@ final class ZstdDifferentialTests: XCTestCase {
         XCTAssertEqual(try drain(fallback, bufferSize: 127), body + body)
 
         func result(_ bytes: Data, old: Bool) -> Result<Data, KaitoError> {
-            do { return .success(try decode(bytes, tuning: ZstdTuning(lazySequenceRefill: !old))) }
+            do { return .success(try decode(bytes, tuning: ZstdTuning(matchPath: old ? .eightByteChunks : .automatic))) }
             catch {
                 guard let error = error as? KaitoError else {
                     XCTFail("unexpected error: \(error)")
@@ -92,7 +92,7 @@ final class ZstdDifferentialTests: XCTestCase {
                 return .failure(error)
             }
         }
-        // 元の常時 refill と、同じ検査を行う遅延 refill で byte / error を照合する。
+        // 本番の match 経路と 8 byte chunk 経路（同じ sequence 検査を共有する）で byte / error を照合する。
         for encoded in frames {
             for index in 0..<96 {
                 var changed = encoded
@@ -368,8 +368,120 @@ final class ZstdDifferentialTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(MemoryLayout<ZstdSequenceCell>.size, 8)
-        XCTAssertEqual(MemoryLayout<ZstdSequenceCell>.stride, 8)
+        XCTAssertEqual(MemoryLayout<ZstdSequenceCell>.size, 16)
+        XCTAssertEqual(MemoryLayout<ZstdSequenceCell>.stride, 16)
+        XCTAssertEqual(MemoryLayout<ZstdSequenceCellTemplate>.size, 8)
+    }
+
+    func testStage1SequenceReaderTwoWordRefillsPairsStatesAndOverread() throws {
+        // ZstdSequenceBitReader は 2 word を持ち refill に分岐が無い。ZstdPaddedBitReader と同じ値・残量・error を返す。
+        let random = [UInt8](randomBytes(112))
+        func reference(_ bytes: [UInt8], start: Int, remaining: Int, count: Int) -> Int {
+            var expected = 0
+            for bit in stride(from: remaining - 1, through: remaining - count, by: -1) {
+                expected = (expected << 1) | Int((bytes[start + bit / 8] >> (bit % 8)) & 1)
+            }
+            return expected
+        }
+        for start in 0...7 {
+            for length in 1...96 {
+                var bytes = random
+                bytes[start + length - 1] = 0xa5
+                try ZstdScratchBuffer.withPaddedCopy(of: bytes) { padded in
+                    for width in 0...31 {
+                        var reader = try ZstdSequenceBitReader(padded, range: start..<(start + length))
+                        var mirror = try ZstdPaddedBitReader(padded, range: start..<(start + length))
+                        var remaining = length * 8 - 1
+                        XCTAssertEqual(reader.remaining, remaining)
+                        XCTAssertEqual(reader.read(0), 0)
+                        var step = 0
+                        while remaining > 0 {
+                            step += 1
+                            if step % 3 == 0, remaining >= 2 {
+                                // 2 field 読み: 幅の合計 <= 32 で、単独読みと同じ値になる。
+                                let first = min(max(1, width / 2), 16, remaining - 1)
+                                let second = min(max(1, width - first), 16, remaining - first)
+                                try reader.refill()
+                                try mirror.refill()
+                                let pair = reader.readPair(first, second)
+                                XCTAssertEqual(pair.0, mirror.readUnchecked(first))
+                                XCTAssertEqual(pair.1, mirror.readUnchecked(second))
+                                XCTAssertEqual(pair.0, reference(bytes, start: start, remaining: remaining, count: first))
+                                remaining -= first + second
+                            } else if step % 5 == 0, remaining >= 3 {
+                                // 状態読み: 各幅 <= 9、値 × 16 を返す。
+                                let a = min(width % 10, remaining - 2), b = min((width + 3) % 10, remaining - a - 1)
+                                let c = min((width + 7) % 10, remaining - a - b)
+                                try reader.refill()
+                                try mirror.refill()
+                                let states = reader.readScaledStates(a, ((1 << a) - 1) << 4, b, ((1 << b) - 1) << 4,
+                                                                     c, ((1 << c) - 1) << 4)
+                                XCTAssertEqual(states.0, mirror.readUnchecked(a) << 4)
+                                XCTAssertEqual(states.1, mirror.readUnchecked(b) << 4)
+                                XCTAssertEqual(states.2, mirror.readUnchecked(c) << 4)
+                                remaining -= a + b + c
+                            } else {
+                                let count = min(max(1, width), remaining)
+                                if reader.consumed + count > 63 {
+                                    try reader.refill()
+                                    try mirror.refill()
+                                }
+                                XCTAssertEqual(reader.read(count), reference(bytes, start: start, remaining: remaining, count: count))
+                                XCTAssertEqual(reader.read(0), 0)
+                                _ = mirror.readUnchecked(count)
+                                remaining -= count
+                            }
+                            XCTAssertEqual(reader.remaining, remaining)
+                            XCTAssertEqual(mirror.remaining, remaining)
+                            XCTAssertLessThanOrEqual(reader.consumed, 63)
+                        }
+                        try reader.refill()
+                        XCTAssertEqual(reader.remaining, 0)
+                        XCTAssertLessThanOrEqual(reader.consumed, 7)
+                        _ = reader.read(1)
+                        XCTAssertNotEqual(reader.remaining, 0)
+                    }
+                }
+            }
+        }
+        // s == F。64 ビット以上を過剰消費しても、前余白（16 byte）の外を読む前に同じ error で拒否する。
+        for prefix in 0...2 {
+            try ZstdScratchBuffer.withPaddedCopy(of: [UInt8](repeating: 0x80, count: prefix) + [1]) { padded in
+                var reader = try ZstdSequenceBitReader(padded, range: prefix..<(prefix + 1))
+                var mirror = try ZstdPaddedBitReader(padded, range: prefix..<(prefix + 1))
+                var overread = 0
+                var mirrorError: KaitoError?
+                var readerError: KaitoError?
+                for _ in 0..<10 {
+                    if readerError == nil {
+                        do {
+                            try reader.refill()
+                            _ = reader.read(31)
+                            _ = reader.read(31)
+                            overread += 62
+                        } catch { readerError = error as? KaitoError }
+                    }
+                    if mirrorError == nil {
+                        do {
+                            try mirror.refill()
+                            _ = mirror.readUnchecked(31)
+                            _ = mirror.readUnchecked(31)
+                        } catch { mirrorError = error as? KaitoError }
+                    }
+                }
+                XCTAssertEqual(readerError, .malformed("zstd bitstream underflow"))
+                XCTAssertEqual(readerError, mirrorError)
+                XCTAssertGreaterThanOrEqual(overread, 62)
+            }
+        }
+        for bytes: [UInt8] in [[], [0], [7, 0]] {
+            try ZstdScratchBuffer.withPaddedCopy(of: bytes) { padded in
+                XCTAssertThrowsError(try ZstdSequenceBitReader(padded, range: 0..<bytes.count)) {
+                    XCTAssertEqual($0 as? KaitoError, .malformed("zstd bitstream end marker"))
+                }
+            }
+        }
+        XCTAssertEqual(ZstdScratchBuffer.frontPad, 16)
     }
 
     func testStage1FiveHundredIndependentFramesAllocateByNeed() throws {

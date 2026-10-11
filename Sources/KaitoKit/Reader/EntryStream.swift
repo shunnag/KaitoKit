@@ -150,7 +150,10 @@ public final class EntryStream {
         bytesProduced = try Checked.add(bytesProduced, amount)
         try Checked.size(bytesProduced, limit: entrySizeLimit)
         try producedSizeObserver?(bytesProduced)
-        checksum.update(UnsafeRawBufferPointer(rebasing: buffer[..<actual]))
+        // 期待値の無い stream（単一 file 形式など）は照合しないので、CRC-32 の加算も省く。
+        if expectedCRC32 != nil {
+            checksum.update(UnsafeRawBufferPointer(rebasing: buffer[..<actual]))
+        }
         if expectedCRC16 != nil {
             checksum16.update(UnsafeRawBufferPointer(rebasing: buffer[..<actual]))
         }
@@ -231,7 +234,9 @@ public final class EntryStream {
                     throw KaitoError.malformed("direct read used for an unknown-size entry")
                 }
                 let remaining = try Checked.sub(currentRemaining, UInt64(bytes.count))
-                checksum.update(bytes)
+                if expectedCRC32 != nil {
+                    checksum.update(bytes)
+                }
                 if expectedCRC16 != nil {
                     checksum16.update(bytes)
                 }

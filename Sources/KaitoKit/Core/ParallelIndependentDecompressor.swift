@@ -25,6 +25,7 @@ final class ParallelIndependentDecompressor: Decompressor {
         var peakHeldBytes: Int { lock.withLock { peakHeld } }
         fileprivate func worker(_ delta: Int) { lock.withLock { live += delta; peak = max(peak, live) } }
         fileprivate func bytes(_ delta: Int) { lock.withLock { held += delta; peakHeld = max(peakHeld, held) } }
+        func serialFallback() { lock.withLock { peak = max(peak, 1) } }
     }
     private final class Reservation: Sendable {
         let diagnostics: Diagnostics?
@@ -118,6 +119,7 @@ final class ParallelIndependentDecompressor: Decompressor {
 
     private let units: [Unit]
     private let workerCount: Int
+    private let coalescingReads: Bool
     private let workers: Workers
     private var spare: Reservation?
     private var submitted = 0, emitted = 0, currentOffset = 0
@@ -129,12 +131,14 @@ final class ParallelIndependentDecompressor: Decompressor {
 
     /// 予約は実行中・待機中・未返却の出力に渡す。追加の一単位分は失敗時の直列再実行用。
     /// 走査や予算で並列化できないときは、呼出元が元の直列 decoder に戻す。
-    init?(units: [Unit], limits: ReadLimits, workers: Int, diagnostics: Diagnostics? = nil) {
+    init?(units: [Unit], limits: ReadLimits, workers: Int, diagnostics: Diagnostics? = nil,
+          coalescingReads: Bool = false) {
         guard units.count >= 2, let maximum = units.map(\.heldBytes).max(), maximum > 0 else { return nil }
         let count = min(max(1, workers), LeafDecodePool.shared.capacity, units.count,
                         max(0, limits.resolvedParallelDecodeMemory() / maximum - 1))
         guard count >= 2 else { return nil }
         self.units = units; workerCount = count; self.workers = Workers(diagnostics)
+        self.coalescingReads = coalescingReads
         spare = Reservation(maximum, diagnostics)
     }
     deinit { workers.abandon() }
@@ -142,13 +146,23 @@ final class ParallelIndependentDecompressor: Decompressor {
     func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
         if let terminalError { throw terminalError }
         guard !buffer.isEmpty, !isFinished else { return 0 }
+        // LZMA2 の read は reset を跨いで 256 KiB まで満たす。失敗した read の
+        // 部分出力を返さない性質も保つため、単位境界だけでは呼出元へ返さない。
+        let capacity = min(buffer.count, 256 * 1_024)
+        var written = 0
         do {
             try Task.checkCancellation()
             while emitted < units.count {
                 if replaying {
                     if serial == nil { serial = try units[emitted].makeDecoder() }
-                    let count = try serial!.read(into: buffer)
-                    if count > 0 { return count }
+                    let destination = coalescingReads
+                        ? UnsafeMutableRawBufferPointer(rebasing: buffer[written..<capacity]) : buffer
+                    let count = try serial!.read(into: destination)
+                    if count > 0 {
+                        written += count
+                        if !coalescingReads || written == capacity { return written }
+                        continue
+                    }
                     guard serial!.isFinished else { throw KaitoError.malformed("independent decoder made no progress") }
                     serial = nil; emitted += 1
                     continue
@@ -164,21 +178,23 @@ final class ParallelIndependentDecompressor: Decompressor {
                         continue
                     }
                 }
-                let count = min(buffer.count, 256 * 1_024, units[emitted].outputSize - currentOffset)
+                let count = min(capacity - written, units[emitted].outputSize - currentOffset)
                 if count > 0 {
                     current!.bytes.withUnsafeBytes { bytes in
-                        buffer.baseAddress!.copyMemory(from: bytes.baseAddress!.advanced(by: currentOffset), byteCount: count)
+                        buffer.baseAddress!.advanced(by: written).copyMemory(
+                            from: bytes.baseAddress!.advanced(by: currentOffset), byteCount: count)
                     }
                     currentOffset += count
+                    written += count
                 }
                 if currentOffset == units[emitted].outputSize {
                     current = nil; currentOffset = 0; emitted += 1
                     if emitted == units.count { isFinished = true; spare = nil }
                 }
-                if count > 0 { return count }
+                if count > 0, !coalescingReads || written == capacity { return written }
             }
             isFinished = true; spare = nil
-            return 0
+            return written
         } catch {
             terminalError = error; workers.abandon(); current = nil; serial = nil; spare = nil
             throw error

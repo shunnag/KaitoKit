@@ -37,6 +37,7 @@ final class SevenZipHeaderDecoder {
     /// next header の先頭。pack stream はここを越えない。
     private let packedDataEnd: UInt64
     private let limits: ReadLimits
+    private let decodeThreads: Int
     private let maximumAESCyclesPower: UInt8
     private let keyCache: SevenZipAESKeyCache
     private let packedStreamVerifier: SevenZipPackedStreamVerifier
@@ -59,6 +60,7 @@ final class SevenZipHeaderDecoder {
         self.source = source
         self.packedDataEnd = packedDataEnd
         self.limits = options.limits
+        self.decodeThreads = options.resolvedDecodeThreads
         self.maximumAESCyclesPower = options.maxSevenZipAESCyclesPower
         self.keyCache = keyCache
         self.packedStreamVerifier = packedStreamVerifier
@@ -209,7 +211,8 @@ final class SevenZipHeaderDecoder {
                 password: password,
                 keyCache: keyCache,
                 maximumAESCyclesPower: maximumAESCyclesPower,
-                packedStreamVerifier: packedStreamVerifier
+                packedStreamVerifier: packedStreamVerifier,
+                workers: decodeThreads
             )
             aggregate = try Checked.add(aggregate, factory.finalSize)
             try Checked.size(aggregate, limit: limit)

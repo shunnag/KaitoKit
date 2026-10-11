@@ -56,7 +56,9 @@ enum XZResourceValidator {
                                    outputSize: outputSize)
                 layoutBlocks.append(.init(compressedRange: blockStart..<reader.offset, headerSize: UInt64(headerSize),
                                           payloadSize: compressedSize, unpaddedSize: unpaddedSize,
-                                          outputSize: outputSize, dictionarySize: declared.dictionary))
+                                          outputSize: outputSize, dictionarySize: declared.dictionary,
+                                          dictionaryProperty: declared.dictionaryProperty,
+                                          filterCount: declared.filterCount))
             }
             let records = try variableInteger(&reader)
             guard records == blocks else { throw KaitoError.malformed("XZ Index block count mismatch") }
@@ -99,7 +101,7 @@ enum XZResourceValidator {
     }
 
     private static func validateBlockHeader(_ header: Data, dictionaryLimit: UInt64) throws
-        -> (compressed: UInt64?, uncompressed: UInt64?, dictionary: UInt64) {
+        -> (compressed: UInt64?, uncompressed: UInt64?, dictionary: UInt64, dictionaryProperty: UInt8, filterCount: Int) {
         let size = header.count
         guard CRC32.checksum(Data(header.prefix(size - 4))) == littleEndian(header, at: size - 4) else {
             throw KaitoError.malformed("XZ block header checksum mismatch")
@@ -112,6 +114,7 @@ enum XZResourceValidator {
         let uncompressed = flags & 0x80 == 0 ? nil : try variableInteger(&reader)
         let count = Int(flags & 3) + 1
         var dictionary: UInt64 = 0
+        var dictionaryProperty: UInt8 = 0
         for index in 0..<count {
             let id = try variableInteger(&reader)
             let propertiesSize = try variableInteger(&reader)
@@ -120,7 +123,8 @@ enum XZResourceValidator {
                 guard id == 0x21, propertiesSize == 1 else {
                     throw KaitoError.unsupportedMethod("XZ final filter \(id)")
                 }
-                dictionary = try LZMA2Decoder.dictionarySize(for: reader.readUInt8())
+                dictionaryProperty = try reader.readUInt8()
+                dictionary = try LZMA2Decoder.dictionarySize(for: dictionaryProperty)
                 try Checked.size(dictionary, limit: dictionaryLimit)
             } else {
                 // RISC-V は native decoder に渡す前に名前付きで拒否する。
@@ -133,7 +137,7 @@ enum XZResourceValidator {
             }
         }
         try zeros(&reader, count: reader.remaining)
-        return (compressed, uncompressed, dictionary)
+        return (compressed, uncompressed, dictionary, dictionaryProperty, count)
     }
 
     /// Reads only chunk controls and sizes. No archive-sized allocation is made.

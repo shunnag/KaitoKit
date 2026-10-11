@@ -14,6 +14,8 @@ public final class ArchiveReader {
     private let zipDiskLayout: ZipDiskLayout?
     private let assembledVolumeSet: ArchiveVolumeSet?
     private let reader: any FormatReader
+    // Test hook: the format reader behind this archive.
+    var formatReaderForTesting: any FormatReader { reader }
     private let options: ReaderOptions
     private let outputBudget: ArchiveOutputBudget
     private var extractionRootKey: String?

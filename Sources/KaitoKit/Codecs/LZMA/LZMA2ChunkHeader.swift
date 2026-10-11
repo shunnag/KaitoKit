@@ -8,7 +8,9 @@ import Foundation
 ///
 /// control byte:
 /// - `0x00`: stream 終端。
-/// - `0x01`: 非圧縮 chunk。dictionary を reset する。
+/// - `0x01`: 非圧縮 chunk。dictionary を reset する。coding state と property も
+///   未初期化に戻るので、次の LZMA chunk は `0xC0` 以上（property 付き）でなければならない
+///   （LZMA SDK の `needInitLevel = 0xC0`）。
 /// - `0x02`: 非圧縮 chunk。dictionary を保つ。
 /// - `0x80...0xFF`: LZMA chunk。bit 5–6 が reset の段階（`0x80` なし、`0xA0` coding state、
 ///   `0xC0` coding state と新しい property、`0xE0` dictionary まで全部）、bit 0–4 が
@@ -120,6 +122,11 @@ enum LZMA2ChunkHeader {
 
 /// LZMA2 stream が最初の使用より前に要求する三つの初期化（dictionary reset、LZMA property、
 /// coding state reset）が済んだかどうかを stream の順に追う。
+///
+/// dictionary reset は property と coding state も未初期化へ戻す。LZMA chunk `0xE0` は
+/// 自身で三つとも満たすが、非圧縮 chunk `0x01` の後は次の LZMA chunk が `0xC0` 以上で
+/// なければならない（LZMA SDK の `needInitLevel`: 初期 `0xE0`、`0x01` の後 `0xC0`）。
+/// liblzma / xz / 7-Zip も `0x01` の後の `0x80...0xBF` を壊れた stream として拒否する。
 struct LZMA2ResetTracker {
     private var needsDictionaryReset = true
     private var needsProperties = true
@@ -133,6 +140,10 @@ struct LZMA2ResetTracker {
     mutating func recordDictionary(reset: Bool) throws {
         if reset {
             needsDictionaryReset = false
+            // dictionary reset は property と coding state も要求し直す。LZMA chunk は
+            // 続く recordProperties / recordState で同じ chunk 内に満たす。
+            needsProperties = true
+            needsStateReset = true
         } else if needsDictionaryReset {
             throw KaitoError.malformed("LZMA2 stream starts without a dictionary reset")
         }

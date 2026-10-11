@@ -88,8 +88,9 @@ final class ZstdInput {
 }
 
 // D0/D1: フレーム所有の遅延 scratch。再確保時に有効データは引き継がず、次の fill で埋める。
+// 前余白 16 byte は ZstdSequenceBitReader の 2 word load（D5）、後余白 32 byte は literal の 16 byte copy（D2）が使う。
 final class ZstdScratchBuffer {
-    static let frontPad = 8
+    static let frontPad = 16
     static let backPad = 32
     private var allocation: UnsafeMutableRawPointer?
     private(set) var capacity = 0

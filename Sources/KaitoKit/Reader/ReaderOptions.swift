@@ -13,7 +13,7 @@ public struct ReaderOptions: Sendable {
     @TaskLocal static var testingAutomaticThreads: (@Sendable (DecodePowerPolicy) -> Int)?
     private var automaticThreadsSnapshot: Int?
 
-    /// XZ / bzip2 の要求並列数。nil は CPU 構成・物理メモリ・電力方針から open 時に解決する。
+    /// 独立した圧縮単位の要求並列数。nil は CPU 構成・物理メモリ・電力方針から open 時に解決する。
     /// メモリ予算と process 共通の実行枠は別に適用する。reopen は同じ解決値を引き継ぐ。
     public var decodeThreads: Int? {
         didSet { decodeThreads = decodeThreads.map(Self.clampedDecodeThreads) }

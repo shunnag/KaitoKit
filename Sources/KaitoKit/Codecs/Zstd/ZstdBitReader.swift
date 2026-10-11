@@ -73,7 +73,7 @@ struct ZstdBitReader {
     }
 }
 
-// D5: 前余白 8 バイトを持つブロック上の逆向き reader。所有フレームの寿命内だけ使用する。
+// D5: 前余白（16 byte）を持つブロック上の逆向き reader。word load は余白の先頭 8 byte に収まる。所有フレームの寿命内だけ使用する。
 struct ZstdPaddedBitReader {
     private let base: UnsafeRawPointer
     private let lower: Int
@@ -128,6 +128,94 @@ struct ZstdPaddedBitReader {
     mutating func dropUnchecked(_ count: Int) {
         // D10: 検証済み cell の幅だけ進む。batch は最大幅で残量を予約し、tail は実幅を検査する。
         consumed += count
+    }
+
+    @inline(never)
+    private static func underflow() throws -> Never {
+        throw KaitoError.malformed("zstd bitstream underflow")
+    }
+}
+
+// D5: sequence stream 専用の逆向き reader。現在 word [p-7, p] と、その下の word [p-15, p-8] を保持する。
+// refill は下位 word からのシフトで現在 word を補い、新しい下位 word の load は次の refill まで使わない。
+// 消費位置に依存する load を状態遷移の経路から外し、分岐も持たない。block scratch の前余白 16 byte が
+// 下限 p = s-1 での load [s-16, s-1] を確保内に収める。ZstdPaddedBitReader と同じ検査を同じ checkpoint で行うので、
+// 不正 stream に対する error も同一になる。
+struct ZstdSequenceBitReader {
+    /// 現在 word の最上位 byte の位置（p）。
+    private var pointer: UnsafeRawPointer
+    /// s-1 の位置。p はこれより前へ進めない。
+    private let lowerPointer: UnsafeRawPointer
+    private var container: UInt64
+    /// 下位 word [p-15, p-8] の上位 56 bit（1 byte 右にずらした値）。refill は byte 単位なので下位 byte は使わない。
+    private var nextBytes: UInt64
+    private(set) var consumed: Int
+
+    init(_ bytes: UnsafeRawBufferPointer, range: Range<Int>) throws {
+        guard range.lowerBound >= 0, range.upperBound <= bytes.count, !range.isEmpty,
+              bytes[range.upperBound - 1] != 0 else {
+            throw KaitoError.malformed("zstd bitstream end marker")
+        }
+        let base = bytes.baseAddress!
+        lowerPointer = base + (range.lowerBound - 1)
+        pointer = base + (range.upperBound - 1)
+        consumed = bytes[range.upperBound - 1].leadingZeroBitCount + 1
+        // s >= allocation + 16。初回の 2 word [p-15, p] も確保内。
+        container = UInt64(littleEndian: pointer.loadUnaligned(fromByteOffset: -7, as: UInt64.self))
+        nextBytes = UInt64(littleEndian: pointer.loadUnaligned(fromByteOffset: -15, as: UInt64.self)) &>> 8
+    }
+
+    var remaining: Int { (pointer - lowerPointer) * 8 - consumed }
+
+    /// 消費済み byte を捨て、未消費ビットを 57 以上にする。refill 直後は consumed <= 7。
+    @inline(__always)
+    mutating func refill() throws {
+        let target = pointer - (consumed >> 3)
+        // D5 境界証明: 正常時 target >= s-1、従って [target-15, target] ⊂ [s-16, e) ⊂ allocation。
+        // 不正な前方への超過は cold helper で拒否し、確保外の load は実行しない。
+        if target < lowerPointer { try Self.underflow() }
+        // shift = consumed & ~7 は 0...56。下位 word の上位 56 bit は 56 - shift = ~consumed & 56 だけ右にずらして繋ぐ。
+        // shift == 0 のとき nextBytes >> 56 == 0 で container は変わらない。
+        let shift = consumed & ~7
+        container = (container &<< shift) | (nextBytes &>> (~consumed & 56))
+        consumed &= 7
+        pointer = target
+        nextBytes = UInt64(littleEndian: target.loadUnaligned(fromByteOffset: -15, as: UInt64.self)) &>> 8
+    }
+
+    @inline(__always)
+    mutating func read(_ count: Int) -> Int {
+        // 呼出幅 0...31、refill schedule により consumed + count <= 63。残量は終端で厳密検査する。
+        let value = ((container &<< consumed) &>> 1) &>> (63 &- count)
+        consumed &+= count
+        return Int(truncatingIfNeeded: value)
+    }
+
+    /// 連続する 2 つの field を読む。消費量は和で一度に進め、2 つ目の値は 1 つ目のシフト結果から取る。
+    @inline(__always)
+    mutating func readPair(_ first: Int, _ second: Int) -> (Int, Int) {
+        // first + second <= 32、refill schedule により consumed + first + second <= 63。
+        let window = container &<< consumed
+        let a = (window &>> 1) &>> (63 &- first)
+        let b = ((window &<< first) &>> 1) &>> (63 &- second)
+        consumed &+= first &+ second
+        return (Int(truncatingIfNeeded: a), Int(truncatingIfNeeded: b))
+    }
+
+    /// 状態遷移の 3 field を読み、値 × 16（16 byte cell の offset）で返す。mask は ZstdSequenceCell.stateMask。
+    /// シフト量は消費位置から先に求まり、container からは右シフトと mask の 2 命令で値を得る。
+    @inline(__always)
+    mutating func readScaledStates(_ first: Int, _ firstMask: Int, _ second: Int, _ secondMask: Int,
+                                   _ third: Int, _ thirdMask: Int) -> (Int, Int, Int) {
+        // 各幅 0...9、合計 <= 26。refill 直後なので position3 <= 33 で、各シフト量 60 - position は 27 以上。
+        let position1 = consumed &+ first
+        let position2 = position1 &+ second
+        let position3 = position2 &+ third
+        let a = Int(truncatingIfNeeded: container &>> (60 &- position1)) & firstMask
+        let b = Int(truncatingIfNeeded: container &>> (60 &- position2)) & secondMask
+        let c = Int(truncatingIfNeeded: container &>> (60 &- position3)) & thirdMask
+        consumed = position3
+        return (a, b, c)
     }
 
     @inline(never)

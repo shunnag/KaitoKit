@@ -4,11 +4,11 @@ import Foundation
 //
 // 不変条件ラベル。Zstd の各ファイルのコメントにある D0–D11 / D-T はこの一覧を指す（検証の経緯と当時の行番号は
 // Documentation/verification/2026-09-26-zstd-p11.md の「現行 D0–D11 invariant index」）。
-// D0/D1  frame が所有する遅延確保の scratch（ZstdScratchBuffer）。必要量で倍増し、前 8 / 後 32 byte の余白を持つ。
+// D0/D1  frame が所有する遅延確保の scratch（ZstdScratchBuffer）。必要量で倍増し、前 16 / 後 32 byte の余白を持つ。
 // D2     literal 領域: RLE は size + 32 byte を同じ値で埋め、raw は block 内の view、Huffman は再利用 buffer に書く。
 // D3     output 末尾の outputSlack（32 byte）は書込み専用の余白。match の各 chunk は現在位置より前だけを読む。
-// D4     sequence 表の cell は 8 byte（ZstdSequenceCell）。表は kind ごとの容量で一度だけ確保する。
-// D5     ZstdPaddedBitReader の word load は前余白の内側に収まり、refill は下限を検査する。
+// D4     sequence 表の cell は 16 byte（ZstdSequenceCell）。表は kind ごとの容量で一度だけ確保し、cell は遷移先の pointer を持つ。
+// D5     ZstdPaddedBitReader / ZstdSequenceBitReader の word load は前余白の内側に収まり、refill は下限を検査する。
 // D6     sequence loop の状態は値とローカル変数だけ。copy 前に長さと履歴距離を検証する。
 // D7     block / literal / table の view は frame が所有し、復号中は無効化されない。
 // D8/D9  Huffman 表は frame 内で再利用する。type 2 は pair 表を無効化し、type 3 は表と使用量を保持する。
@@ -248,7 +248,7 @@ final class ZstdFrameDecoder {
         return UnsafeRawBufferPointer(start: literalBuffer.base, count: size)
     }
 
-    private func table(_ modeBits: Int, target: ZstdSequenceTable, predefined: [ZstdSequenceCell],
+    private func table(_ modeBits: Int, target: ZstdSequenceTable, predefined: [ZstdSequenceCellTemplate],
                        predefinedLog: Int, maximumLog: Int, bases: [Int], bits: [Int],
                        reader: inout ZstdByteReader) throws {
         // 呼出側が 2 bit に切り出すので、全値が定義済み。
@@ -298,85 +298,152 @@ final class ZstdFrameDecoder {
                   predefinedLog: 6, maximumLog: 9, bases: Self.matchBases, bits: Self.matchBits, reader: &reader)
         var repeats = self.repeats
         let output = prepareBlock(header.maximumBlockSize)
-        var bits = try ZstdPaddedBitReader(bytes, range: reader.position..<reader.end)
-        let count = try Self.executeSequences(
-            bits: &bits, logs: (literalTable.accuracyLog!, offsetTable.accuracyLog!, matchTable.accuracyLog!),
+        let bits = try ZstdSequenceBitReader(bytes, range: reader.position..<reader.end)
+        let block = SequenceBlock(
+            bits: bits, logs: (literalTable.accuracyLog!, offsetTable.accuracyLog!, matchTable.accuracyLog!),
             llCells: UnsafePointer(literalTable.cells!), ofCells: UnsafePointer(offsetTable.cells!),
             mlCells: UnsafePointer(matchTable.cells!), literals: literalBytes,
             output: UnsafeMutableRawPointer(output.baseAddress!), sequenceCount: sequenceCount,
-            repeats: &repeats, windowSize: header.windowSize, historyCount: historyCount,
-            maximumBlockSize: header.maximumBlockSize, matchPath: tuning.matchPath,
-            lazyRefill: tuning.lazySequenceRefill)
+            windowSize: header.windowSize, historyCount: historyCount, maximumBlockSize: header.maximumBlockSize)
+        // D-T: 経路は型で特殊化し、hot loop の中には tuning の分岐を残さない。既定は automatic。
+        let count: Int
+        switch tuning.matchPath {
+        case .automatic: count = try Self.executeSequences(AutomaticMatchPolicy.self, block, repeats: &repeats)
+        case .eightByteChunks: count = try Self.executeSequences(EightByteMatchPolicy.self, block, repeats: &repeats)
+        case .byteThenPeriod: count = try Self.executeSequences(ByteThenPeriodMatchPolicy.self, block, repeats: &repeats)
+        }
         self.repeats = repeats
         // D11: 検証済みの実長だけを借用する。outputSlack は返却・checksum・履歴に含めない。
         return UnsafeRawBufferPointer(start: output.baseAddress, count: count)
     }
 
-    private static func executeSequences(bits: inout ZstdPaddedBitReader, logs: (Int, Int, Int),
-                                         llCells: UnsafePointer<ZstdSequenceCell>,
-                                         ofCells: UnsafePointer<ZstdSequenceCell>,
-                                         mlCells: UnsafePointer<ZstdSequenceCell>,
-                                         literals: UnsafeRawBufferPointer, output: UnsafeMutableRawPointer,
-                                         sequenceCount: Int, repeats: inout (Int, Int, Int),
-                                         windowSize: Int, historyCount: Int, maximumBlockSize: Int,
-                                         matchPath: ZstdTuning.MatchPath, lazyRefill: Bool) throws -> Int {
+    /// executeSequences への入力。全て値で、呼出中は frame が所有する領域（D7）を指す。
+    private struct SequenceBlock {
+        let bits: ZstdSequenceBitReader
+        let logs: (Int, Int, Int)
+        let llCells: UnsafePointer<ZstdSequenceCell>
+        let ofCells: UnsafePointer<ZstdSequenceCell>
+        let mlCells: UnsafePointer<ZstdSequenceCell>
+        let literals: UnsafeRawBufferPointer
+        let output: UnsafeMutableRawPointer
+        let sequenceCount: Int
+        let windowSize: Int
+        let historyCount: Int
+        let maximumBlockSize: Int
+    }
+
+    /// D-T: match copy の経路。static な定数なので特殊化後は分岐が消える。
+    private protocol MatchPolicy {
+        static var path: ZstdTuning.MatchPath { get }
+    }
+    private enum AutomaticMatchPolicy: MatchPolicy { static var path: ZstdTuning.MatchPath { .automatic } }
+    private enum EightByteMatchPolicy: MatchPolicy { static var path: ZstdTuning.MatchPath { .eightByteChunks } }
+    private enum ByteThenPeriodMatchPolicy: MatchPolicy { static var path: ZstdTuning.MatchPath { .byteThenPeriod } }
+
+    // 独立した関数にして、loop の register 割付けを呼出側の値と分ける。
+    @inline(never)
+    private static func executeSequences<Policy: MatchPolicy>(_: Policy.Type, _ block: SequenceBlock,
+                                                             repeats: inout (Int, Int, Int)) throws -> Int {
         // D6: 全て値またはローカル変数。ループ内に class property / stored inout は無い。
         // 初期幅 <= 9+8+9。短い stream は各 refill checkpoint または厳密終端で拒否する。
-        var llState = bits.readUnchecked(logs.0)
-        var ofState = bits.readUnchecked(logs.1)
-        var mlState = bits.readUnchecked(logs.2)
-        let literalBase = literals.baseAddress!
-        let literalCount = literals.count
-        var literalPosition = 0
-        var outputCount = 0
-        for index in 0..<sequenceCount {
+        var bits = block.bits
+        // 状態は添字ではなく cell の pointer で持つ。
+        var l = block.llCells + bits.read(block.logs.0)
+        var o = block.ofCells + bits.read(block.logs.1)
+        var m = block.mlCells + bits.read(block.logs.2)
+        let output = block.output
+        let outputEnd = output + block.maximumBlockSize
+        var out = output
+        var literal = block.literals.baseAddress!
+        let literalEnd = literal + block.literals.count
+        let windowSize = block.windowSize
+        // 履歴の先頭。(out + LL) - historyStart が参照できる距離の上限で、historyCount は storage 内の実 byte 数。
+        let historyStart = output - block.historyCount
+        var repeat1 = repeats.0, repeat2 = repeats.1, repeat3 = repeats.2
+        var remainingSequences = block.sequenceCount
+        while true {
             // 初期状態は log ビット。全遷移先も構築時に検査済みで、常に各表内。
-            let l = llCells[llState]
-            let o = ofCells[ofState]
-            let m = mlCells[mlState]
-            let ofBits = Int(o.extraBits)
-            let mlBits = Int(m.extraBits), llBits = Int(l.extraBits)
+            let ofBits = Int(o.pointee.extraBits)
             // OF <= 24 なら extras 合計 <= 56。最大幅を使い、記号ごとの幅の加算を省く。
-            try bits.refill(minimumBits: lazyRefill ? 56 : 64)
-            let offsetValue = Int(o.base) &+ bits.readUnchecked(ofBits)
+            try bits.refill()
+            let offsetValue = Int(o.pointee.base) &+ bits.read(ofBits)
             // OF > 24 の時だけ、ML+LL の最大 32 ビットを別に確保する。
-            if ofBits > 24 { try bits.refill(minimumBits: lazyRefill ? 32 : 64) }
-            let matchLength = Int(m.base) &+ bits.readUnchecked(mlBits)
-            let literalLength = Int(l.base) &+ bits.readUnchecked(llBits)
-            let offset = resolveOffset(offsetValue, literalLength: literalLength, repeats: &repeats)
-            // 長さ <= 131074、offset < 2^32。64-bit Int への拡張後の加算は overflow しない。
-            if literalLength > literalCount - literalPosition
-                || literalLength + matchLength > maximumBlockSize - outputCount
-                || offset <= 0 || offset > windowSize || offset > historyCount + outputCount + literalLength {
+            if ofBits > 24 { try bits.refill() }
+            let lengths = bits.readPair(Int(m.pointee.extraBits), Int(l.pointee.extraBits))
+            let matchLength = Int(m.pointee.base) &+ lengths.0
+            let literalLength = Int(l.pointee.base) &+ lengths.1
+            // RFC 8878 §3.1.1.5: 4 以上は直接の距離、1...3 は repeat offset（LL == 0 なら一つずらす）。
+            let offset: Int
+            if offsetValue > 3 {
+                offset = offsetValue &- 3
+                repeat3 = repeat2
+                repeat2 = repeat1
+                repeat1 = offset
+            } else {
+                // OF の基底 >= 1、従って selected は 1...4。offset 0 は履歴 guard が拒否する。
+                let selected = offsetValue &+ (literalLength == 0 ? 1 : 0)
+                if selected == 1 {
+                    offset = repeat1
+                } else if selected == 2 {
+                    offset = repeat2
+                    repeat2 = repeat1
+                    repeat1 = offset
+                } else if selected == 3 {
+                    offset = repeat3
+                    repeat3 = repeat2
+                    repeat2 = repeat1
+                    repeat1 = offset
+                } else {
+                    offset = repeat1 &- 1
+                    repeat3 = repeat2
+                    repeat2 = repeat1
+                    repeat1 = offset
+                }
+            }
+            // 長さ <= 131074、offset < 2^32。pointer の差は確保済み領域内で overflow しない。
+            // offset <= 0 と二つの上限超過を、符号無し比較一つで判定する。
+            let available = (out - historyStart) &+ literalLength
+            if literalLength > literalEnd - literal
+                || literalLength &+ matchLength > outputEnd - out
+                || UInt(bitPattern: offset &- 1) >= UInt(bitPattern: min(windowSize, available)) {
                 try invalidSequence(literalLength: literalLength, matchLength: matchLength, offset: offset,
-                                    literalsRemaining: literalCount - literalPosition,
-                                    outputRemaining: maximumBlockSize - outputCount,
-                                    windowSize: windowSize, availableHistory: historyCount + outputCount + literalLength)
+                                    literalsRemaining: literalEnd - literal, outputRemaining: outputEnd - out,
+                                    windowSize: windowSize, availableHistory: available)
             }
             // D2/D3: source に 32 初期化済みバイト、target に outputSlack。LL == 0 でも 16 バイトを写す。
-            copyLiterals(from: literalBase.advanced(by: literalPosition),
-                         to: output.advanced(by: outputCount), length: literalLength)
-            outputCount &+= literalLength
-            literalPosition &+= literalLength
-            copyMatch(output: output.advanced(by: outputCount), length: matchLength, offset: offset, path: matchPath)
-            outputCount &+= matchLength
-            if index + 1 < sequenceCount {
-                try bits.refill(minimumBits: lazyRefill ? 26 : 64)
-                // 状態幅 <= 9+9+8 <= 57、順序は LL, ML, OF。最後の sequence は遷移しない。
-                llState = Int(l.nextBaseline) &+ bits.readUnchecked(Int(l.stateBits))
-                mlState = Int(m.nextBaseline) &+ bits.readUnchecked(Int(m.stateBits))
-                ofState = Int(o.nextBaseline) &+ bits.readUnchecked(Int(o.stateBits))
-            }
+            copyLiterals(from: literal, to: out, length: literalLength)
+            out += literalLength
+            literal += literalLength
+            copyMatch(Policy.self, output: out, length: matchLength, offset: offset)
+            out += matchLength
+            remainingSequences &-= 1
+            if remainingSequences == 0 { break }
+            // 状態幅 <= 9+9+8 <= 26、順序は LL, ML, OF。最後の sequence は遷移しない。
+            // 遷移先は cell が持つ baseline の pointer に、読んだ値 × 16 を byte offset として足すだけ。
+            try bits.refill()
+            let steps = bits.readScaledStates(Int(l.pointee.stateBits), Int(l.pointee.stateMask),
+                                              Int(m.pointee.stateBits), Int(m.pointee.stateMask),
+                                              Int(o.pointee.stateBits), Int(o.pointee.stateMask))
+            l = Self.step(l.pointee.next, by: steps.0)
+            m = Self.step(m.pointee.next, by: steps.1)
+            o = Self.step(o.pointee.next, by: steps.2)
         }
-        guard bits.remaining == 0, literalCount - literalPosition <= maximumBlockSize - outputCount else {
+        repeats = (repeat1, repeat2, repeat3)
+        let tail = literalEnd - literal
+        guard bits.remaining == 0, tail <= outputEnd - out else {
             throw KaitoError.malformed("zstd sequence trailing bits or literals")
         }
-        let tail = literalCount - literalPosition
         if tail > 0 {
             // 終端 guard で長さを検査済み。末尾 literal は実長だけを写す。
-            output.advanced(by: outputCount).copyMemory(from: literalBase.advanced(by: literalPosition), byteCount: tail)
+            out.copyMemory(from: literal, byteCount: tail)
         }
-        return outputCount + tail
+        return (out - output) &+ tail
+    }
+
+    @inline(__always)
+    private static func step(_ cell: UnsafePointer<ZstdSequenceCell>, by byteOffset: Int) -> UnsafePointer<ZstdSequenceCell> {
+        // byteOffset は stateMask で 16 の倍数かつ 2^stateBits * 16 未満に制限済み。構築時の検査で遷移先は表内。
+        UnsafeRawPointer(cell).advanced(by: byteOffset).assumingMemoryBound(to: ZstdSequenceCell.self)
     }
 
     @inline(never)
@@ -395,53 +462,62 @@ final class ZstdFrameDecoder {
 
     @inline(__always)
     private static func copy16(from source: UnsafeRawPointer, to target: UnsafeMutableRawPointer) {
-        // 呼出側が source の初期化済み 16 バイトと target の確保済み 16 バイトを保証する。
-        target.storeBytes(of: source.loadUnaligned(as: UInt64.self), as: UInt64.self)
-        target.storeBytes(of: source.loadUnaligned(fromByteOffset: 8, as: UInt64.self),
-                          toByteOffset: 8, as: UInt64.self)
+        // 呼出側が source の初期化済み 16 バイトと target の確保済み 16 バイトを保証する。1 本の vector load / store になる。
+        target.storeBytes(of: source.loadUnaligned(as: SIMD16<UInt8>.self), as: SIMD16<UInt8>.self)
     }
 
     @inline(__always)
     private static func copy32(from source: UnsafeRawPointer, to target: UnsafeMutableRawPointer) {
-        copy16(from: source, to: target)
-        copy16(from: source.advanced(by: 16), to: target.advanced(by: 16))
+        let low = source.loadUnaligned(as: SIMD16<UInt8>.self)
+        let high = source.loadUnaligned(fromByteOffset: 16, as: SIMD16<UInt8>.self)
+        target.storeBytes(of: low, as: SIMD16<UInt8>.self)
+        target.storeBytes(of: high, toByteOffset: 16, as: SIMD16<UInt8>.self)
     }
 
     @inline(__always)
     private static func copyLiterals(from source: UnsafeRawPointer, to target: UnsafeMutableRawPointer, length: Int) {
-        var position = 0
-        repeat {
-            // 最終 chunk の超過は 15 バイト以下（LL == 0 は 16）。両側の 32 バイト余白内。
-            copy16(from: source.advanced(by: position), to: target.advanced(by: position))
-            position &+= 16
-        } while position < length
+        // 最終 chunk の超過は 15 バイト以下（LL == 0 は 16）。両側の 32 バイト余白内。
+        copy16(from: source, to: target)
+        if length > 16 {
+            var position = 16
+            repeat {
+                copy16(from: source.advanced(by: position), to: target.advanced(by: position))
+                position &+= 16
+            } while position < length
+        }
     }
 
     @inline(__always)
-    private static func copyMatch(output: UnsafeMutableRawPointer, length: Int, offset: Int,
-                                  path: ZstdTuning.MatchPath) {
+    private static func copyMatch<Policy: MatchPolicy>(_: Policy.Type, output: UnsafeMutableRawPointer,
+                                                       length: Int, offset: Int) {
         // D3/D6: 履歴距離・出力長は検査済み。各 chunk の読取り終端 <= その書込み開始位置。
         // 従って storage の余白は読まず、literal は D1/D2 から読む。storage 全体のゼロ初期化は不要。
-        if offset >= 16, path == .automatic {
-            var position = 0
-            if offset >= 32, length > 16 {
+        if Policy.path == .automatic {
+            if offset >= 32 {
+                // 入力 32 byte は現在位置より前。最終 chunk の超過 <= 31 は outputSlack（32 byte）内。
+                copy32(from: output.advanced(by: 0 &- offset), to: output)
+                if length > 32 {
+                    var position = 32
+                    repeat {
+                        copy32(from: output.advanced(by: position &- offset), to: output.advanced(by: position))
+                        position &+= 32
+                    } while position < length
+                }
+                return
+            }
+            if offset >= 16 {
+                var position = 0
                 repeat {
-                    // 入力 32 byte は現在位置より前。最終超過 <= 31 は outputSlack 内。
-                    copy32(from: output.advanced(by: position - offset), to: output.advanced(by: position))
-                    position &+= 32
+                    // offset >= 16: [o-off+16k, +16) は現在位置 o+16k 以下の初期化済み履歴。最終超過 <= 15。
+                    copy16(from: output.advanced(by: position &- offset), to: output.advanced(by: position))
+                    position &+= 16
                 } while position < length
                 return
             }
-            repeat {
-                // offset >= 16: [o-off+16k, +16) は現在位置 o+16k 以下の初期化済み履歴。
-                copy16(from: output.advanced(by: position - offset), to: output.advanced(by: position))
-                position &+= 16
-            } while position < length
-            return
         }
         var position = 0
         var distance = offset
-        if offset < 8 || path == .byteThenPeriod {
+        if offset < 8 || Policy.path == .byteThenPeriod {
             // 短い match は実長で止めるので、バイト経路も出力余白を読み戻さない。
             let prefix = min(8, length)
             while position < prefix {
@@ -457,25 +533,6 @@ final class ZstdFrameDecoder {
                               toByteOffset: position, as: UInt64.self)
             position &+= 8
         }
-    }
-
-    @inline(__always)
-    private static func resolveOffset(_ value: Int, literalLength: Int, repeats: inout (Int, Int, Int)) -> Int {
-        if value > 3 {
-            let offset = value - 3
-            repeats = (offset, repeats.0, repeats.1)
-            return offset
-        }
-        let selected = value + (literalLength == 0 ? 1 : 0)
-        switch selected {
-        case 1: return repeats.0
-        case 2: repeats = (repeats.1, repeats.0, repeats.2)
-        case 3: repeats = (repeats.2, repeats.0, repeats.1)
-        default:
-            // OF の基底 >= 1、従って残るのは case 4 のみ。offset 0 は履歴 guard が拒否する。
-            repeats = (repeats.0 - 1, repeats.0, repeats.1)
-        }
-        return repeats.0
     }
 
     // RFC 8878 表 16・17 の基底値と追加ビット数。

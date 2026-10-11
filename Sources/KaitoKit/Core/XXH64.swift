@@ -49,9 +49,20 @@ struct XXH64 {
                 tail.removeAll(keepingCapacity: true)
             }
         }
-        while bytes.count - offset >= 32 {
-            stripe(bytes, at: offset)
-            offset += 32
+        if bytes.count - offset >= 32 {
+            // 実 byte 内の stripe 数を先に確定する。4 lane はループ中ローカルに保持し、最後だけ書き戻す。
+            var a = self.a, b = self.b, c = self.c, d = self.d
+            var source = bytes.baseAddress!.advanced(by: offset)
+            let end = bytes.count - 32
+            repeat {
+                a = Self.round(a, UInt64(littleEndian: source.loadUnaligned(as: UInt64.self)))
+                b = Self.round(b, UInt64(littleEndian: source.loadUnaligned(fromByteOffset: 8, as: UInt64.self)))
+                c = Self.round(c, UInt64(littleEndian: source.loadUnaligned(fromByteOffset: 16, as: UInt64.self)))
+                d = Self.round(d, UInt64(littleEndian: source.loadUnaligned(fromByteOffset: 24, as: UInt64.self)))
+                source = source.advanced(by: 32)
+                offset &+= 32
+            } while offset <= end
+            self.a = a; self.b = b; self.c = c; self.d = d
         }
         tail.append(contentsOf: bytes[offset...])
     }

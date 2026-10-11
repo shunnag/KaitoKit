@@ -177,13 +177,13 @@ final class RAR5EntryPrefetcher: @unchecked Sendable {
     }
 
     /// Submits batches for the eligible members after `index` while worker
-    /// slots and the memory budget allow.
+    /// slots, the retained batch window and the memory budget allow.
     func schedule(after index: Int) {
         condition.lock()
         defer { condition.unlock() }
         guard !abandoned else { return }
         if cursor <= index { cursor = index + 1 }
-        while runningBatches < workers, cursor < memberCount {
+        while runningBatches < workers, batches.count < 2 * workers, cursor < memberCount {
             var members: [Candidate] = []
             var outputBytes = 0
             var scratchBytes = 0
@@ -288,6 +288,12 @@ final class RAR5EntryPrefetcher: @unchecked Sendable {
     }
 
     // Test hooks.
+    func waitForScheduledBatchesForTesting() {
+        condition.lock()
+        while runningBatches > 0 { condition.wait() }
+        condition.unlock()
+    }
+
     var liveBatchCount: Int { condition.withLock { batches.count } }
     var runningBatchCount: Int { condition.withLock { runningBatches } }
     var heldByteCount: Int { condition.withLock { heldBytes } }

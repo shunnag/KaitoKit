@@ -273,6 +273,104 @@ final class RAR5PrefetchTests: XCTestCase {
 
     // MARK: - Prefetcher scheduling with synthetic batches
 
+    func testSlowConsumerKeepsCompletedBatchesWithinPrefetchWindow() throws {
+        try XCTSkipIf(LeafDecodePool.shared.capacity < 2, "needs two workers")
+        for requestedWorkers in [2, 3, 8] {
+            let workers = min(requestedWorkers, LeafDecodePool.shared.capacity)
+            let window = 2 * workers
+            let batchMembers = RAR5EntryPrefetcher.batchMemberLimit
+            let outputSize = 64
+            let scratchBytes = 128
+            let batchBytes = batchMembers * (outputSize + 1) + scratchBytes
+            let memberCount = 8 * window * batchMembers
+            // A roomy budget must not let completed, untaken batches grow
+            // beyond the window; a tight budget still serves every member.
+            for budget in [window * batchBytes, 8 * window * batchBytes] {
+                let prefetcher = try XCTUnwrap(RAR5EntryPrefetcher(
+                    workers: requestedWorkers, memoryBudget: budget, memberCount: memberCount,
+                    candidate: { RAR5EntryPrefetcher.Candidate(
+                        index: $0, outputSize: outputSize, scratchBytes: scratchBytes
+                    ) },
+                    decodeBatch: { members, _ in members.map {
+                        Data(repeating: UInt8(truncatingIfNeeded: $0.index), count: $0.outputSize)
+                    } }
+                ))
+                defer { prefetcher.abandon() }
+                var reachedWindow = false
+                for index in 0..<memberCount {
+                    prefetcher.schedule(after: index - 1)
+                    XCTAssertLessThanOrEqual(prefetcher.liveBatchCount, window, "scheduled member \(index)")
+                    XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
+                    // Finish all scheduled work before taking just one member:
+                    // the slow-reader state is structural, independent of time.
+                    prefetcher.waitForScheduledBatchesForTesting()
+                    XCTAssertEqual(prefetcher.runningBatchCount, 0)
+                    let heldBatches = prefetcher.liveBatchCount
+                    XCTAssertLessThanOrEqual(heldBatches, window, "completed member \(index)")
+                    XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
+                    guard heldBatches <= window else { return }
+                    reachedWindow = reachedWindow || heldBatches == window
+                    XCTAssertEqual(try prefetcher.take(index),
+                                   Data(repeating: UInt8(truncatingIfNeeded: index), count: outputSize),
+                                   "member \(index), workers \(workers), budget \(budget)")
+                    XCTAssertLessThanOrEqual(prefetcher.liveBatchCount, window, "taken member \(index)")
+                    XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
+                }
+                XCTAssertTrue(reachedWindow, "exercise a full window and its resumption")
+                XCTAssertEqual(prefetcher.servedMemberCount, memberCount)
+                XCTAssertEqual(prefetcher.liveBatchCount, 0)
+            }
+        }
+    }
+
+    func testDroppingPassedBatchesReopensPrefetchWindow() throws {
+        try XCTSkipIf(LeafDecodePool.shared.capacity < 2, "needs two workers")
+        let workers = 2
+        let window = 2 * workers
+        let batchMembers = RAR5EntryPrefetcher.batchMemberLimit
+        let budget = 1 << 20
+        let prefetcher = try XCTUnwrap(RAR5EntryPrefetcher(
+            workers: workers, memoryBudget: budget, memberCount: 12 * batchMembers,
+            candidate: { RAR5EntryPrefetcher.Candidate(index: $0, outputSize: 64, scratchBytes: 128) },
+            decodeBatch: { members, _ in members.map {
+                Data(repeating: UInt8(truncatingIfNeeded: $0.index), count: $0.outputSize)
+            } }
+        ))
+        defer { prefetcher.abandon() }
+        for _ in 0..<2 {
+            prefetcher.schedule(after: -1)
+            prefetcher.waitForScheduledBatchesForTesting()
+            XCTAssertLessThanOrEqual(prefetcher.liveBatchCount, window)
+            XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
+        }
+        XCTAssertEqual(prefetcher.liveBatchCount, window)
+        prefetcher.schedule(after: -1)
+        XCTAssertEqual(prefetcher.liveBatchCount, window, "a full window schedules no more work")
+
+        let index = (window - 1) * batchMembers
+        XCTAssertEqual(try prefetcher.take(index), Data(repeating: UInt8(truncatingIfNeeded: index), count: 64))
+        XCTAssertEqual(prefetcher.liveBatchCount, 1, "passed batches are discarded")
+        XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
+        for _ in 0..<2 {
+            prefetcher.schedule(after: index)
+            prefetcher.waitForScheduledBatchesForTesting()
+            XCTAssertLessThanOrEqual(prefetcher.liveBatchCount, window)
+            XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
+        }
+        XCTAssertEqual(prefetcher.liveBatchCount, window, "discarding reopens the window")
+        XCTAssertNil(try prefetcher.take(0), "discarded members stay absent")
+        for next in (index + 1)..<(12 * batchMembers) {
+            prefetcher.schedule(after: next - 1)
+            prefetcher.waitForScheduledBatchesForTesting()
+            XCTAssertLessThanOrEqual(prefetcher.liveBatchCount, window)
+            XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
+            XCTAssertEqual(try prefetcher.take(next), Data(repeating: UInt8(truncatingIfNeeded: next), count: 64))
+            XCTAssertLessThanOrEqual(prefetcher.liveBatchCount, window)
+            XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
+        }
+        XCTAssertEqual(prefetcher.liveBatchCount, 0)
+    }
+
     func testAbandonDoesNotDecrementRunningCountAfterAnInFlightBatchFinishes() throws {
         try XCTSkipIf(LeafDecodePool.shared.capacity < 2, "needs two workers")
         let entered = expectation(description: "batch entered decoder")

@@ -6,6 +6,19 @@
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-10-12
+
+### 修正
+
+- 非 solid RAR5 の先行復号で、実行中と復号済み未取得の batch の合計を復号 worker 数の2倍までに制限する。
+  0.14.0 は実行中の数だけを制限していたため、GUI のように1件ずつゆっくり読むと、
+  `ReadLimits.parallelDecodeMemory` の範囲で書庫全体の復号済み出力を保持していた。
+  取得または読み飛ばしで batch を解放すると先行復号を再開する。公開 API・展開 byte 列・エラーの挙動は維持する。
+- tar 編集の差分 fuzz テストの時間上限を Intel（x86_64）では120秒から360秒にする。
+  Apple Silicon（arm64）の120秒と、変異・比較の検査は維持する。
+
+[保持上限と回帰テストの検証記録](Documentation/verification/2026-10-12-rar5-prefetch-window.md)。
+
 ## [0.14.0] - 2026-10-11
 
 7z / RAR5 / XZ / zstd / LZMA の復号を速くし、小さな entry の多い書庫を先行して並列復号する release。

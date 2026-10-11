@@ -85,6 +85,15 @@ final class RAR5Decoder: Decompressor {
         fileprivate let distanceTable = RAR5HuffmanTable()
         fileprivate let lowDistanceTable = RAR5HuffmanTable()
         fileprivate let repeatLengthTable = RAR5HuffmanTable()
+        // Table-description work areas. Only one decoder uses a state at a
+        // time, and every table is rebuilt before a member decodes symbols.
+        fileprivate let bitLengthTable = RAR5HuffmanTable()
+        fileprivate let codeLengths: UnsafeMutablePointer<UInt8>
+        fileprivate let bitCodeLengths: UnsafeMutablePointer<UInt8>
+        // Compressed-input area lent to pooled independent decoders; a solid
+        // member keeps its own input because the coordinator may overlap two.
+        fileprivate var inputBuffer: UnsafeMutablePointer<UInt8>?
+        fileprivate var inputCapacity = 0
 
         var tablesWereRead = false
         var windowPosition = 0
@@ -108,6 +117,8 @@ final class RAR5Decoder: Decompressor {
             window = raw.bindMemory(to: UInt8.self, capacity: size)
             windowSize = size
             windowMask = size - 1
+            codeLengths = .allocate(capacity: RAR5Decoder.combinedTableCount)
+            bitCodeLengths = .allocate(capacity: RAR5Decoder.bitLengthSymbolCount)
             // validateMatch requires distance <= historySize. All readable
             // history is written by literals/matches before it is referenced,
             // including in a continuing solid group; no zero fill is observable.
@@ -115,12 +126,86 @@ final class RAR5Decoder: Decompressor {
 
         deinit {
             free(UnsafeMutableRawPointer(window))
+            if let inputBuffer { free(UnsafeMutableRawPointer(inputBuffer)) }
+            codeLengths.deallocate()
+            bitCodeLengths.deallocate()
         }
+
+        /// Returns the state to its fresh-member condition for reuse by an
+        /// independent entry. Window contents need no clearing: `historySize`
+        /// is zero, so no byte can be referenced before it is written.
+        fileprivate func resetForIndependentEntry() {
+            tablesWereRead = false
+            windowPosition = 0
+            historySize = 0
+            oldDistance0 = 0
+            oldDistance1 = 0
+            oldDistance2 = 0
+            oldDistance3 = 0
+            lastLength = 0
+        }
+
+        /// Lends an input area of at least `capacity` bytes, growing it in place.
+        fileprivate func lendInputBuffer(capacity: Int) -> UnsafeMutablePointer<UInt8>? {
+            if let inputBuffer, inputCapacity >= capacity { return inputBuffer }
+            let newCapacity = max(capacity, min(inputCapacity &* 2, ScratchPool.maximumRecycledBytes))
+            guard let raw = malloc(newCapacity) else { return nil }
+            if let inputBuffer { free(UnsafeMutableRawPointer(inputBuffer)) }
+            inputBuffer = raw.bindMemory(to: UInt8.self, capacity: newCapacity)
+            inputCapacity = newCapacity
+            return inputBuffer
+        }
+    }
+
+    /// Recycles decoder states (window, tables, input area) across the
+    /// independent members of one archive, so a 50,000-file archive does not
+    /// allocate and clear seventeen buffers per member. States larger than
+    /// `maximumRecycledBytes` in either area are freed instead of kept.
+    final class ScratchPool: @unchecked Sendable {
+        static let maximumRecycledBytes = 4 * 1_024 * 1_024
+        private let lock = NSLock()
+        private let capacity: Int
+        private var free: [SolidState] = []
+
+        init(capacity: Int) {
+            self.capacity = max(1, capacity)
+        }
+
+        /// A reset state whose window is at least `windowSize` bytes, or nil.
+        func take(windowSize: Int) -> SolidState? {
+            let state: SolidState? = lock.withLock {
+                var best: Int?
+                for index in free.indices where free[index].windowSize >= windowSize {
+                    if let current = best, free[current].windowSize <= free[index].windowSize { continue }
+                    best = index
+                }
+                guard let best else { return nil }
+                return free.remove(at: best)
+            }
+            state?.resetForIndependentEntry()
+            return state
+        }
+
+        func recycle(_ state: SolidState) {
+            guard state.windowSize <= Self.maximumRecycledBytes,
+                  state.inputCapacity <= Self.maximumRecycledBytes else { return }
+            lock.withLock {
+                if free.count < capacity { free.append(state) }
+            }
+        }
+
+        var freeCount: Int { lock.withLock { free.count } }
     }
 
     private let input: UnsafeMutablePointer<UInt8>
     private let inputCount: Int
+    private let ownsInput: Bool
     private let solidState: SolidState
+    private let scratchPool: ScratchPool?
+    // Largest match distance this member may reference: the window it would
+    // own by itself (solid group window, or the independent member's retained
+    // window). A recycled ring can be larger; history must not reach past this.
+    private let matchDistanceLimit: Int
     // Preserve diagnostics for the logical dictionary when storage is smaller.
     private let describedWindowSize: Int
     private let expectedSize: UInt64?
@@ -131,9 +216,9 @@ final class RAR5Decoder: Decompressor {
     private var filterInput: UnsafeMutablePointer<UInt8>?
     private var filterOutput: UnsafeMutablePointer<UInt8>?
 
-    private let bitLengthTable = RAR5HuffmanTable()
-    private let codeLengths: UnsafeMutablePointer<UInt8>
-    private let bitCodeLengths: UnsafeMutablePointer<UInt8>
+    private var bitLengthTable: RAR5HuffmanTable { solidState.bitLengthTable }
+    private var codeLengths: UnsafeMutablePointer<UInt8> { solidState.codeLengths }
+    private var bitCodeLengths: UnsafeMutablePointer<UInt8> { solidState.bitCodeLengths }
 
     private var nextBlockOffset = 0
     private var bits: RAR5RawBitReader?
@@ -199,7 +284,9 @@ final class RAR5Decoder: Decompressor {
         expectedSize: UInt64?,
         dictionarySize: UInt64,
         limits: ReadLimits,
-        solidState suppliedSolidState: SolidState? = nil
+        solidState suppliedSolidState: SolidState? = nil,
+        scratchPool: ScratchPool? = nil,
+        independentState: SolidState? = nil
     ) throws {
         if let expectedSize {
             try Checked.size(expectedSize, limit: limits.maxEntrySize)
@@ -217,10 +304,12 @@ final class RAR5Decoder: Decompressor {
         let allocationCount = try Checked.toInt(
             try Checked.add(compressedSize, UInt64(Self.sentinelByteCount))
         )
-        guard let inputRaw = malloc(allocationCount) else {
-            throw KaitoError.limitExceeded("unable to allocate RAR5 compressed input")
-        }
         let state: SolidState
+        var pooled = false
+        // The ring the member would own on its own: the solid group's window,
+        // or an independent member's retained window. A pooled or batch state
+        // may be larger than this, so it bounds match distances explicitly.
+        let matchDistanceLimit: Int
         do {
             if let suppliedSolidState {
                 // A solid member records its minimum required dictionary, not
@@ -233,35 +322,54 @@ final class RAR5Decoder: Decompressor {
                     )
                 }
                 state = suppliedSolidState
+                matchDistanceLimit = suppliedSolidState.windowSize
             } else {
                 // Only independent entries with a known total output size
                 // can retain less than the declared dictionary. The ring still
                 // needs a power-of-two mask; solid coordinators supply the full
                 // group window and never take this path. Declared-size limits
                 // and grammar validation have already run above.
-                var retainedSize = requiredDictionarySize
-                if let expectedSize, expectedSize < dictionarySize {
-                    retainedSize = Self.minimumDictionarySize
-                    while UInt64(retainedSize) < expectedSize {
-                        retainedSize *= 2
-                    }
+                let retainedSize = Self.retainedWindowSize(
+                    expectedSize: expectedSize, dictionarySize: requiredDictionarySize
+                )
+                matchDistanceLimit = retainedSize
+                if let independentState, independentState.windowSize >= retainedSize {
+                    // A caller-owned state reused across a run of independent
+                    // members (prefetch batches); it is reset, never recycled.
+                    independentState.resetForIndependentEntry()
+                    state = independentState
+                    pooled = true
+                } else if let recycled = scratchPool?.take(windowSize: retainedSize) {
+                    state = recycled
+                    pooled = true
+                } else {
+                    state = try SolidState(dictionarySize: UInt64(retainedSize))
+                    pooled = scratchPool != nil
                 }
-                state = try SolidState(dictionarySize: UInt64(retainedSize))
             }
-        } catch {
-            free(inputRaw)
-            throw error
+        }
+        let inputRaw: UnsafeMutableRawPointer
+        if pooled, let lent = state.lendInputBuffer(capacity: allocationCount) {
+            inputRaw = UnsafeMutableRawPointer(lent)
+            ownsInput = false
+        } else {
+            guard let owned = malloc(allocationCount) else {
+                scratchPool?.recycle(state)
+                throw KaitoError.limitExceeded("unable to allocate RAR5 compressed input")
+            }
+            inputRaw = owned
+            ownsInput = true
         }
         self.input = inputRaw.bindMemory(to: UInt8.self, capacity: allocationCount)
         self.inputCount = inputCount
         self.solidState = state
+        self.scratchPool = pooled && state !== independentState ? scratchPool : nil
+        self.matchDistanceLimit = matchDistanceLimit
         self.describedWindowSize = suppliedSolidState?.windowSize ?? requiredDictionarySize
         self.expectedSize = expectedSize
         self.maximumFilterCount = limits.maxMetadataRecordCount
         self.filterInput = nil
         self.filterOutput = nil
-        self.codeLengths = .allocate(capacity: Self.combinedTableCount)
-        self.bitCodeLengths = .allocate(capacity: Self.bitLengthSymbolCount)
 
         // Input and table lengths are fully written before use. Only the
         // speculative bit-reader padding must be zero even on truncated input.
@@ -297,12 +405,23 @@ final class RAR5Decoder: Decompressor {
         }
     }
 
+    /// Ring retained for an independent member: the declared dictionary, or
+    /// for a member whose known size is smaller, the smallest power of two from
+    /// 128 KiB that holds the whole output.
+    static func retainedWindowSize(expectedSize: UInt64?, dictionarySize: Int) -> Int {
+        guard let expectedSize, expectedSize < UInt64(dictionarySize) else { return dictionarySize }
+        var retainedSize = Self.minimumDictionarySize
+        while UInt64(retainedSize) < expectedSize {
+            retainedSize *= 2
+        }
+        return retainedSize
+    }
+
     deinit {
-        free(UnsafeMutableRawPointer(input))
+        if ownsInput { free(UnsafeMutableRawPointer(input)) }
         if let filterInput { free(UnsafeMutableRawPointer(filterInput)) }
         if let filterOutput { free(UnsafeMutableRawPointer(filterOutput)) }
-        codeLengths.deallocate()
-        bitCodeLengths.deallocate()
+        scratchPool?.recycle(solidState)
     }
 
     func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
@@ -483,9 +602,15 @@ final class RAR5Decoder: Decompressor {
 
     /// Decodes raw LZ bytes into a caller-owned bounded range. When requested,
     /// decoding stops exactly at the first scheduled filter boundary.
+    ///
+    /// Symbols are written to the ring only and the produced range is copied
+    /// to `output` once, so a match touches one destination. One call
+    /// therefore produces at most one window of bytes; `read` keeps calling
+    /// until the caller buffer is full, and every token-boundary check (output
+    /// size, filter boundary, block transition) happens at the same symbol.
     private func decodeRaw(
         into output: UnsafeMutablePointer<UInt8>,
-        capacity: Int,
+        capacity requestedCapacity: Int,
         stopAtFilter: Bool,
         window: UnsafeMutablePointer<UInt8>,
         windowMask: Int,
@@ -493,10 +618,15 @@ final class RAR5Decoder: Decompressor {
         historySize: inout Int,
         produced: inout UInt64
     ) -> Int {
-        guard capacity > 0, !rawFinished, failure == nil else { return 0 }
+        guard requestedCapacity > 0, !rawFinished, failure == nil else { return 0 }
+        let windowSize = windowMask &+ 1
+        let capacity = min(requestedCapacity, windowSize)
         var written = 0
-        var failure = self.failure
-        var bits = self.bits
+        var failure: DecodeFailure?
+        // The block reader is held in a local for the whole loop. `bits` is nil
+        // only before the first block, which `init` always reads.
+        var hasBlock = self.bits != nil
+        var bitReader = self.bits ?? RAR5RawBitReader(pointer: UnsafePointer(input), bitLimit: 0)
         var pendingLength = self.pendingLength
         var pendingDistance = self.pendingDistance
         var rawFinished = self.rawFinished
@@ -505,54 +635,52 @@ final class RAR5Decoder: Decompressor {
         var oldDistance2 = solidState.oldDistance2
         var oldDistance3 = solidState.oldDistance3
         var lastLength = solidState.lastLength
-        defer {
-            self.failure = failure
-            self.bits = bits
-            self.pendingLength = pendingLength
-            self.pendingDistance = pendingDistance
-            self.rawFinished = rawFinished
-            solidState.oldDistance0 = oldDistance0
-            solidState.oldDistance1 = oldDistance1
-            solidState.oldDistance2 = oldDistance2
-            solidState.oldDistance3 = oldDistance3
-            solidState.lastLength = lastLength
+        var position = windowPosition
+        var history = historySize
+        // Bytes the declared size still allows; with no declared size this is
+        // the distance to the counter limit, exactly as before.
+        var remainingOutput: UInt64 = expectedSize.map { $0 &- min(produced, $0) }
+            ?? (UInt64.max &- produced)
+        let mainTable = solidState.mainTable
+        let distanceTable = solidState.distanceTable
+        let lowDistanceTable = solidState.lowDistanceTable
+        let repeatLengthTable = solidState.repeatLengthTable
+        let distanceLimit = matchDistanceLimit
+        var filterStart: UInt64?
+        if stopAtFilter, nextFilterIndex < scheduledFilters.count {
+            filterStart = scheduledFilters[nextFilterIndex].start
         }
 
-        while written < capacity, !rawFinished, failure == nil {
-            var available = capacity - written
-            if stopAtFilter, nextFilterIndex < scheduledFilters.count {
-                let start = scheduledFilters[nextFilterIndex].start
-                guard start >= produced else {
+        symbols: while written < capacity, !rawFinished {
+            var available = capacity &- written
+            if let filterStart {
+                guard filterStart >= produced else {
                     failure = .filterBoundaryPassed
                     break
                 }
-                if start == produced { break }
-                available = min(available, Int(min(start - produced, UInt64(Int.max))))
+                if filterStart == produced { break }
+                available = min(available, Int(min(filterStart &- produced, UInt64(Int.max))))
             }
 
             if pendingLength > 0 {
                 let amount = min(pendingLength, available)
-                copyMatch(
-                    window: window,
-                    windowMask: windowMask,
-                    windowPosition: &windowPosition,
-                    distance: pendingDistance,
-                    count: amount,
-                    output: output.advanced(by: written)
+                Self.copyMatch(
+                    window: window, windowMask: windowMask, position: &position,
+                    historySize: history, distance: pendingDistance, count: amount
                 )
-                historySize += min((windowMask + 1) - historySize, amount)
-                produced += UInt64(amount)
-                pendingLength -= amount
-                written += amount
+                history = min(windowSize, history &+ amount)
+                produced &+= UInt64(amount)
+                remainingOutput &-= UInt64(amount)
+                pendingLength &-= amount
+                written &+= amount
                 continue
             }
 
-            guard var bitReader = bits else {
+            guard hasBlock else {
                 failure = .missingBlock
                 break
             }
             if bitReader.isAtEnd {
-                bits = bitReader
                 if currentBlockIsLast {
                     if let expectedSize, produced != expectedSize {
                         failure = .truncated
@@ -563,137 +691,177 @@ final class RAR5Decoder: Decompressor {
                 }
                 do {
                     try readNextBlock()
-                    bits = self.bits
+                    if let next = self.bits {
+                        bitReader = next
+                        hasBlock = true
+                    }
                 } catch let error as KaitoError {
                     boundaryError = error
                     failure = .boundary
+                    break
                 } catch {
                     failure = .blockTransitionFailed
+                    break
                 }
                 continue
             }
 
-            guard let symbol = solidState.mainTable.decode(from: &bitReader) else {
-                bits = bitReader
+            guard let symbol = mainTable.decode(from: &bitReader) else {
                 failure = .mainCodeOverrun
                 break
             }
-            bits = bitReader
 
             if symbol < 256 {
-                guard outputIsAvailable(1, produced: produced) else {
+                guard remainingOutput >= 1 else {
                     failure = .outputSizeExceeded
                     break
                 }
-                let byte = UInt8(symbol)
-                output[written] = byte
-                window[windowPosition] = byte
-                windowPosition = (windowPosition + 1) & windowMask
-                historySize += min((windowMask + 1) - historySize, 1)
-                produced += 1
-                written += 1
+                window[position] = UInt8(truncatingIfNeeded: symbol)
+                position = (position &+ 1) & windowMask
+                history = min(windowSize, history &+ 1)
+                produced &+= 1
+                remainingOutput &-= 1
+                written &+= 1
                 continue
             }
 
+            let distance: Int
+            let length: Int
             switch symbol {
             case 256:
-                guard var localBits = bits,
-                      let filter = readFilter(from: &localBits, produced: produced, failure: &failure) else {
+                guard let filter = readFilter(from: &bitReader, produced: produced, failure: &failure) else {
                     if failure == nil {
                         failure = .filterDataOverrun
                     }
-                    break
+                    break symbols
                 }
-                bits = localBits
                 scheduledFilters.append(filter)
+                if stopAtFilter, nextFilterIndex < scheduledFilters.count {
+                    filterStart = scheduledFilters[nextFilterIndex].start
+                }
+                continue
 
             case 257:
                 guard lastLength > 0,
-                      validateMatch(
-                        distance: oldDistance0,
-                        length: lastLength,
-                        historySize: historySize,
-                        produced: produced
+                      Self.isValidMatch(
+                        distance: oldDistance0, length: lastLength, distanceLimit: distanceLimit,
+                        historySize: history, remainingOutput: remainingOutput
                       ) else {
                     failure = .invalidLastMatch
-                    break
+                    break symbols
                 }
-                pendingDistance = oldDistance0
-                pendingLength = lastLength
+                distance = oldDistance0
+                length = lastLength
 
             case 258...261:
-                let distance: Int
-                switch symbol - 258 {
+                let repeated: Int
+                switch symbol &- 258 {
                 case 0:
-                    distance = oldDistance0
+                    repeated = oldDistance0
                 case 1:
-                    distance = oldDistance1
+                    repeated = oldDistance1
                     oldDistance1 = oldDistance0
                 case 2:
-                    distance = oldDistance2
+                    repeated = oldDistance2
                     oldDistance2 = oldDistance1
                     oldDistance1 = oldDistance0
                 default:
-                    distance = oldDistance3
+                    repeated = oldDistance3
                     oldDistance3 = oldDistance2
                     oldDistance2 = oldDistance1
                     oldDistance1 = oldDistance0
                 }
-                oldDistance0 = distance
-                guard var localBits = bits,
-                      let length = decodeLength(
-                        using: solidState.repeatLengthTable,
-                        bits: &localBits
-                      ) else {
+                oldDistance0 = repeated
+                guard let slot = repeatLengthTable.decode(from: &bitReader),
+                      let repeatedLength = Self.decodeLengthSlot(slot, bits: &bitReader) else {
                     failure = .repeatLengthOverrun
-                    break
+                    break symbols
                 }
-                bits = localBits
-                guard validateMatch(
-                    distance: distance, length: length,
-                    historySize: historySize, produced: produced
+                guard Self.isValidMatch(
+                    distance: repeated, length: repeatedLength, distanceLimit: distanceLimit,
+                    historySize: history, remainingOutput: remainingOutput
                 ) else {
                     failure = .invalidRepeatMatch
-                    break
+                    break symbols
                 }
-                lastLength = length
-                pendingDistance = distance
-                pendingLength = length
+                lastLength = repeatedLength
+                distance = repeated
+                length = repeatedLength
 
             case 262..<Self.mainSymbolCount:
-                guard var localBits = bits,
-                      var length = decodeLengthSlot(symbol - 262, bits: &localBits),
-                      let distanceSlot = solidState.distanceTable.decode(from: &localBits),
-                      let distance = decodeDistance(slot: distanceSlot, bits: &localBits) else {
+                guard var matchLength = Self.decodeLengthSlot(symbol &- 262, bits: &bitReader),
+                      let distanceSlot = distanceTable.decode(from: &bitReader),
+                      let matchDistance = Self.decodeDistance(
+                        slot: distanceSlot, bits: &bitReader, lowDistanceTable: lowDistanceTable
+                      ) else {
                     failure = .matchOverrun
-                    break
+                    break symbols
                 }
-                if distance > 0x100 { length += 1 }
-                if distance > 0x2_000 { length += 1 }
-                if distance > 0x4_0000 { length += 1 }
-                guard validateMatch(
-                    distance: distance, length: length,
-                    historySize: historySize, produced: produced
+                if matchDistance > 0x100 { matchLength &+= 1 }
+                if matchDistance > 0x2_000 { matchLength &+= 1 }
+                if matchDistance > 0x4_0000 { matchLength &+= 1 }
+                guard Self.isValidMatch(
+                    distance: matchDistance, length: matchLength, distanceLimit: distanceLimit,
+                    historySize: history, remainingOutput: remainingOutput
                 ) else {
-                    failedMatch = (produced, distance, length)
+                    failedMatch = (produced, matchDistance, matchLength)
                     failure = .invalidMatch
-                    break
+                    break symbols
                 }
-                bits = localBits
                 oldDistance3 = oldDistance2
                 oldDistance2 = oldDistance1
                 oldDistance1 = oldDistance0
-                oldDistance0 = distance
-                lastLength = length
-                pendingDistance = distance
-                pendingLength = length
+                oldDistance0 = matchDistance
+                lastLength = matchLength
+                distance = matchDistance
+                length = matchLength
 
             default:
                 failure = .invalidMainSymbol
+                break symbols
             }
-            if failure != nil { break }
+
+            // The match was validated against history and the declared size.
+            // Only the part that fits this call is copied; the rest resumes on
+            // the next iteration or call exactly like a token-boundary clip.
+            let amount = min(length, available)
+            Self.copyMatch(
+                window: window, windowMask: windowMask, position: &position,
+                historySize: history, distance: distance, count: amount
+            )
+            history = min(windowSize, history &+ amount)
+            produced &+= UInt64(amount)
+            remainingOutput &-= UInt64(amount)
+            written &+= amount
+            if amount < length {
+                pendingLength = length &- amount
+                pendingDistance = distance
+            }
         }
 
+        self.failure = failure
+        self.bits = hasBlock ? bitReader : nil
+        self.pendingLength = pendingLength
+        self.pendingDistance = pendingDistance
+        self.rawFinished = rawFinished
+        solidState.oldDistance0 = oldDistance0
+        solidState.oldDistance1 = oldDistance1
+        solidState.oldDistance2 = oldDistance2
+        solidState.oldDistance3 = oldDistance3
+        solidState.lastLength = lastLength
+        windowPosition = position
+        historySize = history
+
+        // `written` <= windowSize, so the produced range is still intact in
+        // the ring: copy it out once, in at most two pieces.
+        if written > 0 {
+            let start = (position &- written) & windowMask
+            let first = min(written, windowSize &- start)
+            output.update(from: window.advanced(by: start), count: first)
+            if first < written {
+                output.advanced(by: first).update(from: window, count: written &- first)
+            }
+        }
         return written
     }
 
@@ -978,96 +1146,92 @@ final class RAR5Decoder: Decompressor {
         )
     }
 
-    private func decodeLength(
-        using table: RAR5HuffmanTable,
-        bits: inout RAR5RawBitReader
-    ) -> Int? {
-        guard let slot = table.decode(from: &bits) else { return nil }
-        return decodeLengthSlot(slot, bits: &bits)
-    }
-
+    /// Length slot decoding by arithmetic instead of the two static tables:
+    /// slots 0-7 are literal lengths, later slots carry (slot / 4 - 1) extra
+    /// bits above a base of (4 + slot % 4) << extra.
     @inline(__always)
-    private func decodeLengthSlot(
+    private static func decodeLengthSlot(
         _ slot: Int,
         bits: inout RAR5RawBitReader
     ) -> Int? {
-        guard Self.lengthBase.indices.contains(slot) else { return nil }
-        let bitCount = Self.lengthBits[slot]
+        guard slot >= 0, slot < Self.repeatLengthSymbolCount else { return nil }
+        if slot < 8 {
+            return slot &+ 2
+        }
+        let bitCount = (slot >> 2) &- 1
         guard let extra = bits.read(bitCount) else { return nil }
-        return Self.lengthBase[slot] + extra + 2
+        return ((4 &+ (slot & 3)) << bitCount) &+ extra &+ 2
     }
 
     @inline(__always)
-    private func decodeDistance(
+    private static func decodeDistance(
         slot: Int,
-        bits: inout RAR5RawBitReader
+        bits: inout RAR5RawBitReader,
+        lowDistanceTable: RAR5HuffmanTable
     ) -> Int? {
-        guard (0..<Self.distanceSymbolCount).contains(slot) else { return nil }
-        if slot < 4 { return slot + 1 }
+        guard slot >= 0, slot < Self.distanceSymbolCount else { return nil }
+        if slot < 4 { return slot &+ 1 }
 
-        let extraBitCount = slot / 2 - 1
+        let extraBitCount = (slot >> 1) &- 1
         var distance = (2 | (slot & 1)) << extraBitCount
         if extraBitCount >= 4 {
             if extraBitCount > 4 {
-                guard let high = bits.read(extraBitCount - 4) else { return nil }
-                distance += high << 4
+                guard let high = bits.read(extraBitCount &- 4) else { return nil }
+                distance &+= high << 4
             }
-            guard let low = solidState.lowDistanceTable.decode(from: &bits) else { return nil }
-            distance += low
+            guard let low = lowDistanceTable.decode(from: &bits) else { return nil }
+            distance &+= low
         } else {
             guard let extra = bits.read(extraBitCount) else { return nil }
-            distance += extra
+            distance &+= extra
         }
         let (result, overflow) = distance.addingReportingOverflow(1)
         return overflow ? nil : result
     }
 
-    private func outputIsAvailable(_ count: Int, produced: UInt64) -> Bool {
-        guard count >= 0 else { return false }
-        guard let expectedSize else { return UInt64(count) <= UInt64.max - produced }
-        return UInt64(count) <= expectedSize - min(produced, expectedSize)
-    }
-
-    private func validateMatch(
-        distance: Int, length: Int, historySize: Int, produced: UInt64
-    ) -> Bool {
-        guard distance > 0,
-              distance <= solidState.windowSize,
-              distance <= historySize,
-              length > 0,
-              outputIsAvailable(length, produced: produced) else {
-            return false
-        }
-        return true
-    }
-
+    /// Copies a validated match into the ring. While the ring has never
+    /// wrapped (`position == historySize`), every byte at or beyond the write
+    /// cursor is unwritten and unreachable, so a run that leaves one spare
+    /// word before the ring end may overrun by up to seven bytes and skip the
+    /// exact tail handling. Everything else takes the exact ring copy.
     @inline(__always)
-    private func copyMatch(
+    private static func copyMatch(
         window: UnsafeMutablePointer<UInt8>,
         windowMask: Int,
-        windowPosition: inout Int,
+        position: inout Int,
+        historySize: Int,
         distance: Int,
-        count: Int,
-        output: UnsafeMutablePointer<UInt8>
+        count: Int
     ) {
-        // Distance/history and total output length were checked at the token
-        // boundary. The caller clips pending matches at read/filter boundaries.
-        // Stage history before mirroring it: even distance == windowSize and
-        // wrapped physical overlap must observe the original first period.
-        var remaining = count
-        var outputPosition = 0
-        while remaining > 0 {
-            copyLZMatchThroughWindow(
-                window: window,
-                windowMask: windowMask,
-                windowPosition: &windowPosition,
-                distance: distance,
-                remaining: &remaining,
-                output: output,
-                outputPosition: &outputPosition,
-                outputLimit: count
+        if position == historySize, distance >= 8, position &+ count &+ 8 <= windowMask &+ 1 {
+            let to = UnsafeMutableRawPointer(window.advanced(by: position))
+            let from = UnsafeRawPointer(window.advanced(by: position &- distance))
+            var index = 0
+            while index < count {
+                to.storeBytes(of: from.loadUnaligned(fromByteOffset: index, as: UInt64.self),
+                              toByteOffset: index, as: UInt64.self)
+                index &+= 8
+            }
+            position &+= count
+        } else {
+            copyMatchWithinWindow(
+                window: window, windowMask: windowMask, position: &position,
+                distance: distance, count: count
             )
         }
+    }
+
+    /// Token-boundary validation of a match. `distanceLimit` is the window the
+    /// member would own by itself (the ring may be a larger recycled one, in
+    /// which `historySize` can grow past that window), `historySize` is the
+    /// readable history in the ring, and `remainingOutput` is the declared
+    /// size minus the output so far.
+    @inline(__always)
+    private static func isValidMatch(
+        distance: Int, length: Int, distanceLimit: Int, historySize: Int, remainingOutput: UInt64
+    ) -> Bool {
+        distance > 0 && distance <= distanceLimit && distance <= historySize && length > 0
+            && UInt64(length) <= remainingOutput
     }
 
     // MARK: - Failure reporting
@@ -1194,7 +1358,6 @@ final class RAR5HuffmanTable {
         count: Int,
         requireSymbol: Bool
     ) throws {
-        primary.update(repeating: 0, count: Self.primaryCount)
         metadata.update(repeating: 0, count: Self.lengthCount * 4)
         maximumLength = 0
         var symbolCount = 0
@@ -1213,7 +1376,10 @@ final class RAR5HuffmanTable {
         if requireSymbol, symbolCount == 0 {
             throw KaitoError.malformed("RAR5 Huffman table is empty")
         }
-        guard symbolCount > 0 else { return }
+        guard symbolCount > 0 else {
+            primary.update(repeating: 0, count: Self.primaryCount)
+            return
+        }
 
         var code = 0
         var offset = 0
@@ -1236,6 +1402,9 @@ final class RAR5HuffmanTable {
             symbols = .allocate(capacity: symbolCapacity)
         }
 
+        // Canonical codes occupy a contiguous prefix of the quick table, so
+        // only the slots past the last short code must be cleared.
+        var primaryFilled = 0
         for symbol in 0..<count {
             let length = Int(lengths[symbol])
             guard length > 0 else { continue }
@@ -1257,7 +1426,13 @@ final class RAR5HuffmanTable {
                 primary.advanced(by: primaryStart).update(
                     repeating: entry, count: primaryRepetitions
                 )
+                primaryFilled = max(primaryFilled, primaryStart + primaryRepetitions)
             }
+        }
+        if primaryFilled < Self.primaryCount {
+            primary.advanced(by: primaryFilled).update(
+                repeating: 0, count: Self.primaryCount - primaryFilled
+            )
         }
         maximumLength = longest
     }
@@ -1281,5 +1456,91 @@ final class RAR5HuffmanTable {
         guard length > 0, length <= bits.bitLimit - bits.bitPosition else { return nil }
         bits.bitPosition += length
         return Int(entry & 0xffff)
+    }
+}
+
+
+/// Copies a validated LZ match inside the power-of-two ring: `count` bytes
+/// from `distance` behind `position`, with both ends wrapping independently.
+///
+/// A source that wrapped to the ring end lies ahead of the destination and
+/// never overlaps it within one run, so a plain copy is exact. Otherwise the
+/// source is behind the destination: distances of eight or more move whole
+/// words whose reads all precede the word being written, keeping forward LZ
+/// semantics for repeating matches, and shorter distances expand the period
+/// bytewise until a word-sized multiple of it exists, then continue with words.
+@inline(__always)
+func copyMatchWithinWindow(
+    window: UnsafeMutablePointer<UInt8>,
+    windowMask: Int,
+    position: inout Int,
+    distance: Int,
+    count: Int
+) {
+    let windowCount = windowMask &+ 1
+    var destination = position
+    var remaining = count
+    while remaining > 0 {
+        let source = (destination &- distance) & windowMask
+        let run = min(remaining, windowCount &- max(destination, source))
+        let to = window.advanced(by: destination)
+        let from = window.advanced(by: source)
+        if source >= destination {
+            // Wrapped (or distance == window) source: non-overlapping within
+            // this run, and distance == window copies a byte onto itself.
+            to.update(from: from, count: run)
+        } else if distance >= 8 {
+            copyForwardWords(to: to, from: from, count: run)
+        } else {
+            let stride = distance &* ((8 &+ distance &- 1) / distance)
+            let prefix = min(run, stride)
+            for index in 0..<prefix {
+                to[index] = to[index &- distance]
+            }
+            if prefix < run {
+                copyForwardWords(
+                    to: to.advanced(by: prefix),
+                    from: to.advanced(by: prefix &- stride),
+                    count: run &- prefix
+                )
+            }
+        }
+        destination = (destination &+ run) & windowMask
+        remaining &-= run
+    }
+    position = destination
+}
+
+/// Word-granular forward copy where `from` is at least eight bytes before
+/// `to`. The tail is copied as one word ending at `count`; its source bytes
+/// precede the tail store, so re-reading bytes this copy already wrote keeps
+/// the forward semantics.
+@inline(__always)
+private func copyForwardWords(
+    to: UnsafeMutablePointer<UInt8>,
+    from: UnsafeMutablePointer<UInt8>,
+    count: Int
+) {
+    var index = 0
+    while index &+ 8 <= count {
+        UnsafeMutableRawPointer(to.advanced(by: index)).storeBytes(
+            of: UnsafeRawPointer(from.advanced(by: index)).loadUnaligned(as: UInt64.self),
+            as: UInt64.self
+        )
+        index &+= 8
+    }
+    if index < count {
+        if count >= 8 {
+            let tail = count &- 8
+            UnsafeMutableRawPointer(to.advanced(by: tail)).storeBytes(
+                of: UnsafeRawPointer(from.advanced(by: tail)).loadUnaligned(as: UInt64.self),
+                as: UInt64.self
+            )
+        } else {
+            while index < count {
+                to[index] = from[index]
+                index &+= 1
+            }
+        }
     }
 }

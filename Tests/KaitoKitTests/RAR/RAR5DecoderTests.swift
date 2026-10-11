@@ -706,6 +706,27 @@ final class RAR5DecoderTests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// A complete single-block stream of `count` copies of `byte` (one-bit
+    /// literal codes), for other test files that need compressed members.
+    static func literalBlock(byte: UInt8, count: Int) -> Data {
+        precondition(count > 0)
+        var bits = RAR5DecoderBitWriter()
+        for index in 0..<20 { bits.append(index < 2 ? 1 : 0, count: 4) }
+        for index in 0..<430 { bits.append(index == Int(byte) ? 1 : 0, count: 1) }
+        for _ in 0..<count { bits.append(0, count: 1) }
+        let payload = bits.bytes
+        let sizeByteCount = payload.count <= 0xff ? 1 : (payload.count <= 0xffff ? 2 : 3)
+        var flags = UInt8(bits.validBitsInFinalByte - 1) | UInt8(sizeByteCount - 1) << 3
+        flags |= 0x40 | 0x80
+        var sizeBytes: [UInt8] = []
+        for index in 0..<sizeByteCount {
+            sizeBytes.append(UInt8(truncatingIfNeeded: payload.count >> (index * 8)))
+        }
+        var checksum = UInt8(0x5a) ^ flags
+        for byte in sizeBytes { checksum ^= byte }
+        return Data([flags, checksum] + sizeBytes + payload)
+    }
+
     private func makeDecoder(
         source: any ByteSource,
         compressedSize: Int,

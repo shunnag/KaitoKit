@@ -25,9 +25,15 @@ final class RAR5Reader: FormatReader {
     private let records: [RAR5EntryRecord]
     private let solidGroupMembers: [Int: [Int]]
     private let keyCache = RAR5KeyCache()
+    // Independent members recycle decoder windows and tables through this pool.
+    private let scratchPool: RAR5Decoder.ScratchPool
     private var password: String?
     private var solidCoordinators: [Int: RARSolidCoordinator<RAR5Decoder.SolidState>] = [:]
     private var activeSolidGroup: Int?
+    // Decodes later independent members on the leaf pool; nil below two workers.
+    private lazy var prefetcher: RAR5EntryPrefetcher? = makePrefetcher()
+    // Test hook: creates the prefetcher if the first stream has not yet.
+    var prefetcherForTesting: RAR5EntryPrefetcher? { prefetcher }
 
     var resolvedPassword: String? { password }
 
@@ -41,6 +47,7 @@ final class RAR5Reader: FormatReader {
         self.sourceURL = sourceURL
         self.options = options
         self.password = options.password
+        self.scratchPool = RAR5Decoder.ScratchPool(capacity: max(4, options.resolvedDecodeThreads + 1))
 
         guard source.length >= UInt64(Self.signature.count) else {
             throw KaitoError.truncated
@@ -90,6 +97,7 @@ final class RAR5Reader: FormatReader {
         self.records = records
         self.solidGroupMembers = Self.indexSolidGroups(entries)
         self.password = options.password
+        self.scratchPool = RAR5Decoder.ScratchPool(capacity: max(4, options.resolvedDecodeThreads + 1))
     }
 
     func setPassword(_ password: String?) {
@@ -171,6 +179,7 @@ final class RAR5Reader: FormatReader {
 
         let outputLength: UInt64? = record.unpackedSize
         var decompressor: any Decompressor
+        var blake2spWasVerified = false
         if record.compression.method == 0 {
             let storedSize = try Self.logicalStoredSize(record)
             decompressor = try CopyDecompressor(
@@ -180,6 +189,15 @@ final class RAR5Reader: FormatReader {
                     ? min(storedSize, record.availablePackedSize ?? record.packedSize)
                     : storedSize
             )
+        } else if let prefetched = try prefetcher?.take(entry.index) {
+            // Decoded ahead and BLAKE2sp-verified on a worker. The CRC-32 is
+            // still checked by the stream below, exactly like the serial path.
+            decompressor = try CopyDecompressor(
+                source: DataByteSource(data: prefetched),
+                offset: 0,
+                compressedSize: UInt64(prefetched.count)
+            )
+            blake2spWasVerified = true
         } else {
             do {
                 decompressor = try Self.makeCompressedDecompressor(
@@ -189,6 +207,7 @@ final class RAR5Reader: FormatReader {
                     unpackedSize: outputLength,
                     dictionarySize: record.compression.dictionarySize,
                     limits: limits,
+                    scratchPool: scratchPool,
                     mismatchIsWrongPassword: prepared.mismatchIsWrongPassword
                 )
             } catch KaitoError.truncated {
@@ -204,6 +223,8 @@ final class RAR5Reader: FormatReader {
             }
         }
 
+        prefetcher?.schedule(after: entry.index)
+
         // Incomplete unencrypted stored payloads are already bounded to available
         // bytes by CopyDecompressor, so preserve bulk reads without recovery wrapping.
         if entry.isIncomplete,
@@ -216,7 +237,7 @@ final class RAR5Reader: FormatReader {
             record: record,
             entryIndex: entry.index,
             prepared: prepared,
-            verifiesBlake2sp: options.verifyRAR5Blake2sp && !entry.isIncomplete,
+            verifiesBlake2sp: options.verifyRAR5Blake2sp && !entry.isIncomplete && !blake2spWasVerified,
             length: entry.isIncomplete ? nil : outputLength,
             expectedCRC32: entry.isIncomplete ? nil : entry.crc32,
             limits: limits
@@ -390,6 +411,164 @@ final class RAR5Reader: FormatReader {
         )
     }
 
+    // MARK: - Independent-member prefetch
+
+    private func makePrefetcher() -> RAR5EntryPrefetcher? {
+        let workers = options.resolvedDecodeThreads
+        guard workers >= 2 else { return nil }
+        let entries = entries, records = records, options = options
+        let limits = options.limits, scratchPool = scratchPool, sourceURL = sourceURL
+        return RAR5EntryPrefetcher(
+            workers: workers,
+            memoryBudget: limits.resolvedParallelDecodeMemory(),
+            memberCount: records.count,
+            candidate: { index in
+                Self.prefetchCandidate(index, entries: entries, records: records)
+            },
+            decodeBatch: { members, shouldStop in
+                Self.decodeIndependentBatch(
+                    members, records: records, options: options, limits: limits,
+                    scratchPool: scratchPool, sourceURL: sourceURL, shouldStop: shouldStop
+                )
+            }
+        )
+    }
+
+    /// An independent, complete, unencrypted, version-zero compressed member
+    /// of known size with a plain body. Everything else keeps the serial path.
+    private static func prefetchCandidate(
+        _ index: Int,
+        entries: [ArchiveEntry],
+        records: [RAR5EntryRecord]
+    ) -> RAR5EntryPrefetcher.Candidate? {
+        guard entries.indices.contains(index), records.indices.contains(index) else { return nil }
+        let entry = entries[index]
+        let record = records[index]
+        guard entry.solidGroup < 0, !entry.isIncomplete,
+              record.compression.method != 0, record.compression.version == 0,
+              record.encryption == nil, record.redirectionType == nil,
+              let unpackedSize = record.unpackedSize, unpackedSize > 0,
+              let outputSize = Int(exactly: unpackedSize),
+              let packedSize = Int(exactly: record.packedSize),
+              let dictionarySize = Int(exactly: record.compression.dictionarySize) else { return nil }
+        let window = RAR5Decoder.retainedWindowSize(
+            expectedSize: unpackedSize, dictionarySize: dictionarySize
+        )
+        return RAR5EntryPrefetcher.Candidate(
+            index: index,
+            outputSize: outputSize,
+            scratchBytes: packedSize + window + 64 * 1_024
+        )
+    }
+
+    /// Worker-side decode of one batch: one recycled decoder state serves every
+    /// member in turn, and when the members' packed bodies are consecutive in
+    /// one file the whole span is read with a single call. A member that fails
+    /// here is left nil for the serial path to decode and report.
+    private static func decodeIndependentBatch(
+        _ members: [RAR5EntryPrefetcher.Candidate],
+        records: [RAR5EntryRecord],
+        options: ReaderOptions,
+        limits: ReadLimits,
+        scratchPool: RAR5Decoder.ScratchPool,
+        sourceURL: URL?,
+        shouldStop: () -> Bool
+    ) -> [Data?] {
+        var outputs = [Data?](repeating: nil, count: members.count)
+        guard let first = members.first else { return outputs }
+        var state = scratchPool.take(windowSize: RAR5Decoder.retainedWindowSize(
+            expectedSize: records[first.index].unpackedSize,
+            dictionarySize: Int(clamping: records[first.index].compression.dictionarySize)
+        ))
+        defer { if let state { scratchPool.recycle(state) } }
+        let span = PrefetchedPackedSpan.read(members: members, records: records)
+        for (position, member) in members.enumerated() {
+            if position % 8 == 0, shouldStop() { break }
+            outputs[position] = try? decodeIndependentMember(
+                records[member.index], entryIndex: member.index, options: options,
+                limits: limits, scratchPool: scratchPool, state: &state,
+                span: span, sourceURL: sourceURL
+            )
+        }
+        return outputs
+    }
+
+    /// The same payload preparation and decoder as the serial path, drained
+    /// completely, with the member's BLAKE2sp digest checked here so the
+    /// reader can skip it.
+    private static func decodeIndependentMember(
+        _ record: RAR5EntryRecord,
+        entryIndex: Int,
+        options: ReaderOptions,
+        limits: ReadLimits,
+        scratchPool: RAR5Decoder.ScratchPool,
+        state: inout RAR5Decoder.SolidState?,
+        span: PrefetchedPackedSpan?,
+        sourceURL: URL?
+    ) throws -> Data {
+        guard let unpackedSize = record.unpackedSize, record.encryption == nil else {
+            throw KaitoError.malformed("RAR5 prefetch candidate is not independent")
+        }
+        try validateStreamCompatibility(record, options: options, sourceURL: sourceURL)
+        let prepared = try preparePayload(
+            record, entryIndex: entryIndex, options: options, limits: limits,
+            password: nil, keyCache: RAR5KeyCache()
+        )
+        var source = prepared.source
+        if let span, record.packedSegments.count == 1,
+           span.covers(prepared.offset, length: record.packedSize) {
+            source = span
+        }
+        let retained = RAR5Decoder.retainedWindowSize(
+            expectedSize: unpackedSize,
+            dictionarySize: Int(clamping: record.compression.dictionarySize)
+        )
+        if let current = state, current.windowSize < retained {
+            scratchPool.recycle(current)
+            state = nil
+        }
+        if state == nil {
+            state = scratchPool.take(windowSize: retained)
+                ?? (try? RAR5Decoder.SolidState(dictionarySize: UInt64(retained)))
+        }
+        let decoder = try makeCompressedDecompressor(
+            source: source,
+            offset: prepared.offset,
+            compressedSize: record.packedSize,
+            unpackedSize: unpackedSize,
+            dictionarySize: record.compression.dictionarySize,
+            limits: limits,
+            scratchPool: state == nil ? scratchPool : nil,
+            independentState: state,
+            mismatchIsWrongPassword: prepared.mismatchIsWrongPassword
+        )
+        // One spare byte verifies the declared end exactly like EntryStream.
+        let size = try Checked.toInt(unpackedSize)
+        var output = Data(count: size + 1)
+        try output.withUnsafeMutableBytes { destination in
+            var total = 0
+            while total <= size, !decoder.isFinished {
+                let count = try decoder.read(into: UnsafeMutableRawBufferPointer(
+                    rebasing: destination[total..<(size + 1)]
+                ))
+                guard count > 0 else { break }
+                total += count
+            }
+            guard total == size, decoder.isFinished else {
+                throw KaitoError.malformed("RAR5 prefetched member size mismatch")
+            }
+        }
+        output.removeLast()
+        if options.verifyRAR5Blake2sp, let hash = record.hash, hash.type == 0 {
+            var digest = Blake2sp()
+            digest.update(output)
+            guard ConstantTime.equals(digest.finalize(), Data(hash.digest)) else {
+                throw KaitoError.checksumMismatch(entry: entryIndex)
+            }
+        }
+        return output
+    }
+
     /// Output size of a stored (method 0) member. An unencrypted payload must
     /// match its declared size; an encrypted one must declare a size that fits
     /// within its AES-padded ciphertext.
@@ -532,6 +711,8 @@ final class RAR5Reader: FormatReader {
         dictionarySize: UInt64,
         limits: ReadLimits,
         solidState: RAR5Decoder.SolidState? = nil,
+        scratchPool: RAR5Decoder.ScratchPool? = nil,
+        independentState: RAR5Decoder.SolidState? = nil,
         mismatchIsWrongPassword: Bool
     ) throws -> any Decompressor {
         do {
@@ -542,7 +723,9 @@ final class RAR5Reader: FormatReader {
                 expectedSize: unpackedSize,
                 dictionarySize: dictionarySize,
                 limits: limits,
-                solidState: solidState
+                solidState: solidState,
+                scratchPool: scratchPool,
+                independentState: independentState
             )
             guard mismatchIsWrongPassword else { return decoder }
             return RARPasswordAmbiguousDecompressor(

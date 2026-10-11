@@ -6,6 +6,27 @@
 
 ## [Unreleased]
 
+### 変更
+
+- 単独 `.xz` と圧縮 tar / cpio の xz staging を、filter chain が LZMA2 だけで check 種別が
+  none / CRC32 / CRC64 / SHA-256 の stream について KaitoKit 自身の LZMA2 decoder で復号する
+  （`XZNativeDecompressor`）。単一 block は直列に、複数 block は `ParallelXZDecompressor` の job ごとに使う。
+  BCJ / Delta などの前置 filter と予約 check 種別は従来どおり Apple Compression に渡す。
+  出力は Apple Compression 経路と同一。壊れた入力でも同じ結果になるよう、直列経路は復号済み出力を
+  256 KiB 保留してから返し、自身の decoder が失敗したら Apple Compression 経路を先頭から再生して
+  続きの byte とそのエラーをそのまま返す。並列 job は失敗した job を Apple Compression でやり直す。
+  M4 Max の 1 thread で 158 MiB の `small.single.tar.xz` が user 0.73 → 0.61 s、256 MiB の text が
+  1.12 → 0.89 s、非圧縮性 256 MiB が 0.20 → 0.14 s（複数 block の並列復号も user 時間が 15〜30% 減）。
+- LZMA2 の非圧縮 chunk を、`Data` を介さず 64 KiB の一時領域へ直接写す（`ByteReader.read(into:)`）。
+
+### 修正
+
+- LZMA2 で dictionary を reset する非圧縮 chunk（control `0x01`）の後に property を持たない
+  LZMA chunk（`0x80`〜`0xBF`）が続く stream を、LZMA SDK / liblzma / 7-Zip と同じく壊れた stream として
+  拒否する。従来は辞書 reset 後も直前の property と coding state を引き継いで復号を続け、raw chunk の byte を
+  参照するだけの続きなら check まで通っていた。7z folder の LZMA2 と、`.xz` の自前復号経路の両方に効く。
+  raw reset 点は後続 chunk が必ず `0xC0` 以上になるため、並列復号の再開点として常に使える。
+
 ## [0.13.0] - 2026-10-10
 
 復号並列数の公開設定と、decoder・暗号・ハッシュ・展開 I/O の高速化をまとめた release。

@@ -94,7 +94,8 @@ final class SevenZipParallelDecodeTests: XCTestCase {
         XCTAssertNil(try fixture.factory(workers: 16).parallelUnits())
     }
 
-    func testRawResetWithoutCodingStateResetIsNotSplit() throws {
+    func testRawResetFollowedByChunkWithoutPropertiesIsRejected() throws {
+        // 0x01 の後の 0x80（property なし）は LZMA SDK / 7-Zip と同じく壊れた stream として扱う。
         var first = Array(try Hex.data("e00011000800003099abddc0cb070000").dropLast())
         var continued = first
         continued[0] = 0x80
@@ -102,15 +103,21 @@ final class SevenZipParallelDecodeTests: XCTestCase {
         first += [1, 0, 0, 97] + continued + [0]
         let fixture = SevenZipParallelTestSupport.Fixture(packed: Data(first),
             payloads: [Data(repeating: 0, count: 37)])
-        let index = try XCTUnwrap(fixture.factory(workers: 16).makeDictionaryResetIndex())
-        XCTAssertEqual(index.filter(\.isRestartable).count, 1)
-        XCTAssertTrue(try fixture.factory(workers: 16).makeDecoder() is LZMA2Decoder)
+        XCTAssertThrowsError(try fixture.factory(workers: 16).makeDictionaryResetIndex()) { error in
+            guard case .malformed = error as? KaitoError else { return XCTFail("unexpected error: \(error)") }
+        }
+        XCTAssertThrowsError(try fixture.factory(workers: 16).decodeAll(limit: 1 << 20)) { error in
+            guard case .malformed = error as? KaitoError else { return XCTFail("unexpected error: \(error)") }
+        }
+        XCTAssertThrowsError(try fixture.factory(workers: 1).decodeAll(limit: 1 << 20)) { error in
+            guard case .malformed = error as? KaitoError else { return XCTFail("unexpected error: \(error)") }
+        }
     }
 
-    func testRawResetPreloadsEarlierPropertiesInParallelUnit() throws {
+    func testRawResetFollowedByPropertiesChunkFormsParallelUnit() throws {
         let first = Array(try Hex.data("e00011000800003099abddc0cb070000").dropLast())
         var continued = first
-        continued[0] = 0xA0; continued.remove(at: 5)
+        continued[0] = 0xC0
         let text = Data("abcabcabcabcabcabc".utf8)
         let fixture = SevenZipParallelTestSupport.Fixture(
             packed: Data(first + [1, 0, 2, 120, 121, 122] + continued + [0]),

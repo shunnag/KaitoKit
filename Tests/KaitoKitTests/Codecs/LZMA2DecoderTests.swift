@@ -234,12 +234,12 @@ final class LZMA2DecoderTests: XCTestCase {
         )
     }
 
-    func testRestartAtRawDictionaryResetPreloadsEarlierProperties() throws {
+    func testRestartAtRawDictionaryResetFollowedByPropertiesChunk() throws {
         var compressed = Array(try Hex.data("e00011000800003099abddc0cb070000"))
         compressed.removeLast()
+        // 0x01 の後の LZMA chunk は property 付き（0xC0 以上）でなければならない。
         var continued = compressed
-        continued[0] = 0xA0
-        continued.remove(at: 5)
+        continued[0] = 0xC0
         let rawReset = Array(try Hex.data("01000278797a"))
         let stream = Data(compressed + rawReset + continued + [0])
         let source = DataByteSource(stream)
@@ -252,6 +252,12 @@ final class LZMA2DecoderTests: XCTestCase {
         XCTAssertEqual(points.count, 2)
         XCTAssertEqual(points[1].lzmaProperties, 0)
         XCTAssertTrue(points[1].isRestartable)
+
+        let whole = try makeDecoder(stream, expectedSize: 39)
+        XCTAssertEqual(
+            try drain(whole, bufferSize: 5),
+            Data("abcabcabcabcabcabcxyzabcabcabcabcabcabc".utf8)
+        )
 
         let restarted = try LZMA2Decoder(
             source: source,
@@ -314,42 +320,120 @@ final class LZMA2DecoderTests: XCTestCase {
 
     }
 
-    func testRawDictionaryResetBeforeNoStateResetChunkIsIndexedButNotRestarted() throws {
+    func testLZMAChunkWithoutPropertiesAfterRawDictionaryResetIsRejected() throws {
+        // LZMA SDK / liblzma / 7-Zip と同じく、0x01 の後の 0x80...0xBF（property なし）は壊れた stream。
+        // 0x01 が最初の chunk でも、間に 0x02 が挟まっても同じ。
         var first = Array(try Hex.data("e0001100085d00309888aa0207d00000"))
         first.removeLast()
         let rawReset = Array(try Hex.data("01000078"))
-        var continuation = first
-        continuation[0] = 0x80
-        continuation.remove(at: 5)
-        let stream = Data(first + rawReset + continuation + [0])
-        let source = DataByteSource(stream)
+        let rawKeep = Array(try Hex.data("02000079"))
+        var noProperties = first
+        noProperties.remove(at: 5)
+        var stateOnly = noProperties
+        stateOnly[0] = 0xA0
+        noProperties[0] = 0x80
+        let invalidStreams: [(Data, UInt64)] = [
+            (Data(first + rawReset + noProperties + [0]), 37),
+            (Data(first + rawReset + stateOnly + [0]), 37),
+            (Data(first + rawReset + rawKeep + noProperties + [0]), 38),
+            (Data(rawReset + noProperties + [0]), 19),
+            (Data(rawReset + stateOnly + [0]), 19),
+        ]
+        for (stream, expectedSize) in invalidStreams {
+            let source = DataByteSource(stream)
+            XCTAssertThrowsError(
+                try LZMA2Decoder.makeDictionaryResetIndex(
+                    source: source,
+                    offset: 0,
+                    compressedSize: UInt64(stream.count),
+                    expectedSize: expectedSize
+                ),
+                stream.map { String($0, radix: 16) }.joined(separator: " ")
+            ) { error in
+                guard case let .malformed(reason) = error as? KaitoError else {
+                    return XCTFail("unexpected error: \(error)")
+                }
+                XCTAssertTrue(reason.contains("before properties"), reason)
+            }
+            XCTAssertThrowsError(
+                try LZMA2Decoder.makeParallelDictionaryResetIndex(
+                    source: source,
+                    offset: 0,
+                    compressedSize: UInt64(stream.count),
+                    expectedSize: expectedSize,
+                    maximumPointCount: 16,
+                    singleResetOutputLimit: 1 << 20
+                )
+            ) { error in
+                guard case .malformed = error as? KaitoError else {
+                    return XCTFail("unexpected error: \(error)")
+                }
+            }
+            let decoder = try makeDecoder(stream, expectedSize: expectedSize)
+            XCTAssertThrowsError(try drain(decoder, bufferSize: 8)) { error in
+                guard case let .malformed(reason) = error as? KaitoError else {
+                    return XCTFail("unexpected error: \(error)")
+                }
+                XCTAssertTrue(reason.contains("before properties"), reason)
+            }
+        }
+    }
 
+    func testRawChunkWithoutDictionaryResetKeepsCodingStateAndProperties() throws {
+        // 0x02 は何も初期化し直さないので、その後の 0x80 / 0xA0（property なし）は引き続き有効。
+        // lc=0 の fixture を使い、直前 byte が literal の文脈に影響しないようにする。
+        var first = Array(try Hex.data("e00011000800003099abddc0cb070000"))
+        first.removeLast()
+        let rawKeep = Array(try Hex.data("02000078"))
+        var stateOnly = first
+        stateOnly.remove(at: 5)
+        stateOnly[0] = 0xA0
+        var noReset = stateOnly
+        noReset[0] = 0x80
+        let stream = Data(first + rawKeep + stateOnly + [0])
         let points = try LZMA2Decoder.makeDictionaryResetIndex(
-            source: source,
+            source: DataByteSource(stream),
             offset: 0,
             compressedSize: UInt64(stream.count),
             expectedSize: 37
         )
-        XCTAssertEqual(points.count, 2)
-        XCTAssertTrue(points[0].isRestartable)
-        XCTAssertFalse(points[1].isRestartable)
+        XCTAssertEqual(points.count, 1)
+        let decoder = try makeDecoder(stream, expectedSize: 37)
+        XCTAssertEqual(
+            try drain(decoder, bufferSize: 8),
+            Data("abcabcabcabcabcabcxabcabcabcabcabcabc".utf8)
+        )
+        // 0x80（state も引き継ぐ）も header としては有効で、index 走査は受け付ける。
+        let continued = Data(first + rawKeep + noReset + [0])
+        XCTAssertEqual(
+            try LZMA2Decoder.makeDictionaryResetIndex(
+                source: DataByteSource(continued),
+                offset: 0,
+                compressedSize: UInt64(continued.count),
+                expectedSize: 37
+            ).count,
+            1
+        )
 
-        XCTAssertThrowsError(
-            try LZMA2Decoder(
-                source: source,
-                originalOffset: 0,
-                originalCompressedSize: UInt64(stream.count),
-                properties: [0],
-                restartingAt: points[1],
-                expectedSize: 19,
-                dictionarySizeLimit: 4_096
-            )
-        ) { error in
-            guard case let .malformed(reason) = error as? KaitoError else {
-                return XCTFail("unexpected error: \(error)")
-            }
-            XCTAssertTrue(reason.contains("prior coding state"), reason)
-        }
+        // 先頭の 0x01 の後に 0xC0 が続く stream は有効で、その点から再開できる。
+        let rawReset = Array(try Hex.data("01000078"))
+        var withProperties = first
+        withProperties[0] = 0xC0
+        let leading = Data(rawReset + withProperties + [0])
+        let leadingPoints = try LZMA2Decoder.makeDictionaryResetIndex(
+            source: DataByteSource(leading),
+            offset: 0,
+            compressedSize: UInt64(leading.count),
+            expectedSize: 19
+        )
+        XCTAssertEqual(leadingPoints.count, 1)
+        XCTAssertTrue(leadingPoints[0].isRestartable)
+        XCTAssertNil(leadingPoints[0].lzmaProperties)
+        let leadingDecoder = try makeDecoder(leading, expectedSize: 19)
+        XCTAssertEqual(
+            try drain(leadingDecoder, bufferSize: 8),
+            Data("xabcabcabcabcabcabc".utf8)
+        )
     }
 
     func testSevenZipRawChunksCanContinueWithoutStateReset() throws {

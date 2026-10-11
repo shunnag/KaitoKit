@@ -41,8 +41,9 @@
   サイズ不明の暗号化 stored entry を扱いません。
 - LHA は `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` を一覧できますが、読み取り時に
   `unsupportedMethod` になります。resource fork は separate entry として公開しません。
-- XZ は Apple Compression が扱う XZ container が対象で、同 liblzma が知らない RISC-V filter 付き
-  stream は `unsupportedMethod("XZ RISC-V filter")` になります。LZMA_Alone は `.lzma` / `.tlz` 拡張子と妥当なheaderがあるときだけ対象です。gzip/bzip2/xz の
+- XZ は Apple Compression が扱う XZ container が対象で（LZMA2 だけの filter chain は KaitoKit 自身の
+  decoder で復号し、BCJ / Delta などの filter 付き stream は Apple Compression に渡します）、同 liblzma が
+  知らない RISC-V filter 付き stream は `unsupportedMethod("XZ RISC-V filter")` になります。LZMA_Alone は `.lzma` / `.tlz` 拡張子と妥当なheaderがあるときだけ対象です。gzip/bzip2/xz の
   concatenated stream は一つの entry として連結した出力を返します。
 - lzip の version 0（2008 年以前の lzip 0.x）は `unsupportedMethod` です。空 member は単独 file のときだけ受理します。
 - tar の旧 GNU sparse（typeflag `S`、header 内の sparse 表と拡張 block）は展開できます。star の `SCHILY.filetype=sparse`、Solaris の `SUN.holesdata` は `unsupportedMethod` です。GNU sparse の major.minor が 1.0 以外の 1.x も同様です。[検証記録](verification/2026-09-22-small-method-gaps.md)。
@@ -118,7 +119,8 @@
 >   of unknown size.
 > - LHA can list `-pm1-`, `-pm2-`, `-lh2-` and `-lh3-` but fails with `unsupportedMethod` when
 >   reading them. Resource forks are not exposed as separate entries.
-> - XZ covers the XZ container that Apple Compression handles; a stream carrying a RISC-V filter that
+> - XZ covers the XZ container that Apple Compression handles (LZMA2-only filter chains are decoded by
+>   KaitoKit's own decoder; streams with BCJ / Delta filters go to Apple Compression); a stream carrying a RISC-V filter that
 >   its liblzma does not know returns `unsupportedMethod("XZ RISC-V filter")`. LZMA_Alone is covered only with a
 >   `.lzma` / `.tlz` extension and a plausible header. A concatenated gzip, bzip2 or xz stream is returned as one entry whose output
 >   is the concatenation.

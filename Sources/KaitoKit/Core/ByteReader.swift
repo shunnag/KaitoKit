@@ -125,6 +125,32 @@ public struct ByteReader {
         return value
     }
 
+    /// Copies exactly `destination.count` bytes from the cursor into `destination`.
+    /// `readBytes` と同じ条件で truncated を投げ、中間の Data を作らない。
+    mutating func read(into destination: UnsafeMutableRawBufferPointer) throws {
+        guard UInt64(destination.count) <= remaining else {
+            throw KaitoError.truncated
+        }
+        guard let base = destination.baseAddress else { return }
+        var filled = 0
+        while filled < destination.count {
+            if bufferOffset >= bufferCount {
+                try refill()
+            }
+            guard bufferOffset < bufferCount else {
+                throw KaitoError.truncated
+            }
+            let amount = min(destination.count - filled, bufferCount - bufferOffset)
+            buffer.withUnsafeBytes { bytes in
+                // bufferOffset..<bufferOffset+amount は refill 済みの範囲内、filled..<filled+amount は destination 内。
+                base.advanced(by: filled).copyMemory(from: bytes.baseAddress!.advanced(by: bufferOffset), byteCount: amount)
+            }
+            bufferOffset += amount
+            filled += amount
+            offset = try Checked.add(offset, UInt64(amount))
+        }
+    }
+
     /// Reads an exact number of bytes.
     public mutating func readBytes(_ count: Int) throws -> Data {
         guard count >= 0 else {

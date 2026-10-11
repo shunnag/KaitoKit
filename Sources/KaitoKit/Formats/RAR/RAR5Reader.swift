@@ -34,6 +34,7 @@ final class RAR5Reader: FormatReader {
     private lazy var prefetcher: RAR5EntryPrefetcher? = makePrefetcher()
     // Test hook: creates the prefetcher if the first stream has not yet.
     var prefetcherForTesting: RAR5EntryPrefetcher? { prefetcher }
+    var pooledScratchByteCount: Int { scratchPool.heldByteCount }
 
     var resolvedPassword: String? { password }
 
@@ -47,7 +48,10 @@ final class RAR5Reader: FormatReader {
         self.sourceURL = sourceURL
         self.options = options
         self.password = options.password
-        self.scratchPool = RAR5Decoder.ScratchPool(capacity: max(4, options.resolvedDecodeThreads + 1))
+        self.scratchPool = RAR5Decoder.ScratchPool(
+            capacity: max(4, options.resolvedDecodeThreads + 1),
+            memoryBudget: options.limits.resolvedParallelDecodeMemory()
+        )
 
         guard source.length >= UInt64(Self.signature.count) else {
             throw KaitoError.truncated
@@ -97,7 +101,10 @@ final class RAR5Reader: FormatReader {
         self.records = records
         self.solidGroupMembers = Self.indexSolidGroups(entries)
         self.password = options.password
-        self.scratchPool = RAR5Decoder.ScratchPool(capacity: max(4, options.resolvedDecodeThreads + 1))
+        self.scratchPool = RAR5Decoder.ScratchPool(
+            capacity: max(4, options.resolvedDecodeThreads + 1),
+            memoryBudget: options.limits.resolvedParallelDecodeMemory()
+        )
     }
 
     func setPassword(_ password: String?) {
@@ -457,7 +464,8 @@ final class RAR5Reader: FormatReader {
         return RAR5EntryPrefetcher.Candidate(
             index: index,
             outputSize: outputSize,
-            scratchBytes: packedSize + window + 64 * 1_024
+            scratchBytes: packedSize + window + RAR5Decoder.ScratchPool.stateOverheadBytes,
+            packedSegment: record.packedSegments.count == 1 ? record.packedSegments.first : nil
         )
     }
 
@@ -481,7 +489,7 @@ final class RAR5Reader: FormatReader {
             dictionarySize: Int(clamping: records[first.index].compression.dictionarySize)
         ))
         defer { if let state { scratchPool.recycle(state) } }
-        let span = PrefetchedPackedSpan.read(members: members, records: records)
+        let span = PrefetchedPackedSpan.read(members: members)
         for (position, member) in members.enumerated() {
             if position % 8 == 0, shouldStop() { break }
             outputs[position] = try? decodeIndependentMember(

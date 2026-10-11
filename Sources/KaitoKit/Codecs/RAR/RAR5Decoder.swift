@@ -163,12 +163,17 @@ final class RAR5Decoder: Decompressor {
     /// `maximumRecycledBytes` in either area are freed instead of kept.
     final class ScratchPool: @unchecked Sendable {
         static let maximumRecycledBytes = 4 * 1_024 * 1_024
+        /// Conservative allowance for the five Huffman tables and work areas.
+        static let stateOverheadBytes = 64 * 1_024
         private let lock = NSLock()
         private let capacity: Int
+        private let memoryBudget: Int
         private var free: [SolidState] = []
+        private var heldBytes = 0
 
-        init(capacity: Int) {
+        init(capacity: Int, memoryBudget: Int = Int.max) {
             self.capacity = max(1, capacity)
+            self.memoryBudget = max(0, memoryBudget)
         }
 
         /// A reset state whose window is at least `windowSize` bytes, or nil.
@@ -180,7 +185,9 @@ final class RAR5Decoder: Decompressor {
                     best = index
                 }
                 guard let best else { return nil }
-                return free.remove(at: best)
+                let state = free.remove(at: best)
+                heldBytes -= Self.retainedBytes(state)
+                return state
             }
             state?.resetForIndependentEntry()
             return state
@@ -189,12 +196,21 @@ final class RAR5Decoder: Decompressor {
         func recycle(_ state: SolidState) {
             guard state.windowSize <= Self.maximumRecycledBytes,
                   state.inputCapacity <= Self.maximumRecycledBytes else { return }
+            let bytes = Self.retainedBytes(state)
             lock.withLock {
-                if free.count < capacity { free.append(state) }
+                if free.count < capacity, bytes <= memoryBudget - heldBytes {
+                    free.append(state)
+                    heldBytes += bytes
+                }
             }
         }
 
+        private static func retainedBytes(_ state: SolidState) -> Int {
+            state.windowSize + state.inputCapacity + stateOverheadBytes
+        }
+
         var freeCount: Int { lock.withLock { free.count } }
+        var heldByteCount: Int { lock.withLock { heldBytes } }
     }
 
     private let input: UnsafeMutablePointer<UInt8>

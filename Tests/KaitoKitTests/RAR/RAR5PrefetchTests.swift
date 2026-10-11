@@ -259,6 +259,7 @@ final class RAR5PrefetchTests: XCTestCase {
         let starvedPrefetcher = try XCTUnwrap((starved.formatReaderForTesting as? RAR5Reader)?.prefetcherForTesting)
         XCTAssertEqual(starvedPrefetcher.liveBatchCount, 0)
         XCTAssertEqual(starvedPrefetcher.heldByteCount, 0)
+        XCTAssertEqual((starved.formatReaderForTesting as? RAR5Reader)?.pooledScratchByteCount, 0)
 
         // A normal budget decodes ahead and releases everything when consumed.
         let parallel = try ArchiveReader.open(data: archive, options: ReaderOptions(decodeThreads: 4))
@@ -271,6 +272,121 @@ final class RAR5PrefetchTests: XCTestCase {
     }
 
     // MARK: - Prefetcher scheduling with synthetic batches
+
+    func testAbandonDoesNotDecrementRunningCountAfterAnInFlightBatchFinishes() throws {
+        try XCTSkipIf(LeafDecodePool.shared.capacity < 2, "needs two workers")
+        let entered = expectation(description: "batch entered decoder")
+        let gate = PrefetchGate()
+        defer { gate.open() }
+        let prefetcher = try XCTUnwrap(RAR5EntryPrefetcher(
+            workers: 2, memoryBudget: 4_096, memberCount: 4,
+            candidate: { RAR5EntryPrefetcher.Candidate(index: $0, outputSize: 64, scratchBytes: 128) },
+            decodeBatch: { members, _ in
+                entered.fulfill()
+                gate.wait()
+                return members.map { Data(repeating: UInt8($0.index), count: $0.outputSize) }
+            }
+        ))
+        prefetcher.schedule(after: 0)
+        wait(for: [entered], timeout: 5)
+        XCTAssertEqual(prefetcher.runningBatchCount, 1)
+        prefetcher.abandon()
+        XCTAssertEqual(prefetcher.runningBatchCount, 0)
+        gate.open()
+        // The job releases its reservation only after publishing completion.
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while prefetcher.heldByteCount != 0, Date() < deadline { Thread.sleep(forTimeInterval: 0.002) }
+        XCTAssertEqual(prefetcher.heldByteCount, 0)
+        XCTAssertEqual(prefetcher.runningBatchCount, 0)
+        XCTAssertNil(try prefetcher.take(1))
+    }
+
+    func testRepeatedEntryStreamKeepsUntakenBatchOutputs() throws {
+        try XCTSkipIf(LeafDecodePool.shared.capacity < 2, "needs two workers")
+        let payloads = (0..<3).map { Data(repeating: UInt8($0), count: 64) }
+        let files = payloads.enumerated().map { index, payload in
+            RAR5TestSupport.storedFile(
+                name: "entry-\(index)", contents: RAR5DecoderTests.literalBlock(byte: UInt8(index), count: payload.count),
+                unpackedSize: UInt64(payload.count), dataCRC32: CRC32.checksum(payload),
+                compressionInfo: (3 << 7) | (5 << 10)
+            )
+        }
+        let reader = try ArchiveReader.open(data: RAR5TestSupport.archive(blocks: files),
+                                            options: ReaderOptions(decodeThreads: 2))
+        XCTAssertEqual(try reader.stream(reader.entries[0]).readAll(), payloads[0])
+        let prefetcher = try XCTUnwrap((reader.formatReaderForTesting as? RAR5Reader)?.prefetcherForTesting)
+        XCTAssertEqual(try reader.stream(reader.entries[1]).readAll(), payloads[1])
+        XCTAssertEqual(prefetcher.servedMemberCount, 1)
+        XCTAssertEqual(try reader.stream(reader.entries[1]).readAll(), payloads[1])
+        XCTAssertEqual(prefetcher.liveBatchCount, 1, "the other entry still owns its output")
+        XCTAssertEqual(try reader.stream(reader.entries[2]).readAll(), payloads[2])
+        XCTAssertEqual(prefetcher.servedMemberCount, 2, "the other entry came from the batch")
+        XCTAssertEqual(prefetcher.liveBatchCount, 0)
+    }
+
+    func testFailedAndRepeatedTakesDoNotConsumeOtherOutputs() throws {
+        try XCTSkipIf(LeafDecodePool.shared.capacity < 2, "needs two workers")
+        let prefetcher = try XCTUnwrap(RAR5EntryPrefetcher(
+            workers: 2, memoryBudget: 4_096, memberCount: 4,
+            candidate: { RAR5EntryPrefetcher.Candidate(index: $0, outputSize: 64, scratchBytes: 128) },
+            decodeBatch: { members, _ in members.map { $0.index == 1 ? nil : Data(repeating: 1, count: 64) } }
+        ))
+        prefetcher.schedule(after: 0)
+        for _ in 0..<4 { XCTAssertNil(try prefetcher.take(1)) }
+        XCTAssertEqual(try prefetcher.take(2)?.count, 64)
+        XCTAssertNil(try prefetcher.take(2))
+        XCTAssertEqual(try prefetcher.take(3)?.count, 64)
+        XCTAssertEqual(prefetcher.liveBatchCount, 0)
+    }
+
+    func testPackedSpanIncludingGapsIsReservedBeforeScheduling() throws {
+        try XCTSkipIf(LeafDecodePool.shared.capacity < 2, "needs two workers")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("rar5-span-\(UUID().uuidString)")
+        let contents = Data((0..<600).map { UInt8(truncatingIfNeeded: $0) })
+        try contents.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let file = try FileByteSource(url: url)
+        let decoded = Counter()
+        let spanReads = Counter()
+        // Two 100-byte segments separated by 28 bytes: output + scratch + 228-byte span.
+        let budget = 2 * 17 + 128 + 228
+        let prefetcher = try XCTUnwrap(RAR5EntryPrefetcher(
+            workers: 2, memoryBudget: budget, memberCount: 4,
+            candidate: { index in
+                RAR5EntryPrefetcher.Candidate(
+                    index: index, outputSize: 16, scratchBytes: 128,
+                    packedSegment: SourceSegment(source: file, offset: UInt64(32 + (index - 1) * 128), length: 100)
+                )
+            },
+            decodeBatch: { members, _ in
+                let span = PrefetchedPackedSpan.read(members: members)
+                if span != nil { spanReads.add(1) }
+                let source: any ByteSource
+                if let span { source = span } else { source = file }
+                return members.map { member in
+                    decoded.add(1)
+                    guard let segment = member.packedSegment else { return nil }
+                    return try? Data(readByteRange(source: source, offset: segment.offset, count: member.outputSize))
+                }
+            }
+        ))
+        prefetcher.schedule(after: 0)
+        XCTAssertEqual(prefetcher.liveBatchCount, 1)
+        XCTAssertEqual(prefetcher.heldByteCount, budget, "packed input and gaps count against the reservation")
+        for index in 1...3 {
+            let start = 32 + (index - 1) * 128
+            XCTAssertEqual(try prefetcher.take(index), contents.subdata(in: start..<(start + 16)))
+            if index == 2 {
+                let deadline = Date(timeIntervalSinceNow: 5)
+                while prefetcher.heldByteCount != 0, Date() < deadline { Thread.sleep(forTimeInterval: 0.002) }
+                XCTAssertEqual(prefetcher.heldByteCount, 0)
+            }
+            prefetcher.schedule(after: index)
+            XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
+        }
+        XCTAssertEqual(decoded.value, 3)
+        XCTAssertEqual(spanReads.value, 1, "the fitting two-member batch keeps its shared packed read")
+    }
 
     func testPrefetcherDeliversInOrderDropsPassedBatchesAndStopsWhenAbandoned() throws {
         let decoded = Counter()
@@ -351,6 +467,33 @@ final class RAR5PrefetchTests: XCTestCase {
     }
 
     // MARK: - Recycled decoder states
+
+    func testScratchPoolBudgetCountsWindowsInputBuffersAndTables() throws {
+        let packed = RAR5DecoderTests.literalBlock(byte: 0x41, count: 512)
+        func populatedState() throws -> RAR5Decoder.SolidState {
+            let state = try RAR5Decoder.SolidState(dictionarySize: 128 * 1_024)
+            _ = try RAR5Decoder(
+                source: DataByteSource(packed), offset: 0, compressedSize: UInt64(packed.count),
+                expectedSize: 512, dictionarySize: 128 * 1_024, limits: ReadLimits(), independentState: state
+            )
+            return state
+        }
+        let bytes = 128 * 1_024 + packed.count + 16 + RAR5Decoder.ScratchPool.stateOverheadBytes
+        let pool = RAR5Decoder.ScratchPool(capacity: 8, memoryBudget: 2 * bytes - 1)
+        let first = try populatedState(), second = try populatedState()
+        pool.recycle(first)
+        pool.recycle(second)
+        XCTAssertEqual(pool.freeCount, 1, "input buffers make two states exceed this budget")
+        XCTAssertEqual(pool.heldByteCount, bytes)
+        XCTAssertTrue(pool.take(windowSize: 128 * 1_024) === first)
+        XCTAssertEqual(pool.heldByteCount, 0)
+        pool.recycle(second)
+        XCTAssertEqual(pool.heldByteCount, bytes, "taking a state releases its pool allowance")
+        let disabled = RAR5Decoder.ScratchPool(capacity: 8, memoryBudget: 0)
+        disabled.recycle(first)
+        XCTAssertEqual(disabled.freeCount, 0)
+        XCTAssertEqual(disabled.heldByteCount, 0)
+    }
 
     func testScratchPoolHandsOutSmallestFittingStateAndCapsRetention() throws {
         let pool = RAR5Decoder.ScratchPool(capacity: 2)
@@ -558,6 +701,22 @@ private final class Counter: @unchecked Sendable {
     private var count = 0
     var value: Int { lock.withLock { count } }
     func add(_ delta: Int) { lock.withLock { count += delta } }
+}
+
+private final class PrefetchGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var opened = false
+    func wait() {
+        condition.lock()
+        while !opened { condition.wait() }
+        condition.unlock()
+    }
+    func open() {
+        condition.lock()
+        opened = true
+        condition.broadcast()
+        condition.unlock()
+    }
 }
 
 private struct SHA256Digest {

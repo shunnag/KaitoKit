@@ -18,6 +18,15 @@ final class RAR5EntryPrefetcher: @unchecked Sendable {
         /// Bytes a decoder of this member holds besides its output
         /// (compressed input, retained window, tables).
         let scratchBytes: Int
+        /// A plain file segment, when a batch can read its packed input together.
+        let packedSegment: SourceSegment?
+
+        init(index: Int, outputSize: Int, scratchBytes: Int, packedSegment: SourceSegment? = nil) {
+            self.index = index
+            self.outputSize = outputSize
+            self.scratchBytes = scratchBytes
+            self.packedSegment = packedSegment
+        }
     }
 
     /// Decodes the members of one batch in order; a nil element means that
@@ -80,6 +89,7 @@ final class RAR5EntryPrefetcher: @unchecked Sendable {
     private var batches: [Batch] = []
     private var runningBatches = 0
     private var heldBytes = 0
+    private var servedMembers = 0
     private var cursor = 0
     private var abandoned = false
 
@@ -107,6 +117,7 @@ final class RAR5EntryPrefetcher: @unchecked Sendable {
         condition.lock()
         abandoned = true
         let dropped = batches
+        for batch in dropped { batch.discarded = true }
         batches.removeAll()
         runningBatches = 0
         condition.broadcast()
@@ -137,8 +148,11 @@ final class RAR5EntryPrefetcher: @unchecked Sendable {
             }
             if batch.finished {
                 let output = batch.outputs?[position]
-                if output != nil { batch.outputs?[position] = nil }
-                batch.remaining -= 1
+                if output != nil {
+                    batch.outputs?[position] = nil
+                    batch.remaining -= 1
+                    servedMembers += 1
+                }
                 if batch.remaining == 0 {
                     batches.removeAll { $0 === batch }
                     dropped.append(batch)
@@ -173,6 +187,7 @@ final class RAR5EntryPrefetcher: @unchecked Sendable {
             var members: [Candidate] = []
             var outputBytes = 0
             var scratchBytes = 0
+            var packedSpan = PrefetchedPackedSpan.Plan()
             while cursor < memberCount, members.count < Self.batchMemberLimit,
                   outputBytes < Self.batchOutputTarget {
                 guard let next = candidate(cursor) else {
@@ -185,17 +200,23 @@ final class RAR5EntryPrefetcher: @unchecked Sendable {
                     if members.isEmpty { cursor += 1; continue }
                     break
                 }
-                let needed = heldBytes + outputBytes + next.outputSize + 1
-                    + max(scratchBytes, next.scratchBytes)
-                guard needed <= memoryBudget else { break }
+                var nextSpan = packedSpan
+                nextSpan.append(next)
+                let available = memoryBudget - heldBytes - outputBytes
+                let nextOutput = next.outputSize + 1
+                let nextScratch = max(scratchBytes, next.scratchBytes)
+                guard nextOutput <= available,
+                      nextScratch <= available - nextOutput,
+                      nextSpan.byteCount <= available - nextOutput - nextScratch else { break }
                 members.append(next)
                 outputBytes += next.outputSize + 1
-                scratchBytes = max(scratchBytes, next.scratchBytes)
+                scratchBytes = nextScratch
+                packedSpan = nextSpan
                 cursor += 1
             }
             guard !members.isEmpty else { break }
             let batch = Batch(members: members)
-            let reserved = outputBytes + scratchBytes
+            let reserved = outputBytes + scratchBytes + packedSpan.byteCount
             heldBytes += reserved
             batch.reservation = Reservation(owner: self, bytes: reserved)
             batches.append(batch)
@@ -222,8 +243,10 @@ final class RAR5EntryPrefetcher: @unchecked Sendable {
             if !batch.discarded { runningBatches -= 1 }
             if !abandoned, !batch.discarded, outputs.count == batch.members.count {
                 batch.outputs = outputs
+                batch.remaining = outputs.reduce(0) { $0 + ($1 == nil ? 0 : 1) }
             } else {
                 batch.outputs = nil
+                batch.remaining = 0
             }
             condition.broadcast()
             condition.unlock()
@@ -266,7 +289,9 @@ final class RAR5EntryPrefetcher: @unchecked Sendable {
 
     // Test hooks.
     var liveBatchCount: Int { condition.withLock { batches.count } }
+    var runningBatchCount: Int { condition.withLock { runningBatches } }
     var heldByteCount: Int { condition.withLock { heldBytes } }
+    var servedMemberCount: Int { condition.withLock { servedMembers } }
 }
 
 /// The packed bodies of one prefetch batch, read from their shared file with a
@@ -285,38 +310,69 @@ final class PrefetchedPackedSpan: ByteSource {
         self.base = base
     }
 
-    /// Reads the span when every member has one packed segment in the same
-    /// file, the segments are in order, and the span is not mostly gaps.
-    static func read(members: [RAR5EntryPrefetcher.Candidate], records: [RAR5EntryRecord]) -> PrefetchedPackedSpan? {
-        guard members.count >= 2, let firstRecord = records[members[0].index].packedSegments.first,
-              let file = firstRecord.source as? FileByteSource else { return nil }
-        var end = firstRecord.offset
-        var packed: UInt64 = 0
-        for member in members {
-            let segments = records[member.index].packedSegments
-            guard segments.count == 1, let segment = segments.first,
-                  let segmentFile = segment.source as? FileByteSource, segmentFile === file,
-                  segment.offset >= end else { return nil }
-            end = segment.offset + segment.length
-            packed += segment.length
-        }
-        let span = end - firstRecord.offset
-        guard span <= UInt64(maximumSpan), span <= packed * 2 + 1_024 * 1_024, end <= file.length,
-              let count = Int(exactly: span), count > 0 else { return nil }
-        var bytes = Data(count: count)
-        let read = bytes.withUnsafeMutableBytes { destination -> Int in
-            var filled = 0
-            while filled < count {
-                guard let actual = try? file.read(
-                    into: UnsafeMutableRawBufferPointer(rebasing: destination[filled...]),
-                    at: firstRecord.offset + UInt64(filled)
-                ), actual > 0 else { return filled }
-                filled += actual
+    /// Incremental planning keeps batch assembly linear in its member count.
+    /// Scheduling and reading use the same eligibility and byte count so the
+    /// complete packed allocation is reserved before a worker starts.
+    struct Plan {
+        private var file: FileByteSource?
+        private var base: UInt64 = 0
+        private var end: UInt64 = 0
+        private var packed: UInt64 = 0
+        private var members = 0
+        private var eligible = true
+
+        mutating func append(_ member: RAR5EntryPrefetcher.Candidate) {
+            members += 1
+            guard eligible else { return }
+            guard let segment = member.packedSegment,
+                  let segmentFile = segment.source as? FileByteSource else { eligible = false; return }
+            if members == 1 {
+                file = segmentFile
+                base = segment.offset
+                end = base
             }
-            return filled
+            let (nextEnd, endOverflow) = segment.offset.addingReportingOverflow(segment.length)
+            let (nextPacked, packedOverflow) = packed.addingReportingOverflow(segment.length)
+            guard segmentFile === file, segment.offset >= end, !endOverflow, !packedOverflow else {
+                eligible = false; return
+            }
+            end = nextEnd
+            packed = nextPacked
         }
-        guard read == count else { return nil }
-        return PrefetchedPackedSpan(bytes: bytes, base: firstRecord.offset)
+
+        var byteCount: Int {
+            guard eligible, members >= 2, let file else { return 0 }
+            let span = end - base
+            // Once span is bounded, the gap test cannot overflow.
+            guard span > 0, span <= UInt64(maximumSpan), end <= file.length,
+                  span <= min(packed, UInt64(maximumSpan)) * 2 + 1_024 * 1_024 else { return 0 }
+            return Int(span)
+        }
+
+        func read() -> PrefetchedPackedSpan? {
+            let count = byteCount
+            guard count > 0, let file else { return nil }
+            var bytes = Data(count: count)
+            let read = bytes.withUnsafeMutableBytes { destination -> Int in
+                var filled = 0
+                while filled < count {
+                    guard let actual = try? file.read(
+                        into: UnsafeMutableRawBufferPointer(rebasing: destination[filled...]),
+                        at: base + UInt64(filled)
+                    ), actual > 0 else { return filled }
+                    filled += actual
+                }
+                return filled
+            }
+            guard read == count else { return nil }
+            return PrefetchedPackedSpan(bytes: bytes, base: base)
+        }
+    }
+
+    static func read(members: [RAR5EntryPrefetcher.Candidate]) -> PrefetchedPackedSpan? {
+        var plan = Plan()
+        for member in members { plan.append(member) }
+        return plan.read()
     }
 
     func covers(_ offset: UInt64, length: UInt64) -> Bool {

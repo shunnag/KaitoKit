@@ -202,6 +202,40 @@ final class SevenZipFolderPrefetchTests: XCTestCase {
         }
     }
 
+    func testBudgetThatFitsOnlyThreeFoldersStillMakesPrefetchProgress() throws {
+        try XCTSkipIf(LeafDecodePool.shared.capacity < 2, "needs two workers")
+        let budget = (1 << 19) + 4 * 1_024 + 3 // LZMA2 scratch + three outputs and their end bytes.
+        for corrupt in [false, true] {
+            var fixture = Fixture.make(sizes: Array(repeating: 1_024, count: 40))
+            if corrupt {
+                fixture.entryCRCs[5]! ^= 1
+                fixture.packed[17][0] = 3
+            }
+            let archive = fixture.archive()
+            for threads in [2, 8] {
+                for chunk in [1, 4_099, 65_536] {
+                    let serial = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 1))
+                    let reader = try SevenZipReader(
+                        source: DataByteSource(archive),
+                        options: ReaderOptions(limits: ReadLimits(parallelDecodeMemory: UInt64(budget)), decodeThreads: threads)
+                    )
+                    for (index, entry) in reader.entries.enumerated() {
+                        let expected = outcome(serial, entry: serial.entries[index], chunk: chunk)
+                        if !corrupt { XCTAssertEqual(expected.bytes, fixture.payloads[index]); XCTAssertNil(expected.error) }
+                        XCTAssertEqual(outcome(reader, entry: entry, chunk: chunk), expected,
+                                       "entry \(index), threads \(threads), chunk \(chunk), corrupt \(corrupt)")
+                        if let statistics = reader.prefetchStatistics { XCTAssertLessThanOrEqual(statistics.heldBytes, budget) }
+                    }
+                    let statistics = try XCTUnwrap(reader.prefetchStatistics)
+                    XCTAssertGreaterThan(statistics.servedFolders, fixture.payloads.count / 2,
+                                         "individually eligible folders must still be prefetched with a small budget")
+                    XCTAssertGreaterThan(statistics.batches, 1)
+                    XCTAssertEqual(statistics.heldBytes, 0)
+                }
+            }
+        }
+    }
+
     /// 先行復号は folder の出力を丸ごと保持するので、大きな folder（prefetchMaxUnitBytes 超）と
     /// maxInMemorySize を超える folder は投入せず、従来の経路に任せる。境界は「以下」。
     func testLargeFoldersAndMaxInMemorySizeStayOnSerialPath() throws {

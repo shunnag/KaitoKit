@@ -18,6 +18,7 @@
   M4 Max の 1 thread で 158 MiB の `small.single.tar.xz` が user 0.73 → 0.61 s、256 MiB の text が
   1.12 → 0.89 s、非圧縮性 256 MiB が 0.20 → 0.14 s（複数 block の並列復号も user 時間が 15〜30% 減）。
 - LZMA2 の非圧縮 chunk を、`Data` を介さず 64 KiB の一時領域へ直接写す（`ByteReader.read(into:)`）。
+- RAR5・非 solid 7z・`.xz` の entry stream を開くタスクを取り消すと、`CancellationError` が返る場合がある。
 
 ### 修正
 

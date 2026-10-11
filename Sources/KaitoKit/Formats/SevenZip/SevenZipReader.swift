@@ -38,6 +38,8 @@ final class SevenZipReader: FormatReader {
     // 後方へ戻ったら捨てる。reader の境界を越えて共有しない（reopened は新しく作る）。
     private var prefetcher: SevenZipFolderPrefetcher?
     private var prefetchCursor = 0
+    /// 予算が既存の batch に使われている間、組み直さず次の投入を待つ。
+    private var pendingPrefetchBatch: SevenZipFolderPrefetcher.Batch?
     private var lastStreamedEntryIndex: Int?
     private var readsForward = false
     /// 一つの葉にまとめる folder 群の出力の目標と個数の上限。
@@ -286,6 +288,7 @@ final class SevenZipReader: FormatReader {
             if entry.index < last {
                 prefetcher?.reset()
                 prefetchCursor = 0
+                pendingPrefetchBatch = nil
                 readsForward = false
             } else if entry.index > last {
                 readsForward = true
@@ -302,28 +305,41 @@ final class SevenZipReader: FormatReader {
     }
 
     /// cursor から先の record を見て、対象になる folder を batch にまとめて投入する。
-    /// cursor は単調に進み、各 record は一度だけ見る。
+    /// cursor は単調に進み、投入待ちの batch の record は再走査しない。
     private func schedulePrefetch(_ prefetcher: SevenZipFolderPrefetcher, from start: Int) throws {
         prefetchCursor = max(prefetchCursor, start)
         guard let streams else { return }
+        if let pending = pendingPrefetchBatch {
+            if pending.lastEntryIndex < start - 1 {
+                pendingPrefetchBatch = nil
+            } else {
+                guard prefetcher.submit(pending) else { return }
+                pendingPrefetchBatch = nil
+            }
+        }
         while prefetchCursor < records.count, prefetcher.canSubmitMore {
             var units: [SevenZipFolderPrefetcher.Unit] = []
             var outputBytes = 0
+            var scratchBytes = 0
             while prefetchCursor < records.count,
                   outputBytes < Self.prefetchBatchBytes, units.count < Self.prefetchBatchUnits {
                 let index = prefetchCursor
                 try checkCancellation(every: index)
                 if let unit = try prefetchUnit(forRecordAt: index, streams: streams, prefetcher: prefetcher) {
+                    let scratch = max(scratchBytes, unit.scratchBytes)
+                    // 各 unit が入っても、その出力の和が予算を超える前に batch を閉じる。
+                    guard unit.outputSize + 1 <= prefetcher.memoryBudget - outputBytes - scratch else { break }
                     units.append(unit)
-                    outputBytes += unit.outputSize
+                    outputBytes += unit.outputSize + 1
+                    scratchBytes = scratch
                 }
                 prefetchCursor = index + 1
             }
             guard !units.isEmpty else { return }
             let batch = try SevenZipFolderPrefetcher.Batch(units: units)
             guard prefetcher.submit(batch) else {
-                // 予算か枠に収まらない。次の順方向の読みで cursor から改めて組む。
-                prefetchCursor = batch.firstEntryIndex
+                // 既存の batch が予算か枠を使っている。record を再走査せず投入だけを再試行する。
+                pendingPrefetchBatch = batch
                 return
             }
         }

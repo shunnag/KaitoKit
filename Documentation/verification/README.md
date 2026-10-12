@@ -8,6 +8,7 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-10-12-rar5-prefetch-window.md](2026-10-12-rar5-prefetch-window.md) | 2026-10-12 | RAR5 先行復号の保持上限、構造による回帰テスト、Intel の tar 差分 fuzz の時間上限 | v0.14.1 |
 | [2026-10-11-decode-performance.md](2026-10-11-decode-performance.md) | 2026-10-11 | 7z / RAR5 の先行復号、自前 LZMA2 の `.xz`、LZMA core・zstd の A/B 計測、224通りの SHA 一致、壊れた入力の照合 | db78268 |
 | [2026-10-10-decode-performance.md](2026-10-10-decode-performance.md) | 2026-10-10 | 復号並列数・decoder・展開 I/O の A/B 計測、56 書庫の SHA 一致、peak RSS と既知の性能後退 | 7307881 |
 | [2026-09-29-parallel-decoders.md](2026-09-29-parallel-decoders.md) | 2026-09-29 | 圧縮 tar の staging の並列復号（xz の block 並列 `ParallelXZDecompressor`、単一 stream bzip2 の block 単位 `Bzip2BlockScanner`）の計測と判断の記録 | v0.12.0 |

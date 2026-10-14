@@ -4,19 +4,151 @@ name: CI
 # Swift 6.3.3 の -O は TaskLocal<function?> の withValue を誤コンパイルする
 # （valueType metadata が nil、EXC_BAD_ACCESS。GyoshukuKit の 2026-10-08 probe で確認）。
 # macos-26 / macos-26-intel は Xcode 27 で build した test をコンパイルせず実行する。
-# push は main と tag だけにする。PR ブランチへの push でも起動すると
-# pull_request と合わせて同じ commit に 6 job × 2 が走る(2026-09-11 PR #5 で確認)。
+# push は main だけにする。PR ブランチへの push でも起動すると
+# pull_request と合わせて同じ commit に job が二重に走る(2026-09-11 PR #5 で確認)。
+# tag の push では起動しない。tag は PR で検査済みの main の merge commit に付ける。
+# tag と main の二重起動は macos-26-intel の待ちを 30 分超に伸ばした(2026-10-11/12)。
+# 文書だけの変更では起動しない。ただしテストが読む文書は除外しない
+# (Tests/KaitoKitTests/Documentation/DocumentationConsistencyTests.swift)。
+# 一覧は Scripts/ci/check_paths_filter.py が plan job で検査する。push と pull_request で同じ一覧にする。
 on:
   push:
     branches: [main]
-    tags: ['*']
+    paths:
+      - '**'
+      - '!Documentation/**'
+      - 'Documentation/formats.md'
+      - 'Documentation/verification/README.md'
+      - 'Documentation/verification/2026-09-19-release-review.md'
+      - 'Documentation/verification/2026-09-22-dmg.md'
+      - 'Documentation/verification/2026-09-22-hfsplus-decmpfs.md'
+      - 'Documentation/verification/2026-09-22-release-review-0.8.1.md'
+      - 'Documentation/verification/2026-09-22-release-review-0.9.0.md'
+      - 'Documentation/verification/2026-09-22-rpm-stripped-payload.md'
+      - 'Documentation/verification/2026-09-22-sevenzip-deflate64.md'
+      - 'Documentation/verification/2026-09-22-small-method-gaps.md'
   pull_request:
+    paths:
+      - '**'
+      - '!Documentation/**'
+      - 'Documentation/formats.md'
+      - 'Documentation/verification/README.md'
+      - 'Documentation/verification/2026-09-19-release-review.md'
+      - 'Documentation/verification/2026-09-22-dmg.md'
+      - 'Documentation/verification/2026-09-22-hfsplus-decmpfs.md'
+      - 'Documentation/verification/2026-09-22-release-review-0.8.1.md'
+      - 'Documentation/verification/2026-09-22-release-review-0.9.0.md'
+      - 'Documentation/verification/2026-09-22-rpm-stripped-payload.md'
+      - 'Documentation/verification/2026-09-22-sevenzip-deflate64.md'
+      - 'Documentation/verification/2026-09-22-small-method-gaps.md'
+  workflow_dispatch:
+  schedule:
+    - cron: "17 15 * * *"
+
+# PR では新しい push が古い run を取り消す。main / workflow_dispatch / schedule の run は取り消さない。
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
 
 jobs:
+  # PR で全 CI が通った tree と同じ main の push は heavy job を省く。曖昧なら全部走らせる。
+  plan:
+    runs-on: ubuntu-latest
+    # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
+    timeout-minutes: 5
+    outputs:
+      full: ${{ steps.decide.outputs.full }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check CI tooling and paths filter
+        run: |
+          set -euo pipefail
+          python3 -m py_compile Scripts/ci/test_shards.py Scripts/ci/check_paths_filter.py
+          python3 Scripts/ci/test_shards.py --self-test
+          python3 Scripts/ci/check_paths_filter.py --self-test
+          python3 Scripts/ci/check_paths_filter.py
+      - name: Look up a successful PR for the same tree
+        id: lookup
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          skip=false
+          reason="event=$EVENT: 全 CI"
+          lookup() {
+            if [ "$EVENT" != push ] || [ "$REF" != refs/heads/main ]; then
+              return
+            fi
+            reason="checkout の commit を確認できないため全 CI"
+            local checked_sha tree pulls pr head runs id url count
+            checked_sha="$(git rev-parse HEAD)" || return
+            [ "$checked_sha" = "$SHA" ] || return
+            tree="$(git rev-parse 'HEAD^{tree}')" || return
+            reason="PR の取得に失敗したため全 CI"
+            pulls="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" --jq "[.[] | select(.merged_at != null and .merge_commit_sha == \"$SHA\") | {number, head: .head.sha}]")" || return
+            reason="PR が一意でないため全 CI"
+            pr="$(jq -er 'if length == 1 then .[0].number else empty end | select(type == "number" and . > 0 and . == floor)' <<< "$pulls")" || return
+            head="$(jq -er '.[0].head | select(type == "string" and test("^[0-9a-f]{40}$"))' <<< "$pulls")" || return
+            reason="PR run の取得に失敗したため全 CI"
+            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$head&status=success&per_page=100" --jq '.workflow_runs[] | "\(.id) \(.html_url)"')" || return
+            reason="同じ tree の検査済み記録がないため全 CI"
+            while read -r id url; do
+              [ -n "$id" ] || continue
+              if [[ ! "$id" =~ ^[0-9]+$ ]] || [[ ! "$url" =~ ^https://github\.com/ ]]; then
+                reason="PR run の応答が不正なため全 CI"
+                return
+              fi
+              reason="検査済み記録の取得に失敗したため全 CI"
+              count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts?name=tested-tree-$tree" --jq '[.artifacts[] | select(.expired | not)] | length')" || return
+              if [[ ! "$count" =~ ^[0-9]+$ ]]; then
+                reason="検査済み記録の応答が不正なため全 CI"
+                return
+              fi
+              if [ "$count" -ge 1 ]; then
+                reason="tree $tree は PR #$pr の $url で全 CI 済み。heavy job を省略する。"
+                skip=true
+                return
+              fi
+              reason="同じ tree の検査済み記録がないため全 CI"
+            done <<< "$runs"
+          }
+          lookup || true
+          printf 'skip=%s\n' "$skip" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$reason" >> "$GITHUB_STEP_SUMMARY"
+      # lookup が literal true を返したときだけ省く。失敗・出力欠落では全 CI にする。
+      - name: Decide whether to run the full CI
+        id: decide
+        if: always()
+        env:
+          SKIP: ${{ steps.lookup.outputs.skip }}
+          LOOKUP_OUTCOME: ${{ steps.lookup.outcome }}
+        run: |
+          set -uo pipefail
+          full=true
+          if [ "$LOOKUP_OUTCOME" = success ] && [ "$SKIP" = true ]; then
+            full=false
+          elif [ "$LOOKUP_OUTCOME" != success ]; then
+            printf 'gate の確認に失敗したため全 CI\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          printf 'full=%s\n' "$full" >> "$GITHUB_OUTPUT"
+
   build-and-test:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     runs-on: xcode-27
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
-    timeout-minutes: 90
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v5
       - name: Install differential-test oracles
@@ -49,7 +181,11 @@ jobs:
           grep -Eq "Executed [1-9][0-9]* tests?, with 0 failures" "$RUNNER_TEMP/lha-golden.log"
 
   build-for-macos-26:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     runs-on: xcode-27
+    # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
+    timeout-minutes: 10
     steps:
       # 全 job で同じ checkout path。#filePath の fixture・生成器・文書の絶対 path を保つ。
       - uses: actions/checkout@v5
@@ -225,6 +361,18 @@ jobs:
               else:
                   verify_universal(target)
           PYTHON
+          # test の一覧は Xcode 27 の helper で、運ぶのと同じ bundle から作る。
+          # macos-26 の Xcode 26 helper は Xcode 27 の bundle を load できない前提で扱う。
+          helper="$(dirname "$(xcrun -f swift)")/../libexec/swift/pm/swiftpm-xctest-helper"
+          test -x "$helper"
+          for name in KaitoKitTests KaitoKitCompatTests; do
+            "$helper" "$DEBUG_BIN/$name.xctest" "$RUNNER_TEMP/$name-tests.json"
+          done
+          python3 Scripts/ci/test_shards.py inventory --output "$PACKAGE_STAGE/.build/ci-runtime/test-list.txt" \
+            "$RUNNER_TEMP/KaitoKitTests-tests.json" "$RUNNER_TEMP/KaitoKitCompatTests-tests.json"
+          python3 Scripts/ci/test_shards.py plan-check --inventory "$PACKAGE_STAGE/.build/ci-runtime/test-list.txt"
+          mkdir -p "$RUNNER_TEMP/macos-26-test-inventory"
+          cp "$PACKAGE_STAGE/.build/ci-runtime/test-list.txt" "$RUNNER_TEMP/macos-26-test-inventory/"
           # tar で .build/debug・bundle 内の symlink と実行権限を保つ。object / checkout は含めない。
           tar -czf "$RUNNER_TEMP/macos-26-tests.tar.gz" -C "$PACKAGE_STAGE" .build
       - uses: actions/upload-artifact@v4
@@ -233,17 +381,31 @@ jobs:
           path: ${{ runner.temp }}/macos-26-tests.tar.gz
           if-no-files-found: error
           retention-days: 3
+          overwrite: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-26-test-inventory
+          path: ${{ runner.temp }}/macos-26-test-inventory/test-list.txt
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
 
   macos-26-runtime:
-    name: macOS 26 runtime (${{ matrix.os }})
+    name: macOS 26 runtime (${{ matrix.os }}, ${{ matrix.shard }}/${{ matrix.shards }})
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
-    timeout-minutes: 120
+    # arm64 は約 37 分、x86_64 の各 shard は約 46.4 分(2026-10-14 時点の予測最大)。
+    # Intel は 2 shard にして、定常時の macOS job を最大 4 個にする。
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-26, macos-26-intel]
+        include:
+          - { os: macos-26, shard: all, shards: all, timeout: 75 }
+          - { os: macos-26-intel, shard: '1', shards: '2', timeout: 95 }
+          - { os: macos-26-intel, shard: '2', shards: '2', timeout: 95 }
     runs-on: ${{ matrix.os }}
-    needs: build-for-macos-26
+    needs: [plan, build-for-macos-26]
+    if: needs.plan.outputs.full == 'true'
     steps:
       - uses: actions/checkout@v5
       - name: Install differential-test oracles
@@ -258,12 +420,15 @@ jobs:
           tar -xzf "$RUNNER_TEMP/macos-26-artifact/macos-26-tests.tar.gz" -C "$GITHUB_WORKSPACE"
           # #filePath の build 時 path と一致することも検査する。
           test "$(cat .build/ci-runtime/checkout-path.txt)" = "$(pwd -P)"
-      - name: Run both suites and LHA golden without compiling
+      - name: Run tests and LHA golden without compiling
         env:
           KAITO_REQUIRE_7ZZ: "1"
           KAITO_REQUIRE_XZ: "1"
           KAITO_REQUIRE_BROTLI: "1"
           KAITO_REQUIRE_ZSTD: "1"
+          MATRIX_OS: ${{ matrix.os }}
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ matrix.shards }}
         run: |
           set -euo pipefail
           sw_vers
@@ -289,24 +454,82 @@ jobs:
             grep -Eq "Executed [1-9][0-9]* tests?, with 0 failures" "$log"
           }
 
-          run_tests kaitokit "$PWD/$(cat "$runtime/KaitoKitTests-bundle.txt")"
-          # checkout 内の build 済み tool の欠落による skip は artifact の不備として失敗にする。
+          plan() { python3 Scripts/ci/test_shards.py "$@"; }
+          inventory="$runtime/test-list.txt"
+          shard_args=(--inventory "$inventory" --os "$MATRIX_OS" --shard "$SHARD" --shards "$SHARDS")
+          summary="$RUNNER_TEMP/shard-summary"
+          mkdir -p "$summary"
+          kaitokit_bundle="$PWD/$(cat "$runtime/KaitoKitTests-bundle.txt")"
+          if [ "$SHARD" = all ]; then
+            run_tests kaitokit "$kaitokit_bundle"
+          else
+            selector="$(plan select "${shard_args[@]}" --module KaitoKitTests)"
+            run_tests kaitokit "$kaitokit_bundle" -XCTest "$selector"
+          fi
+          # checkout 内の build 済み tool の欠落による skip は artifact の不備として失敗にする(全 shard)。
           if grep -F "required fixture tool is unavailable: $(pwd -P)/.build/" "$RUNNER_TEMP/kaitokit-bundled.log"; then
             echo "error: packaged fixture tool is unavailable" >&2
             exit 1
           fi
-          run_tests compat "$PWD/$(cat "$runtime/KaitoKitCompatTests-bundle.txt")"
-          export TZ=Asia/Tokyo KAITO_REQUIRE_LHA_GOLDEN=1
-          run_tests lha-golden "$PWD/$(cat "$runtime/KaitoKitTests-bundle.txt")" \
-            -XCTest KaitoKitTests.LHARawLayoutTests,KaitoKitTests.LHARawLayoutSPIImportTests,KaitoKitTests.LHAPublicValueGoldenTests
-          grep -q 'LHA-GOLDEN Step0=31 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden-bundled.log"
-          grep -q 'LHA-GOLDEN existing=3 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden-bundled.log"
+          # 選んだ class が全て1回ずつ走り、件数が一覧と一致することを確かめる。
+          plan verify "${shard_args[@]}" --module KaitoKitTests \
+            --log "$RUNNER_TEMP/kaitokit-bundled.log" --output "$summary/kaitokit.json"
+          # compat と LHA golden は arm64 と x86_64 の補集合(shard 2/2)で1回ずつ実行する。
+          if [ "$SHARD" = all ] || [ "$SHARD" = "$SHARDS" ]; then
+            run_tests compat "$PWD/$(cat "$runtime/KaitoKitCompatTests-bundle.txt")"
+            plan verify --inventory "$inventory" --os "$MATRIX_OS" --shard all --shards all --module KaitoKitCompatTests \
+              --log "$RUNNER_TEMP/compat-bundled.log" --output "$summary/compat.json"
+            export TZ=Asia/Tokyo KAITO_REQUIRE_LHA_GOLDEN=1
+            run_tests lha-golden "$kaitokit_bundle" \
+              -XCTest KaitoKitTests.LHARawLayoutTests,KaitoKitTests.LHARawLayoutSPIImportTests,KaitoKitTests.LHAPublicValueGoldenTests
+            grep -q 'LHA-GOLDEN Step0=31 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden-bundled.log"
+            grep -q 'LHA-GOLDEN existing=3 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden-bundled.log"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-26-shard-summary-${{ matrix.os }}-${{ matrix.shard }}-of-${{ matrix.shards }}
+          path: ${{ runner.temp }}/shard-summary/
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
+      # 失敗時は shard ごとの xctest log を残す。
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-26-logs-${{ matrix.os }}-${{ matrix.shard }}-of-${{ matrix.shards }}
+          path: ${{ runner.temp }}/*-bundled.log
+          if-no-files-found: ignore
+          retention-days: 7
+          overwrite: true
+
+  macos-26-runtime-coverage:
+    needs: [plan, macos-26-runtime]
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-26-test-inventory
+          path: ${{ runner.temp }}/inventory
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: macos-26-shard-summary-*
+          path: ${{ runner.temp }}/summaries
+      # 全 class が arm64 で1回、x86_64 の shard の合計で1回ずつ走ったことを確かめる。
+      - run: python3 Scripts/ci/test_shards.py coverage --inventory "$RUNNER_TEMP/inventory/test-list.txt" --summaries "$RUNNER_TEMP/summaries"
 
   # 利用側の cooViewer は、このスクリプトが作るフレームワークを組み込む。
   # swift build / swift test が緑でも、ここが壊れると利用側はビルドできない（2026-09 に実際に発生）。
   # cooViewer は自身の CI で Xcode 26 でも build するため、script の旧 module 配置の分岐は残す。
   framework:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     runs-on: xcode-27
+    # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - name: Show toolchain versions
@@ -349,7 +572,11 @@ jobs:
           ls "$modules/"
 
   compressed-payload-mutants:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     runs-on: xcode-27
+    # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - name: Install seed generator
@@ -364,3 +591,27 @@ jobs:
           Scripts/fuzz/make-compressed-seeds.sh "$seed_directory"
           Scripts/fuzz/run-mutants.sh --count 63 --timeout 5 \
             --password KaitoFuzz --require-payload-ranges "$seed_directory"
+
+  # 全 job が通った PR の tree を記録する。main への push はこれを見て heavy job を省く。
+  record-tested-tree:
+    needs: [plan, build-and-test, macos-26-runtime-coverage, framework, compressed-payload-mutants]
+    if: github.event_name == 'pull_request' && needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - id: tree
+        run: |
+          set -euo pipefail
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          printf 'tree=%s\n' "$tree" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/tested-tree"
+          printf 'tree %s\ncommit %s\nrun %s\n' "$tree" "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/tested-tree/tested-tree.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-tree-${{ steps.tree.outputs.tree }}
+          path: ${{ runner.temp }}/tested-tree/tested-tree.txt
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true

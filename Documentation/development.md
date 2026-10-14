@@ -79,6 +79,14 @@ Xcode 27 で universal build した test bundle・`kaito`・xctest と依存 fra
 ユニバーサル framework と両 Swift module の検査、圧縮 payload を含む 63 mutant の
 ASan/UBSan fuzz smoke（timeout 5 秒、password `KaitoFuzz`）も行います。
 
+文書だけの変更では起動しません（テストが読む文書は除き、一覧は `Scripts/ci/check_paths_filter.py` が検査します）。
+tag の push では起動せず、PR の古い run は新しい push で取り消します。
+x86_64 の macOS 26 は class 単位で 2 shard に分け（予測 37–46 分、timeout 95 分）、最後の shard は補集合と compat・LHA golden を実行し、ubuntu の job が全 class の1回ずつの実行を検査します。
+定常時の macOS job は最大 4 個にし、account の同時実行枠 5 個のうち 1 個を KaitoFinder / GyoshukuKit 用に残します。
+PR で全 CI が通った tree と同じ main の push は heavy job を省きます（記録は 7 日）。
+`workflow_dispatch` で全 CI を手動実行できます。
+毎日 15:17 UTC（日本時間 00:17）に全 CI を実行し、schedule の run は取り消しません。
+
 Swift 6.3.3 の `-O` による `TaskLocal<function?>` の誤コンパイルを避けるため、CI の build は Xcode 27 のみです。
 cooViewer が Xcode 26 で使う framework script の旧 module 配置の分岐は残しています。
 背景は [設計書](design.md#ci-と-toolchain2026-10-08) と [CHANGELOG](../CHANGELOG.md#unreleased) を参照してください。

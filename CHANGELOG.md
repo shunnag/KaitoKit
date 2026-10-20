@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-20
+
 ### 追加
 
 - `ReaderOptions.fileAccessPolicy` と `FileAccessPolicy`(`.persistent` / `.bounded`)。`.bounded` は使っていない

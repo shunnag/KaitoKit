@@ -28,9 +28,10 @@ struct OpenedArchiveInput {
     }
 
     /// `.001` から始まるバイト分割巻は、形式検出の前に同じ親の兄弟巻を連結する。
-    static func assemble(url: URL, limits: ReadLimits) throws -> OpenedArchiveInput {
+    static func assemble(url: URL, limits: ReadLimits,
+                         fileAccessPolicy: FileAccessPolicy = .persistent) throws -> OpenedArchiveInput {
         let standardized = url.standardizedFileURL
-        let opened = try FileByteSource.openAnchored(url: standardized)
+        let opened = try FileByteSource.openAnchored(url: standardized, accessPolicy: fileAccessPolicy)
         let split = try SplitVolumeSet.assemble(
             firstVolumeURL: standardized,
             firstVolumeSource: opened.source,

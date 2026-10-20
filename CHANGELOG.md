@@ -6,6 +6,20 @@
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-20
+
+### 追加
+
+- `ReaderOptions.fileAccessPolicy` と `FileAccessPolicy`(`.persistent` / `.bounded`)。`.bounded` は使っていない
+  入力ファイルハンドルを、プロセス共通の LRU に保持する(最大 64 枠、soft limit の 1/4)。再 open 時には device・inode・種類・サイズ・更新時刻を照合し、
+  ファイルが差し替えられていたら `ESTALE` で拒否する。解析結果と solid の復号状態は保持する。大量の書庫を同時に開くホストが、
+  冊数に比例して FD を消費して上限に達するのを防ぐ。既定は従来どおりの `.persistent`。
+- `FileAccessPolicy.releaseIdleCachedHandles()`。実行中の I/O は中断せず、使っていない bounded ハンドルだけを解放する。
+
+### 変更
+
+- 先頭巻の照合と兄弟巻の探索で起きた ENOENT 以外の OS エラー(EMFILE など)を、破損(`malformed`)や「巻なし」として扱わず、`KaitoError.io(errno)` として返す。
+
 ## [0.14.1] - 2026-10-12
 
 ### 修正

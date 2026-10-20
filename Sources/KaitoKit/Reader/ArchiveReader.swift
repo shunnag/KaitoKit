@@ -107,7 +107,8 @@ public final class ArchiveReader {
         url: URL,
         options: ReaderOptions = ReaderOptions()
     ) throws -> ArchiveReader {
-        let input = try OpenedArchiveInput.assemble(url: url, limits: options.limits)
+        let input = try OpenedArchiveInput.assemble(url: url, limits: options.limits,
+                                                   fileAccessPolicy: options.fileAccessPolicy)
         return try ArchiveReader(input: input, options: options)
     }
 

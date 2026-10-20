@@ -92,7 +92,7 @@ enum ZipSplitVolumeSet {
     ) throws -> Assembled? {
         guard let naming = naming(for: url.lastPathComponent), let directory else { return nil }
         // 宣言巻数の上限検査前に追加の openat を行わず、明示 symlink は単独扱いにする。
-        guard directory.matchesRegularFile(source, named: url.lastPathComponent) else { return nil }
+        guard try directory.matchesRegularFile(source, named: url.lastPathComponent) else { return nil }
         let lastSource: FileByteSource
         let lastName: String
         if naming.openedNumber != nil {
@@ -149,7 +149,7 @@ enum ZipSplitVolumeSet {
             }
             if number == 1 { volumePrefix = openedName == name ? naming.prefix : otherPrefix }
             // 別名・差し替えによって、明示した巻と異なる内容を返さない。
-            if number == naming.openedNumber, !segment.hasSameFileIdentity(as: source) {
+            if number == naming.openedNumber, !(try segment.hasSameFileIdentity(as: source)) {
                 throw KaitoError.malformed("ZIP split volume changed during open: \(url.lastPathComponent)")
             }
             volumes.append(try segment.volume(at: parent.appendingPathComponent(openedName)))

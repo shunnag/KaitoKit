@@ -103,6 +103,46 @@ final class RAR5QuickOpenVerificationTests: XCTestCase {
                 + String(quick.headerOffsetForTesting(entry: quick.entries[1]))))
         }
     }
+    func testLyingLaterCopyCannotRedirectHardLink() throws {
+        for hidesMatch in [false, true] {
+            let blocks = [
+                RAR5TestSupport.storedFile(name: "x", contents: Data([1, 2, 3])),
+                RAR5TestSupport.storedFile(name: hidesMatch ? "x" : "y", contents: Data([4, 5, 6])),
+                redirected(4, target: "x", name: "h", size: 0),
+            ]
+            var fixture = try Q.fixture(blocks: blocks)
+            try fixture.changeHeader(1) { header in
+                let fields = try Q.fields(header)
+                header[fields.name.lowerBound] = UInt8(ascii: hidesMatch ? "y" : "x")
+            }
+            let full = try Q.reader(fixture.data(), policy: .never)
+            let quick = try Q.reader(fixture.data())
+            XCTAssertEqual(quick.guardedHeaderCountForTesting, 3)
+            XCTAssertEqual(full.entries[2].formatSpecific["hardLinkTargetIndex"], hidesMatch ? "1" : "0")
+            XCTAssertEqual(quick.entries[2].formatSpecific["hardLinkTargetIndex"], hidesMatch ? "0" : "1")
+            let expected = KaitoError.malformed(Q.mismatchPrefix
+                + String(quick.headerOffsetForTesting(entry: quick.entries[1])))
+            XCTAssertThrowsError(try quick.stream(for: quick.entries[2], limits: ReadLimits())) {
+                XCTAssertEqual($0 as? KaitoError, expected)
+            }
+            XCTAssertThrowsError(try quick.stream(for: quick.entries[0], limits: ReadLimits())) {
+                XCTAssertEqual($0 as? KaitoError, expected)
+            }
+        }
+    }
+    func testUnresolvedHardLinkVerifiesEarlierCopies() throws {
+        var fixture = try Q.fixture(blocks: [
+            RAR5TestSupport.storedFile(name: "x", contents: Data([1])),
+            redirected(4, target: "x", name: "h", size: 0),
+        ])
+        try fixture.changeHeader(0) { header in
+            let fields = try Q.fields(header)
+            header[fields.name.lowerBound] = UInt8(ascii: "y")
+        }
+        let quick = try Q.reader(fixture.data())
+        XCTAssertNil(quick.entries[1].formatSpecific["hardLinkTargetIndex"])
+        Q.assertMismatch(quick, index: 1)
+    }
     func testSecondVolumeSplitFragmentCopyIsVerified() throws {
         let directory = try TarTestSupport.temporaryDirectory()
         let data = Data(repeating: 74, count: 64)

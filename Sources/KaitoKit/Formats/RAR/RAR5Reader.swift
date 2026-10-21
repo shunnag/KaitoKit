@@ -182,9 +182,10 @@ final class RAR5Reader: FormatReader {
             // while listing, so the target's stream (and CRC) is returned as is.
             return try stream(for: entries[targetIndex], limits: limits)
         }
-        if record.redirectionType == RAR5RedirectionType.fileCopy,
+        if (record.redirectionType == RAR5RedirectionType.fileCopy
+            || record.redirectionType == RAR5RedirectionType.hardLink),
            quickOpenVerification.hasAllocatedSlots {
-            // 未解決の copy も、先行する写しが名前・種類・サイズを偽った結果かもしれない。
+            // hard link と未解決の copy も、先行する写しが名前・種類・サイズを偽った結果かもしれない。
             // 空の結果を返す前に参照解決へ影響する全候補を照合する。通常の本文経路は増やさない。
             for previous in records[..<entry.index] { _ = try previous.verifyingHeaders(prime: false) }
         }

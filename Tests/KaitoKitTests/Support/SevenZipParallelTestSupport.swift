@@ -30,13 +30,14 @@ enum SevenZipParallelTestSupport {
                      diagnostics: ParallelIndependentDecompressor.Diagnostics? = nil,
                      source: (any ByteSource)? = nil,
                      avoidsHeaderScans: Bool = false,
-                     resetIndexCache: SevenZipLZMA2ResetIndexCache = SevenZipLZMA2ResetIndexCache()) throws -> SevenZipFolderDecoderFactory {
+                     resetIndexCache: SevenZipLZMA2ResetIndexCache = SevenZipLZMA2ResetIndexCache(),
+                     scanClock: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }) throws -> SevenZipFolderDecoderFactory {
             try SevenZipFolderDecoderFactory(source: source ?? DataByteSource(packed), folder: folder,
                 packedRanges: [0: SevenZipPackRange(offset: 0, size: UInt64(packed.count),
                                                    digest: SevenZipDigest(value: nil))],
                 limits: limits, password: nil, keyCache: SevenZipAESKeyCache(),
                 maximumAESCyclesPower: 24, workers: workers, parallelDiagnostics: diagnostics,
-                resetIndexCache: resetIndexCache, avoidsHeaderScans: avoidsHeaderScans)
+                resetIndexCache: resetIndexCache, avoidsHeaderScans: avoidsHeaderScans, scanClock: scanClock)
         }
 
         func archive() -> Data {

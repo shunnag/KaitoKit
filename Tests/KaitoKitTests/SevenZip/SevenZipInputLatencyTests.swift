@@ -13,11 +13,11 @@ final class SevenZipInputLatencyTests: XCTestCase {
     private func scans(_ source: RecordingSource, offset: UInt64 = 1) -> Int {
         source.reads.filter { $0.count == 1 && $0.offset == offset }.count
     }
-    func testHighUsesObservedIndexWithoutScanningInBothOrders() throws {
+    func testHighSingleWorkerUsesObservedIndexWithoutScanningInBothOrders() throws {
         var fixture = SevenZipParallelTestSupport.raw(); fixture.folderCRC = nil
         for order in [[3, 1, 0, 2], [0, 3, 2, 1]] {
             let source = RecordingSource(DataByteSource(fixture.packed)), cache = SevenZipLZMA2ResetIndexCache()
-            let factory = try fixture.factory(workers: 16, source: source, avoidsHeaderScans: true, resetIndexCache: cache)
+            let factory = try fixture.factory(workers: 1, source: source, avoidsHeaderScans: true, resetIndexCache: cache)
             let coordinator = SevenZipFolderCoordinator(factory: factory)
             var previous = -1
             for index in order {
@@ -95,12 +95,13 @@ final class SevenZipInputLatencyTests: XCTestCase {
                 source.reset()
                 _ = try read(coordinator, offset: 0, length: 1)
                 XCTAssertEqual(coordinator.lastBackwardRestart, .head)
+                XCTAssertEqual(scans(source), 0)
                 if corrupt {
                     XCTAssertThrowsError(try read(coordinator, offset: 1, length: fixture.output.count - 1)) {
                         XCTAssertEqual($0 as? KaitoError, .checksumMismatch(entry: -1))
                     }
                 } else { XCTAssertEqual(try read(coordinator, offset: 1, length: fixture.output.count - 1), fixture.output.dropFirst()) }
-                XCTAssertEqual(scans(source), 0)
+                XCTAssertEqual(scans(source), high ? 1 : 0)
             }
         }
     }
@@ -161,7 +162,7 @@ final class SevenZipInputLatencyTests: XCTestCase {
             XCTAssertEqual(try reader.read(reader.entries[0]), payload)
         }
     }
-    func testConcatenatedHintedArchiveMatchesSevenZipInRandomOrderWithoutScan() throws {
+    func testConcatenatedHintedArchiveMatchesSevenZipInRandomOrderWithDeferredScan() throws {
         try SevenZipTestSupport.requireSevenZip()
         let directory = try SevenZipTestSupport.temporaryDirectory(), archive = directory.appendingPathComponent("multi.7z")
         let names = (0..<6).map { "entry-\($0).bin" }
@@ -184,12 +185,13 @@ final class SevenZipInputLatencyTests: XCTestCase {
             generator = generator &* 6364136223846793005 &+ 1
             order.swapAt(index, Int(generator % UInt64(index + 1)))
         }
-        for index in order + order.reversed() {
+        for (step, index) in (order + order.reversed()).enumerated() {
             let entry = reader.entries[index]
             let expected = try SevenZipTestSupport.checkedRun(arguments: ["e", "-so", "-bd", "-bb0", "-y", archive.path, entry.name]).standardOutput
             XCTAssertEqual(try reader.read(entry), expected)
+            if step == 0 { XCTAssertEqual(scans(source, offset: 33), 0) }
         }
-        XCTAssertEqual(scans(source, offset: 33), 0)
+        XCTAssertEqual(scans(source, offset: 33), 1)
     }
     func testSeededRandomReadsAndMutationsMatchSerialReference() throws {
         var seed: UInt64 = 7401

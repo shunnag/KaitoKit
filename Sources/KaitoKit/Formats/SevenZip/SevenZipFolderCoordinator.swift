@@ -27,6 +27,12 @@ final class SevenZipFolderCoordinator {
         guard end <= factory.finalSize else {
             throw KaitoError.malformed("7z substream exceeds its folder")
         }
+        // 次の順方向要求まで走査を遅らせ、初回ページの応答時間を保つ。
+        // 成功時は既存の並列経路で先頭から CRC と filter state を作り直す。
+        if generation > 0, position > 0, offset >= position, decoder != nil,
+           try factory.prepareDeferredParallelDecode() {
+            try restart()
+        }
         generation = try Checked.add(generation, 1)
         if decoder == nil {
             if completionVerified, offset < position {

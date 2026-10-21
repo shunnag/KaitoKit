@@ -32,7 +32,8 @@ struct LZMA2ResetPoint: Sendable, Equatable {
     }
 }
 
-// 直列 decoder の検証済み chunk だけを reader 内の cache に伝える。
+// 直列復号またはヘッダ走査で観測した chunk の位置と大きさを reader 内の cache に伝える。
+// 走査では本文を復号せず、chunk header と入力・出力範囲の構造を確かめる。
 final class LZMA2ResetObserver {
     let cache: SevenZipLZMA2ResetIndexCache
     let base: UInt64
@@ -276,12 +277,14 @@ public final class LZMA2Decoder: Decompressor {
         compressedSize: UInt64,
         expectedSize: UInt64?,
         maximumPointCount: Int,
-        singleResetOutputLimit: UInt64
+        singleResetOutputLimit: UInt64,
+        observer: LZMA2ResetObserver? = nil
     ) throws -> [LZMA2ResetPoint]? {
         try scanDictionaryResetIndex(
             source: source, offset: offset, compressedSize: compressedSize,
             expectedSize: expectedSize, maximumPointCount: maximumPointCount,
-            singleResetOutputLimit: singleResetOutputLimit, checksCancellation: true
+            singleResetOutputLimit: singleResetOutputLimit, checksCancellation: true,
+            observer: observer
         )
     }
 
@@ -294,7 +297,8 @@ public final class LZMA2Decoder: Decompressor {
         expectedSize: UInt64?,
         maximumPointCount: Int,
         singleResetOutputLimit: UInt64?,
-        checksCancellation: Bool
+        checksCancellation: Bool,
+        observer: LZMA2ResetObserver? = nil
     ) throws -> [LZMA2ResetPoint]? {
         guard maximumPointCount >= 0 else {
             throw KaitoError.limitExceeded("too many LZMA2 dictionary reset points")
@@ -363,6 +367,9 @@ public final class LZMA2Decoder: Decompressor {
                 )
                 let next = try Checked.add(reader.offset, size)
                 guard next <= endOffset else { throw KaitoError.truncated }
+                try observer?.observe(controlOffset: controlOffset, position: outputOffset - size,
+                                      size: size, resetsDictionary: resetsDictionary,
+                                      properties: currentLZMAProperties)
                 try reader.seek(to: next)
 
             case let .compressed(unpackedSize, packedSize, resetsDictionary, _, properties):
@@ -392,6 +399,9 @@ public final class LZMA2Decoder: Decompressor {
                 )
                 let next = try Checked.add(reader.offset, packedSize)
                 guard next <= endOffset else { throw KaitoError.truncated }
+                try observer?.observe(controlOffset: controlOffset, position: outputOffset - unpackedSize,
+                                      size: unpackedSize, resetsDictionary: resetsDictionary,
+                                      properties: currentLZMAProperties)
                 try reader.seek(to: next)
             }
         }

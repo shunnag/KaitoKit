@@ -234,6 +234,7 @@ final class SevenZipFolderDecoderFactory {
     private let packedStreamVerifier: SevenZipPackedStreamVerifier
     private let maximumAESCyclesPower: UInt8
     private let avoidsHeaderScans: Bool
+    private let scanClock: @Sendable () -> UInt64
     private(set) var lastBackwardRestartKind: BackwardRestartKind?
     private let workers: Int
     private let parallelDiagnostics: ParallelIndependentDecompressor.Diagnostics?
@@ -251,7 +252,8 @@ final class SevenZipFolderDecoderFactory {
         workers: Int = 1,
         parallelDiagnostics: ParallelIndependentDecompressor.Diagnostics? = nil,
         resetIndexCache: SevenZipLZMA2ResetIndexCache = SevenZipLZMA2ResetIndexCache(),
-        avoidsHeaderScans: Bool = false
+        avoidsHeaderScans: Bool = false,
+        scanClock: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
     ) throws {
         guard folder.unpackSizes.count == folder.outputCount,
               folder.finalOutputIndex >= 0,
@@ -268,6 +270,7 @@ final class SevenZipFolderDecoderFactory {
             ?? SevenZipPackedStreamVerifier(source: source)
         self.maximumAESCyclesPower = maximumAESCyclesPower
         self.avoidsHeaderScans = avoidsHeaderScans
+        self.scanClock = scanClock
         self.workers = workers
         self.parallelDiagnostics = parallelDiagnostics
         self.resetIndexCache = resetIndexCache
@@ -398,7 +401,9 @@ final class SevenZipFolderDecoderFactory {
             case .lzma2:
                 try requireArity(coder, inputs: 1)
                 let input = try byteInput(coder.firstInput)
-                if workers > 1, let units = try parallelUnitsIfAvailable(),
+                // 高遅延入力の初回要求では走査しない。次の順方向要求が作った unit だけを使う。
+                if workers > 1, (!avoidsHeaderScans || resetIndexCache.parallelUnits != nil),
+                   let units = try parallelUnitsIfAvailable(),
                    let parallel = ParallelIndependentDecompressor(
                     units: units, limits: limits, workers: workers,
                     diagnostics: parallelDiagnostics, coalescingReads: true
@@ -604,10 +609,15 @@ final class SevenZipFolderDecoderFactory {
             if forParallelDecode {
                 let dictionarySize = try LZMA2Decoder.dictionarySize(for: coder.properties[0])
                 let searchLimit = max(try Checked.mul(dictionarySize, 4), 64 * 1_024 * 1_024)
+                let scanSource: any ByteSource = avoidsHeaderScans
+                    ? LZMA2TimedScanSource(source: source, clock: scanClock) : source
                 index = try LZMA2Decoder.makeParallelDictionaryResetIndex(
-                    source: source, offset: range.offset, compressedSize: range.size,
+                    source: scanSource, offset: range.offset, compressedSize: range.size,
                     expectedSize: finalSize, maximumPointCount: maximumPointCount,
-                    singleResetOutputLimit: searchLimit
+                    singleResetOutputLimit: searchLimit,
+                    observer: avoidsHeaderScans
+                        ? LZMA2ResetObserver(cache: resetIndexCache, base: 0,
+                                            maximumPointCount: maximumPointCount) : nil
                 )
             } else {
                 index = try LZMA2Decoder.makeDictionaryResetIndex(
@@ -617,6 +627,10 @@ final class SevenZipFolderDecoderFactory {
             }
             resetIndexCache.index = .success(index)
             return index
+        } catch is LZMA2TimedScanSource.TooSlow {
+            // 完全な index にはしない。中断前にヘッダから観測した reset 点は後方 seek に残す。
+            resetIndexCache.index = .success(nil)
+            return nil
         } catch is CancellationError {
             // 中断した走査は未完了なので、次の要求が改めて作れるようにする。
             throw CancellationError()
@@ -663,6 +677,13 @@ final class SevenZipFolderDecoderFactory {
         }
     }
 
+    // 初回の直列ページを返した後、次の順方向要求で一度だけ並列化を試す。
+    // 同じ隔離ドメインで同期実行し、観測 cache を worker と共有しない。
+    func prepareDeferredParallelDecode() throws -> Bool {
+        guard avoidsHeaderScans, workers > 1, resetIndexCache.parallelUnits == nil else { return false }
+        return try parallelUnitsIfAvailable() != nil
+    }
+
     func parallelUnits() throws -> [ParallelIndependentDecompressor.Unit]? {
         if let units = resetIndexCache.parallelUnits { return try units.get() }
         do {
@@ -680,7 +701,6 @@ final class SevenZipFolderDecoderFactory {
     private func makeParallelUnits() throws -> [ParallelIndependentDecompressor.Unit]? {
         guard let coder = parallelLZMA2Coder, coder.properties.count == 1,
               let range = packedRanges[coder.firstInput] else { return nil }
-        guard !avoidsHeaderScans else { return nil }
         let dictionarySize = try LZMA2Decoder.dictionarySize(for: coder.properties[0])
         try Checked.size(dictionarySize, limit: limits.maxDictionarySize)
         // 宣言辞書 + ByteReader、raw chunk、一時 copy、確率表、range coder の先読み。

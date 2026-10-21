@@ -23,13 +23,26 @@ final class RAR5Reader: FormatReader {
     private let sourceURL: URL?
     private let options: ReaderOptions
     private let records: [RAR5EntryRecord]
+    private let quickOpenVerification: RAR5QuickOpenVerification
     private let solidGroupMembers: [Int: [Int]]
+    private let solidGroupExcludedMembers: [Int: [Int]]
     private let keyCache = RAR5KeyCache()
     // Independent members recycle decoder windows and tables through this pool.
     private let scratchPool: RAR5Decoder.ScratchPool
     private var password: String?
     private var solidCoordinators: [Int: RARSolidCoordinator<RAR5Decoder.SolidState>] = [:]
     private var activeSolidGroup: Int?
+    // factory は coordinator.stream の同期呼出し中だけ、この照合済み先読みを受け取る。
+    private final class SolidPriming {
+        var index: Int?
+        var record: RAR5EntryRecord?
+        func take(_ index: Int) -> RAR5EntryRecord? {
+            guard self.index == index else { return nil }
+            defer { self.record = nil; self.index = nil }
+            return record
+        }
+    }
+    private let solidPriming = SolidPriming()
     // Decodes later independent members on the leaf pool; nil below two workers.
     private lazy var prefetcher: RAR5EntryPrefetcher? = makePrefetcher()
     // Test hook: creates the prefetcher if the first stream has not yet.
@@ -68,7 +81,10 @@ final class RAR5Reader: FormatReader {
         )
         self.entries = parsed.entries
         self.records = parsed.records
-        self.solidGroupMembers = Self.indexSolidGroups(parsed.entries)
+        self.quickOpenVerification = parsed.records.lazy.flatMap(\.headerGuards).compactMap { $0 }.first?.verification ?? RAR5QuickOpenVerification()
+        let groups = Self.indexSolidGroups(parsed.entries)
+        self.solidGroupMembers = groups
+        self.solidGroupExcludedMembers = Self.indexSolidGroupExclusions(groups, records: parsed.records)
         self.password = parsed.password
     }
 
@@ -76,12 +92,14 @@ final class RAR5Reader: FormatReader {
     /// handles authenticated during the original parse. In particular, a
     /// reopened multi-volume reader never resolves sibling paths a second time.
     func reopened(options: ReaderOptions) -> sending (any FormatReader)? {
+        // guard の原本 source と検証状態を共有し、先読み buffer は共有しない。
         let reader = RAR5Reader(
             source: source,
             sourceURL: sourceURL,
             options: options,
             entries: entries,
-            records: records
+            records: records,
+            quickOpenVerification: quickOpenVerification
         )
         reader.keyCache.passwordSelection.selectedUTF8 = keyCache.passwordSelection.selectedUTF8
         return reader
@@ -92,20 +110,32 @@ final class RAR5Reader: FormatReader {
         sourceURL: URL?,
         options: ReaderOptions,
         entries: [ArchiveEntry],
-        records: [RAR5EntryRecord]
+        records: [RAR5EntryRecord],
+        quickOpenVerification: RAR5QuickOpenVerification
     ) {
         self.source = source
         self.sourceURL = sourceURL
         self.options = options
         self.entries = entries
         self.records = records
-        self.solidGroupMembers = Self.indexSolidGroups(entries)
+        self.quickOpenVerification = quickOpenVerification
+        let groups = Self.indexSolidGroups(entries)
+        self.solidGroupMembers = groups
+        self.solidGroupExcludedMembers = Self.indexSolidGroupExclusions(groups, records: records)
         self.password = options.password
         self.scratchPool = RAR5Decoder.ScratchPool(
             capacity: max(4, options.resolvedDecodeThreads + 1),
             memoryBudget: options.limits.resolvedParallelDecodeMemory()
         )
     }
+
+    func headerOffsetForTesting(entry: ArchiveEntry) -> UInt64 {
+        records[entry.index].headerOffset
+    }
+
+    var recordsForTesting: [RAR5EntryRecord] { records }
+
+    var guardedHeaderCountForTesting: Int { records.flatMap(\.headerGuards).compactMap { $0 }.count }
 
     func setPassword(_ password: String?) {
         guard self.password != password else { return }
@@ -124,7 +154,8 @@ final class RAR5Reader: FormatReader {
               entries[entry.index] == entry else {
             throw KaitoError.notFound("RAR5 entry index \(entry.index)")
         }
-        let record = records[entry.index]
+        try quickOpenVerification.checkPoison()
+        let record = try records[entry.index].verifyingHeaders()
         if let unpackedSize = record.unpackedSize {
             try Checked.size(unpackedSize, limit: limits.maxEntrySize)
         }
@@ -139,10 +170,23 @@ final class RAR5Reader: FormatReader {
            let targetText = entry.formatSpecific["fileCopyTargetIndex"],
            let targetIndex = Int(targetText),
            entries.indices.contains(targetIndex) {
+            if quickOpenVerification.hasAllocatedSlots {
+                // 参照先より後の名前を偽る写しも、最後の同名 entry の選択を変え得る。
+                for previous in records[(targetIndex + 1)..<entry.index] {
+                    _ = try previous.verifyingHeaders(prime: false)
+                }
+            }
+            // 参照元は入口で照合済み。再帰先も入口で自身の全 fragment を照合する。
             // A file copy (`rar -oi`) has no body and names an earlier entry with
             // the same content. Its declared size was matched against that target
             // while listing, so the target's stream (and CRC) is returned as is.
             return try stream(for: entries[targetIndex], limits: limits)
+        }
+        if record.redirectionType == RAR5RedirectionType.fileCopy,
+           quickOpenVerification.hasAllocatedSlots {
+            // 未解決の copy も、先行する写しが名前・種類・サイズを偽った結果かもしれない。
+            // 空の結果を返す前に参照解決へ影響する全候補を照合する。通常の本文経路は増やさない。
+            for previous in records[..<entry.index] { _ = try previous.verifyingHeaders(prime: false) }
         }
         if RAR5RedirectionType.isZeroBody(record.redirectionType) {
             return try EntryStream(
@@ -171,7 +215,8 @@ final class RAR5Reader: FormatReader {
             return try streamSolidEntry(
                 entry,
                 group: entry.solidGroup,
-                limits: limits
+                limits: limits,
+                verifiedRecord: record
             )
         }
 
@@ -254,8 +299,12 @@ final class RAR5Reader: FormatReader {
     private func streamSolidEntry(
         _ entry: ArchiveEntry,
         group: Int,
-        limits: ReadLimits
+        limits: ReadLimits,
+        verifiedRecord: RAR5EntryRecord
     ) throws -> EntryStream {
+        solidPriming.index = entry.index
+        solidPriming.record = verifiedRecord
+        defer { solidPriming.index = nil; solidPriming.record = nil }
         // ArchiveReader is deliberately non-thread-safe and already permits
         // only one live range per group. Apply the same rule across groups so
         // an archive with many short solid runs cannot accumulate dictionaries.
@@ -263,6 +312,15 @@ final class RAR5Reader: FormatReader {
             solidCoordinators[activeSolidGroup]?.invalidateAndRelease()
         }
         activeSolidGroup = group
+
+        // 一覧の種類や redirection によって辞書の列から省かれた member も、写しが
+        // 偽装されていないことを先に検める。通常の file member は factory が先読みと共用する。
+        if let excluded = solidGroupExcludedMembers[group] {
+            for index in excluded {
+                if index > entry.index { break }
+                _ = try records[index].verifyingHeaders(prime: false)
+            }
+        }
 
         let coordinator: RARSolidCoordinator<RAR5Decoder.SolidState>
         if let existing = solidCoordinators[group] {
@@ -298,6 +356,7 @@ final class RAR5Reader: FormatReader {
             let capturedPassword = password
             let capturedKeyCache = keyCache
             let capturedSourceURL = sourceURL
+            let capturedPriming = solidPriming
             coordinator = RARSolidCoordinator<RAR5Decoder.SolidState>(
                 formatLabel: "RAR5",
                 entryIndices: groupIndices,
@@ -312,7 +371,7 @@ final class RAR5Reader: FormatReader {
                 }
                 return try Self.makeSolidVerifiedStream(
                     entry: capturedEntries[index],
-                    record: capturedRecords[index],
+                    record: capturedPriming.take(index) ?? capturedRecords[index],
                     options: capturedOptions,
                     limits: limits,
                     password: capturedPassword,
@@ -355,6 +414,23 @@ final class RAR5Reader: FormatReader {
         return result
     }
 
+    // 除外された写しだけを索引にし、通常の member 列を stream ごとに再走査しない。
+    private static func indexSolidGroupExclusions(
+        _ groups: [Int: [Int]], records: [RAR5EntryRecord]
+    ) -> [Int: [Int]] {
+        var result: [Int: [Int]] = [:]
+        for (group, members) in groups {
+            var excluded: [Int] = []
+            for (previous, next) in zip(members, members.dropFirst()) where next > previous + 1 {
+                for index in (previous + 1)..<next where records[index].headerGuards.contains(where: { $0 != nil }) {
+                    excluded.append(index)
+                }
+            }
+            if !excluded.isEmpty { result[group] = excluded }
+        }
+        return result
+    }
+
     private static func makeSolidVerifiedStream(
         entry: ArchiveEntry,
         record: RAR5EntryRecord,
@@ -365,6 +441,7 @@ final class RAR5Reader: FormatReader {
         sourceURL: URL?,
         state: RAR5Decoder.SolidState
     ) throws -> EntryStream {
+        let record = try record.verifyingHeaders()
         try validateStreamCompatibility(
             record,
             options: options,
@@ -461,11 +538,13 @@ final class RAR5Reader: FormatReader {
         let window = RAR5Decoder.retainedWindowSize(
             expectedSize: unpackedSize, dictionarySize: dictionarySize
         )
+        // ここでは入力範囲の計画だけを行い、worker の照合前に復号・出力しない。
         return RAR5EntryPrefetcher.Candidate(
             index: index,
             outputSize: outputSize,
             scratchBytes: packedSize + window + RAR5Decoder.ScratchPool.stateOverheadBytes,
-            packedSegment: record.packedSegments.count == 1 ? record.packedSegments.first : nil
+            packedSegment: record.packedSegments.count == 1 ? record.packedSegments.first : nil,
+            headerOffset: record.headerGuards.first.flatMap { $0 }?.headerOffset
         )
     }
 
@@ -514,6 +593,9 @@ final class RAR5Reader: FormatReader {
         span: PrefetchedPackedSpan?,
         sourceURL: URL?
     ) throws -> Data {
+        let spanCoversMember = record.packedSegments.count == 1
+            && span?.covers(record.packedSegments[0].offset, length: record.packedSize) == true
+        let record = try record.verifyingHeaders(span: span, prime: !spanCoversMember)
         guard let unpackedSize = record.unpackedSize, record.encryption == nil else {
             throw KaitoError.malformed("RAR5 prefetch candidate is not independent")
         }
@@ -757,6 +839,8 @@ final class RAR5Reader: FormatReader {
         password: String?,
         keyCache: RAR5KeyCache
     ) throws -> PreparedPayload {
+        // stream・solid factory・prefetch が全 guard を照合した局所 record のみを受け取る。
+        // validatePackedParts も同じ順序で走るため、KDF と packed 検査は照合より後になる。
         try Checked.size(record.packedSize, limit: limits.maxEntrySize)
 
         var encryptionKey: Data?

@@ -160,3 +160,11 @@
 >   returns `truncated` when read, because its decoder state is continuous with the following
 >   members. An incomplete encrypted RAR5 entry returns nothing at all rather than unauthenticated
 >   bytes.
+
+## RAR5 Quick Open の任意利用
+
+`ReaderOptions.rar5QuickOpenPolicy` は既定 `.never` です。`.highLatencyInput` は解決済みの入力遅延が `.high` の場合、`.always` は対応する各巻で Quick Open の写しから一覧を作ります。暗号化ヘッダと破損救済では使用しません。構造・範囲・CRC・連鎖に不整合があれば通常のヘッダ走査に戻ります。decode の入口を持たない service の写しは一覧時に実ヘッダとも照合し、solid member の隠蔽を防ぎます。
+
+写しは初回読取りの前に実ヘッダ全体とバイト照合します。不一致は `malformed("RAR5 quick-open header does not match the archive header at offset …")` となり、同じ reader とその reopen の以後の stream も最初の不一致で失敗します。回復するホストは `.never` で新しい reader を開いてください。照合中の I/O エラーと切断は poison にしません。
+
+読まれない entry のメタデータは QO の申告どおりです。細工された書庫では嘘の entry を読むまで unrar と一覧が異なる可能性があり、読取り時には出力前に失敗します。写しにも実ヘッダと同じ名前安全性・サイズ上限・範囲検査を適用するため、メモリ安全性やパスの露出は増えません。写しの保持量もメタデータ予算に含めます。Extractor と kaito CLI は既定の `.never` を保ちます。

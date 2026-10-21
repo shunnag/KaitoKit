@@ -8,6 +8,8 @@
 
 ### 追加
 
+- RAR5 の一覧に Quick Open を任意利用する `ReaderOptions.rar5QuickOpenPolicy` を追加（既定 `.never`）。写しの構造・連鎖検査、不整合時の通常走査、初回読取り前の実ヘッダ照合と reopen 間で共有する poison を実装。
+
 - `ReaderOptions.inputLatency` と `InputLatency`（`.automatic` / `.low` / `.high`）を追加する。
   既定は `.automatic`。最上位入力の非ローカル volume ヒントから open 時に一度解決し、reopen でも保持する。
   ファイル入力のヒントは初回の descriptor から採り、bounded ハンドルの解放後も再 open せず使う。

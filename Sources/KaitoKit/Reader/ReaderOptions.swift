@@ -19,6 +19,20 @@ public struct ReaderOptions: Sendable {
     ///
     /// Input-latency policy, resolved once at open and preserved by reopen.
     public var inputLatency: InputLatency = .automatic
+
+    /// RAR5 の一覧に Quick Open を使う方針。既定は使用しない。
+    ///
+    /// Policy for RAR5 Quick Open listing. Disabled by default.
+    public var rar5QuickOpenPolicy: RAR5QuickOpenPolicy = .never
+
+    func usesRAR5QuickOpen(for source: any ByteSource) -> Bool {
+        switch rar5QuickOpenPolicy {
+        case .never: false
+        case .always: true
+        case .highLatencyInput: resolvedInputLatency(for: source) == .high
+        }
+    }
+
     private var resolvedInputLatencySnapshot: InputLatency?
 
     func resolvingInputLatency(for source: any ByteSource) -> Self {
@@ -209,4 +223,22 @@ public enum AppleDoublePolicy: String, Sendable, CaseIterable {
 
     /// Every entry is listed exactly as the archive stores it.
     case expose
+}
+
+/// RAR5 の Quick Open 記録を一覧に使う方針。
+///
+/// Controls use of RAR5 Quick Open records for listing.
+public enum RAR5QuickOpenPolicy: Sendable {
+    /// Quick Open を使用しない。
+    ///
+    /// Never use Quick Open.
+    case never
+    /// 解決済みの入力遅延が high の場合に使用する。
+    ///
+    /// Use Quick Open when resolved input latency is high.
+    case highLatencyInput
+    /// 対応する暗号化されていないヘッダで使用する。
+    ///
+    /// Use Quick Open for eligible unencrypted headers.
+    case always
 }

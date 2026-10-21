@@ -22,6 +22,9 @@ enum RAR5VolumeParser {
         // Recovery applies to the first volume only; a later volume that ends
         // early reports truncation.
         let recoverDamagedArchives = options.recoverDamagedArchives && volumeNumber == 0
+        let window = HeaderWindowByteSource(base: source,
+            planner: HeaderReadPlanner(options.resolvedInputLatency(for: source) == .high ? .adaptive : .fixed(16 << 10)),
+            maximumReadSize: Int(min(options.limits.maxMetadataSize, UInt64(Int.max))))
         var state = RAR5VolumeParseState()
         var offset = UInt64(RAR5Reader.signature.count)
         var archiveEncryption: RAR5ArchiveEncryptionContext?
@@ -30,13 +33,13 @@ enum RAR5VolumeParser {
         // read-ahead when the next header is still cached. Its capacity depends
         // only on caller limits, never on header sizes.
         var headerReader = try ByteReader(
-            source: source,
+            source: window,
             bufferCapacity: Int(min(16 * 1_024, options.limits.maxMetadataSize))
         )
 
         if offset < source.length {
             let firstBlock = try readBlock(
-                source: source,
+                source: window,
                 reader: &headerReader,
                 offset: offset,
                 limits: options.limits,
@@ -60,6 +63,7 @@ enum RAR5VolumeParser {
                     keyCache: keyCache,
                     headerKDFBudget: &headerKDFBudget
                 )
+                window.noteBlock(offset: offset, nextOffset: firstBlock.nextOffset)
                 offset = firstBlock.nextOffset
             }
         }
@@ -73,7 +77,7 @@ enum RAR5VolumeParser {
             do {
                 if let archiveEncryption {
                     block = try readEncryptedBlock(
-                        source: source,
+                        source: window,
                         offset: offset,
                         key: archiveEncryption.key,
                         limits: options.limits,
@@ -82,7 +86,7 @@ enum RAR5VolumeParser {
                     )
                 } else {
                     block = try readBlock(
-                        source: source,
+                        source: window,
                         reader: &headerReader,
                         offset: offset,
                         limits: options.limits,
@@ -119,6 +123,15 @@ enum RAR5VolumeParser {
                     throw KaitoError.malformed("RAR5 main header follows a file header")
                 }
                 try parseMainHeader(block, state: &state, limits: options.limits)
+                // 単独で開かれた続き巻は一覧全体を歩く前に、従来と同じエラーで拒否する。
+                if volumeNumber == 0 {
+                    guard state.volumeNumber == 0 else {
+                        throw KaitoError.malformed("RAR5 volume number \(state.volumeNumber) does not match expected 0")
+                    }
+                    if state.archiveFlags.contains(RAR5ArchiveFlags.volumeNumber) {
+                        throw KaitoError.malformed("RAR5 first volume has an explicit volume number")
+                    }
+                }
                 state.sawMainHeader = true
 
             case .file:
@@ -173,6 +186,7 @@ enum RAR5VolumeParser {
                 }
                 try validateExtraArea(block.extra, limits: options.limits)
             }
+            window.noteBlock(offset: offset, nextOffset: block.nextOffset)
             offset = block.nextOffset
         }
 

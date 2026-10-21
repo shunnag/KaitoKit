@@ -6,6 +6,25 @@
 
 ## [Unreleased]
 
+### 追加
+
+- `ReaderOptions.inputLatency` と `InputLatency`（`.automatic` / `.low` / `.high`）を追加する。
+  既定は `.automatic`。最上位入力の非ローカル volume ヒントから open 時に一度解決し、reopen でも保持する。
+  ファイル入力のヒントは初回の descriptor から採り、bounded ハンドルの解放後も再 open せず使う。
+  Data とヒントのない任意 source は低遅延として扱う。NAS 上のディスクイメージなど、OS がローカルと判定する入力には明示 `.high` を使える。
+- kaito の `list` / `sha` / `extract` / `bench` に `--input-latency auto|low|high` を追加する。
+  値によって展開結果のバイト列と SHA は変わらない。
+
+### 変更
+
+- 高遅延入力では 7z LZMA2 の事前ヘッダ走査を行わず、直列復号中に観測した辞書 reset 点を後方 seek に使う。
+  低遅延入力でも観測済み範囲の後方 seek は走査しない。folder CRC がある場合は走査せず先頭から再開し、最後まで復号して CRC を確かめる。
+  走査失敗がキャッシュされていても観測済み範囲は読め、壊れた chunk に達した時点で前方読みと同じエラーになる。
+- RAR4 / RAR5 のヘッダ走査を解析中だけの共有窓に通す。低遅延入力は 16 KiB、高遅延入力はブロック間隔に応じて最大 1 MiB の適応窓を使い、
+  小さな member の往復をまとめ、大きな member の payload は読み飛ばす。entry の読み取り範囲は元の入力 source を参照する。
+- 単独で開いた RAR5 の続き巻は main header 直後、URL 付き RAR4 の続き巻は最初の file が split-before の場合にその header 直後で拒否する。
+  エラーメッセージは従来と同じで、後方の破損より早く報告する。RAR4 で最初の file が split でない場合は従来どおり全走査する。
+
 ## [0.15.0] - 2026-10-20
 
 ### 追加

@@ -15,6 +15,25 @@ public struct ReaderOptions: Sendable {
     /// the default preserves already-open files across rename and unlink.
     public var fileAccessPolicy: FileAccessPolicy = .persistent
 
+    /// 入力遅延の方針。automatic は open 時に一度解決し、reopen に引き継ぐ。
+    ///
+    /// Input-latency policy, resolved once at open and preserved by reopen.
+    public var inputLatency: InputLatency = .automatic
+    private var resolvedInputLatencySnapshot: InputLatency?
+
+    func resolvingInputLatency(for source: any ByteSource) -> Self {
+        var result = self
+        if resolvedInputLatencySnapshot == nil {
+            result.resolvedInputLatencySnapshot = resolvedInputLatency(for: source)
+        }
+        return result
+    }
+
+    func resolvedInputLatency(for source: any ByteSource) -> InputLatency {
+        resolvedInputLatencySnapshot ?? (inputLatency == .automatic
+            ? (byteSourceIsOnNonLocalVolume(source) ? .high : .low) : inputLatency)
+    }
+
     /// 明示的な復号並列数の受理範囲。範囲外は最寄りの境界に丸める。
     public static let decodeThreadsRange = 1...1024
     @TaskLocal static var testingAutomaticThreads: (@Sendable (DecodePowerPolicy) -> Int)?

@@ -44,3 +44,19 @@ struct DecodeThreadsArgument {
         supplied = text
     }
 }
+
+/// 入力遅延の値と重複を全コマンドで同じ規則で検査する。
+struct InputLatencyArgument {
+    private var supplied: String?
+    private(set) var value: InputLatency = .automatic
+    mutating func parse(from cursor: inout ArgumentCursor) throws {
+        let text = try cursor.value(unlessSet: supplied)
+        switch text {
+        case "auto": value = .automatic
+        case "low": value = .low
+        case "high": value = .high
+        default: throw CLIError.usage("input-latency must be auto, low or high\n\(usage)")
+        }
+        supplied = text
+    }
+}

@@ -30,6 +30,7 @@ private struct BenchArguments {
     let useRandomAccess: Bool
     let password: String?
     let decodeThreads: Int?
+    let inputLatency: InputLatency
 }
 
 private func parseBench(_ arguments: [String]) throws -> BenchArguments {
@@ -38,6 +39,7 @@ private func parseBench(_ arguments: [String]) throws -> BenchArguments {
     var useRandomAccess = false
     var password: String?
     var threads = DecodeThreadsArgument()
+    var latency = InputLatencyArgument()
     var cursor = ArgumentCursor(arguments)
     while let argument = cursor.next() {
         if argument == "--data" {
@@ -46,6 +48,8 @@ private func parseBench(_ arguments: [String]) throws -> BenchArguments {
         } else if argument == "--random" {
             guard !useRandomAccess else { throw CLIError.usage(usage) }
             useRandomAccess = true
+        } else if argument == "--input-latency" {
+            try latency.parse(from: &cursor)
         } else if argument == "--threads" {
             try threads.parse(from: &cursor)
         } else if argument == "-p" {
@@ -74,7 +78,8 @@ private func parseBench(_ arguments: [String]) throws -> BenchArguments {
         useMappedData: useMappedData,
         useRandomAccess: useRandomAccess,
         password: password,
-        decodeThreads: threads.value
+        decodeThreads: threads.value,
+        inputLatency: latency.value
     )
 }
 
@@ -132,12 +137,14 @@ func runBench(_ arguments: [String]) throws {
                 contentsOf: URL(fileURLWithPath: parsed.archive),
                 options: .mappedIfSafe
             )
+            var options = ReaderOptions(password: parsed.password, decodeThreads: parsed.decodeThreads)
+            options.inputLatency = parsed.inputLatency
             reader = try ArchiveReader.open(
                 data: mappedData,
-                options: ReaderOptions(password: parsed.password, decodeThreads: parsed.decodeThreads)
+                options: options
             )
         } else {
-            reader = try openArchive(parsed.archive, password: parsed.password, decodeThreads: parsed.decodeThreads)
+            reader = try openArchive(parsed.archive, password: parsed.password, decodeThreads: parsed.decodeThreads, inputLatency: parsed.inputLatency)
         }
         let openEnd = DispatchTime.now().uptimeNanoseconds
         openTimes.append(elapsedMilliseconds(since: openStart, until: openEnd))

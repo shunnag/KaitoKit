@@ -4,7 +4,10 @@ import Foundation
 // 読み捨てて進み、後方へは LZMA2 の辞書 reset 点か folder の先頭から作り直す。folder の CRC は
 // 展開結果を最後まで読んだ時点で確かめる。
 
+enum BackwardRestartKind: Equatable { case fullIndex, observed, scanned, head }
+
 final class SevenZipFolderCoordinator {
+    private(set) var lastBackwardRestart: BackwardRestartKind?
     private let factory: SevenZipFolderDecoderFactory
     private var decoder: (any Decompressor)?
     private var position: UInt64 = 0
@@ -95,19 +98,12 @@ final class SevenZipFolderCoordinator {
 
     private func restartForBackwardSeek(target: UInt64) throws {
         do {
-            let resetIndex: [LZMA2ResetPoint]?
-            do {
-                resetIndex = try factory.makeDictionaryResetIndex()
-            } catch KaitoError.limitExceeded {
-                // index は seek 最適化なので、上限超過時は安全な先頭再開へ退避する。
-                resetIndex = nil
-            }
-            if let point = resetIndex?.last(where: {
-                $0.isRestartable && $0.uncompressedOffset <= target
-            }),
+            lastBackwardRestart = .head
+            if factory.folder.digest.value == nil,
+               let point = try factory.backwardRestartPoint(atOrBefore: target),
                point.uncompressedOffset > 0,
-               factory.folder.digest.value == nil,
                let restarted = try factory.makeDecoder(restartingAt: point) {
+                lastBackwardRestart = factory.lastBackwardRestartKind
                 decoder = restarted
                 position = point.uncompressedOffset
                 checksum = CRC32()

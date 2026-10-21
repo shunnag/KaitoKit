@@ -39,6 +39,7 @@ func runSHA(_ arguments: [String]) throws {
     var path: String?
     var password: String?
     var threads = DecodeThreadsArgument()
+    var latency = InputLatencyArgument()
     var allForks = false
     var sink = false
     var cursor = ArgumentCursor(arguments)
@@ -48,6 +49,8 @@ func runSHA(_ arguments: [String]) throws {
             allForks = true
         } else if argument == "--sink" {
             sink = true
+        } else if argument == "--input-latency" {
+            try latency.parse(from: &cursor)
         } else if argument == "--threads" {
             try threads.parse(from: &cursor)
         } else if argument == "-p" {
@@ -60,7 +63,7 @@ func runSHA(_ arguments: [String]) throws {
         }
     }
     guard let path else { throw CLIError.usage(usage) }
-    let reader = try openArchive(path, password: password, decodeThreads: threads.value)
+    let reader = try openArchive(path, password: password, decodeThreads: threads.value, inputLatency: latency.value)
     var total = sink ? nil : SHA256()
     var totalBytes: UInt64 = 0
     // Hash incrementally so `sha` does not allocate each complete entry and

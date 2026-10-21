@@ -3,12 +3,12 @@ import Foundation
 import XCTest
 
 final class SevenZipLZMA2ResetIndexTests: XCTestCase {
-    private struct Read: Equatable {
+    struct Read: Equatable {
         let offset: UInt64
         let count: Int
     }
 
-    private final class RecordingSource: ByteSource, @unchecked Sendable {
+    final class RecordingSource: ByteSource, @unchecked Sendable {
         private let source: any ByteSource
         private let lock = NSLock()
         private var recorded: [Read] = []
@@ -26,7 +26,7 @@ final class SevenZipLZMA2ResetIndexTests: XCTestCase {
     }
 
     // 数百 MiB の payload を確保せず、位置指定で raw chunk の header と零 byte を返す。
-    private struct RawSource: ByteSource {
+    struct RawSource: ByteSource {
         static let chunkSize: UInt64 = 65_539
         let chunks: Int
         let resetChunks: Set<Int>
@@ -197,12 +197,13 @@ final class SevenZipLZMA2ResetIndexTests: XCTestCase {
         XCTAssertEqual(scanCount(source), 1)
     }
 
-    func testCancelledSerialBackwardSeekStillBuildsIndexAndSucceeds() async throws {
+    func testCancelledSerialBackwardSeekUsesObservedIndexWithoutScanning() async throws {
         var fixture = SevenZipParallelTestSupport.raw()
         fixture.folderCRC = nil
         let payloads = fixture.payloads
         let value = try await Task.detached {
-            let coordinator = SevenZipFolderCoordinator(factory: try fixture.factory(workers: 1))
+            let source = RecordingSource(DataByteSource(fixture.packed))
+            let coordinator = SevenZipFolderCoordinator(factory: try fixture.factory(workers: 1, source: source))
             let laterOffset = UInt64(payloads[0].count + payloads[1].count)
             let later = try coordinator.stream(offset: laterOffset, length: 1)
             var byte: UInt8 = 0
@@ -211,6 +212,8 @@ final class SevenZipLZMA2ResetIndexTests: XCTestCase {
             XCTAssertTrue(Task.isCancelled)
             let earlier = try coordinator.stream(offset: UInt64(payloads[0].count), length: 1)
             XCTAssertEqual(try withUnsafeMutableBytes(of: &byte) { try earlier.read(into: $0) }, 1)
+            XCTAssertFalse(source.reads.contains { $0.offset == 1 && $0.count == 1 })
+            XCTAssertEqual(coordinator.lastBackwardRestart, .observed)
             return byte
         }.value
         XCTAssertEqual(value, payloads[1][0])

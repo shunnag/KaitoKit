@@ -181,7 +181,43 @@ private enum SevenZipPipelineValue {
 // reader 内の folder ごとに保持する。直列判定と失敗も保存し、非 solid entry の
 // factory 再作成・coordinator の再開・後方 seek が同じ走査結果を共用する。
 final class SevenZipLZMA2ResetIndexCache {
+    // success(nil) は並列探索の上限内に第 2 の reset がなかった意味で、点がない意味ではない。
     var index: Result<[LZMA2ResetPoint]?, Error>?
+    // 観測点は offset < coverage の辞書 reset 点をすべて含み、それ以外を含まない。
+    // cache は reader の隔離ドメイン内だけで使うので lock は不要。並列 unit の static
+    // factory は observer を持たず、prefetch の葉はそれぞれ専用 cache を作る。
+    private(set) var observedPoints: [LZMA2ResetPoint] = []
+    private(set) var observedCoverage: UInt64 = 0
+    private(set) var observationFrozen = false
+
+    enum ObservedLookup: Equatable { case uncovered, covered(LZMA2ResetPoint?) }
+
+    func observe(point: LZMA2ResetPoint?, chunkStart: UInt64, chunkEnd: UInt64, maximumPointCount: Int) {
+        guard !observationFrozen, chunkStart <= observedCoverage else { return }
+        if let point, observedPoints.last.map({ point.uncompressedOffset > $0.uncompressedOffset }) ?? true {
+            guard observedPoints.count < maximumPointCount else {
+                observationFrozen = true
+                return
+            }
+            observedPoints.append(point)
+        }
+        observedCoverage = max(observedCoverage, chunkEnd)
+    }
+
+    func observedRestartPoint(atOrBefore target: UInt64) -> ObservedLookup {
+        guard target < observedCoverage else { return .uncovered }
+        var lower = 0, upper = observedPoints.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if observedPoints[middle].uncompressedOffset <= target { lower = middle + 1 }
+            else { upper = middle }
+        }
+        while lower > 0 {
+            lower -= 1
+            if observedPoints[lower].isRestartable { return .covered(observedPoints[lower]) }
+        }
+        return .covered(nil)
+    }
     var parallelUnits: Result<[ParallelIndependentDecompressor.Unit]?, Error>?
 }
 
@@ -197,6 +233,8 @@ final class SevenZipFolderDecoderFactory {
     private let keyCache: SevenZipAESKeyCache
     private let packedStreamVerifier: SevenZipPackedStreamVerifier
     private let maximumAESCyclesPower: UInt8
+    private let avoidsHeaderScans: Bool
+    private(set) var lastBackwardRestartKind: BackwardRestartKind?
     private let workers: Int
     private let parallelDiagnostics: ParallelIndependentDecompressor.Diagnostics?
     private let resetIndexCache: SevenZipLZMA2ResetIndexCache
@@ -212,7 +250,8 @@ final class SevenZipFolderDecoderFactory {
         packedStreamVerifier: SevenZipPackedStreamVerifier? = nil,
         workers: Int = 1,
         parallelDiagnostics: ParallelIndependentDecompressor.Diagnostics? = nil,
-        resetIndexCache: SevenZipLZMA2ResetIndexCache = SevenZipLZMA2ResetIndexCache()
+        resetIndexCache: SevenZipLZMA2ResetIndexCache = SevenZipLZMA2ResetIndexCache(),
+        avoidsHeaderScans: Bool = false
     ) throws {
         guard folder.unpackSizes.count == folder.outputCount,
               folder.finalOutputIndex >= 0,
@@ -228,6 +267,7 @@ final class SevenZipFolderDecoderFactory {
         self.packedStreamVerifier = packedStreamVerifier
             ?? SevenZipPackedStreamVerifier(source: source)
         self.maximumAESCyclesPower = maximumAESCyclesPower
+        self.avoidsHeaderScans = avoidsHeaderScans
         self.workers = workers
         self.parallelDiagnostics = parallelDiagnostics
         self.resetIndexCache = resetIndexCache
@@ -366,14 +406,19 @@ final class SevenZipFolderDecoderFactory {
                     return .stream(parallel)
                 }
                 parallelDiagnostics?.serialFallback()
-                return .stream(try LZMA2Decoder(
+                let decoder = try LZMA2Decoder(
                     source: input.source,
                     offset: input.offset,
                     compressedSize: input.length,
                     properties: coder.properties,
                     expectedSize: expectedSize,
                     dictionarySizeLimit: limits.maxDictionarySize
-                ))
+                )
+                if folder.coders.count == 1 {
+                    decoder.resetObserver = LZMA2ResetObserver(cache: resetIndexCache, base: 0,
+                                                              maximumPointCount: try observedPointLimit())
+                }
+                return .stream(decoder)
 
             case .ppmd7:
                 try requireArity(coder, inputs: 1)
@@ -554,14 +599,7 @@ final class SevenZipFolderDecoderFactory {
         }
         if let index = resetIndexCache.index { return try index.get() }
         do {
-            let maximumPointCount = min(
-                limits.maxMetadataRecordCount,
-                try Checked.toInt(min(
-                    limits.maxTotalMetadataSize
-                        / UInt64(MemoryLayout<LZMA2ResetPoint>.stride),
-                    UInt64(Int.max)
-                ))
-            )
+            let maximumPointCount = try observedPointLimit()
             let index: [LZMA2ResetPoint]?
             if forParallelDecode {
                 let dictionarySize = try LZMA2Decoder.dictionarySize(for: coder.properties[0])
@@ -586,6 +624,33 @@ final class SevenZipFolderDecoderFactory {
             resetIndexCache.index = .failure(error)
             throw error
         }
+    }
+
+    private func observedPointLimit() throws -> Int {
+        min(limits.maxMetadataRecordCount,
+            try Checked.toInt(min(limits.maxTotalMetadataSize / UInt64(MemoryLayout<LZMA2ResetPoint>.stride), UInt64(Int.max))))
+    }
+
+    func backwardRestartPoint(atOrBefore target: UInt64) throws -> LZMA2ResetPoint? {
+        lastBackwardRestartKind = .head
+        guard folder.coders.count == 1, parallelLZMA2Coder != nil else { return nil }
+        if case .success(let points?) = resetIndexCache.index,
+           let point = points.last(where: { $0.isRestartable && $0.uncompressedOffset <= target }) {
+            lastBackwardRestartKind = .fullIndex
+            return point
+        }
+        if case .covered(let point) = resetIndexCache.observedRestartPoint(atOrBefore: target) {
+            lastBackwardRestartKind = .observed
+            return point
+        }
+        // 通常は target < position ≤ coverage。未観測への退避は観測上限超過や
+        // observer がない場合だけで、高遅延では走査せず先頭から再開する。
+        guard !avoidsHeaderScans else { return nil }
+        do {
+            let point = try makeDictionaryResetIndex()?.last(where: { $0.isRestartable && $0.uncompressedOffset <= target })
+            lastBackwardRestartKind = .scanned
+            return point
+        } catch KaitoError.limitExceeded { return nil }
     }
 
     private func parallelUnitsIfAvailable() throws -> [ParallelIndependentDecompressor.Unit]? {
@@ -615,6 +680,7 @@ final class SevenZipFolderDecoderFactory {
     private func makeParallelUnits() throws -> [ParallelIndependentDecompressor.Unit]? {
         guard let coder = parallelLZMA2Coder, coder.properties.count == 1,
               let range = packedRanges[coder.firstInput] else { return nil }
+        guard !avoidsHeaderScans else { return nil }
         let dictionarySize = try LZMA2Decoder.dictionarySize(for: coder.properties[0])
         try Checked.size(dictionarySize, limit: limits.maxDictionarySize)
         // 宣言辞書 + ByteReader、raw chunk、一時 copy、確率表、range coder の先読み。
@@ -657,10 +723,15 @@ final class SevenZipFolderDecoderFactory {
             return nil
         }
         let remaining = try Checked.sub(finalSize, point.uncompressedOffset)
-        return try Self.makeDecoder(
+        let decoder = try Self.makeDecoder(
             restartingAt: point, endingAt: nil, source: source, range: range,
             properties: coder.properties, expectedSize: remaining, dictionarySizeLimit: limits.maxDictionarySize
         )
+        if let decoder = decoder as? LZMA2Decoder {
+            decoder.resetObserver = LZMA2ResetObserver(cache: resetIndexCache, base: point.uncompressedOffset,
+                                                      maximumPointCount: try observedPointLimit())
+        }
+        return decoder
     }
 
     // seek と並列単位で同じ再開 decoder を使う。capture は不変の入力範囲だけで、

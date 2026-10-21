@@ -2,7 +2,16 @@ import Darwin
 import Foundation
 
 /// A byte source backed by a file descriptor and `pread(2)`.
-public final class FileByteSource: ByteSource {
+public final class FileByteSource: ByteSource, VolumeLocalityHinting {
+    @TaskLocal static var testingVolumeIsLocal: (@Sendable (Int32) -> Bool)?
+    let isOnNonLocalVolume: Bool
+
+    private static func nonLocalVolume(_ descriptor: Int32) -> Bool {
+        if let testingVolumeIsLocal { return !testingVolumeIsLocal(descriptor) }
+        var information = statfs()
+        guard Darwin.fstatfs(descriptor, &information) == 0 else { return false }
+        return information.f_flags & UInt32(MNT_LOCAL) == 0
+    }
     final class DirectoryAnchor: @unchecked Sendable {
         private let handle: InputFileDescriptor
         let accessPolicy: FileAccessPolicy
@@ -45,6 +54,7 @@ public final class FileByteSource: ByteSource {
     // behavior while allowing race-free openat/fstat callers.
     init(takingOwnershipOfValidatedDescriptor descriptor: Int32, length: UInt64) {
         precondition(descriptor >= 0)
+        self.isOnNonLocalVolume = Self.nonLocalVolume(descriptor)
         self.handle = InputFileDescriptor(takingOwnershipOf: descriptor)
         self.length = length
     }
@@ -52,6 +62,7 @@ public final class FileByteSource: ByteSource {
     /// Opens a file for read-only random access.
     public init(url: URL) throws {
         let opened = try Self.openDescriptorAnchoredToParent(url: url, accessPolicy: .persistent)
+        self.isOnNonLocalVolume = Self.nonLocalVolume(opened.descriptor)
         self.handle = try Self.fileHandle(opened.descriptor, url: url, directory: opened.directory,
                                           policy: .persistent)
         self.length = opened.length
@@ -62,6 +73,7 @@ public final class FileByteSource: ByteSource {
     /// Opens with the requested retention policy. The original initializer remains persistent.
     public init(url: URL, accessPolicy: FileAccessPolicy) throws {
         let opened = try Self.openDescriptorAnchoredToParent(url: url, accessPolicy: accessPolicy)
+        self.isOnNonLocalVolume = Self.nonLocalVolume(opened.descriptor)
         self.handle = try Self.fileHandle(opened.descriptor, url: url, directory: opened.directory,
                                           policy: accessPolicy)
         self.length = opened.length
@@ -71,16 +83,19 @@ public final class FileByteSource: ByteSource {
     /// 場合だけ directory は nil となる。reader はこの親ハンドルを巻探索へ渡す。
     static func openAnchored(url: URL, accessPolicy: FileAccessPolicy = .persistent) throws -> AnchoredOpen {
         let opened = try openDescriptorAnchoredToParent(url: url, accessPolicy: accessPolicy)
+        let isOnNonLocalVolume = nonLocalVolume(opened.descriptor)
         let source = FileByteSource(
             handle: try fileHandle(opened.descriptor, url: url, directory: opened.directory,
-                                   policy: accessPolicy), length: opened.length)
+                                   policy: accessPolicy), length: opened.length,
+            isOnNonLocalVolume: isOnNonLocalVolume)
         return AnchoredOpen(
             source: source,
             directory: opened.directory
         )
     }
 
-    private init(handle: InputFileDescriptor, length: UInt64) {
+    private init(handle: InputFileDescriptor, length: UInt64, isOnNonLocalVolume: Bool) {
+        self.isOnNonLocalVolume = isOnNonLocalVolume
         self.handle = handle
         self.length = length
     }
@@ -323,6 +338,7 @@ extension FileByteSource.DirectoryAnchor {
             _ = Darwin.close(descriptor)
             throw KaitoError.malformed("file has a negative size")
         }
+        let isOnNonLocalVolume = FileByteSource.nonLocalVolume(descriptor)
         let handle = try FileByteSource.makeHandle(descriptor, policy: accessPolicy) { [self] in
             let descriptor = try withDescriptor {
                 let descriptor = Darwin.openat($0, name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
@@ -332,7 +348,8 @@ extension FileByteSource.DirectoryAnchor {
             guard descriptor >= 0 else { throw KaitoError.io(errno) }
             return descriptor
         }
-        return FileByteSource(handle: handle, length: UInt64(information.st_size))
+        return FileByteSource(handle: handle, length: UInt64(information.st_size),
+                              isOnNonLocalVolume: isOnNonLocalVolume)
     }
 
     /// 先頭巻の dev/ino を保持した親の同名ファイルと比較し、差し替えを検出する。

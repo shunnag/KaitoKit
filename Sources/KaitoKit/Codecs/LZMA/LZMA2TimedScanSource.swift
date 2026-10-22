@@ -24,6 +24,7 @@ final class LZMA2TimedScanSource: ByteSource, @unchecked Sendable {
         let start = clock()
         let actual = try source.read(into: buffer, at: offset)
         let elapsed = clock() &- start
+        // 各窓の標本をそれぞれの予算 + 1 ns に抑え、極端な遅延でも合計の桁あふれを防ぐ。
         let shortBudget: UInt64 = 14 * 500_000
         let sample = min(elapsed, shortBudget + 1)
         let slot = count % samples.count
@@ -36,6 +37,8 @@ final class LZMA2TimedScanSource: ByteSource, @unchecked Sendable {
             else if sample > secondLargest { secondLargest = sample }
         }
 
+        // 256 回窓で 16 回ごとに 9 ms なら超過分 80 ms を許容し、
+        // 30 回ごとに 17 ms なら超過分 104 ms で打ち切るため、予算を 96 ms にする。
         let stallBudget: UInt64 = 96_000_000
         let stall = min(elapsed > 4_000_000 ? elapsed - 4_000_000 : 0, stallBudget + 1)
         let stallSlot = count % stallSamples.count
@@ -43,7 +46,6 @@ final class LZMA2TimedScanSource: ByteSource, @unchecked Sendable {
         stallSamples[stallSlot] = stall
         stallTotal += stall
 
-        // 各標本を予算 + 1 ns に抑え、極端な遅延でも合計の桁あふれを防ぐ。
         let rawBudget: UInt64 = 256 * 500_000
         let rawSample = min(elapsed, rawBudget + 1)
         let rawSlot = count % rawSamples.count

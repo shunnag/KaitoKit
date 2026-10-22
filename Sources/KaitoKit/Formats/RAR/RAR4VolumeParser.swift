@@ -22,7 +22,9 @@ enum RAR4VolumeParser {
         passwordProvider: (any PasswordProvider)?,
         headerKeyCache: RAR3KeyCache,
         passwordEncodings: RAR4Reader.PasswordEncodingSelection,
-        signatureOffset: UInt64
+        signatureOffset: UInt64,
+        inputLatency: InputLatency = .low,
+        rejectsContinuationAtFirstSplit: Bool = false
     ) throws -> RAR4ParsedVolume {
         let markerEnd = try Checked.add(signatureOffset, UInt64(RAR4Reader.signature.count))
         guard source.length >= markerEnd else {
@@ -35,6 +37,8 @@ enum RAR4VolumeParser {
         )
         guard marker == RAR4Reader.signature else { throw KaitoError.unsupportedFormat }
 
+        let window = HeaderWindowByteSource(base: source,
+            planner: HeaderReadPlanner(inputLatency == .high ? .adaptive : .fixed(16 << 10)))
         var offset = markerEnd
         var mainHeader: RAR4MainHeader?
         var pendingEntries: [RAR4PendingEntry] = []
@@ -53,7 +57,7 @@ enum RAR4VolumeParser {
             let parsedHeader: RAR4ParsedHeader
             do {
                 parsedHeader = try readHeader(
-                    source: source,
+                    source: window,
                     offset: offset,
                     encrypted: encryptedHeader,
                     password: password,
@@ -106,6 +110,7 @@ enum RAR4VolumeParser {
                 guard nextOffset > offset else {
                     throw KaitoError.malformed("RAR4 block does not advance")
                 }
+                window.noteBlock(offset: offset, nextOffset: nextOffset)
                 offset = nextOffset
                 continue
             }
@@ -140,6 +145,11 @@ enum RAR4VolumeParser {
             case .file:
                 guard let mainHeader else {
                     throw KaitoError.malformed("RAR4 file precedes the main header")
+                }
+                // 古い書き手は FIRSTVOLUME を立てない。最初の file の splitBefore だけで判定する。
+                if rejectsContinuationAtFirstSplit, records.isEmpty, mainHeader.isVolume,
+                   flags & RAR4FileFlag.splitBefore != 0 {
+                    throw KaitoError.malformed("RAR4 split continuation has no preceding file part")
                 }
                 let parsed = try parseFileHeader(
                     header,
@@ -195,6 +205,7 @@ enum RAR4VolumeParser {
                 guard endOffset > offset else {
                     throw KaitoError.malformed("RAR4 end block does not advance")
                 }
+                window.noteBlock(offset: offset, nextOffset: endOffset)
                 return RAR4ParsedVolume(
                     pendingEntries: pendingEntries,
                     records: records,
@@ -214,6 +225,7 @@ enum RAR4VolumeParser {
             guard nextOffset > offset else {
                 throw KaitoError.malformed("RAR4 block does not advance")
             }
+            window.noteBlock(offset: offset, nextOffset: nextOffset)
             offset = nextOffset
         }
 

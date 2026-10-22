@@ -48,7 +48,7 @@ public final class ArchiveReader {
     public var password: String?
 
     private init(input: OpenedArchiveInput, options: ReaderOptions) throws {
-        let options = options.resolvingDecodeThreads()
+        let options = options.resolvingDecodeThreads().resolvingInputLatency(for: input.source)
         self.source = input.source
         self.sourceURL = input.sourceURL
         self.zipDiskLayout = input.zipDiskLayout
@@ -84,7 +84,7 @@ public final class ArchiveReader {
         stagedContainerSource: (any ByteSource)? = nil,
         tarEditingState: TarEditingSnapshot? = nil
     ) throws {
-        let options = options.resolvingDecodeThreads()
+        let options = options.resolvingDecodeThreads().resolvingInputLatency(for: source)
         self.source = source
         self.stagedContainerSource = stagedContainerSource
         self.tarEditingState = tarEditingState
@@ -361,7 +361,7 @@ public final class ArchiveReader {
         output: any ByteSource, sourceURL: URL?, base: TarEditingSnapshot,
         splice: CompressedTarSplice, options: ReaderOptions, storagePolicy: TarSpliceStoragePolicy
     ) throws -> sending ArchiveReader {
-        let options = options.resolvingDecodeThreads()
+        let options = options.resolvingDecodeThreads().resolvingInputLatency(for: output)
         let identity = currentTarArchiveIdentity(output)
         let codec: ArchiveFormat
         switch (base.container, base.chunkMap) {

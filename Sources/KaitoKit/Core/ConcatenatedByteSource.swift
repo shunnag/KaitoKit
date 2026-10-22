@@ -12,7 +12,8 @@ struct SourceSegment: Sendable {
 }
 
 /// 検証済みの source 範囲を連結し、一つの論理ストリームとして読み出す。
-final class ConcatenatedByteSource: ByteSource {
+final class ConcatenatedByteSource: ByteSource, VolumeLocalityHinting {
+    let isOnNonLocalVolume: Bool
     private struct Segment: Sendable {
         let source: any ByteSource
         let sourceOffset: UInt64
@@ -58,6 +59,7 @@ final class ConcatenatedByteSource: ByteSource {
         guard !validated.isEmpty else {
             throw KaitoError.malformed("\(label) contains only empty segments")
         }
+        self.isOnNonLocalVolume = sourceSegments.contains { byteSourceIsOnNonLocalVolume($0.source) }
         self.segments = validated
         self.length = logicalOffset
     }

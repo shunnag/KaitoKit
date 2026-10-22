@@ -5,7 +5,7 @@ import XCTest
 
 /// RAR 2.9 / 4 の reader と RAR29 decoder（LZ・PPMd・filter）を、手組みの header、checked-in の fixture（Tests/Fixtures/rar4）、
 /// 外部の corpus（KAITOKIT_RAR4_*、無ければ skip）と決定的な mutant で検査する。
-final class RAR4ReaderTests: XCTestCase {
+final class RAR4ReaderTests: RAR4BuilderTestCase {
     // MARK: - RAR29 decoder（LZ・PPMd・solid）
 
     func testRAR29EmptySubordinateTablesAreAllowed() throws {
@@ -854,74 +854,6 @@ final class RAR4ReaderTests: XCTestCase {
     }
 
     // MARK: - Helpers
-
-    private struct FileFixture {
-        let name: [UInt8]
-        let contents: Data
-        let flags: UInt16
-        let method: UInt8
-
-        init(name: [UInt8], contents: Data, flags: UInt16 = 0, method: UInt8 = 0x30) {
-            self.name = name
-            self.contents = contents
-            self.flags = flags
-            self.method = method
-        }
-    }
-
-    private func makeArchive(
-        files: [FileFixture],
-        mainFlags: UInt16 = 0
-    ) -> Data {
-        var archive = Data(RAR4Reader.signature)
-        archive.append(contentsOf: makeMainHeader(flags: mainFlags))
-        for file in files {
-            archive.append(contentsOf: makeFileHeader(file))
-            archive.append(file.contents)
-        }
-        archive.append(contentsOf: makeHeader(type: 0x7b, flags: 0, fields: []))
-        return archive
-    }
-
-    private func makeMainHeader(flags: UInt16 = 0) -> [UInt8] {
-        makeHeader(type: 0x73, flags: flags, fields: [0, 0, 0, 0, 0, 0])
-    }
-
-    private func makeFileHeader(_ file: FileFixture) -> [UInt8] {
-        let crc = CRC32.checksum(file.contents)
-        var fields: [UInt8] = []
-        fields.appendLittleEndian(UInt32(file.contents.count))
-        fields.appendLittleEndian(UInt32(file.contents.count))
-        fields.append(2) // Windows
-        fields.appendLittleEndian(crc)
-        fields.appendLittleEndian(UInt32(0)) // no DOS timestamp
-        fields.append(29)
-        fields.append(file.method)
-        fields.appendLittleEndian(UInt16(file.name.count))
-        fields.appendLittleEndian(UInt32(0x20))
-        fields.append(contentsOf: file.name)
-        return makeHeader(
-            type: 0x74,
-            flags: file.flags | 0x8000,
-            fields: fields
-        )
-    }
-
-    private func makeHeader(
-        type: UInt8,
-        flags: UInt16,
-        fields: [UInt8]
-    ) -> [UInt8] {
-        var body: [UInt8] = [type]
-        body.appendLittleEndian(flags)
-        body.appendLittleEndian(UInt16(7 + fields.count))
-        body.append(contentsOf: fields)
-        var result: [UInt8] = []
-        result.appendLittleEndian(UInt16(truncatingIfNeeded: CRC32.checksum(body)))
-        result.append(contentsOf: body)
-        return result
-    }
-
 
     private func base64Fixture(_ name: String) throws -> Data {
         let url = ZipTestSupport.repositoryRoot

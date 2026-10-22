@@ -20,12 +20,14 @@ final class RAR5EntryPrefetcher: @unchecked Sendable {
         let scratchBytes: Int
         /// A plain file segment, when a batch can read its packed input together.
         let packedSegment: SourceSegment?
+        let headerOffset: UInt64?
 
-        init(index: Int, outputSize: Int, scratchBytes: Int, packedSegment: SourceSegment? = nil) {
+        init(index: Int, outputSize: Int, scratchBytes: Int, packedSegment: SourceSegment? = nil, headerOffset: UInt64? = nil) {
             self.index = index
             self.outputSize = outputSize
             self.scratchBytes = scratchBytes
             self.packedSegment = packedSegment
+            self.headerOffset = headerOffset
         }
     }
 
@@ -334,7 +336,7 @@ final class PrefetchedPackedSpan: ByteSource {
                   let segmentFile = segment.source as? FileByteSource else { eligible = false; return }
             if members == 1 {
                 file = segmentFile
-                base = segment.offset
+                base = member.headerOffset ?? segment.offset
                 end = base
             }
             let (nextEnd, endOverflow) = segment.offset.addingReportingOverflow(segment.length)

@@ -17,10 +17,10 @@ let usage = """
 usage:
   kaito detect <archive>
   kaito \(detectEncodingUsage)
-  kaito list <archive> [--raw] [-p <password>] [--threads <N|auto>]
-  kaito extract <archive> -o <directory> [-p <password>] [--threads <N|auto>]
-  kaito sha <archive> [--sink] [--forks] [-p <password>] [--threads <N|auto>]
-  kaito bench [--data] [--random] <archive> [reps] [-p <password>] [--threads <N|auto>]
+  kaito list <archive> [--raw] [-p <password>] [--threads <N|auto>] [--input-latency <auto|low|high>]
+  kaito extract <archive> -o <directory> [-p <password>] [--threads <N|auto>] [--input-latency <auto|low|high>]
+  kaito sha <archive> [--sink] [--forks] [-p <password>] [--threads <N|auto>] [--input-latency <auto|low|high>]
+  kaito bench [--data] [--random] <archive> [reps] [-p <password>] [--threads <N|auto>] [--input-latency <auto|low|high>]
 """
 
 func hexadecimal<S: Sequence>(_ bytes: S) -> String where S.Element == UInt8 {
@@ -53,8 +53,9 @@ func oneLine(_ value: String) -> String {
     return result
 }
 
-func openArchive(_ path: String, password: String? = nil, decodeThreads: Int? = nil) throws -> ArchiveReader {
+func openArchive(_ path: String, password: String? = nil, decodeThreads: Int? = nil, inputLatency: InputLatency = .automatic) throws -> ArchiveReader {
     var options = ReaderOptions(password: password, decodeThreads: decodeThreads)
+    options.inputLatency = inputLatency
     options.recordsSevenZipEditLayout = environmentFlag("KAITOKIT_BENCH_7Z_EDIT_LAYOUT")
     options.recordsTarEditLayout = environmentFlag("KAITOKIT_BENCH_TAR_EDIT_LAYOUT")
     return try ArchiveReader.open(

@@ -6,6 +6,34 @@
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-22
+
+### 追加
+
+- RAR5 の一覧に Quick Open を任意利用する `ReaderOptions.rar5QuickOpenPolicy` を追加（既定 `.never`）。写しの構造・連鎖検査、不整合時の通常走査、初回読取り前の実ヘッダ照合と reopen 間で共有する poison を実装。
+
+- `ReaderOptions.inputLatency` と `InputLatency`（`.automatic` / `.low` / `.high`）を追加する。
+  既定は `.automatic`。最上位入力の非ローカル volume ヒントから open 時に一度解決し、reopen でも保持する。
+  ファイル入力のヒントは初回の descriptor から採り、bounded ハンドルの解放後も再 open せず使う。
+  Data とヒントのない任意 source は低遅延として扱う。NAS 上のディスクイメージなど、OS がローカルと判定する入力には明示 `.high` を使える。
+- kaito の `list` / `sha` / `extract` / `bench` に `--input-latency auto|low|high` を追加する。
+  値によって展開結果のバイト列と SHA は変わらない。
+
+### 変更
+
+- 高遅延入力の 7z LZMA2 は事前ヘッダ走査せず初回ページを直列で返し、次の順方向要求で走査の遅延を測って、キャッシュ済み書庫の並列復号を再開する。
+  走査の読み取りが遅ければ（直近 16 回の遅延、直近 256 回の停滞時間、直近 256 回の平均のいずれかで判定）中断し、ヘッダ走査と直列復号で観測した辞書 reset 点を後方 seek に残す。
+  低遅延入力でも観測済み範囲の後方 seek は走査しない。folder CRC がある場合は走査せず先頭から再開し、最後まで復号して CRC を確かめる。
+  走査失敗がキャッシュされていても観測済み範囲は読め、壊れた chunk に達した時点で前方読みと同じエラーになる。
+- RAR4 / RAR5 のヘッダ走査を解析中だけの共有窓に通す。低遅延入力は 16 KiB、高遅延入力はブロック間隔に応じて最大 1 MiB の適応窓を使い、
+  小さな member の往復をまとめ、大きな member の payload は読み飛ばす。entry の読み取り範囲は元の入力 source を参照する。
+- 単独で開いた RAR5 の続き巻は main header 直後、URL 付き RAR4 の続き巻は最初の file が split-before の場合にその header 直後で拒否する。
+  エラーメッセージは従来と同じで、後方の破損より早く報告する。RAR4 で最初の file が split でない場合は従来どおり全走査する。
+
+### 修正
+
+- RAR5 Quick Open の hard link も、参照先の解決に影響する先行ヘッダの写しを本文取得前に照合し、同名の後続コピーによる参照先の改ざんを拒否する。
+
 ## [0.15.0] - 2026-10-20
 
 ### 追加

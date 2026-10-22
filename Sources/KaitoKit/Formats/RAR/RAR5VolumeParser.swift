@@ -17,11 +17,16 @@ enum RAR5VolumeParser {
         password: inout String?,
         keyCache: RAR5KeyCache,
         expectedHeaderEncryption: Bool?,
-        headerKDFBudget: inout RAR5HeaderKDFWorkBudget
+        headerKDFBudget: inout RAR5HeaderKDFWorkBudget,
+        quickOpenVerification: RAR5QuickOpenVerification = RAR5QuickOpenVerification(),
+        allowQuickOpen: Bool = true
     ) throws -> RAR5VolumeParseState {
         // Recovery applies to the first volume only; a later volume that ends
         // early reports truncation.
         let recoverDamagedArchives = options.recoverDamagedArchives && volumeNumber == 0
+        let window = HeaderWindowByteSource(base: source,
+            planner: HeaderReadPlanner(options.resolvedInputLatency(for: source) == .high ? .adaptive : .fixed(16 << 10)),
+            maximumReadSize: Int(min(options.limits.maxMetadataSize, UInt64(Int.max))))
         var state = RAR5VolumeParseState()
         var offset = UInt64(RAR5Reader.signature.count)
         var archiveEncryption: RAR5ArchiveEncryptionContext?
@@ -30,13 +35,13 @@ enum RAR5VolumeParser {
         // read-ahead when the next header is still cached. Its capacity depends
         // only on caller limits, never on header sizes.
         var headerReader = try ByteReader(
-            source: source,
+            source: window,
             bufferCapacity: Int(min(16 * 1_024, options.limits.maxMetadataSize))
         )
 
         if offset < source.length {
             let firstBlock = try readBlock(
-                source: source,
+                source: window,
                 reader: &headerReader,
                 offset: offset,
                 limits: options.limits,
@@ -60,135 +65,212 @@ enum RAR5VolumeParser {
                     keyCache: keyCache,
                     headerKDFBudget: &headerKDFBudget
                 )
+                window.noteBlock(offset: offset, nextOffset: firstBlock.nextOffset)
                 offset = firstBlock.nextOffset
             }
         }
 
+        var quickOpen: RAR5QuickOpen?
+        var quickOpenIndex = 0
+        var sawQuickOpenBlock = false
         var blockCount = 0
-        while offset < source.length, !state.sawEndHeader {
-            try checkCancellation(every: blockCount)
-            blockCount &+= 1
-            let block: RAR5Block
-            headerBodyWasVerified = false
-            do {
-                if let archiveEncryption {
-                    block = try readEncryptedBlock(
+        do {
+            while offset < source.length, !state.sawEndHeader {
+                try checkCancellation(every: blockCount)
+                blockCount &+= 1
+                let block: RAR5Block
+                var headerGuard: RAR5HeaderGuard?
+                if let quickOpen {
+                    if quickOpenIndex < quickOpen.records.count,
+                       quickOpen.records[quickOpenIndex].target < offset {
+                        throw KaitoError.malformed("RAR5 quick-open chain skipped a record")
+                    }
+                    if offset == quickOpen.offset { sawQuickOpenBlock = true }
+                    if offset > quickOpen.offset, !sawQuickOpenBlock {
+                        throw KaitoError.malformed("RAR5 quick-open chain skipped its service block")
+                    }
+                }
+                headerBodyWasVerified = false
+                do {
+                    if let archiveEncryption {
+                        block = try readEncryptedBlock(
+                            source: window,
+                            offset: offset,
+                            key: archiveEncryption.key,
+                            limits: options.limits,
+                            recoverDamagedArchives: recoverDamagedArchives,
+                            headerBodyWasVerified: &headerBodyWasVerified
+                        )
+                    } else if let quickOpen, quickOpenIndex < quickOpen.records.count,
+                              quickOpen.records[quickOpenIndex].target == offset {
+                        let cached = quickOpen.records[quickOpenIndex]
+                        block = try RAR5QuickOpen.blockFromCachedHeader(cached.bytes, target: offset, sourceLength: source.length, limits: options.limits)
+                        if block.typeValue == RAR5HeaderType.service.rawValue {
+                            // service への偽装で solid member を一覧から消せないようにする。
+                            // service は decode の入口を持たないため、窓からここで照合する。
+                            let real = try readByteRange(source: window, offset: offset, count: cached.bytes.count)
+                            guard real == cached.bytes else {
+                                throw KaitoError.malformed("RAR5 quick-open service copy differs from its archive header")
+                            }
+                        }
+                        headerGuard = RAR5HeaderGuard(volumeSource: source, headerOffset: offset, expected: cached.bytes, slot: quickOpenVerification.allocateSlot(), verification: quickOpenVerification)
+                        quickOpenIndex += 1
+                    } else {
+                        block = try readBlock(
+                            source: window,
+                            reader: &headerReader,
+                            offset: offset,
+                            limits: options.limits,
+                            recoverDamagedArchives: recoverDamagedArchives,
+                            headerBodyWasVerified: &headerBodyWasVerified
+                        )
+                    }
+                } catch {
+                    if let archiveEncryption,
+                       !archiveEncryption.passwordWasVerified,
+                       !state.sawMainHeader {
+                        throw KaitoError.wrongPassword
+                    }
+                    // Keep the entries read so far only when the header itself is cut
+                    // by EOF. A CRC-verified but inconsistent header is not recovered.
+                    if recoverDamagedArchives,
+                       state.sawMainHeader,
+                       !headerBodyWasVerified,
+                       case KaitoError.truncated = error {
+                        break
+                    }
+                    throw error
+                }
+                guard block.nextOffset > offset else {
+                    throw KaitoError.malformed("RAR5 block did not advance")
+                }
+
+                switch RAR5HeaderType(rawValue: block.typeValue) {
+                case .main:
+                    guard !state.sawMainHeader else {
+                        throw KaitoError.malformed("duplicate RAR5 main header")
+                    }
+                    guard state.pending.isEmpty else {
+                        throw KaitoError.malformed("RAR5 main header follows a file header")
+                    }
+                    try parseMainHeader(block, state: &state, limits: options.limits)
+                    // 単独で開かれた続き巻は一覧全体を歩く前に、従来と同じエラーで拒否する。
+                    if volumeNumber == 0 {
+                        guard state.volumeNumber == 0 else {
+                            throw KaitoError.malformed("RAR5 volume number \(state.volumeNumber) does not match expected 0")
+                        }
+                        if state.archiveFlags.contains(RAR5ArchiveFlags.volumeNumber) {
+                            throw KaitoError.malformed("RAR5 first volume has an explicit volume number")
+                        }
+                    }
+                    state.sawMainHeader = true
+                    if allowQuickOpen, archiveEncryption == nil,
+                       !options.recoverDamagedArchives, options.usesRAR5QuickOpen(for: source),
+                       let qoOffset = RAR5QuickOpen.locator(in: block, sourceLength: source.length) {
+                        // 初回の末尾読みの I/O と取消しは再走査せず、そのまま伝播する。
+                        let tailStart = max(block.nextOffset, qoOffset > 65_536 ? qoOffset - 65_536 : 0)
+                        let tailEnd = qoOffset + min(source.length - qoOffset, 65_536)
+                        try Task.checkCancellation()
+                        let tail = try readByteRange(source: source, offset: tailStart, count: try Checked.toInt(tailEnd - tailStart))
+                        try Task.checkCancellation()
+                        window.seed(offset: tailStart, bytes: tail)
+                        do {
+                            quickOpen = try RAR5QuickOpen.load(source: source, window: window, main: block, offset: qoOffset, tailEnd: tailEnd, limits: options.limits)
+                        } catch {
+                            if error is CancellationError { throw error }
+                            // 構造不正は無視する。初回末尾読みの例外はこの範囲外。
+                        }
+                    }
+
+                case .file:
+                    guard state.sawMainHeader else {
+                        throw KaitoError.malformed("RAR5 file header precedes main header")
+                    }
+                    guard state.pending.count < options.limits.maxEntryCount else {
+                        throw KaitoError.limitExceeded("RAR5 entry count")
+                    }
+                    var pending = try parseFileHeader(
+                        block,
                         source: source,
-                        offset: offset,
-                        key: archiveEncryption.key,
-                        limits: options.limits,
-                        recoverDamagedArchives: recoverDamagedArchives,
-                        headerBodyWasVerified: &headerBodyWasVerified
+                        volumeNumber: volumeNumber,
+                        options: options,
+                        state: &state
                     )
-                } else {
-                    block = try readBlock(
-                        source: source,
-                        reader: &headerReader,
-                        offset: offset,
-                        limits: options.limits,
-                        recoverDamagedArchives: recoverDamagedArchives,
-                        headerBodyWasVerified: &headerBodyWasVerified
+                    if headerGuard != nil, ArchivePath.normalizedExtractionPath(pending.name) == nil {
+                        throw KaitoError.malformed("RAR5 quick-open file name is unsafe")
+                    }
+                    pending.headerGuards = [headerGuard]
+                    pending.headerOffset = block.offset
+                    if let headerGuard {
+                        state.retainedMetadataSize = try Checked.add(state.retainedMetadataSize, UInt64(headerGuard.expected.count))
+                        try Checked.size(state.retainedMetadataSize, limit: options.limits.maxTotalMetadataSize)
+                    }
+                    state.pending.append(pending)
+
+                case .service:
+                    guard state.sawMainHeader else {
+                        throw KaitoError.malformed("RAR5 service header precedes main header")
+                    }
+                    state.serviceHeaderCount += 1
+                    guard state.serviceHeaderCount <= options.limits.maxMetadataRecordCount else {
+                        throw KaitoError.limitExceeded("RAR5 service header count")
+                    }
+                    try validateServiceHeader(block, limits: options.limits)
+
+                case .encryption:
+                    throw KaitoError.malformed(
+                        "RAR5 archive encryption header is not first"
                     )
+
+                case .end:
+                    guard state.sawMainHeader else {
+                        throw KaitoError.malformed("RAR5 end header precedes main header")
+                    }
+                    var cursor = block.specific
+                    state.endFlags = RAR5EndFlags(rawValue: try cursor.readVInt())
+                    guard cursor.isAtEnd else {
+                        throw KaitoError.malformed("RAR5 end header has trailing fields")
+                    }
+                    try validateExtraArea(block.extra, limits: options.limits)
+                    guard block.dataSize == 0 else {
+                        throw KaitoError.malformed("RAR5 end header has a data area")
+                    }
+                    state.sawEndHeader = true
+
+                case nil:
+                    guard block.flags.contains(.skipIfUnknown) else {
+                        throw KaitoError.unsupportedMethod("RAR5 header type \(block.typeValue)")
+                    }
+                    try validateExtraArea(block.extra, limits: options.limits)
                 }
-            } catch {
-                if let archiveEncryption,
-                   !archiveEncryption.passwordWasVerified,
-                   !state.sawMainHeader {
-                    throw KaitoError.wrongPassword
-                }
-                // Keep the entries read so far only when the header itself is cut
-                // by EOF. A CRC-verified but inconsistent header is not recovered.
-                if recoverDamagedArchives,
-                   state.sawMainHeader,
-                   !headerBodyWasVerified,
-                   case KaitoError.truncated = error {
-                    break
-                }
-                throw error
+                window.noteBlock(offset: offset, nextOffset: block.nextOffset)
+                offset = block.nextOffset
             }
-            guard block.nextOffset > offset else {
-                throw KaitoError.malformed("RAR5 block did not advance")
+
+            guard state.sawMainHeader else {
+                throw KaitoError.malformed("RAR5 main header is missing")
             }
-
-            switch RAR5HeaderType(rawValue: block.typeValue) {
-            case .main:
-                guard !state.sawMainHeader else {
-                    throw KaitoError.malformed("duplicate RAR5 main header")
-                }
-                guard state.pending.isEmpty else {
-                    throw KaitoError.malformed("RAR5 main header follows a file header")
-                }
-                try parseMainHeader(block, state: &state, limits: options.limits)
-                state.sawMainHeader = true
-
-            case .file:
-                guard state.sawMainHeader else {
-                    throw KaitoError.malformed("RAR5 file header precedes main header")
-                }
-                guard state.pending.count < options.limits.maxEntryCount else {
-                    throw KaitoError.limitExceeded("RAR5 entry count")
-                }
-                let pending = try parseFileHeader(
-                    block,
-                    source: source,
-                    volumeNumber: volumeNumber,
-                    options: options,
-                    state: &state
-                )
-                state.pending.append(pending)
-
-            case .service:
-                guard state.sawMainHeader else {
-                    throw KaitoError.malformed("RAR5 service header precedes main header")
-                }
-                state.serviceHeaderCount += 1
-                guard state.serviceHeaderCount <= options.limits.maxMetadataRecordCount else {
-                    throw KaitoError.limitExceeded("RAR5 service header count")
-                }
-                try validateServiceHeader(block, limits: options.limits)
-
-            case .encryption:
+            guard recoverDamagedArchives || state.sawEndHeader else {
+                throw KaitoError.truncated
+            }
+            if state.endFlags.contains(RAR5EndFlags.moreVolumes),
+               !state.archiveFlags.contains(RAR5ArchiveFlags.volume) {
                 throw KaitoError.malformed(
-                    "RAR5 archive encryption header is not first"
+                    "RAR5 non-volume requests a continuation volume"
                 )
-
-            case .end:
-                guard state.sawMainHeader else {
-                    throw KaitoError.malformed("RAR5 end header precedes main header")
-                }
-                var cursor = block.specific
-                state.endFlags = RAR5EndFlags(rawValue: try cursor.readVInt())
-                guard cursor.isAtEnd else {
-                    throw KaitoError.malformed("RAR5 end header has trailing fields")
-                }
-                try validateExtraArea(block.extra, limits: options.limits)
-                guard block.dataSize == 0 else {
-                    throw KaitoError.malformed("RAR5 end header has a data area")
-                }
-                state.sawEndHeader = true
-
-            case nil:
-                guard block.flags.contains(.skipIfUnknown) else {
-                    throw KaitoError.unsupportedMethod("RAR5 header type \(block.typeValue)")
-                }
-                try validateExtraArea(block.extra, limits: options.limits)
             }
-            offset = block.nextOffset
+            if let quickOpen {
+                guard quickOpenIndex == quickOpen.records.count, sawQuickOpenBlock else {
+                    throw KaitoError.malformed("RAR5 quick-open chain is incomplete")
+                }
+            }
+            return state
+        } catch {
+            guard quickOpen != nil, !(error is CancellationError) else { throw error }
+            return try parseVolume(source: source, volumeNumber: volumeNumber, options: options,
+                password: &password, keyCache: keyCache, expectedHeaderEncryption: expectedHeaderEncryption,
+                headerKDFBudget: &headerKDFBudget, quickOpenVerification: quickOpenVerification, allowQuickOpen: false)
         }
-
-        guard state.sawMainHeader else {
-            throw KaitoError.malformed("RAR5 main header is missing")
-        }
-        guard recoverDamagedArchives || state.sawEndHeader else {
-            throw KaitoError.truncated
-        }
-        if state.endFlags.contains(RAR5EndFlags.moreVolumes),
-           !state.archiveFlags.contains(RAR5ArchiveFlags.volume) {
-            throw KaitoError.malformed(
-                "RAR5 non-volume requests a continuation volume"
-            )
-        }
-        return state
     }
 
     private static func parseArchiveEncryptionHeader(
@@ -345,7 +427,7 @@ enum RAR5VolumeParser {
         )
     }
 
-    private static func readBlock(
+    static func readBlock(
         source: any ByteSource,
         reader: inout ByteReader,
         offset: UInt64,
@@ -384,7 +466,7 @@ enum RAR5VolumeParser {
         )
     }
 
-    private static func makeBlock(
+    static func makeBlock(
         offset: UInt64,
         body: [UInt8],
         dataOffset: UInt64,

@@ -30,7 +30,9 @@ enum RAR4EntryPublisher {
             passwordProvider: options.passwordProvider,
             headerKeyCache: headerKeyCache,
             passwordEncodings: passwordEncodings,
-            signatureOffset: signatureOffset
+            signatureOffset: signatureOffset,
+            inputLatency: options.resolvedInputLatency(for: source),
+            rejectsContinuationAtFirstSplit: sourceURL != nil
         )
         guard first.mainHeader.isVolume, let sourceURL else {
             return try publish(
@@ -85,7 +87,8 @@ enum RAR4EntryPublisher {
                 passwordProvider: options.passwordProvider,
                 headerKeyCache: headerKeyCache,
                 passwordEncodings: passwordEncodings,
-                signatureOffset: 0
+                signatureOffset: 0,
+                inputLatency: options.resolvedInputLatency(for: source)
             )
             guard next.mainHeader.isVolume else {
                 throw KaitoError.malformed("RAR4 continuation is not marked as a volume")

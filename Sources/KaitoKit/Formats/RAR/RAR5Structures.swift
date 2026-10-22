@@ -300,6 +300,8 @@ struct RAR5PackedPartIntegrity {
 
 /// One file header, or split headers joined across volumes, before publication.
 struct RAR5PendingEntry {
+    var headerGuards: [RAR5HeaderGuard?] = []
+    var headerOffset: UInt64 = 0
     let rawName: [UInt8]
     let name: String
     let pathComponents: [String]
@@ -314,7 +316,7 @@ struct RAR5PendingEntry {
     let compression: RAR5CompressionInfo
     let firstHeaderFlags: RAR5HeaderFlags
     let lastHeaderFlags: RAR5HeaderFlags
-    let packedSegments: [SourceSegment]
+    var packedSegments: [SourceSegment]
     let packedPartIntegrity: [RAR5PackedPartIntegrity]
     let firstVolumeNumber: UInt64
     let lastVolumeNumber: UInt64
@@ -332,7 +334,9 @@ struct RAR5PendingEntry {
 /// Read plan kept beside each published entry: packed ranges, integrity
 /// values, and the parameters the decoders need.
 struct RAR5EntryRecord {
-    let packedSegments: [SourceSegment]
+    var headerGuards: [RAR5HeaderGuard?] = []
+    var headerOffset: UInt64 = 0
+    var packedSegments: [SourceSegment]
     let packedPartIntegrity: [RAR5PackedPartIntegrity]
     let packedSize: UInt64
     var availablePackedSize: UInt64? = nil

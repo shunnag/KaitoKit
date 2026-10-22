@@ -2,7 +2,35 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
-final class RAR4VolumeTests: XCTestCase {
+final class RAR4VolumeTests: RAR4VolumeTestSupport {
+    func testNewNumberedContinuationOpenedAloneFailsAtFirstSplitHeader() throws {
+        let payload = Data(repeating: 23, count: 40000)
+        let files = (0..<50).map { ("entry-\($0).bin", payload, payload.count, CRC32.checksum(payload), UInt16($0 == 0 ? 1 : 0)) }
+        var bytes = makeStoredVolume(files: files, mainFlags: 0x0011, requestsNextVolume: false)
+        // 後方の破損より先に split のエラーを返す。
+        bytes[bytes.count - 7] ^= 1
+        let source = CallCountingByteSource(DataByteSource(bytes))
+        XCTAssertThrowsError(try RAR4Reader(source: source, options: ReaderOptions(),
+            sourceURL: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("alone.part2.rar"))) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("RAR4 split continuation has no preceding file part"))
+        }
+        XCTAssertLessThanOrEqual(source.readCount, 4)
+    }
+
+    func testNonSplitContinuationStillUsesFullWalk() throws {
+        let payload = Data(repeating: 23, count: 40000)
+        let files = (0..<50).map { ("entry-\($0).bin", payload, payload.count, CRC32.checksum(payload), UInt16(0)) }
+        var bytes = makeStoredVolume(files: files, mainFlags: 0x0011, requestsNextVolume: false)
+        bytes[bytes.count - 7] ^= 1
+        let source = CallCountingByteSource(DataByteSource(bytes))
+        XCTAssertThrowsError(try RAR4Reader(source: source, options: ReaderOptions(),
+            sourceURL: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("alone.part2.rar"))) {
+            guard case .malformed(let message) = $0 as? KaitoError else { return XCTFail("\($0)") }
+            XCTAssertTrue(message.contains("header CRC"))
+        }
+        XCTAssertGreaterThanOrEqual(source.readCount, 50)
+    }
+
     private static let stem = "test_read_format_rar_multivolume"
 
     func testOldRarR00NumberingMergesSplitStoredEntry() throws {
@@ -215,67 +243,5 @@ final class RAR4VolumeTests: XCTestCase {
         }
     }
 
-    private func makeStoredVolume(
-        payload: Data,
-        unpackedSize: Int,
-        fileCRC: UInt32,
-        mainFlags: UInt16,
-        fileFlags: UInt16,
-        requestsNextVolume: Bool
-    ) -> Data {
-        makeStoredVolume(
-            files: [("joined.txt", payload, unpackedSize, fileCRC, fileFlags)],
-            mainFlags: mainFlags,
-            requestsNextVolume: requestsNextVolume
-        )
-    }
 
-    private func makeStoredVolume(
-        files: [(String, Data, Int, UInt32, UInt16)],
-        mainFlags: UInt16,
-        requestsNextVolume: Bool
-    ) -> Data {
-        var archive = Data(RAR4Reader.signature)
-        archive.append(contentsOf: makeHeader(
-            type: 0x73,
-            flags: mainFlags,
-            fields: [0, 0, 0, 0, 0, 0]
-        ))
-        for (name, payload, unpackedSize, fileCRC, fileFlags) in files {
-            var fields: [UInt8] = []
-            fields.appendLittleEndian(UInt32(payload.count))
-            fields.appendLittleEndian(UInt32(unpackedSize))
-            fields.append(2)
-            fields.appendLittleEndian(fileCRC)
-            fields.appendLittleEndian(UInt32(0))
-            fields.append(29)
-            fields.append(0x30)
-            fields.appendLittleEndian(UInt16(name.utf8.count))
-            fields.appendLittleEndian(UInt32(0x20))
-            fields.append(contentsOf: name.utf8)
-            archive.append(contentsOf: makeHeader(
-                type: 0x74,
-                flags: fileFlags | 0x8000,
-                fields: fields
-            ))
-            archive.append(payload)
-        }
-        archive.append(contentsOf: makeHeader(
-            type: 0x7b,
-            flags: requestsNextVolume ? 0x0001 : 0,
-            fields: []
-        ))
-        return archive
-    }
-
-    private func makeHeader(type: UInt8, flags: UInt16, fields: [UInt8]) -> [UInt8] {
-        var body = [type]
-        body.appendLittleEndian(flags)
-        body.appendLittleEndian(UInt16(7 + fields.count))
-        body.append(contentsOf: fields)
-        var header: [UInt8] = []
-        header.appendLittleEndian(UInt16(truncatingIfNeeded: CRC32.checksum(body)))
-        header.append(contentsOf: body)
-        return header
-    }
 }

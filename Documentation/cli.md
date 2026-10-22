@@ -18,6 +18,17 @@ kaito extract payload.bz2 -o unpacked --threads 4
 kaito bench --threads 36 archive.tar.xz 5
 ```
 
+`list` / `sha` / `extract` / `bench` は `--input-latency auto|low|high` も受け付けます。
+既定の `auto` は open 時に入力 volume のヒントから一度解決します。`high` は 7z LZMA2 の
+事前ヘッダ走査を避け、RAR ヘッダを適応窓で読みます。`low` は NAS 上でもこれらを無効にします。
+値によって展開結果のバイト列と SHA は変わりません。値なし・不正値・重複は usage error です。
+
+```sh
+kaito sha --input-latency high archive.7z
+kaito sha --input-latency low archive.7z
+```
+
+
 ## 名前の文字コードを診断する
 
 `detect-encoding` は TSV に記録した名前の元 byte 列から文字コード・確信度・復号名を表示する診断用コマンドです。

@@ -94,6 +94,8 @@ def inventory_from_helpers(paths, output):
                 raise ShardError("bundle name must end with .xctest: " + name)
             module = name[:-len(".xctest")]
             for suite in bundle["tests"]:
+                if not suite["tests"]:
+                    continue
                 class_name = suite["name"]
                 if not class_name.startswith(module + "."):
                     raise ShardError("class lacks module prefix: " + class_name)
@@ -254,8 +256,10 @@ def self_test():
             {"name": module + ".xctest", "tests": [
                 {"name": module + "." + name, "tests": [{"name": "testOne"}] if module == "KaitoKitCompatTests" else [{"name": "testOne"}, {"name": "testTwo"}]}
                 for name in names]} for module, names in modules.items()]}
+        data["tests"][0]["tests"].append({"name": "RAR4BuilderTestCase", "tests": []})
         helper.write_text(json.dumps(data), encoding="utf-8")
         inventory = inventory_from_helpers([helper], root / "inventory.txt")
+        assert set(inventory["KaitoKitTests"]) == {"KaitoKitTests." + name for name in modules["KaitoKitTests"]}
         assert shard_ids(PLAN["macos-26-intel"]) == ["1", "2"]
         first = select(inventory, "macos-26-intel", "KaitoKitTests", "1", "2")
         last = select(inventory, "macos-26-intel", "KaitoKitTests", "2", "2")
@@ -327,6 +331,9 @@ def self_test():
         duplicate.unlink()
         target.unlink()
         must_fail(lambda: coverage(inventory, directory))
+        data["tests"][0]["tests"][-1]["tests"].append({"name": "testOne"})
+        helper.write_text(json.dumps(data), encoding="utf-8")
+        must_fail(lambda: inventory_from_helpers([helper], root / "bad-inventory.txt"))
         for invalid in ({"tests": []}, {"tests": [{"name": "Bad", "tests": []}]},
                         {"tests": [{"name": "KaitoKitTests.xctest", "tests": [{"name": "Bad", "tests": []}]}]}):
             helper.write_text(json.dumps(invalid), encoding="utf-8")

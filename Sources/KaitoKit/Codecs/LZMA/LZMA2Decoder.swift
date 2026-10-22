@@ -32,6 +32,25 @@ struct LZMA2ResetPoint: Sendable, Equatable {
     }
 }
 
+// 直列復号またはヘッダ走査で観測した chunk の位置と大きさを reader 内の cache に伝える。
+// 走査では本文を復号せず、chunk header と入力・出力範囲の構造を確かめる。
+final class LZMA2ResetObserver {
+    let cache: SevenZipLZMA2ResetIndexCache
+    let base: UInt64
+    let maximumPointCount: Int
+    init(cache: SevenZipLZMA2ResetIndexCache, base: UInt64, maximumPointCount: Int) {
+        self.cache = cache; self.base = base; self.maximumPointCount = maximumPointCount
+    }
+    func observe(controlOffset: UInt64, position: UInt64, size: UInt64,
+                 resetsDictionary: Bool, properties: UInt8?) throws {
+        let start = try Checked.add(base, position)
+        let end = try Checked.add(start, size)
+        let point = resetsDictionary ? LZMA2ResetPoint(compressedOffset: controlOffset,
+            uncompressedOffset: start, lzmaProperties: properties) : nil
+        cache.observe(point: point, chunkStart: start, chunkEnd: end, maximumPointCount: maximumPointCount)
+    }
+}
+
 /// A streaming decoder for the raw LZMA2 stream used by 7z folders.
 ///
 /// The single property byte describes the dictionary size. Compressed and
@@ -50,6 +69,8 @@ public final class LZMA2Decoder: Decompressor {
     private var reader: ByteReader
     private let lzma: LZMADecoder
 
+    var resetObserver: LZMA2ResetObserver?
+    private var observedProperties: UInt8?
     private var resets = LZMA2ResetTracker()
     private var compressedChunkIsActive = false
     // 非圧縮 chunk の一時保管。最大 64 KiB を一度だけ確保し、count と position で使用範囲を追う。
@@ -156,6 +177,7 @@ public final class LZMA2Decoder: Decompressor {
         )
         // index で検証した次の reset 直前を単位の終端とする。最後の単位は
         // 元 stream の end control を読み、従来どおり終端とサイズを確かめる。
+        observedProperties = resetPoint.lzmaProperties
         endsAtDictionaryReset = nextResetPoint != nil
         if let properties = resetPoint.lzmaProperties {
             try lzma.preloadLZMA2Properties(properties)
@@ -255,12 +277,14 @@ public final class LZMA2Decoder: Decompressor {
         compressedSize: UInt64,
         expectedSize: UInt64?,
         maximumPointCount: Int,
-        singleResetOutputLimit: UInt64
+        singleResetOutputLimit: UInt64,
+        observer: LZMA2ResetObserver? = nil
     ) throws -> [LZMA2ResetPoint]? {
         try scanDictionaryResetIndex(
             source: source, offset: offset, compressedSize: compressedSize,
             expectedSize: expectedSize, maximumPointCount: maximumPointCount,
-            singleResetOutputLimit: singleResetOutputLimit, checksCancellation: true
+            singleResetOutputLimit: singleResetOutputLimit, checksCancellation: true,
+            observer: observer
         )
     }
 
@@ -273,7 +297,8 @@ public final class LZMA2Decoder: Decompressor {
         expectedSize: UInt64?,
         maximumPointCount: Int,
         singleResetOutputLimit: UInt64?,
-        checksCancellation: Bool
+        checksCancellation: Bool,
+        observer: LZMA2ResetObserver? = nil
     ) throws -> [LZMA2ResetPoint]? {
         guard maximumPointCount >= 0 else {
             throw KaitoError.limitExceeded("too many LZMA2 dictionary reset points")
@@ -342,6 +367,9 @@ public final class LZMA2Decoder: Decompressor {
                 )
                 let next = try Checked.add(reader.offset, size)
                 guard next <= endOffset else { throw KaitoError.truncated }
+                try observer?.observe(controlOffset: controlOffset, position: outputOffset - size,
+                                      size: size, resetsDictionary: resetsDictionary,
+                                      properties: currentLZMAProperties)
                 try reader.seek(to: next)
 
             case let .compressed(unpackedSize, packedSize, resetsDictionary, _, properties):
@@ -371,6 +399,9 @@ public final class LZMA2Decoder: Decompressor {
                 )
                 let next = try Checked.add(reader.offset, packedSize)
                 guard next <= endOffset else { throw KaitoError.truncated }
+                try observer?.observe(controlOffset: controlOffset, position: outputOffset - unpackedSize,
+                                      size: unpackedSize, resetsDictionary: resetsDictionary,
+                                      properties: currentLZMAProperties)
                 try reader.seek(to: next)
             }
         }
@@ -433,8 +464,11 @@ public final class LZMA2Decoder: Decompressor {
             }
             uncompressedChunkCount = count
             uncompressedChunkPosition = 0
+            try resetObserver?.observe(controlOffset: controlOffset, position: outputPosition, size: size,
+                                       resetsDictionary: resetsDictionary, properties: observedProperties)
 
         case let .compressed(unpackedSize, packedSize, resetsDictionary, resetsState, properties):
+            if let properties { observedProperties = properties }
             if resetsDictionary {
                 lzma.resetLZMA2Dictionary()
             }
@@ -457,6 +491,8 @@ public final class LZMA2Decoder: Decompressor {
                 properties: properties
             )
             compressedChunkIsActive = true
+            try resetObserver?.observe(controlOffset: controlOffset, position: outputPosition, size: unpackedSize,
+                                       resetsDictionary: resetsDictionary, properties: observedProperties)
         }
     }
 

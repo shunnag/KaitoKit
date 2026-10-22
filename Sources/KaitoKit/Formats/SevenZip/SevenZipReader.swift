@@ -22,6 +22,7 @@ final class SevenZipReader: FormatReader {
 
     private let source: any ByteSource
     private let limits: ReadLimits
+    let avoidsHeaderScans: Bool
     private let decodeThreads: Int
     private let maximumAESCyclesPower: UInt8
     private let streams: SevenZipStreamsInfo?
@@ -65,6 +66,7 @@ final class SevenZipReader: FormatReader {
     init(source: any ByteSource, options: ReaderOptions, baseOffset: UInt64 = 0) throws {
         self.source = source
         self.limits = options.limits
+        self.avoidsHeaderScans = options.resolvedInputLatency(for: source) == .high
         self.decodeThreads = options.resolvedDecodeThreads
         self.maximumAESCyclesPower = options.maxSevenZipAESCyclesPower
 
@@ -125,6 +127,7 @@ final class SevenZipReader: FormatReader {
                  editState: SevenZipEditState?) {
         self.source = source
         self.limits = options.limits
+        self.avoidsHeaderScans = options.resolvedInputLatency(for: source) == .high
         self.decodeThreads = options.resolvedDecodeThreads
         self.maximumAESCyclesPower = options.maxSevenZipAESCyclesPower
         self.entries = entries
@@ -253,7 +256,8 @@ final class SevenZipReader: FormatReader {
                 maximumAESCyclesPower: maximumAESCyclesPower,
                 packedStreamVerifier: packedStreamVerifier,
                 workers: decodeThreads,
-                resetIndexCache: resetIndexCache(for: substream.folderIndex)
+                resetIndexCache: resetIndexCache(for: substream.folderIndex),
+                avoidsHeaderScans: avoidsHeaderScans
             )
             coordinator = SevenZipFolderCoordinator(factory: factory)
             if folderHasMultipleSubstreams {

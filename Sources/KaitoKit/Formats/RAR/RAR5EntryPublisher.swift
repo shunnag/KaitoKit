@@ -9,12 +9,43 @@ import Foundation
 /// per file, and publishes them as `ArchiveEntry` values with the matching
 /// `RAR5EntryRecord` read plans (solid groups, redirections, file copies).
 enum RAR5EntryPublisher {
+    private struct QuickOpenPublicationError: Error {}
     static func parse(
         source: any ByteSource,
         sourceURL: URL?,
         sourceDirectoryAnchor: FileByteSource.DirectoryAnchor?,
         options: ReaderOptions,
         passwordSelection: RAR5PasswordSelection
+    ) throws -> (entries: [ArchiveEntry], records: [RAR5EntryRecord], password: String?) {
+        let verification = RAR5QuickOpenVerification()
+        do {
+            let parsed = try parseWithQuickOpen(source: source, sourceURL: sourceURL,
+                sourceDirectoryAnchor: sourceDirectoryAnchor, options: options,
+                passwordSelection: passwordSelection, quickOpenVerification: verification)
+            if verification.hasAllocatedSlots {
+                // 公開 Reader が行う合計 size の検査も、写しだけを理由に open を失敗させない。
+                do { _ = try ArchiveOutputBudget(entries: parsed.entries, limit: options.limits.maxTotalUncompressedSize) }
+                catch {
+                    if error is CancellationError { throw error }
+                    throw QuickOpenPublicationError()
+                }
+            }
+            return parsed
+        } catch {
+            guard error is QuickOpenPublicationError else { throw error }
+            // 公開時の solid・split・redirection 検査も、写しに由来する失敗なら通常走査で確定する。
+            var plainOptions = options
+            plainOptions.rar5QuickOpenPolicy = .never
+            return try parseWithQuickOpen(source: source, sourceURL: sourceURL,
+                sourceDirectoryAnchor: sourceDirectoryAnchor, options: plainOptions,
+                passwordSelection: passwordSelection, quickOpenVerification: RAR5QuickOpenVerification())
+        }
+    }
+
+    private static func parseWithQuickOpen(
+        source: any ByteSource, sourceURL: URL?,
+        sourceDirectoryAnchor: FileByteSource.DirectoryAnchor?, options: ReaderOptions,
+        passwordSelection: RAR5PasswordSelection, quickOpenVerification: RAR5QuickOpenVerification
     ) throws -> (entries: [ArchiveEntry], records: [RAR5EntryRecord], password: String?) {
         var resolvedPassword = options.password
         // One archive-encryption envelope can occur per volume. Retaining every
@@ -34,7 +65,8 @@ enum RAR5EntryPublisher {
             password: &resolvedPassword,
             keyCache: headerKeyCache,
             expectedHeaderEncryption: nil,
-            headerKDFBudget: &headerKDFBudget
+            headerKDFBudget: &headerKDFBudget,
+            quickOpenVerification: quickOpenVerification
         )
         guard first.volumeNumber == 0 else {
             throw KaitoError.malformed(
@@ -108,7 +140,8 @@ enum RAR5EntryPublisher {
                 password: &resolvedPassword,
                 keyCache: headerKeyCache,
                 expectedHeaderEncryption: first.headersEncrypted,
-                headerKDFBudget: &headerKDFBudget
+                headerKDFBudget: &headerKDFBudget,
+                quickOpenVerification: quickOpenVerification
             )
             guard next.archiveFlags.contains(RAR5ArchiveFlags.volume) else {
                 throw KaitoError.malformed(
@@ -128,20 +161,26 @@ enum RAR5EntryPublisher {
                 )
             }
 
-            totalRetainedMetadata = try Checked.add(
-                totalRetainedMetadata,
-                next.retainedMetadataSize
-            )
-            try Checked.size(
-                totalRetainedMetadata,
-                limit: options.limits.maxTotalMetadataSize
-            )
-            totalServiceHeaders = try checkedMetadataRecordSum(
-                totalServiceHeaders,
-                next.serviceHeaderCount,
-                limit: options.limits.maxMetadataRecordCount,
-                label: "RAR5 service header count"
-            )
+            do {
+                totalRetainedMetadata = try Checked.add(
+                    totalRetainedMetadata,
+                    next.retainedMetadataSize
+                )
+                try Checked.size(
+                    totalRetainedMetadata,
+                    limit: options.limits.maxTotalMetadataSize
+                )
+                totalServiceHeaders = try checkedMetadataRecordSum(
+                    totalServiceHeaders,
+                    next.serviceHeaderCount,
+                    limit: options.limits.maxMetadataRecordCount,
+                    label: "RAR5 service header count"
+                )
+
+            } catch {
+                if quickOpenVerification.hasAllocatedSlots { throw QuickOpenPublicationError() }
+                throw error
+            }
 
             try mergeFragments(
                 next.pending,
@@ -153,7 +192,10 @@ enum RAR5EntryPublisher {
             volumeNumber = nextNumber
         }
 
-        guard activeSplit == nil else { throw KaitoError.truncated }
+        guard activeSplit == nil else {
+            if activeSplit?.headerGuards.contains(where: { $0 != nil }) == true { throw QuickOpenPublicationError() }
+            throw KaitoError.truncated
+        }
         guard merged.count <= options.limits.maxEntryCount else {
             throw KaitoError.limitExceeded("RAR5 entry count")
         }
@@ -178,36 +220,49 @@ enum RAR5EntryPublisher {
         return sum
     }
 
+    private static func hasCachedHeaders(_ fragments: [RAR5PendingEntry]) -> Bool {
+        fragments.contains { $0.headerGuards.contains { $0 != nil } }
+    }
+
     private static func mergeFragments(
         _ fragments: [RAR5PendingEntry],
         into completed: inout [RAR5PendingEntry],
         activeSplit: inout RAR5PendingEntry?,
         limits: ReadLimits
     ) throws {
-        for fragment in fragments {
-            if fragment.splitBefore {
-                guard let active = activeSplit, active.splitAfter else {
-                    throw KaitoError.malformed(
-                        "RAR5 split continuation has no preceding file part"
-                    )
+        do {
+            for fragment in fragments {
+                if fragment.splitBefore {
+                    guard let active = activeSplit, active.splitAfter else {
+                        throw KaitoError.malformed(
+                            "RAR5 split continuation has no preceding file part"
+                        )
+                    }
+                    activeSplit = try mergeSplitParts(active, fragment)
+                } else {
+                    guard activeSplit == nil else {
+                        throw KaitoError.malformed(
+                            "RAR5 split continuation is missing"
+                        )
+                    }
+                    activeSplit = fragment
                 }
-                activeSplit = try mergeSplitParts(active, fragment)
-            } else {
-                guard activeSplit == nil else {
-                    throw KaitoError.malformed(
-                        "RAR5 split continuation is missing"
-                    )
-                }
-                activeSplit = fragment
-            }
 
-            if let active = activeSplit, !active.splitAfter {
-                guard completed.count < limits.maxEntryCount else {
-                    throw KaitoError.limitExceeded("RAR5 entry count")
+                if let active = activeSplit, !active.splitAfter {
+                    guard completed.count < limits.maxEntryCount else {
+                        throw KaitoError.limitExceeded("RAR5 entry count")
+                    }
+                    completed.append(active)
+                    activeSplit = nil
                 }
-                completed.append(active)
-                activeSplit = nil
             }
+        } catch {
+            if !(error is CancellationError),
+               hasCachedHeaders(fragments) || hasCachedHeaders(completed)
+                || activeSplit?.headerGuards.contains(where: { $0 != nil }) == true {
+                throw QuickOpenPublicationError()
+            }
+            throw error
         }
     }
 
@@ -286,6 +341,8 @@ enum RAR5EntryPublisher {
         extras.hash = continuation.extras.hash
 
         return RAR5PendingEntry(
+            headerGuards: first.headerGuards + continuation.headerGuards,
+            headerOffset: first.headerOffset,
             rawName: first.rawName,
             name: first.name,
             pathComponents: first.pathComponents,
@@ -337,173 +394,183 @@ enum RAR5EntryPublisher {
         archiveFlags: RAR5ArchiveFlags,
         recoverDamagedArchives: Bool
     ) throws -> (entries: [ArchiveEntry], records: [RAR5EntryRecord]) {
-        var solidGroups = [Int](repeating: -1, count: pending.count)
-        if archiveFlags.contains(RAR5ArchiveFlags.solid) {
-            var previousFileIndex: Int?
-            for index in pending.indices {
-                try checkCancellation(every: index)
-                guard pending[index].kind != .directory
-                    && !RAR5RedirectionType.isZeroBody(pending[index].extras.redirection?.type) else { continue }
-                if pending[index].compression.isSolid {
-                    guard let predecessor = previousFileIndex else {
-                        throw KaitoError.malformed(
-                            "first RAR5 file cannot continue a solid stream"
-                        )
+        do {
+            var solidGroups = [Int](repeating: -1, count: pending.count)
+            if archiveFlags.contains(RAR5ArchiveFlags.solid) {
+                var previousFileIndex: Int?
+                for index in pending.indices {
+                    try checkCancellation(every: index)
+                    guard pending[index].kind != .directory
+                        && !RAR5RedirectionType.isZeroBody(pending[index].extras.redirection?.type) else { continue }
+                    if pending[index].compression.isSolid {
+                        guard let predecessor = previousFileIndex else {
+                            throw KaitoError.malformed(
+                                "first RAR5 file cannot continue a solid stream"
+                            )
+                        }
+                        let group = solidGroups[predecessor] >= 0
+                            ? solidGroups[predecessor]
+                            : predecessor
+                        solidGroups[predecessor] = group
+                        solidGroups[index] = group
                     }
-                    let group = solidGroups[predecessor] >= 0
-                        ? solidGroups[predecessor]
-                        : predecessor
-                    solidGroups[predecessor] = group
-                    solidGroups[index] = group
+                    previousFileIndex = index
                 }
-                previousFileIndex = index
+            } else if pending.contains(where: {
+                $0.kind != .directory
+                    && !RAR5RedirectionType.isZeroBody($0.extras.redirection?.type)
+                    && $0.compression.isSolid
+            }) {
+                throw KaitoError.malformed("RAR5 solid file is not in a solid archive")
             }
-        } else if pending.contains(where: {
-            $0.kind != .directory
-                && !RAR5RedirectionType.isZeroBody($0.extras.redirection?.type)
-                && $0.compression.isSolid
-        }) {
-            throw KaitoError.malformed("RAR5 solid file is not in a solid archive")
-        }
 
-        var entries: [ArchiveEntry] = []
-        var records: [RAR5EntryRecord] = []
-        var lastEntryByNormalizedPath: [String: Int] = [:]
-        entries.reserveCapacity(pending.count)
-        records.reserveCapacity(pending.count)
+            var entries: [ArchiveEntry] = []
+            var records: [RAR5EntryRecord] = []
+            var lastEntryByNormalizedPath: [String: Int] = [:]
+            entries.reserveCapacity(pending.count)
+            records.reserveCapacity(pending.count)
 
-        for (index, item) in pending.enumerated() {
-            try checkCancellation(every: index)
-            let zeroBodyRedirection = RAR5RedirectionType.isZeroBody(
-                item.extras.redirection?.type
-            )
-            // A file copy (type 5) is published as a `.file` of its target's size
-            // only when the target resolves to an earlier regular file; otherwise
-            // it stays a zero-body `.other`.
-            var fileCopyTarget: (index: Int, entry: ArchiveEntry)?
-            if let redirection = item.extras.redirection, redirection.type == RAR5RedirectionType.fileCopy,
-               let normalizedTarget = ArchivePath.normalizedExtractionPath(redirection.target),
-               let targetIndex = lastEntryByNormalizedPath[normalizedTarget],
-               entries.indices.contains(targetIndex),
-               entries[targetIndex].kind == .file,
-               entries[targetIndex].formatSpecific["fileCopyTargetIndex"] == nil,
-               entries[targetIndex].uncompressedSize == item.unpackedSize {
-                fileCopyTarget = (targetIndex, entries[targetIndex])
-            }
-            let publishedUnpackedSize: UInt64? = fileCopyTarget != nil
-                ? item.unpackedSize
-                : (zeroBodyRedirection ? 0 : item.unpackedSize)
-            let publishedPackedSize = zeroBodyRedirection ? 0 : item.packedSize
-            var specific: [String: String] = [
-                "rarVersion": item.compression.version == 0 ? "5" : "7",
-                "compressionInfo": "0x" + String(item.compression.rawValue, radix: 16),
-                "method": String(item.compression.method),
-                "dictionarySize": String(item.compression.dictionarySize),
-                "hostOS": String(item.hostOS),
-                "attributes": "0x" + String(item.attributes, radix: 16),
-                "solid": item.compression.isSolid ? "true" : "false",
-                "splitBefore": item.splitBefore ? "true" : "false",
-                "splitAfter": item.splitAfter ? "true" : "false",
-                "multiVolume": item.isMultiVolume ? "true" : "false",
-                "volumeSegmentCount": String(item.packedSegments.count),
-                "unpackedSizeUnknown": item.unpackedSize == nil ? "true" : "false",
-                "encryption": item.extras.encryption == nil ? "none" : "RAR5 AES-256",
-            ]
-            if let hash = item.extras.hash {
-                specific["hashType"] = hash.type == 0 ? "BLAKE2sp" : String(hash.type)
-                specific["hash"] = hash.digest.map {
-                    let digits = String($0, radix: 16)
-                    return $0 < 16 ? "0" + digits : digits
-                }.joined()
-            }
-            if let version = item.extras.version { specific["fileVersion"] = String(version) }
-            if let redirection = item.extras.redirection {
-                specific["linkPath"] = redirection.target
-                specific["redirectionType"] = String(redirection.type)
-                specific["redirectionTargetIsDirectory"] = redirection.flags & 1 != 0 ? "true" : "false"
-                if redirection.type == RAR5RedirectionType.hardLink,
+            for (index, item) in pending.enumerated() {
+                try checkCancellation(every: index)
+                let zeroBodyRedirection = RAR5RedirectionType.isZeroBody(
+                    item.extras.redirection?.type
+                )
+                // A file copy (type 5) is published as a `.file` of its target's size
+                // only when the target resolves to an earlier regular file; otherwise
+                // it stays a zero-body `.other`.
+                var fileCopyTarget: (index: Int, entry: ArchiveEntry)?
+                if let redirection = item.extras.redirection, redirection.type == RAR5RedirectionType.fileCopy,
                    let normalizedTarget = ArchivePath.normalizedExtractionPath(redirection.target),
                    let targetIndex = lastEntryByNormalizedPath[normalizedTarget],
-                   entries.indices.contains(targetIndex) {
-                    let target = entries[targetIndex]
-                    if target.kind == .file ||
-                        (target.kind == .hardlink &&
-                            target.formatSpecific["hardLinkTargetIndex"] != nil) {
-                        specific["hardLinkTargetIndex"] = String(targetIndex)
+                   entries.indices.contains(targetIndex),
+                   entries[targetIndex].kind == .file,
+                   entries[targetIndex].formatSpecific["fileCopyTargetIndex"] == nil,
+                   entries[targetIndex].uncompressedSize == item.unpackedSize {
+                    fileCopyTarget = (targetIndex, entries[targetIndex])
+                }
+                let publishedUnpackedSize: UInt64? = fileCopyTarget != nil
+                    ? item.unpackedSize
+                    : (zeroBodyRedirection ? 0 : item.unpackedSize)
+                let publishedPackedSize = zeroBodyRedirection ? 0 : item.packedSize
+                var specific: [String: String] = [
+                    "rarVersion": item.compression.version == 0 ? "5" : "7",
+                    "compressionInfo": "0x" + String(item.compression.rawValue, radix: 16),
+                    "method": String(item.compression.method),
+                    "dictionarySize": String(item.compression.dictionarySize),
+                    "hostOS": String(item.hostOS),
+                    "attributes": "0x" + String(item.attributes, radix: 16),
+                    "solid": item.compression.isSolid ? "true" : "false",
+                    "splitBefore": item.splitBefore ? "true" : "false",
+                    "splitAfter": item.splitAfter ? "true" : "false",
+                    "multiVolume": item.isMultiVolume ? "true" : "false",
+                    "volumeSegmentCount": String(item.packedSegments.count),
+                    "unpackedSizeUnknown": item.unpackedSize == nil ? "true" : "false",
+                    "encryption": item.extras.encryption == nil ? "none" : "RAR5 AES-256",
+                ]
+                if let hash = item.extras.hash {
+                    specific["hashType"] = hash.type == 0 ? "BLAKE2sp" : String(hash.type)
+                    specific["hash"] = hash.digest.map {
+                        let digits = String($0, radix: 16)
+                        return $0 < 16 ? "0" + digits : digits
+                    }.joined()
+                }
+                if let version = item.extras.version { specific["fileVersion"] = String(version) }
+                if let redirection = item.extras.redirection {
+                    specific["linkPath"] = redirection.target
+                    specific["redirectionType"] = String(redirection.type)
+                    specific["redirectionTargetIsDirectory"] = redirection.flags & 1 != 0 ? "true" : "false"
+                    if redirection.type == RAR5RedirectionType.hardLink,
+                       let normalizedTarget = ArchivePath.normalizedExtractionPath(redirection.target),
+                       let targetIndex = lastEntryByNormalizedPath[normalizedTarget],
+                       entries.indices.contains(targetIndex) {
+                        let target = entries[targetIndex]
+                        if target.kind == .file ||
+                            (target.kind == .hardlink &&
+                                target.formatSpecific["hardLinkTargetIndex"] != nil) {
+                            specific["hardLinkTargetIndex"] = String(targetIndex)
+                        }
                     }
+                    if let fileCopyTarget {
+                        specific["fileCopyTargetIndex"] = String(fileCopyTarget.index)
+                    }
+                } else if item.kind == .symlink {
+                    specific["linkTargetStoredAsData"] = "true"
                 }
-                if let fileCopyTarget {
-                    specific["fileCopyTargetIndex"] = String(fileCopyTarget.index)
+                if let date = item.extras.creationDate {
+                    specific["creationTime"] = String(date.timeIntervalSince1970)
                 }
-            } else if item.kind == .symlink {
-                specific["linkTargetStoredAsData"] = "true"
-            }
-            if let date = item.extras.creationDate {
-                specific["creationTime"] = String(date.timeIntervalSince1970)
-            }
-            if let date = item.extras.accessDate {
-                specific["accessTime"] = String(date.timeIntervalSince1970)
-            }
-            if let owner = item.extras.ownerName { specific["owner"] = owner }
-            if let group = item.extras.groupName { specific["group"] = group }
-            if let ownerID = item.extras.ownerID { specific["uid"] = String(ownerID) }
-            if let groupID = item.extras.groupID { specific["gid"] = String(groupID) }
+                if let date = item.extras.accessDate {
+                    specific["accessTime"] = String(date.timeIntervalSince1970)
+                }
+                if let owner = item.extras.ownerName { specific["owner"] = owner }
+                if let group = item.extras.groupName { specific["group"] = group }
+                if let ownerID = item.extras.ownerID { specific["uid"] = String(ownerID) }
+                if let groupID = item.extras.groupID { specific["gid"] = String(groupID) }
 
-            let methodDescription: String
-            if fileCopyTarget != nil {
-                methodDescription = "RAR5 file copy"
-            } else if item.compression.method == 0 {
-                methodDescription = "RAR5 stored"
-            } else {
-                methodDescription = "RAR5 method \(item.compression.method)"
+                let methodDescription: String
+                if fileCopyTarget != nil {
+                    methodDescription = "RAR5 file copy"
+                } else if item.compression.method == 0 {
+                    methodDescription = "RAR5 stored"
+                } else {
+                    methodDescription = "RAR5 method \(item.compression.method)"
+                }
+                let entry = ArchiveEntry(
+                    index: index,
+                    rawName: RawName(
+                        bytes: item.rawName,
+                        declaredEncoding: .utf8,
+                        isDirectoryHint: item.kind == .directory
+                    ),
+                    name: item.name,
+                    pathComponents: item.pathComponents,
+                    kind: fileCopyTarget != nil ? .file : item.kind,
+                    uncompressedSize: publishedUnpackedSize,
+                    compressedSize: publishedPackedSize,
+                    modificationDate: item.modificationDate,
+                    posixPermissions: item.permissions,
+                    // A file copy reads its target's body, so encryption and solid
+                    // group follow the target.
+                    isEncrypted: fileCopyTarget?.entry.isEncrypted
+                        ?? (!zeroBodyRedirection && item.extras.encryption != nil),
+                    solidGroup: fileCopyTarget?.entry.solidGroup ?? solidGroups[index],
+                    crc32: zeroBodyRedirection ? nil : item.crc32,
+                    methodDescription: methodDescription,
+                    formatSpecific: specific,
+                    isIncomplete: recoverDamagedArchives && item.isIncomplete
+                )
+                entries.append(entry)
+                if let normalizedName = ArchivePath.normalizedExtractionPath(item.name) {
+                    // Resolve hard links before insertion so targets are always
+                    // earlier archive members and cannot form forward cycles.
+                    lastEntryByNormalizedPath[normalizedName] = entry.index
+                }
+                // 本文を持たない redirection もメタデータの消費前に guard を照合する。
+                records.append(RAR5EntryRecord(
+                    headerGuards: item.headerGuards,
+                    headerOffset: item.headerOffset,
+                    packedSegments: zeroBodyRedirection ? [] : item.packedSegments,
+                    packedPartIntegrity: zeroBodyRedirection
+                        ? []
+                        : item.packedPartIntegrity,
+                    packedSize: publishedPackedSize,
+                    availablePackedSize: item.availablePackedSize,
+                    isIncomplete: recoverDamagedArchives && item.isIncomplete,
+                    unpackedSize: publishedUnpackedSize,
+                    compression: item.compression,
+                    encryption: item.extras.encryption,
+                    hash: item.extras.hash,
+                    redirectionType: item.extras.redirection?.type,
+                    requiresPreviousVolume: !zeroBodyRedirection && item.splitBefore,
+                    requiresNextVolume: !zeroBodyRedirection && item.splitAfter
+                ))
             }
-            let entry = ArchiveEntry(
-                index: index,
-                rawName: RawName(
-                    bytes: item.rawName,
-                    declaredEncoding: .utf8,
-                    isDirectoryHint: item.kind == .directory
-                ),
-                name: item.name,
-                pathComponents: item.pathComponents,
-                kind: fileCopyTarget != nil ? .file : item.kind,
-                uncompressedSize: publishedUnpackedSize,
-                compressedSize: publishedPackedSize,
-                modificationDate: item.modificationDate,
-                posixPermissions: item.permissions,
-                // A file copy reads its target's body, so encryption and solid
-                // group follow the target.
-                isEncrypted: fileCopyTarget?.entry.isEncrypted
-                    ?? (!zeroBodyRedirection && item.extras.encryption != nil),
-                solidGroup: fileCopyTarget?.entry.solidGroup ?? solidGroups[index],
-                crc32: zeroBodyRedirection ? nil : item.crc32,
-                methodDescription: methodDescription,
-                formatSpecific: specific,
-                isIncomplete: recoverDamagedArchives && item.isIncomplete
-            )
-            entries.append(entry)
-            if let normalizedName = ArchivePath.normalizedExtractionPath(item.name) {
-                // Resolve hard links before insertion so targets are always
-                // earlier archive members and cannot form forward cycles.
-                lastEntryByNormalizedPath[normalizedName] = entry.index
+            return (entries, records)
+        } catch {
+            if !(error is CancellationError), hasCachedHeaders(pending) {
+                throw QuickOpenPublicationError()
             }
-            records.append(RAR5EntryRecord(
-                packedSegments: zeroBodyRedirection ? [] : item.packedSegments,
-                packedPartIntegrity: zeroBodyRedirection
-                    ? []
-                    : item.packedPartIntegrity,
-                packedSize: publishedPackedSize,
-                availablePackedSize: item.availablePackedSize,
-                isIncomplete: recoverDamagedArchives && item.isIncomplete,
-                unpackedSize: publishedUnpackedSize,
-                compression: item.compression,
-                encryption: item.extras.encryption,
-                hash: item.extras.hash,
-                redirectionType: item.extras.redirection?.type,
-                requiresPreviousVolume: !zeroBodyRedirection && item.splitBefore,
-                requiresNextVolume: !zeroBodyRedirection && item.splitAfter
-            ))
+            throw error
         }
-        return (entries, records)
     }
 }

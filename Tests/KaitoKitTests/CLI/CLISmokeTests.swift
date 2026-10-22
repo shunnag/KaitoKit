@@ -7,6 +7,30 @@ import XCTest
 /// kaito CLI（detect-encoding・detect・list・sha・extract・bench）の出力と終了コードを、build した実行ファイル（Support/KaitoCLI）
 /// と checked-in の fixture で検査する。
 final class CLISmokeTests: XCTestCase {
+    func testInputLatencyFlagParses() throws {
+        let directory = try TarTestSupport.temporaryDirectory()
+        let archive = directory.appendingPathComponent("latency.7z")
+        try SevenZipParallelTestSupport.raw().archive().write(to: archive)
+        let expected = try KaitoCLI.run(["sha", archive.path])
+        for value in ["auto", "low", "high"] {
+            XCTAssertEqual(try KaitoCLI.run(["sha", "--input-latency", value, archive.path]), expected)
+            XCTAssertFalse(try KaitoCLI.run(["list", archive.path, "--input-latency", value]).isEmpty)
+            _ = try KaitoCLI.run(["bench", "--data", archive.path, "1", "--input-latency", value])
+            _ = try KaitoCLI.run(["extract", archive.path, "-o", directory.appendingPathComponent(value).path, "--input-latency", value])
+        }
+    }
+
+    func testInputLatencyFlagRejectsDuplicatesAndInvalid() throws {
+        for command in ["list", "sha", "extract", "bench"] {
+            for flags in [["--input-latency"], ["--input-latency", "invalid"],
+                          ["--input-latency", "auto", "--input-latency", "low"]] {
+                let result = try ZipTestSupport.run(try KaitoCLI.executableURL().path, arguments: [command] + flags)
+                XCTAssertFalse(result.succeeded)
+                XCTAssertTrue(String(decoding: result.standardError, as: UTF8.self).contains("usage:"))
+            }
+        }
+    }
+
     // MARK: - detect-encoding
 
     func testDetectEncodingIANARoundTripsForAllCorpusEncodings() throws {

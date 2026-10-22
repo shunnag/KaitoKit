@@ -3,14 +3,16 @@ import Foundation
 /// A zero-copy view that presents a suffix of another byte source at offset
 /// zero. Container readers use this when an executable prefix precedes an
 /// otherwise native archive stream.
-final class RebasedByteSource: ByteSource {
+final class RebasedByteSource: ByteSource, VolumeLocalityHinting {
     private let source: any ByteSource
     private let baseOffset: UInt64
 
+    let isOnNonLocalVolume: Bool
     let length: UInt64
 
     init(source: any ByteSource, baseOffset: UInt64) throws {
         guard baseOffset <= source.length else { throw KaitoError.truncated }
+        self.isOnNonLocalVolume = byteSourceIsOnNonLocalVolume(source)
         self.source = source
         self.baseOffset = baseOffset
         self.length = try Checked.sub(source.length, baseOffset)
@@ -36,13 +38,15 @@ final class RebasedByteSource: ByteSource {
 }
 
 /// 別の source の一範囲を offset 0 から提示し、後続 member を codec が消費しないようにする。
-final class BoundedByteSource: ByteSource {
+final class BoundedByteSource: ByteSource, VolumeLocalityHinting {
     private let source: any ByteSource
     private let baseOffset: UInt64
+    let isOnNonLocalVolume: Bool
     let length: UInt64
 
     init(source: any ByteSource, baseOffset: UInt64, length: UInt64) throws {
         guard try Checked.add(baseOffset, length) <= source.length else { throw KaitoError.truncated }
+        self.isOnNonLocalVolume = byteSourceIsOnNonLocalVolume(source)
         self.source = source
         self.baseOffset = baseOffset
         self.length = length

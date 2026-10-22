@@ -3,6 +3,22 @@ import Foundation
 import XCTest
 
 final class RAR5VolumeTests: XCTestCase {
+    func testContinuationOpenedAloneFailsAfterMainHeaderWithoutWalkingFiles() throws {
+        try RAR5TestSupport.requireRAR()
+        let directory = try TarTestSupport.temporaryDirectory()
+        let first = directory.appendingPathComponent("parts.rar")
+        try Data((0..<160000).map { UInt8(truncatingIfNeeded: $0 &* 71) }).write(to: directory.appendingPathComponent("payload.bin"))
+        try RAR5TestSupport.makeGeneratedArchive(sourceDirectory: directory, paths: ["payload.bin"], archiveURL: first,
+            options: ["-m0", "-qo-", "-v64k"])
+        let second = directory.appendingPathComponent("parts.part2.rar")
+        let source = CallCountingByteSource(DataByteSource(try Data(contentsOf: second)))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("parts.part3.rar").path))
+        XCTAssertThrowsError(try RAR5Reader(source: source, options: ReaderOptions(), sourceURL: second)) {
+            XCTAssertEqual($0 as? KaitoError, .malformed("RAR5 volume number 1 does not match expected 0"))
+        }
+        XCTAssertLessThanOrEqual(source.readCount, 3)
+    }
+
     func testNonzeroFirstVolumeNumberIsRejectedForDataAndArbitrarySource() throws {
         let archive = RAR5TestSupport.archive(
             mainFlags: 0x0003,

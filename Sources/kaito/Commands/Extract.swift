@@ -6,6 +6,7 @@ private struct ExtractArguments {
     let output: String
     let password: String?
     let decodeThreads: Int?
+    let inputLatency: InputLatency
 }
 
 private func parseExtract(_ arguments: [String]) throws -> ExtractArguments {
@@ -13,6 +14,7 @@ private func parseExtract(_ arguments: [String]) throws -> ExtractArguments {
     var output: String?
     var password: String?
     var threads = DecodeThreadsArgument()
+    var latency = InputLatencyArgument()
     var cursor = ArgumentCursor(arguments)
 
     while let argument = cursor.next() {
@@ -21,6 +23,8 @@ private func parseExtract(_ arguments: [String]) throws -> ExtractArguments {
             output = try cursor.value(unlessSet: output)
         case "-p":
             password = try cursor.value(unlessSet: password)
+        case "--input-latency":
+            try latency.parse(from: &cursor)
         case "--threads":
             try threads.parse(from: &cursor)
         default:
@@ -32,12 +36,12 @@ private func parseExtract(_ arguments: [String]) throws -> ExtractArguments {
     }
 
     guard let archive, let output else { throw CLIError.usage(usage) }
-    return ExtractArguments(archive: archive, output: output, password: password, decodeThreads: threads.value)
+    return ExtractArguments(archive: archive, output: output, password: password, decodeThreads: threads.value, inputLatency: latency.value)
 }
 
 func runExtract(_ arguments: [String]) throws {
     let parsed = try parseExtract(arguments)
-    let reader = try openArchive(parsed.archive, password: parsed.password, decodeThreads: parsed.decodeThreads)
+    let reader = try openArchive(parsed.archive, password: parsed.password, decodeThreads: parsed.decodeThreads, inputLatency: parsed.inputLatency)
     let directory = URL(fileURLWithPath: parsed.output, isDirectory: true)
     var failures = 0
     func extract(_ entry: ArchiveEntry) {

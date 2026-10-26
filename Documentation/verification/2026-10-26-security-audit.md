@@ -93,3 +93,39 @@
 - 性能値は release build で測り直した。監査と初回 triage の一部の秒数は debug build のもので、
   7z の鍵導出では約 50 倍の差があった（2^24 で debug 24 秒 / release 0.42 秒）。
 - 第三者の書庫実装 source は参照していない（design.md §10）。brew install も行っていない。
+
+## 下流プロジェクトでの検証（リリース判定の前提）
+
+本修正を含む 0.17.0 は、KaitoKit を利用する 3 プロジェクトの同じ観点での検査が終わるまでリリースしない
+（利用者の指示、2026-10-26）。各プロジェクトに検査の指示書を置いた。
+
+| プロジェクト | 指示書 | 依存の形 | 0.17.0 の影響 |
+| --- | --- | --- | --- |
+| KaitoFinder | `../KaitoFinder/Documentation/2026-10-26-audit-instructions.md` | `../KaitoKit` への path 参照（版の pin なし）。CI は `main` を浅く clone | KDF 予算のみ。展開 API は未使用 |
+| GyoshukuKit | `../GyoshukuKit/Documentation/2026-10-26-audit-instructions.md` | 隣に checkout があれば path、無ければ `.upToNextMinor(from: "0.16.0")`（= 0.17.0 未満） | KDF 予算のみ。自分が書いた書庫を読み戻せるかの自傷確認が要る |
+| cooViewer | `../cooViewer/Documentation/2026-10-26-audit-instructions.md` | ビルド時に `../KaitoKit` から framework を再ビルド（版の記録なし） | KDF 予算。`.sitx` 対応なので現行出荷版（2.0b49、v0.16.0 ビルド）が敵対的 `.sitx` で固まる可能性 |
+
+### 下流の調査で判明した本修正の限界（0.17.0 で判断が必要）
+
+3 プロジェクトの範囲調査（2026-10-26）で、**R2 / C3 の予算は reader 単位であり `reopened()` で引き継がれない**
+ことが、下流では実効的な弱点になると判明した（`Core/KDFWorkBudget.swift`、
+`Formats/SevenZip/SevenZipReader.swift` の `reopened`）。
+
+- KaitoFinder は password 検証で worker ごとに `reopen()` し、誤った password ごとに `open` し直す
+  （prompt loop に試行上限が無い）。
+- cooViewer は 1 冊につき primary 1 + extractor 最大 6 の reader を開き、nested で更に増える。
+- いずれも**予算が reader の数だけ倍になる**。
+
+逆方向の懸念もある: cyclesPower 24 の正規の暗号化 7z では既定予算（`4 × 2^24`）で約 4 回しか導出できないため、
+**password を 4 回以上試した利用者が `limitExceeded` で弾かれる**可能性がある。cooViewer の
+`classifyProbeFailure` は `limitExceeded` を「password 違い」に分類するので、**誤った案内**になる恐れもある。
+
+判断の選択肢（下流の実測が出てから決める）:
+
+1. 現状維持（reader 単位）＋ 意味論を `ReadLimits` の doc と embedding.md に明記し、reader を多数開く呼出側は
+   上限を下げるか reader を共有するよう案内する。
+2. 複数 reader で共有できる予算 object を公開 API として追加する（`ReadLimits` に注入する形）。
+3. 既定値を上げ下げする（下流の実測した倍率と、正規書庫の試行回数の両方を見てから）。
+
+この 3 択は下流 3 件の検査結果が揃ってから決める。1 は最小、2 は呼出側の手当てが要るが本質的、
+3 だけでは多重化を解けない。

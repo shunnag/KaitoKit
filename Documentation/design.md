@@ -1603,21 +1603,25 @@ prose ページであることを確認し、`source-archive` を含む URL は�
 7z header は `ReadLimits.maxSevenZipHeaderKDFWork`（既定 `4 * (1 << 24)`）で open 中の
 SHA-256 rounds を累積する。従来の「entry reads are unbudgeted」は共有 salt の cache に依存し、
 folder ごとに異なる salt を置く自作書庫では安全でなかった（2026-10-26）。
-`maxSevenZipEntryKDFWork`（既定 `4 * (1 << 24)`）を reader が保持し、factory / coordinator と
+`maxSevenZipEntryKDFWork`（既定 `16 * (1 << 24)` = 268,435,456）を reader と password の組ごとに保持し、factory / coordinator と
 decrypted packed stream SPI に渡す。cache miss の直前だけ課金し、direct key は無料。
-header の予算とは独立だが cache は共有する。7-Zip の固定値 cyclesPower 19 なら128種の salt 分、
-最大 cyclesPower 24 なら4回（release 実測で約1.7秒）を許す。通常の writer は一つの salt を共有するので、
-多数 folder でも一度だけ導出する。cache は最大 64 鍵の FIFO、退去後の再導出も課金する。
+header の予算とは独立だが cache は共有する。cyclesPower 19 なら512種の salt 分、
+最大 cyclesPower 24 なら16回を許す。7zz の出力は saltSize 0 なので、多数 folder でも一度だけ導出する。
+cache は最大 64 鍵の FIFO、退去後の再導出も課金する。KDF は chunk ごとに取消しを検査する。
 StuffIt X は鍵長を丸めた R に対し約 `16 * R²` byte を MD5 に再投入するため、
 `maxStuffItXKDFWork`（既定 `1 << 22` MD5 圧縮回数）で鍵と verifier の全仕事を導出前に課金する。
 catalog / entry / 補助 stream の coordinator は同じ reader の予算を共有する。
 実際の鍵素材は1 KiB未満（RC4 実例64、AES最大32、Blowfish最大56、DES 8 byte）で、通常の小鍵なら数千 entry を許す。
 約4 KiBの一導出（release 実測で約1.7秒）が目安。padding・verifier も数えるので password `x` での実境界は4,032 byte、
-4,096 byteは超過し、8 KiB以上も拒否する。初回の既定値（7z `32 * (1 << 24)` / StuffIt X `1 << 26`）は
-各13.5 / 6.5秒程度を許していたため、header の既存予算と同じ約2秒の目安へ下げた。
+4,096 byteは超過し、8 KiB以上も拒否する。
 必要な caller は明示的に上限を上げる。仕事量が残予算と等しければ受理し、超過だけを拒否する。
 受理する鍵長範囲は維持し、256 round の各先頭で取消しを検査する。
-両予算は失敗・password 変更で戻さず、reopen は独立させる。StuffIt 5 の秘密 verifier は
+両予算とも別の password を設定すると全額戻る。同じ password の再設定・stream() の繰返し・読取失敗では戻らない。
+StuffIt X の reset は reader が一度だけ行い、coordinator ごとには行わない。
+reopen() / open() は独立した予算を全額持つ。複数 password を自動試行する host は自分で試行回数を縛る責務があり、
+全体の露出は試行回数 × reader 数に比例する。7z の旧既定 `4 * (1 << 24)` は正規の試行や distinct-salt 書庫を
+拒むことが実測で判明したため、2026-10-27 に予算を4倍に緩め、reader と password の組ごとの意味論へ変更した。
+header の KDF 予算と StuffIt X の既定値は据え置く。StuffIt 5 の秘密 verifier は
 `ConstantTime.equals` に揃え、公開値の比較は変えない。
 [修正・計測・回帰テスト](verification/2026-10-26-audit-kdf-fixes.md)。
 

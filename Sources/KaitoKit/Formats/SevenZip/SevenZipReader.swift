@@ -180,6 +180,7 @@ final class SevenZipReader: FormatReader {
         guard self.password != password else { return }
         self.password = password
         keyCache.removeAll()
+        entryKDFBudget.reset()
         coordinators.removeAll(keepingCapacity: false)
     }
 

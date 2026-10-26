@@ -129,6 +129,7 @@ final class SevenZipAESKeyCache {
         var counter: UInt64 = 0
 
         while counter < rounds {
+            try Task.checkCancellation()
             let count = try Checked.toInt(min(UInt64(recordsPerChunk), rounds - counter))
             for record in 0..<count {
                 let base = record * recordSize

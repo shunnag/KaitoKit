@@ -84,7 +84,7 @@ final class StuffItXKDFWorkTests: XCTestCase {
         }
     }
 
-    func testReaderBudgetIsSharedAcrossStreamsAndPasswordChanges() throws {
+    func testReaderBudgetIsSharedAcrossStreams() throws {
         let data = try entryArchive()
         let work = try StuffItXCrypto.work(passwordLength: 8, keyLength: 16)
         let reader = try ArchiveReader.open(data: data, options: ReaderOptions(
@@ -94,8 +94,37 @@ final class StuffItXKDFWorkTests: XCTestCase {
         XCTAssertThrowsError(try reader.read(reader.entries[1])) {
             XCTAssertEqual($0 as? KaitoError, .limitExceeded("StuffIt X KDF work"))
         }
-        reader.password = "new"
+    }
+
+    func testReaderBudgetResetsForDifferentPassword() throws {
+        let data = try entryArchive()
+        let work = try StuffItXCrypto.work(passwordLength: 8, keyLength: 16)
+        let reader = try ArchiveReader.open(data: data, options: ReaderOptions(
+            limits: ReadLimits(maxStuffItXKDFWork: work), password: "wrongpwd"))
         XCTAssertThrowsError(try reader.read(reader.entries[0])) {
+            XCTAssertEqual($0 as? KaitoError, .wrongPassword)
+        }
+        XCTAssertThrowsError(try reader.read(reader.entries[1])) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("StuffIt X KDF work"))
+        }
+        reader.password = "password"
+        XCTAssertEqual(try reader.read(reader.entries[1]), Data([65]))
+        XCTAssertThrowsError(try reader.read(reader.entries[0])) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("StuffIt X KDF work"))
+        }
+    }
+
+    func testReaderBudgetDoesNotResetForSamePassword() throws {
+        let data = try entryArchive()
+        let work = try StuffItXCrypto.work(passwordLength: 8, keyLength: 16)
+        let reader = try ArchiveReader.open(data: data, options: ReaderOptions(
+            limits: ReadLimits(maxStuffItXKDFWork: work), password: "password"))
+        XCTAssertEqual(try reader.read(reader.entries[0]), Data([65]))
+        XCTAssertThrowsError(try reader.read(reader.entries[1])) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("StuffIt X KDF work"))
+        }
+        reader.password = "password"
+        XCTAssertThrowsError(try reader.read(reader.entries[1])) {
             XCTAssertEqual($0 as? KaitoError, .limitExceeded("StuffIt X KDF work"))
         }
     }

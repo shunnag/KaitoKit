@@ -888,3 +888,50 @@ sys 0.00
 - [Tests/KaitoKitTests/SevenZip/SevenZipEntryKDFTests.swift](../../Tests/KaitoKitTests/SevenZip/SevenZipEntryKDFTests.swift)
 - [Tests/KaitoKitTests/StuffIt/StuffItSlice2CryptoTests.swift](../../Tests/KaitoKitTests/StuffIt/StuffItSlice2CryptoTests.swift)
 - [Tests/KaitoKitTests/StuffIt/StuffItXKDFWorkTests.swift](../../Tests/KaitoKitTests/StuffIt/StuffItXKDFWorkTests.swift)
+
+## 追補（2026-10-27）: 既定値 `4 × 2^24` の見直しと「reader × password」の意味論
+
+下流 3 プロジェクト（KaitoFinder / GyoshukuKit / cooViewer）の検査準備で、`maxSevenZipEntryKDFWork`
+の既定が **正規の書庫と正規の利用者を拒む**ことが判明した。transcript にしか無かった実測を記録する。
+
+### 実測（M4 Max / release build / `Tests/Fixtures/sevenzip-kdf/generate.py --opaque` の細工書庫）
+
+計測器は使い捨ての SwiftPM package（`ArchiveReader` を直接叩き、試行ごとの wall と error 種別を印字）。
+
+| # | 条件 | 結果 |
+|---|---|---|
+| A | cyclesPower 24・1 folder・**同一 reader** に誤 password を 8 回 | 4 回は導出（各 0.47 s）、**5 回目以降は即 `limitExceeded("7z entry KDF work")`** |
+| B | 同じ書庫で試行ごとに `reopen()` | 6/6 すべて導出（予算が全額復活） |
+| C | 同じ書庫で試行ごとに `open()` | 6/6 すべて導出（同上） |
+| D | cyclesPower 19・**salt が folder ごとに異なる 300 folder**・正しい password で全 entry | **entry 128 以降が全部 `limitExceeded`** |
+| E | `7zz a -t7z -p… -ms=off` が書いた非 solid 200 folder の暗号化書庫・正しい password | 全 entry 読取成功（saltSize 0 で cache key が一致し導出は 1 回） |
+
+算術: 既定 `4 × 2^24` = 67,108,864 rounds。1 導出 = `1 << cyclesPower` rounds。
+`maxSevenZipAESCyclesPower` の既定は 24 なので、**受理する最も重い導出のちょうど 4 回分**しか予算が無い。
+cyclesPower 19（7-Zip の既定）なら 128 回。
+
+### 判定
+
+- A と D は **正規利用の回帰**である。A は「password を 5 回試した利用者が『上限超過』で拒まれる」。
+  D は「salt を folder ごとに乱択する writer が書いた正規の書庫が、128 entry 目から読めなくなる」。
+  読取 library としてこれは受け入れられない。E は 7-Zip 自身の出力が無影響であることの確認。
+- B と C は、予算が reader 単位で `reopen()` が引き継がないという設計の帰結。攻撃側から見れば
+  **reader を増やす host では予算が倍々になる**。
+- 2026-10-26 に `32 × 2^24` から `4 × 2^24` へ締めたのは、上限より**上**の入力だけを測った判断だった。
+  下限側（正規書庫・正規利用者）を測っていなかったのが誤りで、締めすぎである。
+
+### 採った設計（0.17.0 候補）
+
+1. 既定を **`16 × 2^24`**（268,435,456 rounds）にする。cyclesPower 19 なら distinct salt 512 個、
+   24 なら 16 回。最悪 ≈ 7.5 s/reader/password（M4 Max。遅い macOS 26 機で 2〜3 倍）。
+   修正前は**無制限**（1M folder × 0.47 s）だったので、有限という性質は保つ。
+2. 予算の意味論を **「reader × password」** にする。host が reader に別の password を設定したら予算を戻す。
+   A の崖はこれで消える。**自動で複数の password を試す host は、自分で試行回数を縛る責務を負う**
+   （露出は `試行回数 × reader 数 × 7.5 s`）。これは文書化する。
+3. 7z の KDF chunk loop に**キャンセル検査**を入れる。GUI を守るのは上限そのものより中断可能性である
+   （StuffIt X 側には 2026-10-26 の修正で既に入っている）。
+4. header 側の予算（`maxSevenZipHeaderKDFWork`、`maxRAR5HeaderKDFWork`）は据え置く。header の鍵導出は
+   open 1 回につき 1 導出で、試行は毎回新しい open になるため、同じ崖が起きない。
+5. StuffIt X の `maxStuffItXKDFWork` = `2^22` は据え置く。`StuffItXCrypto.work` は書庫が宣言する
+   keyLength に二次で効き、正規書庫（AES-256 の 32 byte 鍵）は約 1,534 MD5 圧縮なので、既定でも
+   約 2,700 回の試行を許す。正規利用の回帰は無い。

@@ -56,8 +56,11 @@ final class ReaderOptionsTests: XCTestCase {
 extension ReaderOptionsTests {
     func testReadLimitsKDFDefaultsAndCallerOverrides() throws {
         let defaults = ReadLimits()
-        XCTAssertEqual(defaults.maxSevenZipEntryKDFWork, 4 * (1 << 24))
+        XCTAssertEqual(defaults.maxSevenZipEntryKDFWork, 16 * (1 << 24))
+        XCTAssertEqual(defaults.maxSevenZipHeaderKDFWork, 4 * (1 << 24))
+        XCTAssertEqual(defaults.maxRAR5HeaderKDFWork, 4 * ((1 << 24) + 32))
         XCTAssertEqual(defaults.maxStuffItXKDFWork, 1 << 22)
+        XCTAssertEqual(ReaderOptions().maxSevenZipAESCyclesPower, 24)
         var limits = ReadLimits(maxSevenZipEntryKDFWork: 0, maxStuffItXKDFWork: 0)
         XCTAssertNotEqual(limits, defaults)
         limits.maxSevenZipEntryKDFWork = .max; limits.maxStuffItXKDFWork = 123

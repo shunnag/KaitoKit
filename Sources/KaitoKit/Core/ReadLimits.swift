@@ -68,18 +68,24 @@ public struct ReadLimits: Sendable, Equatable {
     /// The default permits four derivations at cycle power 24.
     public var maxSevenZipHeaderKDFWork: UInt64
 
-    /// reader 内の 7z entry 鍵導出に使う SHA-256 round 総数。cache miss だけ課金する。
-    /// 既定は `4 * (1 << 24)`。7-Zip の固定値 cyclesPower 19 なら異なる salt 128 個分。
-    /// 通常の writer は書庫内で一つの salt を共有し、多数の folder でも導出は一度で済む。
-    /// 最大 cyclesPower 24 の自作 distinct-salt 書庫は 4 回（release 実測で約 1.7 秒）に抑える。
-    /// cache hit と direct key は消費しない。header の予算とは独立。
+    /// Maximum aggregate SHA-256 rounds for 7z entry key derivations per reader/password pair.
+    /// The default is `16 * (1 << 24)`: 512 distinct salts at cycle power 19,
+    /// or 16 derivations at cycle power 24. Cache hits and direct keys consume no
+    /// rounds; the header budget is separate.
+    /// Setting a different password replenishes the budget; setting the same password
+    /// or retrying a failed read does not. `reopen()` and `open()` start with full budgets.
+    /// Hosts that automatically try multiple passwords must bound their own attempts;
+    /// total exposure scales with the attempt count times the number of readers.
     public var maxSevenZipEntryKDFWork: UInt64
 
-    /// reader 内の StuffIt X 鍵・verifier 導出に使う MD5 圧縮回数の総数。
+    /// reader と password の組ごとの StuffIt X 鍵・verifier 導出に使う MD5 圧縮回数の総数。
     /// 既定は `1 << 22`。約 4 KiB の一導出（release 実測で約 1.7 秒）を許し、8 KiB 以上は拒む。
     /// padding・verifier も数えるため、1 byte password の実境界は 4,032 byte。4,096 byte は超過する。
     /// 実際の鍵素材は 1 KiB 未満（RC4 の実例は 64、AES は最大 32、Blowfish は 56、DES は 8 byte）。
     /// 通常の小さい鍵なら reader 内の数千 entry を許す。catalog と entry で共有する。
+    /// 別の password を設定すると戻り、同じ password の再設定や読取失敗では戻らない。
+    /// reopen() / open() でも戻る。複数 password を自動試行する host は試行回数を縛る。
+    /// 全体の露出は試行回数 × reader 数に比例する。
     public var maxStuffItXKDFWork: UInt64
 
     /// Creates a set of archive resource limits.
@@ -110,9 +116,9 @@ public struct ReadLimits: Sendable, Equatable {
     ///     iteration exponent.
     ///   - maxSevenZipHeaderKDFWork: Maximum aggregate 7z header SHA-256 rounds.
     ///     The default is `4 * (1 << 24)`; entry-time derivations are excluded.
-    ///   - maxSevenZipEntryKDFWork: reader 内の 7z entry KDF の SHA-256 round 上限。
-    ///     既定は `4 * (1 << 24)`。cache hit と direct key は消費しない。
-    ///   - maxStuffItXKDFWork: reader 内の StuffIt X KDF の MD5 圧縮回数上限。既定は `1 << 22`。
+    ///   - maxSevenZipEntryKDFWork: Maximum aggregate 7z entry SHA-256 rounds per
+    ///     reader/password pair. The default is `16 * (1 << 24)`; cache hits and direct keys are free.
+    ///   - maxStuffItXKDFWork: reader と password の組ごとの StuffIt X KDF の MD5 圧縮回数上限。既定は `1 << 22`。
     public init(
         maxEntrySize: UInt64 = 4 * 1_024 * 1_024 * 1_024,
         maxTotalUncompressedSize: UInt64 = 64 * 1_024 * 1_024 * 1_024,
@@ -130,7 +136,7 @@ public struct ReadLimits: Sendable, Equatable {
         maxRAR5HeaderKDFWork: UInt64 = 4 * ((UInt64(1) << 24) + 32),
         maxSevenZipHeaderKDFWork: UInt64 = 4 * (UInt64(1) << 24),
         parallelDecodeMemory: UInt64? = nil,
-        maxSevenZipEntryKDFWork: UInt64 = 4 * (UInt64(1) << 24),
+        maxSevenZipEntryKDFWork: UInt64 = 16 * (UInt64(1) << 24),
         maxStuffItXKDFWork: UInt64 = UInt64(1) << 22
     ) {
         self.maxEntrySize = maxEntrySize

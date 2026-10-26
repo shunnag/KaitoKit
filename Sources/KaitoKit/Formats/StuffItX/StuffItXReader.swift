@@ -314,6 +314,7 @@ final class StuffItXReader: FormatReader {
     func setPassword(_ password: String?) {
         guard resolvedPassword.map({ Array($0.utf8) }) != password.map({ Array($0.utf8) }) else { return }
         resolvedPassword = password; verifiedAuxiliaries.removeAll()
+        kdfBudget.reset()
         for coordinator in coordinators.values { coordinator.setPassword(password) }
     }
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {

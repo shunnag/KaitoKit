@@ -64,7 +64,7 @@ jobs:
     outputs:
       full: ${{ steps.decide.outputs.full }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Check CI tooling and paths filter
         run: |
           set -euo pipefail
@@ -150,7 +150,7 @@ jobs:
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 80
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install differential-test oracles
         run: brew install sevenzip xz brotli zstd
       - name: Show toolchain versions
@@ -189,7 +189,7 @@ jobs:
     timeout-minutes: 10
     steps:
       # 全 job で同じ checkout path。#filePath の fixture・生成器・文書の絶対 path を保つ。
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Show toolchain versions
         run: |
           sw_vers
@@ -376,14 +376,14 @@ jobs:
           cp "$PACKAGE_STAGE/.build/ci-runtime/test-list.txt" "$RUNNER_TEMP/macos-26-test-inventory/"
           # tar で .build/debug・bundle 内の symlink と実行権限を保つ。object / checkout は含めない。
           tar -czf "$RUNNER_TEMP/macos-26-tests.tar.gz" -C "$PACKAGE_STAGE" .build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: macos-26-tests
           path: ${{ runner.temp }}/macos-26-tests.tar.gz
           if-no-files-found: error
           retention-days: 3
           overwrite: true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: macos-26-test-inventory
           path: ${{ runner.temp }}/macos-26-test-inventory/test-list.txt
@@ -408,10 +408,10 @@ jobs:
     needs: [plan, build-for-macos-26]
     if: needs.plan.outputs.full == 'true'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install differential-test oracles
         run: brew install sevenzip xz brotli zstd
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: macos-26-tests
           path: ${{ runner.temp }}/macos-26-artifact
@@ -487,7 +487,7 @@ jobs:
             grep -q 'LHA-GOLDEN Step0=31 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden-bundled.log"
             grep -q 'LHA-GOLDEN existing=3 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden-bundled.log"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: macos-26-shard-summary-${{ matrix.os }}-${{ matrix.shard }}-of-${{ matrix.shards }}
           path: ${{ runner.temp }}/shard-summary/
@@ -496,7 +496,7 @@ jobs:
           overwrite: true
       # 失敗時は shard ごとの xctest log を残す。
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: macos-26-logs-${{ matrix.os }}-${{ matrix.shard }}-of-${{ matrix.shards }}
           path: ${{ runner.temp }}/*-bundled.log
@@ -511,12 +511,12 @@ jobs:
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: macos-26-test-inventory
           path: ${{ runner.temp }}/inventory
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: macos-26-shard-summary-*
           path: ${{ runner.temp }}/summaries
@@ -533,7 +533,7 @@ jobs:
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Show toolchain versions
         run: |
           swift --version
@@ -580,7 +580,7 @@ jobs:
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install seed generator
         run: brew install sevenzip
       - name: Check fuzz tooling
@@ -602,7 +602,7 @@ jobs:
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - id: tree
         run: |
           set -euo pipefail
@@ -610,7 +610,7 @@ jobs:
           printf 'tree=%s\n' "$tree" >> "$GITHUB_OUTPUT"
           mkdir -p "$RUNNER_TEMP/tested-tree"
           printf 'tree %s\ncommit %s\nrun %s\n' "$tree" "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/tested-tree/tested-tree.txt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: tested-tree-${{ steps.tree.outputs.tree }}
           path: ${{ runner.temp }}/tested-tree/tested-tree.txt

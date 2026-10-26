@@ -129,3 +129,43 @@
 
 この 3 択は下流 3 件の検査結果が揃ってから決める。1 は最小、2 は呼出側の手当てが要るが本質的、
 3 だけでは多重化を解けない。
+
+### 下流 3 件の検査結果と、採った裁定（2026-10-27）
+
+3 プロジェクトの検査を実施した（KaitoFinder 45 / GyoshukuKit 36 / cooViewer 78 エージェント。各 repo の
+`Documentation/verification/2026-10-26-security-audit.md` に判定表・実測・限界を記録）。結論は次のとおり。
+
+**実測で、既定 `4 × 2^24` は正規利用を壊すことが確定した**（計測の詳細は `2026-10-26-audit-kdf-fixes.md` の
+「追補（2026-10-27）」）。
+
+- cyclesPower 24 の書庫に**同一 reader** で password を試すと 4 回で打ち止めになり、5 回目は即 `limitExceeded`。
+- cyclesPower 19 で salt が folder ごとに異なる書庫は、**正しい password でも entry 128 以降が読めない**。
+- 7-Zip（`7zz`）と GyoshukuKit の出力は saltSize 0 なので導出 1 回で済み、無影響（200 folder で実測）。
+
+**採った裁定: 上の選択肢 3（既定値の見直し）＋ 予算の意味論の変更。**
+
+1. `maxSevenZipEntryKDFWork` の既定を `16 × 2^24`（268,435,456 rounds）にした。cyclesPower 19 なら distinct salt
+   512 個、24 なら 16 回。最悪 ≈ 7.5 s/reader/password（M4 Max）で、修正前の**無制限**から有限になる性質は保つ。
+2. 予算を **「reader と password の組ごと」** にした（`KDFWorkBudget.reset()` を
+   `SevenZipReader.setPassword` と `StuffItXReader.setPassword` の変更検査の内側で呼ぶ）。
+   `ArchiveReader.preparePassword` は `stream()` ごとに `setPassword` を呼ぶので、**reset が実際の変更時だけ
+   発火すること**が不変条件であり、回帰テストで固定した（1 password で distinct salt の entry を順に読むと
+   予算が積算されて止まる）。
+3. 7z の KDF chunk loop に `Task.checkCancellation()` を入れた。上限そのものより中断可能性が GUI を守る。
+4. 選択肢 2（共有予算の公開 API）は**採らなかった**。下流の実測で、多重化は「host が自動で何回試すか」で決まり
+   （cooViewer は 1 回の password 入力の後、child ごとに vault と既知 password を自動で試す）、
+   **試行回数を縛るのは host の責務**だと確定したため。`ReadLimits` の doc に露出が
+   `試行回数 × reader 数` に比例することを明記し、下流にはそれぞれ上限を入れた。
+
+**下流で確認された、この裁定に関わる事実**:
+
+- cooViewer の `NestedUnlocker` は自動試行が `promptingDisabled` の判定より前にあり、利用者の操作ゼロで
+  child ごとに鍵導出が走る（修正済み: 連続全敗に上限）。
+- cooViewer の `classifyProbeFailure` は `limitExceeded` を「password が違う」と誤表示していた（修正済み）。
+- KaitoFinder の実効倍率は「全選択 → 展開」1 回で reader `V + 1 + P` 個（既定で 21〜33 個）。
+  `.limitExceeded` は再入力に化けないので自動増幅はしない。`.sitx` は open 時に prompt へ到達するので
+  `maxStuffItXKDFWork` も影響する（指示書の「無関係」仮説を反証）。
+- GyoshukuKit は saltSize 0 のため自傷なし。ただし**敵対的な distinct-salt 入力の編集**は予算超過で失敗し得る
+  （仕様として文書化）。
+- 併せて GyoshukuKit 側に、**自分が書けて KaitoKit が読めない名前**（path 要素 1,025 個）という相互運用の
+  自傷が見つかり、書き込み側に `maxPathComponentCount` の guard を入れた（Mac mini で実証）。

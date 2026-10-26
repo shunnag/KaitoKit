@@ -101,10 +101,17 @@ final class StuffItXCrypto {
         let total = try Self.validate(algorithms)
         let budget = kdfBudget ?? KDFWorkBudget(limit: ReadLimits().maxStuffItXKDFWork,
                                               subject: "StuffIt X KDF work")
-        try budget.charge(Self.work(passwordLength: password.utf8.count, keyLength: total))
+        let work = try Self.work(passwordLength: password.utf8.count, keyLength: total)
+        try budget.charge(work)
         // password は正規化・終端追加をせず UTF-8 の明示長で渡す。
-        let material = try Self.derive(Array(password.utf8), length: total)
-        verifier = try Self.derive(material, length: 2)
+        let material: [UInt8]
+        do {
+            material = try Self.derive(Array(password.utf8), length: total)
+            verifier = try Self.derive(material, length: 2)
+        } catch is CancellationError {
+            budget.refund(work)
+            throw CancellationError()
+        }
         var offset = 0, layers: [Layer] = []
         for record in algorithms where record.key == 4 {
             let count = Int(record.keyLength!)

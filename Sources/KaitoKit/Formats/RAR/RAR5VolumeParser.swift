@@ -325,10 +325,11 @@ enum RAR5VolumeParser {
             password: password,
             salt: salt,
             count: kdfCount,
-            checkValue: checkValue
-        ) { candidate in
-            try headerKDFBudget.charge(passwordUTF8: candidate, salt: salt, count: kdfCount)
-        }
+            checkValue: checkValue,
+            charge: { candidate in
+                try headerKDFBudget.charge(passwordUTF8: candidate, salt: salt, count: kdfCount)
+            }
+        )
         return RAR5ArchiveEncryptionContext(
             key: keys.encryptionKey,
             passwordWasVerified: passwordWasVerified

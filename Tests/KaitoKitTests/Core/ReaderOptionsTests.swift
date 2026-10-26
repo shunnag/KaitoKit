@@ -59,15 +59,27 @@ extension ReaderOptionsTests {
         XCTAssertEqual(defaults.maxSevenZipEntryKDFWork, 16 * (1 << 24))
         XCTAssertEqual(defaults.maxSevenZipHeaderKDFWork, 4 * (1 << 24))
         XCTAssertEqual(defaults.maxRAR5HeaderKDFWork, 4 * ((1 << 24) + 32))
+        XCTAssertEqual(defaults.maxRAR5EntryKDFWork, 16 * ((1 << 24) + 32))
         XCTAssertEqual(defaults.maxStuffItXKDFWork, 1 << 22)
         XCTAssertEqual(ReaderOptions().maxSevenZipAESCyclesPower, 24)
-        var limits = ReadLimits(maxSevenZipEntryKDFWork: 0, maxStuffItXKDFWork: 0)
+        var limits = ReadLimits(maxSevenZipEntryKDFWork: 0, maxStuffItXKDFWork: 0, maxRAR5EntryKDFWork: 0)
         XCTAssertNotEqual(limits, defaults)
         limits.maxSevenZipEntryKDFWork = .max; limits.maxStuffItXKDFWork = 123
         XCTAssertEqual(limits.maxSevenZipEntryKDFWork, .max)
         XCTAssertEqual(limits.maxStuffItXKDFWork, 123)
+        XCTAssertEqual(limits.maxRAR5EntryKDFWork, 0)
+        limits.maxRAR5EntryKDFWork = 33
+        XCTAssertEqual(limits.maxRAR5EntryKDFWork, 33)
         let budget = KDFWorkBudget(limit: .max, subject: "KDF test")
         try budget.charge(.max); try budget.charge(0)
         XCTAssertThrowsError(try budget.charge(1)) { XCTAssertEqual($0 as? KaitoError, .limitExceeded("KDF test")) }
+        budget.refund(.max); budget.refund(.max)
+        try budget.charge(.max)
+        XCTAssertThrowsError(try budget.charge(1)) { XCTAssertEqual($0 as? KaitoError, .limitExceeded("KDF test")) }
+        let small = KDFWorkBudget(limit: 3, subject: "KDF test")
+        try small.charge(2)
+        small.refund(.max)
+        try small.charge(3)
+        XCTAssertThrowsError(try small.charge(1)) { XCTAssertEqual($0 as? KaitoError, .limitExceeded("KDF test")) }
     }
 }

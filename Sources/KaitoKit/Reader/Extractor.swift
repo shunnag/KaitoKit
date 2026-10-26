@@ -67,7 +67,8 @@ package enum Extractor {
                     components: Array(components.dropLast(2)),
                     below: rootDescriptor,
                     from: reader,
-                    options: options
+                    options: options,
+                    trustedTargets: trustedTargets
                 )
             } else {
                 extractedIdentity = try extractRegularFile(
@@ -282,8 +283,9 @@ package enum Extractor {
         components: [String],
         below rootDescriptor: Int32,
         from reader: ArchiveReader,
-        options: ExtractionOptions
-    ) throws -> ExtractedFileIdentity {
+        options: ExtractionOptions,
+        trustedTargets: [Int: ExtractedFileIdentity]
+    ) throws -> ExtractedFileIdentity? {
         guard let leaf = components.last else {
             throw KaitoError.malformed("resource fork has no data file")
         }
@@ -311,6 +313,7 @@ package enum Extractor {
         guard dataDescriptor >= 0 else { throw KaitoError.io(errno) }
         defer { _ = Darwin.close(dataDescriptor) }
         let extractedIdentity = try regularIdentity(descriptor: dataDescriptor)
+        let ownsDataInode = createsDataInode || trustedTargets.values.contains(extractedIdentity)
         // leaf は検査済みの通常ファイル。呼出側は展開ルートを排他的に所有する。
         let forkPath = "\(leaf)/..namedfork/rsrc"
         if !options.overwriteExisting {
@@ -337,13 +340,13 @@ package enum Extractor {
         guard descriptor >= 0 else { throw KaitoError.io(errno) }
         defer { _ = Darwin.close(descriptor) }
         try write(reader.stream(entry), to: descriptor)
-        // fork descriptor の fchmod/futimens は EPERM。今回作った data inode にだけ復元する。
-        if createsDataInode {
+        // fork descriptor の fchmod/futimens は EPERM。この reader が作った data inode にだけ復元する。
+        if ownsDataInode {
             try restoreMetadata(entry, descriptor: dataDescriptor, options: options)
         }
         try parent.restoreMode()
-        // resource fork も data ファイルと同じ inode の provenance を返す。
-        return extractedIdentity
+        // 既存 inode は後続の展開でも trusted target に昇格させない。
+        return ownsDataInode ? extractedIdentity : nil
     }
 
     private static func extractRegularFile(

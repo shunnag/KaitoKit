@@ -300,13 +300,15 @@ final class SevenZipFolderDecoderFactory {
         let length = folder.unpackSizes[coder.firstOutput]
         let value = try decryptedBytes(coder: coder,
             input: SevenZipByteInput(source: source, offset: range.offset, length: range.size),
-            expectedSize: length, chargeKDFWork: entryKDFBudget.charge)
+            expectedSize: length, chargeKDFWork: entryKDFBudget.charge,
+            refundKDFWork: entryKDFBudget.refund)
         return (try value.asStream(), length)
     }
 
     private func decryptedBytes(
         coder: SevenZipCoder, input: SevenZipByteInput, expectedSize: UInt64,
-        chargeKDFWork: (UInt64) throws -> Void
+        chargeKDFWork: (UInt64) throws -> Void,
+        refundKDFWork: (UInt64) -> Void
     ) throws -> SevenZipPipelineValue {
         guard let password else { throw KaitoError.passwordRequired }
         let properties = try SevenZipAESProperties(
@@ -314,7 +316,7 @@ final class SevenZipFolderDecoderFactory {
             maximumCyclesPower: maximumAESCyclesPower
         )
         let key = try keyCache.key(password: password, properties: properties,
-                                  chargeKDFWork: chargeKDFWork)
+                                  chargeKDFWork: chargeKDFWork, refundKDFWork: refundKDFWork)
         let decrypted = try SevenZipAESByteSource(
             source: input.source,
             ciphertextOffset: input.offset,
@@ -331,6 +333,7 @@ final class SevenZipFolderDecoderFactory {
     }
 
     func makeDecoder(chargeKDFWork: ((UInt64) throws -> Void)? = nil) throws -> any Decompressor {
+        let refundKDFWork: (UInt64) -> Void = chargeKDFWork == nil ? entryKDFBudget.refund : { _ in }
         let chargeKDFWork = chargeKDFWork ?? entryKDFBudget.charge
         var activeOutputs = Set<Int>()
 
@@ -503,7 +506,7 @@ final class SevenZipFolderDecoderFactory {
                 try requireArity(coder, inputs: 1)
                 let input = try byteInput(coder.firstInput)
                 return try decryptedBytes(coder: coder, input: input, expectedSize: expectedSize,
-                                          chargeKDFWork: chargeKDFWork)
+                                          chargeKDFWork: chargeKDFWork, refundKDFWork: refundKDFWork)
 
             case let .swap(width):
                 try requireArity(coder, inputs: 1)

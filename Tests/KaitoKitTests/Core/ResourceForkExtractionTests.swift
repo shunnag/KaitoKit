@@ -4,6 +4,21 @@ import Foundation
 import XCTest
 
 final class ResourceForkExtractionTests: XCTestCase {
+    func testDataThenResourceForkRestoresArchiveModificationTime() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let reader = try ArchiveReader.open(data: TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "image", contents: Data([65]), mode: 0o740, modificationTime: 1_600_000_000),
+            HandTarEntry(name: "image/..namedfork/rsrc", contents: Data([67]),
+                         mode: 0o740, modificationTime: 1_600_000_000),
+        ]))
+        for entry in reader.entries { _ = try reader.extract(entry, to: temporary) }
+        let information = try status(temporary.appendingPathComponent("image"))
+        XCTAssertEqual(information.st_mode & 0o7777, 0o740)
+        XCTAssertEqual(information.st_mtimespec.tv_sec, 1_600_000_000)
+        XCTAssertEqual(information.st_mtimespec.tv_nsec, 0)
+    }
+
     func testResourceOnlyRestoresNewDataInodeMetadata() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }
@@ -44,6 +59,13 @@ final class ResourceForkExtractionTests: XCTestCase {
             XCTAssertNotEqual(after.st_mtimespec.tv_sec, 0)
             XCTAssertEqual(try Data(contentsOf: victim), payload)
             XCTAssertEqual(try Data(contentsOf: fork), Data([67]))
+            if overwrite {
+                _ = try reader.extract(reader.entries[0], to: output,
+                                       options: ExtractionOptions(overwriteExisting: true))
+                let repeated = try status(victim)
+                XCTAssertEqual(repeated.st_mode, before.st_mode)
+                XCTAssertNotEqual(repeated.st_mtimespec.tv_sec, 0)
+            }
         }
     }
 

@@ -77,7 +77,8 @@ enum RAR5KeyDerivation {
         var encryptionKey: [UInt8]?
         var hashKey: [UInt8]?
 
-        passwordStorage.withUnsafeBytes { passwordBytes in
+        try passwordStorage.withUnsafeBytes { passwordBytes in
+            try Task.checkCancellation()
             hmacSHA256(
                 key: passwordBytes,
                 keyCount: passwordUTF8.count,
@@ -91,6 +92,7 @@ enum RAR5KeyDerivation {
 
             if finalIteration >= 2 {
                 for iteration in 2...finalIteration {
+                    if (iteration - 1).isMultiple(of: 4_096) { try Task.checkCancellation() }
                     hmacSHA256(
                         key: passwordBytes,
                         keyCount: passwordUTF8.count,
@@ -184,13 +186,14 @@ final class RAR5KeyCache {
         salt: [UInt8],
         count: UInt8,
         checkValue: [UInt8]?,
+        refund: (UInt64) -> Void = { _ in },
         charge: (Data) throws -> Void = { _ in }
     ) throws -> (keys: RAR5DerivedKeys, verified: Bool) {
         let candidates = passwordSelection.selectedUTF8.map { [$0] }
             ?? RAR5PasswordSelection.candidates(password)
         for candidate in candidates {
-            try charge(candidate)
-            let keys = try key(passwordUTF8: candidate, salt: salt, count: count)
+            let keys = try key(passwordUTF8: candidate, salt: salt, count: count,
+                               charge: charge, refund: refund)
             do {
                 let verified = try checkValue.map { try keys.verify(passwordCheckValue: $0) } ?? false
                 // Missing or internally damaged advisory checks cannot select a
@@ -217,7 +220,9 @@ final class RAR5KeyCache {
     private func key(
         passwordUTF8: Data,
         salt: [UInt8],
-        count: UInt8
+        count: UInt8,
+        charge: (Data) throws -> Void = { _ in },
+        refund: (UInt64) -> Void = { _ in }
     ) throws -> RAR5DerivedKeys {
         let cacheKey = RAR5KeyCacheKey(
             passwordUTF8: passwordUTF8,
@@ -225,11 +230,18 @@ final class RAR5KeyCache {
             count: count
         )
         if let cached = values[cacheKey] { return cached }
-        let derived = try RAR5KeyDerivation.derive(
-            passwordUTF8: cacheKey.passwordUTF8,
-            salt: salt,
-            count: count
-        )
+        try charge(passwordUTF8)
+        let derived: RAR5DerivedKeys
+        do {
+            derived = try RAR5KeyDerivation.derive(
+                passwordUTF8: cacheKey.passwordUTF8,
+                salt: salt,
+                count: count
+            )
+        } catch is CancellationError {
+            refund((UInt64(1) << UInt64(count)) + 32)
+            throw CancellationError()
+        }
         insert(derived, for: cacheKey)
         return derived
     }

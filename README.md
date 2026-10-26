@@ -151,13 +151,16 @@ print(encrypted.entries.count)
 - **Sandbox**: 入力・出力・分割巻の兄弟ファイルへのアクセス権を呼出側で管理します。[アクセスと staging](Documentation/embedding.md#sandbox-とファイルアクセス)
 - **スレッド**: reader / stream の操作を直列化し、並列処理は `reopen()` で独立 reader を作ります。[並列処理と solid 群](Documentation/embedding.md#組み込みの注意) / [展開順序](Documentation/embedding.md#書庫全体の展開順序)
 - **上限と検証**: `ReadLimits` を open 前に設定し、stream は最後まで読んで検証します。`stagingFreeSpaceReserve` と `maxSevenZipHeaderKDFWork` も調整できます。[資源上限](Documentation/embedding.md#組み込みの注意)
-- `ReadLimits.maxSevenZipEntryKDFWork`: reader 内の 7z entry KDF を `4 * (1 << 24)` SHA-256 rounds に制限します（cache miss のみ）。
-- `ReadLimits.maxStuffItXKDFWork`: reader 内の StuffIt X catalog / entry KDF を `1 << 22` MD5 圧縮回数に制限します。
+- `ReadLimits.maxSevenZipEntryKDFWork`: reader と password の組ごとの 7z entry KDF を `16 * (1 << 24)`（268,435,456）SHA-256 rounds に制限します（cache miss のみ）。
+- `ReadLimits.maxStuffItXKDFWork`: reader と password の組ごとの StuffIt X catalog / entry KDF を `1 << 22` MD5 圧縮回数に制限します。
+- `ReadLimits.maxRAR5EntryKDFWork`: reader と password の組ごとの RAR5 entry KDF を `16 * ((1 << 24) + 32)` HMAC-SHA256 iterations に制限します（cache miss のみ）。
+
+別の password を設定すると予算は全額戻るため、複数 password の試行回数を縛るのは host の責務です。
 
 > **Integration notes**
 >
 > Serialize each reader / stream; use `reopen()` for independent workers. Configure `ReadLimits`, including
-> `stagingFreeSpaceReserve`, `maxSevenZipHeaderKDFWork`, `maxSevenZipEntryKDFWork`, and `maxStuffItXKDFWork`, before opening. Read streams to completion for verification.
+> `stagingFreeSpaceReserve`, `maxSevenZipHeaderKDFWork`, `maxSevenZipEntryKDFWork`, `maxStuffItXKDFWork`, and `maxRAR5EntryKDFWork`, before opening. Read streams to completion for verification.
 
 ## コマンドライン
 

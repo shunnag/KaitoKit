@@ -1,6 +1,6 @@
 import Foundation
 import Synchronization
-@testable import KaitoKit
+@_spi(SevenZipEditLayout) @testable import KaitoKit
 import XCTest
 
 final class SevenZipEntryKDFTests: XCTestCase {
@@ -99,6 +99,9 @@ final class SevenZipEntryKDFTests: XCTestCase {
             XCTAssertThrowsError(try stream.readAll()) {
                 XCTAssertEqual($0 as? KaitoError, .wrongPassword)
             }
+            XCTAssertThrowsError(try reader.stream(reader.entries[2]).readAll()) {
+                XCTAssertEqual($0 as? KaitoError, .wrongPassword)
+            }
         }
         XCTAssertEqual(derivations.withLock { $0 }, 1)
         reader.password = "anypw"
@@ -134,6 +137,47 @@ final class SevenZipEntryKDFTests: XCTestCase {
         }
         do { _ = try await task.value; XCTFail("cancelled derivation succeeded") }
         catch { XCTAssertTrue(error is CancellationError) }
+    }
+
+    func testPasswordChangeUsesUTF16Spelling() throws {
+        let nfc = "\u{E9}x", nfd = "e\u{301}x"
+        var archive = try TestFixtures.base64("sevenzip-kdf/shared.7z")
+        let properties = try SevenZipAESProperties(bytes: [0x88, 0xf0] + Array(repeating: 0, count: 16),
+                                                   maximumCyclesPower: 24)
+        let key = try SevenZipAESKeyCache().key(password: nfc, properties: properties)
+        var padded = Array(plaintext)
+        padded += repeatElement(0, count: 16 - padded.count)
+        let ciphertext = try CommonCryptoPrimitives.aesECBEncrypt(blocks: padded, key: key)
+        // 既存 fixture の二つの CBC 先頭 block（IV は 0）だけを再暗号化する。
+        archive.replaceSubrange(32..<64, with: ciphertext + ciphertext)
+        let limits = ReadLimits(maxSevenZipEntryKDFWork: 256)
+        let reader = try ArchiveReader.open(data: archive, options: ReaderOptions(limits: limits, password: nfd))
+        XCTAssertThrowsError(try reader.read(reader.entries[0])) {
+            XCTAssertEqual($0 as? KaitoError, .wrongPassword)
+        }
+        reader.password = nfc
+        XCTAssertEqual(try reader.read(reader.entries[0]), plaintext)
+        XCTAssertEqual(try reader.sevenZipDecryptedPackedStream(folder: 0, packedInput: 0).readAll(), plaintext)
+    }
+
+    func testCancelledEntryDerivationRefundsBudgetForSameReaderAndPassword() async throws {
+        let archive = try TestFixtures.base64("sevenzip-kdf/shared.7z")
+        let task = Task {
+            let limits = ReadLimits(maxSevenZipEntryKDFWork: 256)
+            let reader = try SevenZipReader(source: DataByteSource(archive),
+                                             options: ReaderOptions(limits: limits, password: "anypw"))
+            do {
+                _ = try SevenZipAESKeyCache.$didDeriveKey.withValue({
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }) { try reader.stream(for: reader.entries[0], limits: limits) }
+                XCTFail("cancelled derivation succeeded")
+            } catch { XCTAssertTrue(error is CancellationError, "\(error)") }
+            return try await Task.detached {
+                try reader.stream(for: reader.entries[0], limits: limits).readAll()
+            }.value
+        }
+        let result = try await task.value
+        XCTAssertEqual(result, plaintext)
     }
 
     func testEntryKDFDerivationOutsideTask() throws {

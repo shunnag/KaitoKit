@@ -127,6 +127,25 @@ final class SevenZipFolderPrefetchTests: XCTestCase {
         }
     }
 
+    func testFolderDigestAcceptsCleanReadAndDiscardedBytes() throws {
+        let fixture = SevenZipParallelTestSupport.raw(sizes: [70_003, 131_077])
+        for workers in [1, 16] {
+            for offset in [0, fixture.payloads[0].count] {
+                let coordinator = SevenZipFolderCoordinator(factory: try fixture.factory(workers: workers))
+                let stream = try coordinator.stream(offset: UInt64(offset), length: UInt64(fixture.output.count - offset))
+                var buffer = [UInt8](repeating: 0, count: 4_099), output = Data()
+                try buffer.withUnsafeMutableBytes { bytes in
+                    while true {
+                        let count = try stream.read(into: bytes)
+                        if count == 0 { break }
+                        output.append(contentsOf: bytes.prefix(count))
+                    }
+                }
+                XCTAssertEqual(output, Data(fixture.output.dropFirst(offset)))
+            }
+        }
+    }
+
     func testSequentialReadMatchesSerialAndUsesPrefetch() throws {
         for folderCRC in [false, true] {
             let fixture = Fixture.make(sizes: Self.smallSizes, folderCRC: folderCRC), archive = fixture.archive()

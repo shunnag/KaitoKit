@@ -96,6 +96,40 @@ final class StuffItXKDFWorkTests: XCTestCase {
         }
     }
 
+    func testReaderBudgetIsFullOnReopen() throws {
+        let work = try StuffItXCrypto.work(passwordLength: 8, keyLength: 16)
+        let reader = try ArchiveReader.open(data: entryArchive(), options: ReaderOptions(
+            limits: ReadLimits(maxStuffItXKDFWork: work), password: "password"))
+        XCTAssertEqual(try reader.read(reader.entries[0]), Data([65]))
+        XCTAssertThrowsError(try reader.read(reader.entries[1])) {
+            XCTAssertEqual($0 as? KaitoError, .limitExceeded("StuffIt X KDF work"))
+        }
+        let reopened = try reader.reopen()
+        XCTAssertEqual(try reopened.read(reopened.entries[0]), Data([65]))
+        for archive in [reader, reopened] {
+            XCTAssertThrowsError(try archive.read(archive.entries[1])) {
+                XCTAssertEqual($0 as? KaitoError, .limitExceeded("StuffIt X KDF work"))
+            }
+        }
+    }
+
+    func testCancelledEntryDerivationRefundsBudgetForSameReaderAndPassword() async throws {
+        let data = try entryArchive()
+        let work = try StuffItXCrypto.work(passwordLength: 8, keyLength: 16)
+        let task = Task {
+            let reader = try ArchiveReader.open(data: data, options: ReaderOptions(
+                limits: ReadLimits(maxStuffItXKDFWork: work), password: "password"))
+            withUnsafeCurrentTask { $0?.cancel() }
+            do {
+                _ = try reader.read(reader.entries[0])
+                XCTFail("cancelled derivation succeeded")
+            } catch { XCTAssertTrue(error is CancellationError, "\(error)") }
+            return try await Task.detached { try reader.read(reader.entries[0]) }.value
+        }
+        let result = try await task.value
+        XCTAssertEqual(result, Data([65]))
+    }
+
     func testReaderBudgetResetsForDifferentPassword() throws {
         let data = try entryArchive()
         let work = try StuffItXCrypto.work(passwordLength: 8, keyLength: 16)

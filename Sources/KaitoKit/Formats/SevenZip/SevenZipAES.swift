@@ -56,7 +56,8 @@ final class SevenZipAESKeyCache {
     func key(
         password: String,
         properties: SevenZipAESProperties,
-        chargeKDFWork: (UInt64) throws -> Void = { _ in }
+        chargeKDFWork: (UInt64) throws -> Void = { _ in },
+        refundKDFWork: (UInt64) -> Void = { _ in }
     ) throws -> Data {
         let passwordBytes = Self.passwordBytes(password)
         let cacheKey = SevenZipAESKeyCacheKey(
@@ -70,7 +71,12 @@ final class SevenZipAESKeyCache {
         let rounds = properties.cyclesPower == 0x3F
             ? 0 : try Checked.shiftLeft(1, by: UInt64(properties.cyclesPower))
         try chargeKDFWork(rounds)
-        let derived = try Self.derive(cacheKey)
+        let derived: Data
+        do { derived = try Self.derive(cacheKey) }
+        catch is CancellationError {
+            refundKDFWork(rounds)
+            throw CancellationError()
+        }
         if insertionOrder.count == Self.capacity {
             values.removeValue(forKey: insertionOrder.removeFirst())
         }

@@ -177,7 +177,7 @@ final class SevenZipReader: FormatReader {
     }
 
     func setPassword(_ password: String?) {
-        guard self.password != password else { return }
+        guard self.password.map({ Array($0.utf16) }) != password.map({ Array($0.utf16) }) else { return }
         self.password = password
         keyCache.removeAll()
         entryKDFBudget.reset()

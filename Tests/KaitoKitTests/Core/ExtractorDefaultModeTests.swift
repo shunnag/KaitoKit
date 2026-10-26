@@ -4,6 +4,49 @@ import Foundation
 import XCTest
 
 final class ExtractorDefaultModeTests: XCTestCase {
+    func testDefaultStripsFileSetIDBitsAndPreservesDirectorySpecialBits() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let reader = try ArchiveReader.open(data: TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "setuid-file", contents: Data("payload".utf8), mode: 0o7755),
+            HandTarEntry(name: "setgid-dir/", type: 0x35, mode: 0o3775),
+        ]))
+        let reference = temporary.appendingPathComponent("directory-reference", isDirectory: true)
+        try FileManager.default.createDirectory(at: reference, withIntermediateDirectories: false)
+        guard Darwin.chmod(reference.path, mode_t(0o3775)) == 0 else { throw KaitoError.io(errno) }
+        for entry in reader.entries { _ = try reader.extract(entry, to: temporary) }
+        XCTAssertEqual(try mode(of: temporary.appendingPathComponent("setuid-file")), 0o1755)
+        // group / sandbox による kernel の特殊 bit 制限を、書庫と無関係な参照 inode と比較する。
+        XCTAssertEqual(try mode(of: temporary.appendingPathComponent("setgid-dir")), try mode(of: reference))
+    }
+
+    func testSetIDOptInRestoresKernelPermittedModeAndRespectsPreserveMetadata() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let reference = temporary.appendingPathComponent("file-reference")
+        try Data().write(to: reference)
+        guard Darwin.chmod(reference.path, mode_t(0o7755)) == 0 else { throw KaitoError.io(errno) }
+        let reader = try ArchiveReader.open(data: TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "file", mode: 0o7755, modificationTime: 0),
+        ]))
+        let output = temporary.appendingPathComponent("opt-in")
+        let file = try reader.extract(reader.entries[0], to: output,
+                                      options: ExtractionOptions(preserveSetUserIDBits: true))
+        XCTAssertEqual(try mode(of: file), try mode(of: reference))
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        XCTAssertEqual((attributes[.modificationDate] as? Date)?.timeIntervalSince1970, 0)
+
+        let ignored = temporary.appendingPathComponent("ignored")
+        try FileManager.default.createDirectory(at: ignored, withIntermediateDirectories: false)
+        let expectedMode = try createModeReferenceFile(below: ignored)
+        let unpreserved = try reader.extract(reader.entries[0], to: ignored,
+                                             options: ExtractionOptions(preserveMetadata: false,
+                                                                        preserveSetUserIDBits: true))
+        XCTAssertEqual(try mode(of: unpreserved), expectedMode)
+        let ignoredAttributes = try FileManager.default.attributesOfItem(atPath: unpreserved.path)
+        XCTAssertNotEqual((ignoredAttributes[.modificationDate] as? Date)?.timeIntervalSince1970, 0)
+    }
+
     func testInfoZIPWithoutDirectoryEntriesUsesUmaskDerivedDefaults() throws {
         try ZipTestSupport.requireExecutable(ZipTestSupport.infoZipPath)
         let temporary = try ZipTestSupport.temporaryDirectory(label: "extract-zip-D-modes")

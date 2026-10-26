@@ -64,9 +64,23 @@ public struct ReadLimits: Sendable, Equatable {
     public var maxRAR5HeaderKDFWork: UInt64
 
     /// Maximum aggregate SHA-256 rounds for 7z header key derivations at open.
-    /// Cache hits and direct keys consume no rounds; entry reads are unbudgeted.
+    /// Cache hits and direct keys consume no rounds; entry reads have a separate budget.
     /// The default permits four derivations at cycle power 24.
     public var maxSevenZipHeaderKDFWork: UInt64
+
+    /// reader 内の 7z entry 鍵導出に使う SHA-256 round 総数。cache miss だけ課金する。
+    /// 既定は `4 * (1 << 24)`。7-Zip の固定値 cyclesPower 19 なら異なる salt 128 個分。
+    /// 通常の writer は書庫内で一つの salt を共有し、多数の folder でも導出は一度で済む。
+    /// 最大 cyclesPower 24 の自作 distinct-salt 書庫は 4 回（release 実測で約 1.7 秒）に抑える。
+    /// cache hit と direct key は消費しない。header の予算とは独立。
+    public var maxSevenZipEntryKDFWork: UInt64
+
+    /// reader 内の StuffIt X 鍵・verifier 導出に使う MD5 圧縮回数の総数。
+    /// 既定は `1 << 22`。約 4 KiB の一導出（release 実測で約 1.7 秒）を許し、8 KiB 以上は拒む。
+    /// padding・verifier も数えるため、1 byte password の実境界は 4,032 byte。4,096 byte は超過する。
+    /// 実際の鍵素材は 1 KiB 未満（RC4 の実例は 64、AES は最大 32、Blowfish は 56、DES は 8 byte）。
+    /// 通常の小さい鍵なら reader 内の数千 entry を許す。catalog と entry で共有する。
+    public var maxStuffItXKDFWork: UInt64
 
     /// Creates a set of archive resource limits.
     ///
@@ -96,6 +110,9 @@ public struct ReadLimits: Sendable, Equatable {
     ///     iteration exponent.
     ///   - maxSevenZipHeaderKDFWork: Maximum aggregate 7z header SHA-256 rounds.
     ///     The default is `4 * (1 << 24)`; entry-time derivations are excluded.
+    ///   - maxSevenZipEntryKDFWork: reader 内の 7z entry KDF の SHA-256 round 上限。
+    ///     既定は `4 * (1 << 24)`。cache hit と direct key は消費しない。
+    ///   - maxStuffItXKDFWork: reader 内の StuffIt X KDF の MD5 圧縮回数上限。既定は `1 << 22`。
     public init(
         maxEntrySize: UInt64 = 4 * 1_024 * 1_024 * 1_024,
         maxTotalUncompressedSize: UInt64 = 64 * 1_024 * 1_024 * 1_024,
@@ -112,7 +129,9 @@ public struct ReadLimits: Sendable, Equatable {
         maxVolumeCount: Int = 128,
         maxRAR5HeaderKDFWork: UInt64 = 4 * ((UInt64(1) << 24) + 32),
         maxSevenZipHeaderKDFWork: UInt64 = 4 * (UInt64(1) << 24),
-        parallelDecodeMemory: UInt64? = nil
+        parallelDecodeMemory: UInt64? = nil,
+        maxSevenZipEntryKDFWork: UInt64 = 4 * (UInt64(1) << 24),
+        maxStuffItXKDFWork: UInt64 = UInt64(1) << 22
     ) {
         self.maxEntrySize = maxEntrySize
         self.maxTotalUncompressedSize = maxTotalUncompressedSize
@@ -130,6 +149,8 @@ public struct ReadLimits: Sendable, Equatable {
         self.maxVolumeCount = max(0, maxVolumeCount)
         self.maxRAR5HeaderKDFWork = maxRAR5HeaderKDFWork
         self.maxSevenZipHeaderKDFWork = maxSevenZipHeaderKDFWork
+        self.maxSevenZipEntryKDFWork = maxSevenZipEntryKDFWork
+        self.maxStuffItXKDFWork = maxStuffItXKDFWork
     }
 
     // 物理メモリは process の生存中に変わらない。sysctl を folder ごとに繰り返さない。

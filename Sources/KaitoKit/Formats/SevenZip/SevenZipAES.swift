@@ -48,7 +48,10 @@ struct SevenZipAESKeyCacheKey: Hashable, Sendable {
 
 final class SevenZipAESKeyCache {
     @TaskLocal static var didDeriveKey: (@Sendable () -> Void)?
+    // reader 内で最大 64 鍵。FIFO で追い出し、再導出は予算に再び課金する。
+    static let capacity = 64
     private var values: [SevenZipAESKeyCacheKey: Data] = [:]
+    private var insertionOrder: [SevenZipAESKeyCacheKey] = []
 
     func key(
         password: String,
@@ -68,12 +71,17 @@ final class SevenZipAESKeyCache {
             ? 0 : try Checked.shiftLeft(1, by: UInt64(properties.cyclesPower))
         try chargeKDFWork(rounds)
         let derived = try Self.derive(cacheKey)
+        if insertionOrder.count == Self.capacity {
+            values.removeValue(forKey: insertionOrder.removeFirst())
+        }
         values[cacheKey] = derived
+        insertionOrder.append(cacheKey)
         return derived
     }
 
     func removeAll() {
         values.removeAll(keepingCapacity: false)
+        insertionOrder.removeAll(keepingCapacity: false)
     }
 
     private static func passwordBytes(_ password: String) -> Data {

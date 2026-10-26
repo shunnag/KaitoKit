@@ -6,6 +6,19 @@
 
 ## [Unreleased]
 
+### 修正
+
+- **動作変更**: file の setuid / setgid bit は既定で復元しない。`ExtractionOptions.preserveSetUserIDBits`（既定 `false`）で従来の復元を選べる。directory の特殊 bit は従来どおり復元する。
+- **動作変更**: resource-fork entry は、既存 data fork の metadata を書庫の mode / mtime で書き換えない。今回新規作成した data inode にだけ復元する（fork 書込みによる OS の mtime 更新は残る）。
+- CLI の `list` / `extract` / `sha` / `bench` に `--password-stdin` を追加。stdin の先頭行を使い、`-p` との併用・重複・空入力を拒否する。
+- CLI の名前・エラー表示で bidi 制御文字 U+202A〜U+202E / U+2066〜U+2069 を escape する。
+- 7z の folder digest が無い場合は、検証に使わない folder CRC32 の更新を省く。
+- tar header checksum の byte ごとの throwing 加算・範囲判定を除く。unsigned / signed checksum の受理規則は維持する。
+- CI の既存 version 表示に差分検証 oracle（7zz / xz / brotli / zstd）の version を記録する。
+- 7z entry KDF に追加 API `ReadLimits.maxSevenZipEntryKDFWork`（既定 `4 * (1 << 24)` rounds）を設け、reader 内の cache miss に累積課金する。異なる salt の自作 1 / 4 folder が修正前に 0.48 / 2.13 秒の user CPU を使った線形増幅を制限し、鍵 cache も最大 64 件にする。
+- StuffIt X に追加 API `ReadLimits.maxStuffItXKDFWork`（既定 `1 << 22` MD5 圧縮回数）を設け、catalog と entry の鍵・verifier 導出を reader 内で累積する。192 byte の自作書庫が約 68.5 GB の MD5 入力を生み、修正前に user CPU 706.16 秒を使った二次増幅を導出前に拒否し、round ごとに取消しを検査する。鍵長の受理範囲は維持する。
+- StuffIt 5 の 5 byte password verifier を `ConstantTime.equals` に揃え、受理・拒否と長さ不一致の意味を維持する。
+
 ## [0.16.0] - 2026-10-22
 
 ### 追加

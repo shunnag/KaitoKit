@@ -27,6 +27,33 @@ struct ArgumentCursor {
     }
 }
 
+/// password の入力元・重複を全コマンドで同じ規則で検査する。
+struct PasswordArgument {
+    private var supplied: String?
+    private var usesStdin = false
+
+    mutating func parse(from cursor: inout ArgumentCursor) throws {
+        guard !usesStdin else { throw CLIError.usage(usage) }
+        supplied = try cursor.value(unlessSet: supplied)
+    }
+
+    mutating func parseStdin() throws {
+        guard supplied == nil, !usesStdin else { throw CLIError.usage(usage) }
+        usesStdin = true
+    }
+
+    /// 全引数の検査後に一行だけ読む。空白や CR は password の一部として保つ。
+    func read() throws -> String? {
+        guard usesStdin else { return supplied }
+        guard var line = readLine(strippingNewline: false) else {
+            throw CLIError.usage("--password-stdin: empty input")
+        }
+        if line.unicodeScalars.last?.value == 0x0a { line.unicodeScalars.removeLast() }
+        guard !line.isEmpty else { throw CLIError.usage("--password-stdin: empty input") }
+        return line
+    }
+}
+
 /// auto を含め、--threads の重複・範囲外を全コマンドで同じ規則で拒否する。
 struct DecodeThreadsArgument {
     private var supplied: String?

@@ -94,6 +94,39 @@ final class SevenZipFolderPrefetchTests: XCTestCase {
 
     private static let smallSizes: [Int] = (0..<300).map { 700 + ($0 * 37) % 1_900 } + [70_003, 131_077]
 
+    func testCorruptPayloadWithFolderDigestStillFails() throws {
+        var fixture = Fixture.make(sizes: [70_003, 131_077], folderCRC: true)
+        // raw chunk の本文だけを変え、構造と header CRC は保つ。entry CRC は無い。
+        fixture.packed[1][3] ^= 0xFF
+        for threads in [1, 16] {
+            let reader = try SevenZipReader(source: DataByteSource(fixture.archive()),
+                                            options: ReaderOptions(decodeThreads: threads))
+            XCTAssertEqual(try reader.stream(for: reader.entries[0], limits: ReadLimits()).readAll(),
+                           fixture.payloads[0])
+            XCTAssertThrowsError(try reader.stream(for: reader.entries[1], limits: ReadLimits()).readAll()) {
+                guard case KaitoError.checksumMismatch = $0 else { return XCTFail("\($0)") }
+            }
+        }
+    }
+
+    func testFolderDigestDetectsCorruptionInReadAndDiscardedBytes() throws {
+        var fixture = SevenZipParallelTestSupport.raw(sizes: [70_003, 131_077])
+        fixture.packed[3] ^= 0xFF
+        for workers in [1, 16] {
+            for offset in [0, fixture.payloads[0].count] {
+                let coordinator = SevenZipFolderCoordinator(factory: try fixture.factory(workers: workers))
+                let stream = try coordinator.stream(offset: UInt64(offset), length: UInt64(fixture.output.count - offset))
+                var buffer = [UInt8](repeating: 0, count: 4_099)
+                // EntryStream の entry CRC を通さず、folder 自身の検証を確かめる。
+                XCTAssertThrowsError(try buffer.withUnsafeMutableBytes { bytes in
+                    while try stream.read(into: bytes) > 0 {}
+                }) {
+                    XCTAssertEqual($0 as? KaitoError, .checksumMismatch(entry: -1))
+                }
+            }
+        }
+    }
+
     func testSequentialReadMatchesSerialAndUsesPrefetch() throws {
         for folderCRC in [false, true] {
             let fixture = Fixture.make(sizes: Self.smallSizes, folderCRC: folderCRC), archive = fixture.archive()

@@ -1,0 +1,12 @@
+{
+  "writer": "project-owned p2 writer (StuffItXContainerTests.Writer)",
+  "fixtures": [
+    {
+      "file": "catalog65536.sitx.b64",
+      "size": 192,
+      "sha256": "44a414dbbbb79d4422549ec74d76d8e9076aa58c26dc82b93263e519a5a21d6c",
+      "keyLength": 65536,
+      "records": 64
+    }
+  ]
+}

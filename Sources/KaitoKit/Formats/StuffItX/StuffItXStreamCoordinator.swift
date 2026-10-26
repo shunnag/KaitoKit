@@ -7,6 +7,7 @@ final class StuffItXStreamCoordinator {
     let element: StuffItXElement
     let size: UInt64
     private let limits: ReadLimits
+    private let kdfBudget: KDFWorkBudget
     private var password: String?
     private(set) var crypto: StuffItXCrypto?
     private var decoder: (any Decompressor)?
@@ -18,9 +19,11 @@ final class StuffItXStreamCoordinator {
     private var expected: [(UInt64, [UInt8])] = []
     var hasRetainedDecoderState: Bool { decoder != nil }
 
-    init(source: any ByteSource, element: StuffItXElement, size: UInt64, limits: ReadLimits, password: String? = nil) {
+    init(source: any ByteSource, element: StuffItXElement, size: UInt64, limits: ReadLimits, password: String? = nil,
+         kdfBudget: KDFWorkBudget? = nil) {
         self.source = source; self.element = element; self.size = size; self.limits = limits
         self.password = password
+        self.kdfBudget = kdfBudget ?? KDFWorkBudget(limit: limits.maxStuffItXKDFWork, subject: "StuffIt X KDF work")
     }
     func setPassword(_ password: String?) {
         // String の正準等価比較では、異なる UTF-8 password の鍵を再利用してしまう。
@@ -51,7 +54,7 @@ final class StuffItXStreamCoordinator {
         let framed = input
         if element.algorithms.contains(where: { $0.key == 4 }) {
             guard let password else { throw KaitoError.passwordRequired }
-            if crypto == nil { crypto = try StuffItXCrypto(password: password, algorithms: element.algorithms) }
+            if crypto == nil { crypto = try StuffItXCrypto(password: password, algorithms: element.algorithms, kdfBudget: kdfBudget) }
             input = try crypto!.decrypt(input)
         }
         var expected: [(UInt64, [UInt8])] = []

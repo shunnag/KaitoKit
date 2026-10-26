@@ -17,10 +17,10 @@ let usage = """
 usage:
   kaito detect <archive>
   kaito \(detectEncodingUsage)
-  kaito list <archive> [--raw] [-p <password>] [--threads <N|auto>] [--input-latency <auto|low|high>]
-  kaito extract <archive> -o <directory> [-p <password>] [--threads <N|auto>] [--input-latency <auto|low|high>]
-  kaito sha <archive> [--sink] [--forks] [-p <password>] [--threads <N|auto>] [--input-latency <auto|low|high>]
-  kaito bench [--data] [--random] <archive> [reps] [-p <password>] [--threads <N|auto>] [--input-latency <auto|low|high>]
+  kaito list <archive> [--raw] [-p <password> | --password-stdin] [--threads <N|auto>] [--input-latency <auto|low|high>]
+  kaito extract <archive> -o <directory> [-p <password> | --password-stdin] [--threads <N|auto>] [--input-latency <auto|low|high>]
+  kaito sha <archive> [--sink] [--forks] [-p <password> | --password-stdin] [--threads <N|auto>] [--input-latency <auto|low|high>]
+  kaito bench [--data] [--random] <archive> [reps] [-p <password> | --password-stdin] [--threads <N|auto>] [--input-latency <auto|low|high>]
 """
 
 func hexadecimal<S: Sequence>(_ bytes: S) -> String where S.Element == UInt8 {
@@ -43,8 +43,8 @@ func oneLine(_ value: String) -> String {
             result.append("\\n")
         case 0x0d:
             result.append("\\r")
-        case 0x00...0x1f, 0x7f...0x9f, 0x2028, 0x2029:
-            // 制御列と Unicode 改行を可視化し、端末状態や行構造を変更させない。
+        case 0x00...0x1f, 0x7f...0x9f, 0x2028, 0x2029, 0x202a...0x202e, 0x2066...0x2069:
+            // 制御列・Unicode 改行・bidi 制御を可視化し、端末状態や名前の表示順を変更させない。
             result.append(String(format: "\\u{%02x}", scalar.value))
         default:
             result.unicodeScalars.append(scalar)

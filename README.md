@@ -151,11 +151,13 @@ print(encrypted.entries.count)
 - **Sandbox**: 入力・出力・分割巻の兄弟ファイルへのアクセス権を呼出側で管理します。[アクセスと staging](Documentation/embedding.md#sandbox-とファイルアクセス)
 - **スレッド**: reader / stream の操作を直列化し、並列処理は `reopen()` で独立 reader を作ります。[並列処理と solid 群](Documentation/embedding.md#組み込みの注意) / [展開順序](Documentation/embedding.md#書庫全体の展開順序)
 - **上限と検証**: `ReadLimits` を open 前に設定し、stream は最後まで読んで検証します。`stagingFreeSpaceReserve` と `maxSevenZipHeaderKDFWork` も調整できます。[資源上限](Documentation/embedding.md#組み込みの注意)
+- `ReadLimits.maxSevenZipEntryKDFWork`: reader 内の 7z entry KDF を `4 * (1 << 24)` SHA-256 rounds に制限します（cache miss のみ）。
+- `ReadLimits.maxStuffItXKDFWork`: reader 内の StuffIt X catalog / entry KDF を `1 << 22` MD5 圧縮回数に制限します。
 
 > **Integration notes**
 >
 > Serialize each reader / stream; use `reopen()` for independent workers. Configure `ReadLimits`, including
-> `stagingFreeSpaceReserve` and `maxSevenZipHeaderKDFWork`, before opening. Read streams to completion for verification.
+> `stagingFreeSpaceReserve`, `maxSevenZipHeaderKDFWork`, `maxSevenZipEntryKDFWork`, and `maxStuffItXKDFWork`, before opening. Read streams to completion for verification.
 
 ## コマンドライン
 
@@ -163,11 +165,14 @@ print(encrypted.entries.count)
 swift run kaito detect book.zip
 swift run kaito list book.zip
 swift run kaito extract book.zip -o /tmp/book
-swift run kaito list private.7z -p secret
+swift run kaito list private.7z --password-stdin < password.txt
 swift run kaito sha book.zip
 ```
 
 `sha` / `extract` は entry ごとの失敗を報告して続行し、一件でも失敗すれば終了コード 1 です。
+`list` / `extract` / `sha` / `bench` は `--password-stdin` で stdin の先頭行を password に使います。
+末尾の改行一つだけを除き、空入力・重複・`-p` との併用はエラーです。
+`-p <password>` は同じユーザーの他 process から argv が見え、shell 履歴にも残ります。
 `--raw`、`--forks`、`bench`、出力形式と計測条件は [CLI ガイド](Documentation/cli.md) を参照してください。
 
 ## ドキュメント

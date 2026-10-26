@@ -30,6 +30,8 @@ final class SevenZipReader: FormatReader {
     private let records: [Record]
     private let editState: SevenZipEditState?
     private let keyCache: SevenZipAESKeyCache
+    // internal は低 cycles のテストで既消費分を模擬するため。
+    let entryKDFBudget: KDFWorkBudget
     private let packedStreamVerifier: SevenZipPackedStreamVerifier
     private var coordinators: [Int: SevenZipFolderCoordinator] = [:]
     private var resetIndexCaches: [Int: SevenZipLZMA2ResetIndexCache] = [:]
@@ -66,6 +68,8 @@ final class SevenZipReader: FormatReader {
     init(source: any ByteSource, options: ReaderOptions, baseOffset: UInt64 = 0) throws {
         self.source = source
         self.limits = options.limits
+        self.entryKDFBudget = KDFWorkBudget(limit: options.limits.maxSevenZipEntryKDFWork,
+                                          subject: "7z entry KDF work")
         self.avoidsHeaderScans = options.resolvedInputLatency(for: source) == .high
         self.decodeThreads = options.resolvedDecodeThreads
         self.maximumAESCyclesPower = options.maxSevenZipAESCyclesPower
@@ -127,6 +131,8 @@ final class SevenZipReader: FormatReader {
                  editState: SevenZipEditState?) {
         self.source = source
         self.limits = options.limits
+        self.entryKDFBudget = KDFWorkBudget(limit: options.limits.maxSevenZipEntryKDFWork,
+                                          subject: "7z entry KDF work")
         self.avoidsHeaderScans = options.resolvedInputLatency(for: source) == .high
         self.decodeThreads = options.resolvedDecodeThreads
         self.maximumAESCyclesPower = options.maxSevenZipAESCyclesPower
@@ -163,7 +169,8 @@ final class SevenZipReader: FormatReader {
         let factory = try SevenZipFolderDecoderFactory(
             source: source, folder: streams.folders[index], packedRanges: packedRanges[index],
             limits: limits, password: password, keyCache: keyCache,
-            maximumAESCyclesPower: maximumAESCyclesPower, packedStreamVerifier: packedStreamVerifier)
+            maximumAESCyclesPower: maximumAESCyclesPower, packedStreamVerifier: packedStreamVerifier,
+            entryKDFBudget: entryKDFBudget)
         let decrypted = try factory.makeDecryptedPackedDecoder(packedInput: packedInput)
         return try EntryStream(decompressor: decrypted.decoder, length: decrypted.length,
                                expectedCRC32: nil, entryIndex: -1, limits: limits)
@@ -217,7 +224,8 @@ final class SevenZipReader: FormatReader {
                 keyCache: keyCache,
                 maximumAESCyclesPower: maximumAESCyclesPower,
                 packedStreamVerifier: packedStreamVerifier,
-                workers: decodeThreads
+                workers: decodeThreads,
+                entryKDFBudget: entryKDFBudget
             )
             return try EntryStream(
                 decompressor: factory.makeDecoder(),
@@ -257,7 +265,8 @@ final class SevenZipReader: FormatReader {
                 packedStreamVerifier: packedStreamVerifier,
                 workers: decodeThreads,
                 resetIndexCache: resetIndexCache(for: substream.folderIndex),
-                avoidsHeaderScans: avoidsHeaderScans
+                avoidsHeaderScans: avoidsHeaderScans,
+                entryKDFBudget: entryKDFBudget
             )
             coordinator = SevenZipFolderCoordinator(factory: factory)
             if folderHasMultipleSubstreams {

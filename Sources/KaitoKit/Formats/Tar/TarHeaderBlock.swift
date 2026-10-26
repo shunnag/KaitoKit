@@ -23,6 +23,11 @@ struct TarHeaderBlock {
     /// `size` byte ちょうど。呼出側が長さを確かめてから作る。
     let bytes: [UInt8]
 
+    init(bytes: [UInt8]) {
+        precondition(bytes.count == Self.size)
+        self.bytes = bytes
+    }
+
     /// typeflag。v7 の通常 file は NUL。
     var typeFlag: UInt8 { bytes[Self.typeFlagOffset] }
 
@@ -63,13 +68,21 @@ struct TarHeaderBlock {
     /// checksum field を space とみなした全 byte の和。歴史的な writer に合わせ、符号付きの和も認める。
     func validateChecksum() throws {
         let expected = try Self.parseUnsigned(Array(bytes[Self.checksumRange]), fieldName: "checksum")
-        let checksumRange = Self.checksumRange
-        var unsignedSum: UInt64 = 0
-        var signedSum: Int64 = 0
-        for index in bytes.indices {
-            let byte: UInt8 = checksumRange.contains(index) ? 0x20 : bytes[index]
-            unsignedSum = try Checked.add(unsignedSum, UInt64(byte))
-            signedSum += Int64(Int8(bitPattern: byte))
+        // bytes.count == Self.size（512）。最大和は 512 * 255 = 130,560 で、signed も範囲内。
+        let (unsignedSum, signedSum) = bytes.withUnsafeBufferPointer { buffer in
+            var unsignedSum: UInt64 = 0
+            var signedSum: Int64 = 0
+            for index in 0..<148 {
+                unsignedSum &+= UInt64(buffer[index])
+                signedSum &+= Int64(Int8(bitPattern: buffer[index]))
+            }
+            unsignedSum &+= 8 * 0x20
+            signedSum &+= 8 * 0x20
+            for index in 156..<512 {
+                unsignedSum &+= UInt64(buffer[index])
+                signedSum &+= Int64(Int8(bitPattern: buffer[index]))
+            }
+            return (unsignedSum, signedSum)
         }
         let signedMatches = signedSum >= 0 && UInt64(signedSum) == expected
         guard unsignedSum == expected || signedMatches else {

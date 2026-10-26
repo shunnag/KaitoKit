@@ -158,6 +158,7 @@ jobs:
           sw_vers
           xcodebuild -version
           swift --version
+          7zz i 2>&1 | head -2 || true; for tool in xz brotli zstd; do "$tool" --version 2>&1 | head -1 || true; done
       - name: Build
         run: swift build -v
       - name: Test
@@ -433,6 +434,7 @@ jobs:
           set -euo pipefail
           sw_vers
           uname -m
+          7zz i 2>&1 | head -2 || true; for tool in xz brotli zstd; do "$tool" --version 2>&1 | head -1 || true; done
           runtime="$PWD/.build/ci-runtime"
           test -x .build/debug/kaito
           architecture="$(uname -m)"

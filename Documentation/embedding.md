@@ -11,13 +11,21 @@ serial queue で直列化し、並列展開には `reopen()` で作った独立 
 
 `ReadLimits` は `maxEntrySize`、`maxTotalUncompressedSize`、`maxInMemorySize`、
 `inMemorySingleFileLimit`、`stagingFreeSpaceReserve`、`maxSevenZipHeaderKDFWork`、
-entry/metadata/path/dictionary/volume 上限などをまとめます。利用する corpus と
+`maxSevenZipEntryKDFWork`、`maxStuffItXKDFWork`、entry/metadata/path/dictionary/volume 上限などをまとめます。利用する corpus と
 端末の memory budget に合わせて open 前に設定してください。`read(_:)` より大きい entry は
 `EntryStream` で処理し、最後の 0 または error まで読み切って CRC と stream footer を確定します。
 `stagingFreeSpaceReserve` は一時 volume の空き容量下限（既定 1 GiB）です。disk staging の開始前と
 256 MiB 書き込みごとに確認し、下回れば `limitExceeded("staging free space")` を返します。
 `maxSevenZipHeaderKDFWork` は 7z の open 中に行う header KDF の SHA-256 round 総数を制限します
-（既定 `4 * (1 << 24)`）。cache hit と direct key は消費せず、entry 読み取り時の派生は対象外です。
+（既定 `4 * (1 << 24)`）。cache hit と direct key は消費せず、entry の予算とは独立です。
+`maxSevenZipEntryKDFWork` は reader 内の entry KDF を `4 * (1 << 24)` SHA-256 rounds に制限します（cache miss のみ。direct key は無料）。
+`maxStuffItXKDFWork` は reader 内の catalog / entry の鍵・verifier KDF を `1 << 22` MD5 圧縮回数に制限します。
+7z は通常の cyclesPower 19 で128種の salt 分、最大 cyclesPower 24 で4回分です。通常の writer は一つの salt を共有します。
+StuffIt X は約4 KiBの一導出が目安です。padding・verifier も数えるので password `x` の実境界は4,032 byteで、4,096 byteは超過します。
+両者とも header 予算と同程度の release 実測約1.7秒を目安とし、多数の派生が必要なら open 前に上限を上げます。
+仕事量が残予算と等しい場合は受理し、超えた場合だけ拒否します。
+超過時はそれぞれ `limitExceeded("7z entry KDF work")` / `limitExceeded("StuffIt X KDF work")`。
+password 変更や失敗で予算は戻らず、`reopen()` は独立した予算を持ちます。7z の鍵 cache は最大 64 件の FIFO です。
 
 XZ / bzip2 は単独 stream と圧縮 tar の staging で自動並列復号します。
 `ReaderOptions.decodeThreads` は既定 `nil`。active logical CPU 数と物理メモリの GiB 数（最低 1）の
@@ -60,7 +68,14 @@ RAR multi-volume は sibling file を解決できる `ArchiveReader.open(url:)` 
 > before disk staging and every 256 MiB written; falling below it throws
 > `limitExceeded("staging free space")`. `maxSevenZipHeaderKDFWork` limits the aggregate SHA-256
 > rounds used by 7z header KDFs during open, defaulting to `4 * (1 << 24)`. Cache hits and direct
-> keys consume no rounds, and entry-time derivations are excluded.
+> keys consume no rounds. `maxSevenZipEntryKDFWork` separately limits entry-time derivations per
+> reader to `4 * (1 << 24)` SHA-256 rounds on cache misses; the FIFO key cache retains at most 64 keys.
+> `maxStuffItXKDFWork` limits key and verifier derivations across catalogs and entries in one reader
+> to `1 << 22` MD5 compressions. Failed attempts and password changes do not replenish either budget;
+> `reopen()` creates an independent budget. Work equal to the remaining budget is accepted.
+> The defaults target roughly two seconds of release CPU: four maximum-cost 7z derivations, or
+> approximately 4 KiB of StuffIt X key material. With password `x`, the exact StuffIt X boundary
+> is 4,032 bytes; padding and verifier work put 4,096 bytes over budget.
 >
 > XZ / bzip2 standalone streams and compressed-tar staging decode in parallel by default.
 > `ReaderOptions.decodeThreads == nil` resolves once at open from active logical CPUs and whole

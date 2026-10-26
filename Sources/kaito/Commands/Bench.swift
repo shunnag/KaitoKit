@@ -37,7 +37,7 @@ private func parseBench(_ arguments: [String]) throws -> BenchArguments {
     var positionals: [String] = []
     var useMappedData = false
     var useRandomAccess = false
-    var password: String?
+    var password = PasswordArgument()
     var threads = DecodeThreadsArgument()
     var latency = InputLatencyArgument()
     var cursor = ArgumentCursor(arguments)
@@ -53,7 +53,9 @@ private func parseBench(_ arguments: [String]) throws -> BenchArguments {
         } else if argument == "--threads" {
             try threads.parse(from: &cursor)
         } else if argument == "-p" {
-            password = try cursor.value(unlessSet: password)
+            try password.parse(from: &cursor)
+        } else if argument == "--password-stdin" {
+            try password.parseStdin()
         } else {
             guard !argument.hasPrefix("-") else { throw CLIError.usage(usage) }
             positionals.append(argument)
@@ -77,7 +79,7 @@ private func parseBench(_ arguments: [String]) throws -> BenchArguments {
         repetitions: repetitions,
         useMappedData: useMappedData,
         useRandomAccess: useRandomAccess,
-        password: password,
+        password: try password.read(),
         decodeThreads: threads.value,
         inputLatency: latency.value
     )

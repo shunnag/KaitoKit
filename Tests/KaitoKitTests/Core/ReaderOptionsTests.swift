@@ -52,3 +52,19 @@ final class ReaderOptionsTests: XCTestCase {
         XCTAssertEqual(ReadLimits(parallelDecodeMemory: .max).resolvedParallelDecodeMemory(), Int.max)
     }
 }
+
+extension ReaderOptionsTests {
+    func testReadLimitsKDFDefaultsAndCallerOverrides() throws {
+        let defaults = ReadLimits()
+        XCTAssertEqual(defaults.maxSevenZipEntryKDFWork, 4 * (1 << 24))
+        XCTAssertEqual(defaults.maxStuffItXKDFWork, 1 << 22)
+        var limits = ReadLimits(maxSevenZipEntryKDFWork: 0, maxStuffItXKDFWork: 0)
+        XCTAssertNotEqual(limits, defaults)
+        limits.maxSevenZipEntryKDFWork = .max; limits.maxStuffItXKDFWork = 123
+        XCTAssertEqual(limits.maxSevenZipEntryKDFWork, .max)
+        XCTAssertEqual(limits.maxStuffItXKDFWork, 123)
+        let budget = KDFWorkBudget(limit: .max, subject: "KDF test")
+        try budget.charge(.max); try budget.charge(0)
+        XCTAssertThrowsError(try budget.charge(1)) { XCTAssertEqual($0 as? KaitoError, .limitExceeded("KDF test")) }
+    }
+}

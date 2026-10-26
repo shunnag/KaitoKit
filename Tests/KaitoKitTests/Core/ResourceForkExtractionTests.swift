@@ -4,6 +4,49 @@ import Foundation
 import XCTest
 
 final class ResourceForkExtractionTests: XCTestCase {
+    func testResourceOnlyRestoresNewDataInodeMetadata() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let reader = try ArchiveReader.open(data: TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "new/..namedfork/rsrc", contents: Data([67]),
+                         mode: 0o740, modificationTime: 0),
+        ]))
+        _ = try reader.extract(reader.entries[0], to: temporary,
+                               options: ExtractionOptions(overwriteExisting: false))
+        let information = try status(temporary.appendingPathComponent("new"))
+        XCTAssertEqual(information.st_mode & 0o7777, 0o740)
+        XCTAssertEqual(information.st_mtimespec.tv_sec, 0)
+    }
+
+    func testResourceForkDoesNotApplyArchiveMetadataToPreexistingData() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let payload = Data("VICTIM-CONTENT".utf8)
+        let reader = try ArchiveReader.open(data: TarTestSupport.makeTar(entries: [
+            HandTarEntry(name: "victim/..namedfork/rsrc", contents: Data([67]),
+                         mode: 0o6755, modificationTime: 0),
+        ]))
+        for overwrite in [false, true] {
+            let output = temporary.appendingPathComponent(String(overwrite))
+            try FileManager.default.createDirectory(at: output, withIntermediateDirectories: false)
+            let victim = output.appendingPathComponent("victim")
+            try payload.write(to: victim)
+            try FileManager.default.setAttributes([
+                .posixPermissions: 0o644, .modificationDate: Date(timeIntervalSince1970: 1_700_000_000),
+            ], ofItemAtPath: victim.path)
+            let before = try status(victim)
+            let fork = try reader.extract(reader.entries[0], to: output,
+                                          options: ExtractionOptions(overwriteExisting: overwrite))
+            let after = try status(victim)
+            XCTAssertEqual(after.st_ino, before.st_ino)
+            XCTAssertEqual(after.st_mode, before.st_mode)
+            // resource fork の書込みによる OS の mtime 更新は残るが、書庫の epoch は適用しない。
+            XCTAssertNotEqual(after.st_mtimespec.tv_sec, 0)
+            XCTAssertEqual(try Data(contentsOf: victim), payload)
+            XCTAssertEqual(try Data(contentsOf: fork), Data([67]))
+        }
+    }
+
     func testResourceOnlyCreatesEmptyDataFileAndReturnsItsIdentity() throws {
         let temporary = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporary) }

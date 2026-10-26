@@ -42,6 +42,7 @@ final class StuffItXCrypto {
         let rounded = (length + 15) & ~15
         var state = StuffItXContinuingMD5(), source = password
         for _ in 0..<256 {
+            try Task.checkCancellation()
             var output: [UInt8] = []
             output.reserveCapacity(rounded)
             for offset in stride(from: 0, to: rounded, by: 16) {
@@ -78,8 +79,29 @@ final class StuffItXCrypto {
         return Int(total)
     }
 
-    init(password: String, algorithms: [StuffItXAlgorithm]) throws {
+    /// snapshot は byte count を 56 mod 64 に残し、長さ入りの一時 block を別に圧縮する。
+    /// 最初だけ count が 0。以後は各 snapshot の入力に 64 byte の余裕を加えて数える。
+    static func work(passwordLength: Int, keyLength: Int) throws -> UInt64 {
+        guard passwordLength >= 0, (1...65_536).contains(keyLength) else {
+            throw KaitoError.limitExceeded("StuffIt X derivation length")
+        }
+        func derivation(input: UInt64, length: Int) throws -> UInt64 {
+            let rounded = UInt64((length + 15) & ~15), blocks = rounded / 16
+            let first = try Checked.add(input, 17) / 64 + 1
+            let continuing = try Checked.add(input, 9) / 64 + 2
+            let initialRound = try Checked.add(first, Checked.mul(blocks - 1, continuing))
+            let later = try Checked.mul(255 * blocks, (rounded + 9) / 64 + 2)
+            return try Checked.add(initialRound, later)
+        }
+        return try Checked.add(derivation(input: UInt64(passwordLength), length: keyLength),
+                               derivation(input: UInt64(keyLength), length: 2))
+    }
+
+    init(password: String, algorithms: [StuffItXAlgorithm], kdfBudget: KDFWorkBudget? = nil) throws {
         let total = try Self.validate(algorithms)
+        let budget = kdfBudget ?? KDFWorkBudget(limit: ReadLimits().maxStuffItXKDFWork,
+                                              subject: "StuffIt X KDF work")
+        try budget.charge(Self.work(passwordLength: password.utf8.count, keyLength: total))
         // password は正規化・終端追加をせず UTF-8 の明示長で渡す。
         let material = try Self.derive(Array(password.utf8), length: total)
         verifier = try Self.derive(material, length: 2)

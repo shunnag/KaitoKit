@@ -4,7 +4,7 @@ import KaitoKit
 func runList(_ arguments: [String]) throws {
     var path: String?
     var printRaw = false
-    var password: String?
+    var password = PasswordArgument()
     var threads = DecodeThreadsArgument()
     var latency = InputLatencyArgument()
     var cursor = ArgumentCursor(arguments)
@@ -17,7 +17,9 @@ func runList(_ arguments: [String]) throws {
         } else if argument == "--threads" {
             try threads.parse(from: &cursor)
         } else if argument == "-p" {
-            password = try cursor.value(unlessSet: password)
+            try password.parse(from: &cursor)
+        } else if argument == "--password-stdin" {
+            try password.parseStdin()
         } else if path == nil {
             guard !argument.hasPrefix("-") else { throw CLIError.usage(usage) }
             path = argument
@@ -27,7 +29,7 @@ func runList(_ arguments: [String]) throws {
     }
     guard let path else { throw CLIError.usage(usage) }
 
-    let reader = try openArchive(path, password: password, decodeThreads: threads.value, inputLatency: latency.value)
+    let reader = try openArchive(path, password: password.read(), decodeThreads: threads.value, inputLatency: latency.value)
     for entry in reader.entries {
         let size = entry.uncompressedSize.map { String($0) } ?? "-"
         let encryption = entry.formatSpecific["encryption"].flatMap {

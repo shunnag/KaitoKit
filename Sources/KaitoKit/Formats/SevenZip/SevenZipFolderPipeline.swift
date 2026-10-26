@@ -231,6 +231,7 @@ final class SevenZipFolderDecoderFactory {
     private let limits: ReadLimits
     private let password: String?
     private let keyCache: SevenZipAESKeyCache
+    private let entryKDFBudget: KDFWorkBudget
     private let packedStreamVerifier: SevenZipPackedStreamVerifier
     private let maximumAESCyclesPower: UInt8
     private let avoidsHeaderScans: Bool
@@ -253,7 +254,8 @@ final class SevenZipFolderDecoderFactory {
         parallelDiagnostics: ParallelIndependentDecompressor.Diagnostics? = nil,
         resetIndexCache: SevenZipLZMA2ResetIndexCache = SevenZipLZMA2ResetIndexCache(),
         avoidsHeaderScans: Bool = false,
-        scanClock: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
+        scanClock: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+        entryKDFBudget: KDFWorkBudget? = nil
     ) throws {
         guard folder.unpackSizes.count == folder.outputCount,
               folder.finalOutputIndex >= 0,
@@ -266,6 +268,8 @@ final class SevenZipFolderDecoderFactory {
         self.limits = limits
         self.password = password
         self.keyCache = keyCache
+        self.entryKDFBudget = entryKDFBudget ?? KDFWorkBudget(
+            limit: limits.maxSevenZipEntryKDFWork, subject: "7z entry KDF work")
         self.packedStreamVerifier = packedStreamVerifier
             ?? SevenZipPackedStreamVerifier(source: source)
         self.maximumAESCyclesPower = maximumAESCyclesPower
@@ -296,7 +300,7 @@ final class SevenZipFolderDecoderFactory {
         let length = folder.unpackSizes[coder.firstOutput]
         let value = try decryptedBytes(coder: coder,
             input: SevenZipByteInput(source: source, offset: range.offset, length: range.size),
-            expectedSize: length, chargeKDFWork: { _ in })
+            expectedSize: length, chargeKDFWork: entryKDFBudget.charge)
         return (try value.asStream(), length)
     }
 
@@ -326,7 +330,8 @@ final class SevenZipFolderDecoderFactory {
         ))
     }
 
-    func makeDecoder(chargeKDFWork: (UInt64) throws -> Void = { _ in }) throws -> any Decompressor {
+    func makeDecoder(chargeKDFWork: ((UInt64) throws -> Void)? = nil) throws -> any Decompressor {
+        let chargeKDFWork = chargeKDFWork ?? entryKDFBudget.charge
         var activeOutputs = Set<Int>()
 
         func inputSize(_ inputIndex: Int) throws -> UInt64 {
@@ -773,7 +778,7 @@ final class SevenZipFolderDecoderFactory {
         )
     }
 
-    func decodeAll(limit: UInt64, chargeKDFWork: (UInt64) throws -> Void = { _ in }) throws -> Data {
+    func decodeAll(limit: UInt64, chargeKDFWork: ((UInt64) throws -> Void)? = nil) throws -> Data {
         try Checked.size(finalSize, limit: limit)
         let count = try Checked.toInt(finalSize)
         var result = Data(count: count)

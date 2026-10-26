@@ -9,6 +9,7 @@ enum BackwardRestartKind: Equatable { case fullIndex, observed, scanned, head }
 final class SevenZipFolderCoordinator {
     private(set) var lastBackwardRestart: BackwardRestartKind?
     private let factory: SevenZipFolderDecoderFactory
+    private let verifiesFolderCRC: Bool
     private var decoder: (any Decompressor)?
     private var position: UInt64 = 0
     private var generation: UInt64 = 0
@@ -18,6 +19,7 @@ final class SevenZipFolderCoordinator {
 
     init(factory: SevenZipFolderDecoderFactory) {
         self.factory = factory
+        verifiesFolderCRC = factory.folder.digest.value != nil
     }
 
     var hasRetainedDecoderState: Bool { decoder != nil }
@@ -80,7 +82,9 @@ final class SevenZipFolderCoordinator {
             guard actual > 0, actual <= requested else { throw KaitoError.truncated }
             position = try Checked.add(position, UInt64(actual))
             remaining = try Checked.sub(remaining, UInt64(actual))
-            checksum.update(UnsafeRawBufferPointer(rebasing: destination[..<actual]))
+            if verifiesFolderCRC {
+                checksum.update(UnsafeRawBufferPointer(rebasing: destination[..<actual]))
+            }
             if remaining == 0, endsFolder { try verifyCompletion() }
             return actual
         } catch {
@@ -137,8 +141,10 @@ final class SevenZipFolderCoordinator {
                     try decoder.read(into: UnsafeMutableRawBufferPointer(rebasing: bytes[..<requested]))
                 }
                 guard actual > 0, actual <= requested else { throw KaitoError.truncated }
-                scratch.withUnsafeBytes { bytes in
-                    checksum.update(UnsafeRawBufferPointer(rebasing: bytes[..<actual]))
+                if verifiesFolderCRC {
+                    scratch.withUnsafeBytes { bytes in
+                        checksum.update(UnsafeRawBufferPointer(rebasing: bytes[..<actual]))
+                    }
                 }
                 position = try Checked.add(position, UInt64(actual))
             } catch {

@@ -1403,7 +1403,8 @@ prose ページであることを確認し、`source-archive` を含む URL は�
     7z の 4 GiB 超 declared entry は既定 `maxEntrySize` により list/open 時点で拒否され、`read()` /
     `readAll()` は既定 `maxInMemorySize` 1 GiB まで宣言サイズの最終 buffer を確保する。
   - 初期 PPMd7 の検証付き load は実測約 136 KiB/s だった（下記 2026-09-08 追補で改善）。
-    展開量の上限は CPU 時間の上限を保証しない。anti directory は現在 `.file`、CLI `oneLine` は U+202A〜U+202E などの Cf を未 escape、
+    展開量の上限は CPU 時間の上限を保証しない。anti directory は現在 `.file`。CLI `oneLine` は
+    U+202A〜U+202E / U+2066〜U+2069 の bidi 制御文字を escape する（2026-10-26 修正）。
     `SevenZipAESKeyCache` は reader 単位なので `reopen()` では鍵を再導出する。未対応 coder の folder も
     PackInfo CRC を先に走査するため、その範囲の I/O は発生する。
 - M3(本変更):
@@ -1447,6 +1448,7 @@ prose ページであることを確認し、`source-archive` を含む URL は�
     API の `ReadLimits.maxRAR5HeaderKDFWork` へ累積する。同じ `(password, salt, count)` context の cache hit
     は再加算せず、HMAC-SHA256 iteration 単位で各 context を `2^count + 32` と数える。既定値
     `4 * (2^24 + 32)` は最大コストの `count = 24` context 4 件分である。
+    7z entry と StuffIt X の reader 予算は下記「鍵導出の累積予算」に追記した。
   - RAR5 は header CRC32、展開後 CRC32、`verifyRAR5Blake2sp` が true (既定) のとき BLAKE2sp-256、
     暗号化 checksum の HashMAC、非最終 file part に存在する packed CRC32 / BLAKE2sp を検証する。
     サイズ不明の圧縮 entry は `uncompressedSize == nil` のまま終端まで streaming する。
@@ -1596,6 +1598,29 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   0.82 / 0.84 s、book-tiff.7z 0.94 / 0.57 s、book-solid.7z 10.1 / 7.65 s。§4 の目標 1.3 倍以内を LZMA2 solid は
   わずかに超過(1.32 倍)。
 
+### 鍵導出の累積予算（2026-10-26）
+
+7z header は `ReadLimits.maxSevenZipHeaderKDFWork`（既定 `4 * (1 << 24)`）で open 中の
+SHA-256 rounds を累積する。従来の「entry reads are unbudgeted」は共有 salt の cache に依存し、
+folder ごとに異なる salt を置く自作書庫では安全でなかった（2026-10-26）。
+`maxSevenZipEntryKDFWork`（既定 `4 * (1 << 24)`）を reader が保持し、factory / coordinator と
+decrypted packed stream SPI に渡す。cache miss の直前だけ課金し、direct key は無料。
+header の予算とは独立だが cache は共有する。7-Zip の固定値 cyclesPower 19 なら128種の salt 分、
+最大 cyclesPower 24 なら4回（release 実測で約1.7秒）を許す。通常の writer は一つの salt を共有するので、
+多数 folder でも一度だけ導出する。cache は最大 64 鍵の FIFO、退去後の再導出も課金する。
+StuffIt X は鍵長を丸めた R に対し約 `16 * R²` byte を MD5 に再投入するため、
+`maxStuffItXKDFWork`（既定 `1 << 22` MD5 圧縮回数）で鍵と verifier の全仕事を導出前に課金する。
+catalog / entry / 補助 stream の coordinator は同じ reader の予算を共有する。
+実際の鍵素材は1 KiB未満（RC4 実例64、AES最大32、Blowfish最大56、DES 8 byte）で、通常の小鍵なら数千 entry を許す。
+約4 KiBの一導出（release 実測で約1.7秒）が目安。padding・verifier も数えるので password `x` での実境界は4,032 byte、
+4,096 byteは超過し、8 KiB以上も拒否する。初回の既定値（7z `32 * (1 << 24)` / StuffIt X `1 << 26`）は
+各13.5 / 6.5秒程度を許していたため、header の既存予算と同じ約2秒の目安へ下げた。
+必要な caller は明示的に上限を上げる。仕事量が残予算と等しければ受理し、超過だけを拒否する。
+受理する鍵長範囲は維持し、256 round の各先頭で取消しを検査する。
+両予算は失敗・password 変更で戻さず、reopen は独立させる。StuffIt 5 の秘密 verifier は
+`ConstantTime.equals` に揃え、公開値の比較は変えない。
+[修正・計測・回帰テスト](verification/2026-10-26-audit-kdf-fixes.md)。
+
 ### 実ツール互換性・PPMd 性能追補（2026-09-08）
 
 - パスの構成要素と包含判定は UTF-8 の `/` byte で扱う。Swift の grapheme 境界による
@@ -1608,6 +1633,13 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   検証する。そこに ENOENT があれば拒否するため、後続 entry / 別 archive が未作成成分を symlink に
   変える pivot は成立しない。最後の `..` より後だけは未作成でもよく、前方参照は引き続き許容する。
   directory sticky / setgid bit は書庫から復元する（macOS rar 6/7 と異なり XADMaster / bsdtar -xp と同方針）。
+  file など directory 以外の setuid / setgid bit は既定で落とし、sticky は変更しない。
+  `ExtractionOptions.preserveSetUserIDBits = true` で従来の XADMaster / bsdtar -xp 相当の復元を選べる。
+  `preserveMetadata = false` なら、この opt-in によらず mode / mtime は復元しない。
+  resource-fork entry の metadata は、その呼出しで data inode を新規作成した場合だけ復元する。
+  既存 data fork には `overwriteExisting` によらず書庫の mode / mtime を適用しない。
+  fork 書込みによる OS の mtime 更新は残る。resource fork 本文の
+  上書き規則（`overwriteExisting = false` で既存の非空 fork は `EEXIST`）は維持する。
 - RAR3 Audio program は 216-byte fingerprint を使用し、実 RAR 6.24 の PCM 生成物で検証する。
   長い RAR3 password は、直接 SHA-1 block として処理された password buffer に schedule word が残る
   旧規則を再現する。汎用 SHA-1 圧縮は CommonCrypto、schedule 更新だけは供給された挙動所見と

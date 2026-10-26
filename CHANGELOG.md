@@ -6,6 +6,19 @@
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-27
+
+### リリース前レビューの修正
+
+タグ前の敵対的レビュー（37 agent、6 観点 + 所見ごとに反証 2 観点 + 見落とし critic）で生存した所見。
+詳細は [Documentation/verification/2026-10-27-release-review-0.17.0.md](Documentation/verification/2026-10-27-release-review-0.17.0.md)。
+
+- R1. resource fork だけの entry が、同じ展開でこの reader が作った data file の mtime を失わせていた（`d2fa536` の回帰）。`trustedTargets` と照合して自分が作った inode にだけ復元する。
+- R2. 7z の password 変更判定が Swift String の正準等価比較で、鍵は厳密な UTF-16 から導いていたため、正準等価な別綴りの正しい password が恒久的に通らなかった。7z は UTF-16、RAR5 は UTF-8 の厳密比較に揃えた（ZIP は guard が無く同症状は成立しない）。
+- R3. RAR5 の entry 鍵導出が無課金・中断不能だった。`ReadLimits.maxRAR5EntryKDFWork` を設け、4,096 HMAC ごとに取消しを検査する。
+- R4. 取消しで課金だけが残り再試行が二重課金になっていた。`CancellationError` の導出分だけを返金する。
+- R5. README の既定値と scope、CHANGELOG の節構成、`embedding.md` の英語の field 列挙、KDF 記録の「最終既定値」が実装と食い違っていた。
+
 ### 追加
 
 - `ExtractionOptions.preserveSetUserIDBits`（既定 `false`）で file の setuid / setgid bit の復元を選べる。

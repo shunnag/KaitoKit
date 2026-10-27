@@ -61,15 +61,15 @@ tar
 $ swift run kaito list samples/book.zip
 0\t12345\tfile\tdeflate\tplain\t表紙.jpg
 $ swift run kaito list samples/book.zip --raw
-$ swift run kaito list samples/book-encrypted.7z -p secret
+$ swift run kaito list samples/book-encrypted.7z --password-stdin < password.txt
 $ swift run kaito extract samples/book.tar -o /tmp/book
 $ swift run kaito sha samples/book.tar
 $ swift run kaito sha --sink samples/book.tar
-$ swift run kaito sha samples/book-encrypted.7z -p secret
+$ swift run kaito sha samples/book-encrypted.7z --password-stdin < password.txt
 $ swift run kaito bench samples/book.tar 5
 $ swift run kaito bench --data samples/book.tar 5
 $ swift run kaito bench --random samples/book-solid.7z 5
-$ swift run kaito bench --random samples/book-encrypted.7z 5 -p secret
+$ swift run kaito bench --random samples/book-encrypted.7z 5 --password-stdin < password.txt
 ```
 
 `sha` はエントリ順の SHA-256 と総合ダイジェストを出力し、別の展開実装との
@@ -89,7 +89,7 @@ filename は一つの path に組み立て、0xFF directory 区切りは `/` に
 `sha --sink` は同じ走査・逐次復号を行い、SHA-256 を計算せず byte 数だけを出力します。
 entry 行は `index<TAB>bytes<TAB>name`、末尾は `total<TAB>rows<TAB>bytes<TAB>` です。
 失敗行と終了コードは通常の `sha` と同じで、末尾の `partial` は成功 entry の byte 数だけを集計します。
-`--forks`・`-p` も併用できます。[decode の A/B 計測](../Tests/Measurement/decode-ab/README.md)で
+`--forks`・`-p` / `--password-stdin` も併用できます。[decode の A/B 計測](../Tests/Measurement/decode-ab/README.md)で
 通常の `sha` による一致確認、`list` / `sha --sink` の交互計測を行います。
 
 StuffIt / StuffIt X の `list` は末尾に `fork=data` / `fork=resource` を追加します。
@@ -111,7 +111,11 @@ CLI 全体の性能は release build 済みの `.build/release/kaito` を直接�
 以前観測した約 0.62 秒の差は decoder ではなく、`swift run` の cold-start / build planning を
 測定へ混ぜたことが原因でした。
 
-`list`、`extract`、`sha`、`bench` は `-p <password>` を受け付けます。ヘッダも暗号化された
+`list`、`extract`、`sha`、`bench` は `-p <password>` または `--password-stdin` を受け付けます。
+`--password-stdin` は stdin の先頭行を読み、末尾の LF 一つだけを除きます。空入力・空行・重複・
+`-p` との併用は usage error（終了コード 2）です。空白や CR は password の一部として保持します。
+`-p` の値は同じユーザーの他 process から argv が見え、shell 履歴にも残ります。
+ヘッダも暗号化された
 7z / RAR は、一覧やベンチマークの開始時にも password が必要です。
 RAR3 は長いパスワードの旧 SHA-1 入力更新規則に対応します。
 writer と同じ最大127文字（UTF-16 候補は127 code units、Unix 候補は127 scalars）で区切ります。BMP 外の文字を含む RAR3 password は

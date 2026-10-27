@@ -8,6 +8,7 @@ final class StuffItXReader: FormatReader {
     let archiveComment: String?
     let archiveResourceFork: (any ByteSource)?
     private let source: any ByteSource
+    private let kdfBudget: KDFWorkBudget
     private let descriptors: [UInt64: (StuffItXElement, UInt64)]
     private let intervals: [(stream: UInt64?, offset: UInt64, length: UInt64)]
     private let unavailableStreams: Set<UInt64>
@@ -37,12 +38,15 @@ final class StuffItXReader: FormatReader {
     init(source: any ByteSource, resourceFork: (any ByteSource)? = nil, options: ReaderOptions) throws {
         self.source = source; archiveResourceFork = resourceFork
         let limits = options.limits
+        let kdfBudget = KDFWorkBudget(limit: limits.maxStuffItXKDFWork, subject: "StuffIt X KDF work")
+        self.kdfBudget = kdfBudget
         var password = options.password
         let elements = try StuffItXElementParser(source: source, limits: limits).parse()
         let index = try Self.index(elements, limits: limits)
         var metadataSize: UInt64 = 0
         let (records, comment) = try Self.readCatalogs(elements, objectCount: index.objects.count, source: source,
-                                                       options: options, password: &password, metadataSize: &metadataSize)
+                                                       options: options, password: &password, metadataSize: &metadataSize,
+                                                       kdfBudget: kdfBudget)
         archiveComment = comment
         let encoding = EncodingDetector.detectArchiveEncoding(names: records.map(\.name), policy: options.encodingPolicy,
                                                                maximumBatchByteCount: try Checked.toInt(limits.maxMetadataSize))
@@ -88,7 +92,7 @@ final class StuffItXReader: FormatReader {
     /// 暗号化された catalog は password を一度だけ問い合わせ、以後の stream にも使う。
     private static func readCatalogs(_ elements: [StuffItXElement], objectCount: Int, source: any ByteSource,
                                      options: ReaderOptions, password: inout String?,
-                                     metadataSize: inout UInt64) throws -> (records: [StuffItXCatalog.Record], comment: String?) {
+                                     metadataSize: inout UInt64, kdfBudget: KDFWorkBudget) throws -> (records: [StuffItXCatalog.Record], comment: String?) {
         let limits = options.limits
         var records = [StuffItXCatalog.Record](repeating: .init(), count: objectCount)
         var catalogSeen = false, comment: String?
@@ -103,7 +107,8 @@ final class StuffItXReader: FormatReader {
                 password = try options.passwordProvider?.password(for: .stuffItX)
                 guard password != nil else { throw KaitoError.passwordRequired }
             }
-            let coordinator = StuffItXStreamCoordinator(source: source, element: element, size: size, limits: limits, password: password)
+            let coordinator = StuffItXStreamCoordinator(source: source, element: element, size: size, limits: limits,
+                                                       password: password, kdfBudget: kdfBudget)
             let decoder = try coordinator.stream(offset: 0, length: size)
             let decoded = try Self.collect(decoder, size: size)
             let previous = index > 0 ? elements[index - 1] : nil
@@ -309,6 +314,7 @@ final class StuffItXReader: FormatReader {
     func setPassword(_ password: String?) {
         guard resolvedPassword.map({ Array($0.utf8) }) != password.map({ Array($0.utf8) }) else { return }
         resolvedPassword = password; verifiedAuxiliaries.removeAll()
+        kdfBudget.reset()
         for coordinator in coordinators.values { coordinator.setPassword(password) }
     }
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {
@@ -326,7 +332,7 @@ final class StuffItXReader: FormatReader {
                 }
                 try Checked.size(size, limit: limits.maxEntrySize)
                 let coordinator = coordinators[id] ?? StuffItXStreamCoordinator(source: source, element: element, size: size,
-                                                                                limits: limits, password: resolvedPassword)
+                                                                                limits: limits, password: resolvedPassword, kdfBudget: kdfBudget)
                 coordinators[id] = coordinator
                 let auxiliary = try coordinator.stream(offset: 0, length: size)
                 try withUnsafeTemporaryAllocation(byteCount: 65_536, alignment: 16) { buffer in
@@ -339,7 +345,7 @@ final class StuffItXReader: FormatReader {
         if let id = interval.stream, let (element, size) = descriptors[id] {
             if unavailableStreams.contains(id) { throw KaitoError.unsupportedMethod("StuffIt X mixed auxiliary slots") }
             let coordinator = coordinators[id] ?? StuffItXStreamCoordinator(source: source, element: element, size: size,
-                                                                            limits: limits, password: resolvedPassword)
+                                                                            limits: limits, password: resolvedPassword, kdfBudget: kdfBudget)
             coordinators[id] = coordinator
             decoder = try coordinator.stream(offset: interval.offset, length: interval.length)
         } else { decoder = try CopyDecompressor(source: source, offset: 0, compressedSize: 0) }

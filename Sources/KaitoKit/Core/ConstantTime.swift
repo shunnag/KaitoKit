@@ -2,6 +2,13 @@ import Foundation
 
 /// 秘密値の比較。不一致の位置に依存する早期 return を行わず、全 byte の XOR を OR で畳む。
 enum ConstantTime {
+    static func equals(_ lhs: [UInt8], _ rhs: [UInt8]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        var difference: UInt8 = 0
+        for index in lhs.indices { difference |= lhs[index] ^ rhs[index] }
+        return difference == 0
+    }
+
     static func equals(_ lhs: UInt8, _ rhs: UInt8) -> Bool {
         (lhs ^ rhs) == 0
     }

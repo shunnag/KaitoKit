@@ -11,13 +11,23 @@ serial queue で直列化し、並列展開には `reopen()` で作った独立 
 
 `ReadLimits` は `maxEntrySize`、`maxTotalUncompressedSize`、`maxInMemorySize`、
 `inMemorySingleFileLimit`、`stagingFreeSpaceReserve`、`maxSevenZipHeaderKDFWork`、
-entry/metadata/path/dictionary/volume 上限などをまとめます。利用する corpus と
+`maxSevenZipEntryKDFWork`、`maxStuffItXKDFWork`、`maxRAR5EntryKDFWork`、entry/metadata/path/dictionary/volume 上限などをまとめます。利用する corpus と
 端末の memory budget に合わせて open 前に設定してください。`read(_:)` より大きい entry は
 `EntryStream` で処理し、最後の 0 または error まで読み切って CRC と stream footer を確定します。
 `stagingFreeSpaceReserve` は一時 volume の空き容量下限（既定 1 GiB）です。disk staging の開始前と
 256 MiB 書き込みごとに確認し、下回れば `limitExceeded("staging free space")` を返します。
 `maxSevenZipHeaderKDFWork` は 7z の open 中に行う header KDF の SHA-256 round 総数を制限します
-（既定 `4 * (1 << 24)`）。cache hit と direct key は消費せず、entry 読み取り時の派生は対象外です。
+（既定 `4 * (1 << 24)`）。cache hit と direct key は消費せず、entry の予算とは独立です。
+`maxSevenZipEntryKDFWork` は reader と password の組ごとの entry KDF を `16 * (1 << 24)`（268,435,456）SHA-256 rounds に制限します（cache miss のみ。direct key は無料）。
+`maxStuffItXKDFWork` は reader と password の組ごとの catalog / entry / 補助 stream の鍵・verifier KDF を `1 << 22` MD5 圧縮回数に制限します。
+7z は cyclesPower 19 で512種の salt 分、最大 cyclesPower 24 で16回分です。7zz と GyoshukuKit で実測した暗号化 7z は saltSize 0 で、導出は一度で済みます。第三者 writer の corpus はなく、この性質をすべての writer に一般化できません（`Tests/Fixtures/NOTICE`）。
+StuffIt X は約4 KiBの一導出が目安です。padding・verifier も数えるので password `x` の実境界は4,032 byteで、4,096 byteは超過します。
+多数の導出が必要なら open 前に上限を上げます。7z / RAR5 は KDF の chunk ごと、StuffIt X は round ごとに Task の取消しを検査します。取消した導出だけを返金し、誤 password などの失敗は返金しません。
+仕事量が残予算と等しい場合は受理し、超えた場合だけ拒否します。
+超過時はそれぞれ `limitExceeded("7z entry KDF work")` / `limitExceeded("StuffIt X KDF work")`。
+RAR5 entry の予算は下記「RAR5 の KDF とサイズ不明 entry」のとおり独立です。いずれの予算も別の password を設定すると全額戻ります。同じ password の再設定・`stream()` の繰返し・読取失敗では戻りません。
+`reopen()` / `open()` も全額の独立した予算を持ちます。複数 password を自動試行する host は自分で試行回数を縛る責務があり、
+全体の露出は試行回数 × reader 数に比例します。7z の鍵 cache は最大 64 件の FIFO です。
 
 XZ / bzip2 は単独 stream と圧縮 tar の staging で自動並列復号します。
 `ReaderOptions.decodeThreads` は既定 `nil`。active logical CPU 数と物理メモリの GiB 数（最低 1）の
@@ -51,7 +61,8 @@ RAR multi-volume は sibling file を解決できる `ArchiveReader.open(url:)` 
 > `solidGroup == -1` can be parallelized one entry at a time.
 >
 > `ReadLimits` collects `maxEntrySize`, `maxTotalUncompressedSize`, `maxInMemorySize`,
-> `inMemorySingleFileLimit`, `stagingFreeSpaceReserve`, `maxSevenZipHeaderKDFWork`, and the entry,
+> `inMemorySingleFileLimit`, `stagingFreeSpaceReserve`, `maxSevenZipHeaderKDFWork`,
+> `maxSevenZipEntryKDFWork`, `maxStuffItXKDFWork`, `maxRAR5EntryKDFWork`, and the entry,
 > metadata, path, dictionary and volume limits. Configure
 > it before opening, to match your corpus and the device's memory budget. Handle entries larger than
 > `read(_:)` allows with `EntryStream`, reading through to the final 0 or error so that the CRC and
@@ -60,7 +71,20 @@ RAR multi-volume は sibling file を解決できる `ArchiveReader.open(url:)` 
 > before disk staging and every 256 MiB written; falling below it throws
 > `limitExceeded("staging free space")`. `maxSevenZipHeaderKDFWork` limits the aggregate SHA-256
 > rounds used by 7z header KDFs during open, defaulting to `4 * (1 << 24)`. Cache hits and direct
-> keys consume no rounds, and entry-time derivations are excluded.
+> keys consume no rounds. `maxSevenZipEntryKDFWork` separately limits entry-time derivations per
+> reader/password pair to `16 * (1 << 24)` (268,435,456) SHA-256 rounds on cache misses:
+> 512 distinct salts at cycle power 19, or 16 derivations at cycle power 24.
+> The FIFO key cache retains at most 64 keys. `maxStuffItXKDFWork` limits key and verifier derivations
+> across catalogs, entries and auxiliary streams per reader/password pair to `1 << 22` MD5 compressions.
+> RAR5 entry derivations have a separate budget described below. Setting a different password
+> replenishes these budgets; setting the same password, repeated
+> `stream()` calls and failed reads do not. `reopen()` and `open()` start with full independent budgets.
+> Hosts that automatically try multiple passwords must bound their own attempts; total exposure
+> scales with the attempt count times the number of readers. Work equal to the remaining budget is accepted.
+> The StuffIt X default allows approximately 4 KiB of key material. With password `x`, the exact
+> boundary is 4,032 bytes; padding and verifier work put 4,096 bytes over budget.
+> Task cancellation is checked per KDF chunk in 7z / RAR5 and per round in StuffIt X.
+> Only cancelled derivations are refunded; wrong passwords and other failures remain charged.
 >
 > XZ / bzip2 standalone streams and compressed-tar staging decode in parallel by default.
 > `ReaderOptions.decodeThreads == nil` resolves once at open from active logical CPUs and whole
@@ -304,6 +328,14 @@ work は HMAC-SHA256 iteration 単位で、各 context を `2^count + 32` と数
 再利用すると key cache が使われ、一度だけ加算されます。異なる context は volume をまたいで
 累積されます。
 
+entry の導出は別の `ReadLimits.maxRAR5EntryKDFWork` で reader と password の組ごとに累積します。
+既定 `16 * ((1 << 24) + 32)`（268,435,968）は最大 `count = 24` の16回分で、header の既定の4倍です。
+通常・solid の各経路で cache miss の直前に `2^count + 32` を課金し、cache hit は無料です。
+FIFO cache は最大16鍵で、退去後の再導出も課金します。超過は `limitExceeded("RAR5 entry KDF work")` です。
+別の UTF-8 byte 列の password を設定したときだけ全額戻り、同じ password の再設定・読取失敗では戻りません。
+`reopen()` / `open()` は独立した満額の予算を持ち、複数 password の試行回数は host が縛ります。
+導出は4,096 HMAC ごとに取消しを検査し、`CancellationError` で中断した導出だけを返金します。
+
 RAR5 のサイズ不明 entry は `uncompressedSize == nil` のまま、復号器の終端まで逐次
 streaming します。`read(_:)` も宣言サイズを仮定せず、設定された上限内で段階的にバッファを
 増やします。codec の辞書サイズ上限は `ReadLimits.maxDictionarySize` で設定し、既定値は
@@ -318,6 +350,15 @@ streaming します。`read(_:)` も宣言サイズを仮定せず、設定さ�
 > context as `2^count + 32`. The default is `4 * (2^24 + 32)`, that is four contexts at the most
 > expensive `count = 24`. When several volumes reuse the same `(password, salt, count)` context the
 > key cache is used and the work is charged once. Different contexts accumulate across volumes.
+>
+> Entry derivations use a separate `ReadLimits.maxRAR5EntryKDFWork` budget per reader/password pair.
+> Its default, `16 * ((1 << 24) + 32)` (268,435,968), permits sixteen derivations at count 24,
+> four times the unchanged header default. Both independent and solid entries charge `2^count + 32`
+> immediately before a cache miss. Cache hits are free; the FIFO cache holds sixteen keys and
+> eviction followed by derivation is charged again. Exhaustion throws `limitExceeded("RAR5 entry KDF work")`.
+> A different UTF-8 password replenishes the budget; the same password and failed reads do not.
+> `reopen()` / `open()` start with full independent budgets; hosts must bound password attempts.
+> Cancellation is checked every 4,096 HMACs; only derivations stopped by `CancellationError` are refunded.
 >
 > A RAR5 entry of unknown size keeps `uncompressedSize == nil` and is streamed incrementally to the
 > decoder's end marker. `read(_:)` likewise assumes no declared size and grows its buffer in stages

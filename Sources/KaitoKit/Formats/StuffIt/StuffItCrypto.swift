@@ -9,7 +9,7 @@ enum StuffItCrypto {
     static func sit5Key(password: [UInt8], hash: [UInt8]) throws -> [UInt8] {
         let key = first5(password)
         guard hash.count == 5 else { throw KaitoError.malformed("StuffIt 5 archive hash") }
-        guard first5(key) == hash else { throw KaitoError.wrongPassword }
+        guard ConstantTime.equals(first5(key), hash) else { throw KaitoError.wrongPassword }
         return key
     }
     static func word(_ bytes: [UInt8]) -> UInt64 { bytes.reduce(0) { ($0 << 8) | UInt64($1) } }

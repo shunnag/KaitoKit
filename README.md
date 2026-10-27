@@ -20,14 +20,14 @@ KaitoKit は macOS 向けの純 Swift 書庫読み取りライブラリです。
 
 ## SwiftPM
 
-現行リリースは **0.16.0** です（[変更履歴](CHANGELOG.md)）。`Package.swift` に依存を追加します。
-次の指定は 0.16.x の更新を受け取ります。
+現行リリースは **0.17.0** です（[変更履歴](CHANGELOG.md)）。`Package.swift` に依存を追加します。
+次の指定は 0.17.x の更新を受け取ります。
 
 ```swift
 dependencies: [
     .package(
         url: "https://github.com/shunnag/KaitoKit.git",
-        .upToNextMinor(from: "0.16.0")
+        .upToNextMinor(from: "0.17.0")
     )
 ],
 targets: [
@@ -151,11 +151,16 @@ print(encrypted.entries.count)
 - **Sandbox**: 入力・出力・分割巻の兄弟ファイルへのアクセス権を呼出側で管理します。[アクセスと staging](Documentation/embedding.md#sandbox-とファイルアクセス)
 - **スレッド**: reader / stream の操作を直列化し、並列処理は `reopen()` で独立 reader を作ります。[並列処理と solid 群](Documentation/embedding.md#組み込みの注意) / [展開順序](Documentation/embedding.md#書庫全体の展開順序)
 - **上限と検証**: `ReadLimits` を open 前に設定し、stream は最後まで読んで検証します。`stagingFreeSpaceReserve` と `maxSevenZipHeaderKDFWork` も調整できます。[資源上限](Documentation/embedding.md#組み込みの注意)
+- `ReadLimits.maxSevenZipEntryKDFWork`: reader と password の組ごとの 7z entry KDF を `16 * (1 << 24)`（268,435,456）SHA-256 rounds に制限します（cache miss のみ）。
+- `ReadLimits.maxStuffItXKDFWork`: reader と password の組ごとの StuffIt X catalog / entry KDF を `1 << 22` MD5 圧縮回数に制限します。
+- `ReadLimits.maxRAR5EntryKDFWork`: reader と password の組ごとの RAR5 entry KDF を `16 * ((1 << 24) + 32)` HMAC-SHA256 iterations に制限します（cache miss のみ）。
+
+別の password を設定すると予算は全額戻るため、複数 password の試行回数を縛るのは host の責務です。
 
 > **Integration notes**
 >
 > Serialize each reader / stream; use `reopen()` for independent workers. Configure `ReadLimits`, including
-> `stagingFreeSpaceReserve` and `maxSevenZipHeaderKDFWork`, before opening. Read streams to completion for verification.
+> `stagingFreeSpaceReserve`, `maxSevenZipHeaderKDFWork`, `maxSevenZipEntryKDFWork`, `maxStuffItXKDFWork`, and `maxRAR5EntryKDFWork`, before opening. Read streams to completion for verification.
 
 ## コマンドライン
 
@@ -163,11 +168,14 @@ print(encrypted.entries.count)
 swift run kaito detect book.zip
 swift run kaito list book.zip
 swift run kaito extract book.zip -o /tmp/book
-swift run kaito list private.7z -p secret
+swift run kaito list private.7z --password-stdin < password.txt
 swift run kaito sha book.zip
 ```
 
 `sha` / `extract` は entry ごとの失敗を報告して続行し、一件でも失敗すれば終了コード 1 です。
+`list` / `extract` / `sha` / `bench` は `--password-stdin` で stdin の先頭行を password に使います。
+末尾の改行一つだけを除き、空入力・重複・`-p` との併用はエラーです。
+`-p <password>` は同じユーザーの他 process から argv が見え、shell 履歴にも残ります。
 `--raw`、`--forks`、`bench`、出力形式と計測条件は [CLI ガイド](Documentation/cli.md) を参照してください。
 
 ## ドキュメント
@@ -191,7 +199,7 @@ swift test
 ```
 
 [テスト構成・CI・framework・fuzz の開発手順](Documentation/development.md) を参照してください。
-過去のリリースレビュー: [0.9.0](Documentation/verification/2026-09-22-release-review-0.9.0.md)、[0.8.1](Documentation/verification/2026-09-22-release-review-0.8.1.md)。
+過去のリリースレビュー: [0.17.0](Documentation/verification/2026-10-27-release-review-0.17.0.md)、[0.9.0](Documentation/verification/2026-09-22-release-review-0.9.0.md)、[0.8.1](Documentation/verification/2026-09-22-release-review-0.8.1.md)。
 
 ## ライセンス
 

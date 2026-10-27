@@ -67,7 +67,8 @@ package enum Extractor {
                     components: Array(components.dropLast(2)),
                     below: rootDescriptor,
                     from: reader,
-                    options: options
+                    options: options,
+                    trustedTargets: trustedTargets
                 )
             } else {
                 extractedIdentity = try extractRegularFile(
@@ -282,8 +283,9 @@ package enum Extractor {
         components: [String],
         below rootDescriptor: Int32,
         from reader: ArchiveReader,
-        options: ExtractionOptions
-    ) throws -> ExtractedFileIdentity {
+        options: ExtractionOptions,
+        trustedTargets: [Int: ExtractedFileIdentity]
+    ) throws -> ExtractedFileIdentity? {
         guard let leaf = components.last else {
             throw KaitoError.malformed("resource fork has no data file")
         }
@@ -296,17 +298,22 @@ package enum Extractor {
 
         var information = stat()
         var dataFlags = O_WRONLY | O_NOFOLLOW | O_CLOEXEC
+        let createsDataInode: Bool
         if Darwin.fstatat(parent.descriptor, leaf, &information, AT_SYMLINK_NOFOLLOW) != 0 {
             guard errno == ENOENT else { throw KaitoError.io(errno) }
             // resource-only entry の受け皿。既存 data fork は置換・切り詰めしない。
             dataFlags |= O_CREAT | O_EXCL
+            createsDataInode = true
         } else if (information.st_mode & S_IFMT) != S_IFREG {
             throw KaitoError.io((information.st_mode & S_IFMT) == S_IFLNK ? ELOOP : EISDIR)
+        } else {
+            createsDataInode = false
         }
         let dataDescriptor = Darwin.openat(parent.descriptor, leaf, dataFlags, mode_t(0o666))
         guard dataDescriptor >= 0 else { throw KaitoError.io(errno) }
         defer { _ = Darwin.close(dataDescriptor) }
         let extractedIdentity = try regularIdentity(descriptor: dataDescriptor)
+        let ownsDataInode = createsDataInode || trustedTargets.values.contains(extractedIdentity)
         // leaf は検査済みの通常ファイル。呼出側は展開ルートを排他的に所有する。
         let forkPath = "\(leaf)/..namedfork/rsrc"
         if !options.overwriteExisting {
@@ -333,11 +340,13 @@ package enum Extractor {
         guard descriptor >= 0 else { throw KaitoError.io(errno) }
         defer { _ = Darwin.close(descriptor) }
         try write(reader.stream(entry), to: descriptor)
-        // fork descriptor の fchmod/futimens は EPERM。共有する data inode に復元する。
-        try restoreMetadata(entry, descriptor: dataDescriptor, options: options)
+        // fork descriptor の fchmod/futimens は EPERM。この reader が作った data inode にだけ復元する。
+        if ownsDataInode {
+            try restoreMetadata(entry, descriptor: dataDescriptor, options: options)
+        }
         try parent.restoreMode()
-        // resource fork も data ファイルと同じ inode の provenance を返す。
-        return extractedIdentity
+        // 既存 inode は後続の展開でも trusted target に昇格させない。
+        return ownsDataInode ? extractedIdentity : nil
     }
 
     private static func extractRegularFile(
@@ -723,10 +732,11 @@ package enum Extractor {
         descriptor: Int32,
         options: ExtractionOptions
     ) throws {
-        if options.preserveMetadata,
-           let permissions = entry.posixPermissions,
-           Darwin.fchmod(descriptor, mode_t(permissions)) != 0 {
-            throw KaitoError.io(errno)
+        if options.preserveMetadata, let permissions = entry.posixPermissions {
+            // directory の特殊 bit は維持し、file の setuid / setgid は明示 opt-in に限る。
+            let mode = entry.kind == .directory || options.preserveSetUserIDBits
+                ? permissions : permissions & ~UInt16(0o6000)
+            guard Darwin.fchmod(descriptor, mode_t(mode)) == 0 else { throw KaitoError.io(errno) }
         }
         guard options.preserveMetadata else { return }
         if let date = entry.modificationDate {

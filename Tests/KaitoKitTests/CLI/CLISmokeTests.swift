@@ -7,6 +7,99 @@ import XCTest
 /// kaito CLI（detect-encoding・detect・list・sha・extract・bench）の出力と終了コードを、build した実行ファイル（Support/KaitoCLI）
 /// と checked-in の fixture で検査する。
 final class CLISmokeTests: XCTestCase {
+    func testUsageIncludesPasswordStdinForAllCommands() throws {
+        let result = try ZipTestSupport.run(try KaitoCLI.executableURL().path, arguments: [])
+        XCTAssertEqual(result.terminationStatus, 2)
+        let expected = """
+        usage:
+          kaito detect <archive>
+          kaito detect-encoding [--archive | --check-orthography] [--language <code> | --no-language] [--from-windows] [--decode <iana>] <tsv>
+          kaito list <archive> [--raw] [-p <password> | --password-stdin] [--threads <N|auto>] [--input-latency <auto|low|high>]
+          kaito extract <archive> -o <directory> [-p <password> | --password-stdin] [--threads <N|auto>] [--input-latency <auto|low|high>]
+          kaito sha <archive> [--sink] [--forks] [-p <password> | --password-stdin] [--threads <N|auto>] [--input-latency <auto|low|high>]
+          kaito bench [--data] [--random] <archive> [reps] [-p <password> | --password-stdin] [--threads <N|auto>] [--input-latency <auto|low|high>]
+        """
+        XCTAssertEqual(String(decoding: result.standardError, as: UTF8.self), expected + "\n")
+    }
+
+    func testPasswordStdinDecryptsForAllCommands() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let archive = TestFixtures.url("sevenzip-edit/z_aesh.7z")
+        let executable = try KaitoCLI.executableURL().path
+        for command in ["list", "sha", "extract", "bench"] {
+            let output = temporary.appendingPathComponent(command)
+            let arguments = [command, archive.path] + (command == "extract" ? ["-o", output.path] : [])
+                + (command == "bench" ? ["1"] : [])
+            // 二行目は読まず、改行のない最終行も受け付ける。
+            for input in ["secret\nignored\n", "secret"] {
+                let result = try ZipTestSupport.run(executable, arguments: arguments + ["--password-stdin"],
+                                                    standardInput: Data(input.utf8))
+                XCTAssertEqual(result.terminationStatus, 0, result.diagnostics)
+                guard result.succeeded else { continue }
+                if command == "list" || command == "sha" {
+                    XCTAssertEqual(String(decoding: result.standardOutput, as: UTF8.self),
+                                   try KaitoCLI.run(arguments + ["-p", "secret"]))
+                } else if command == "bench" {
+                    XCTAssertTrue(String(decoding: result.standardOutput, as: UTF8.self).contains("extract-median-ms"))
+                } else {
+                    let reader = try ArchiveReader.open(url: archive, options: ReaderOptions(password: "secret"))
+                    for entry in reader.entries where entry.kind == .file {
+                        XCTAssertEqual(try Data(contentsOf: output.appendingPathComponent(entry.name)), try reader.read(entry))
+                    }
+                }
+            }
+        }
+    }
+
+    func testPasswordStdinRejectsConflictsDuplicatesAndEmptyInput() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let executable = try KaitoCLI.executableURL().path
+        for command in ["list", "sha", "extract", "bench"] {
+            let arguments = [command, TestFixtures.url("sevenzip-edit/z_aesh.7z").path]
+                + (command == "extract" ? ["-o", temporary.appendingPathComponent("out").path] : [])
+            for flags in [["-p", "secret", "--password-stdin"], ["--password-stdin", "-p", "secret"],
+                          ["--password-stdin", "--password-stdin"], ["-p", "secret", "-p", "secret"]] {
+                let result = try ZipTestSupport.run(executable, arguments: arguments + flags, standardInput: Data())
+                XCTAssertEqual(result.terminationStatus, 2)
+                XCTAssertTrue(result.diagnostics.contains("usage:"))
+            }
+            for input in ["", "\n"] {
+                let result = try ZipTestSupport.run(executable, arguments: arguments + ["--password-stdin"],
+                                                    standardInput: Data(input.utf8))
+                XCTAssertEqual(result.terminationStatus, 2)
+                XCTAssertTrue(result.diagnostics.contains("--password-stdin: empty input"), result.diagnostics)
+            }
+        }
+    }
+
+    func testPasswordStdinRemovesOnlyOneLF() throws {
+        let executable = try KaitoCLI.executableURL().path
+        for input in ["secret\r\n", " secret\n", "secret \n"] {
+            let result = try ZipTestSupport.run(executable,
+                arguments: ["sha", TestFixtures.url("sevenzip-edit/z_aesh.7z").path, "--password-stdin"],
+                standardInput: Data(input.utf8))
+            XCTAssertEqual(result.terminationStatus, 1)
+            XCTAssertTrue(result.diagnostics.contains("The password is incorrect"), result.diagnostics)
+        }
+    }
+
+    func testListAndSHAEscapeBidiFormattingScalars() throws {
+        let temporary = try TarTestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let archive = temporary.appendingPathComponent("bidi.tar")
+        let name = "safe\u{202a}\u{202b}\u{202c}\u{202d}\u{202e}\u{2066}\u{2067}\u{2068}\u{2069}txt.exe"
+        try TarTestSupport.makeTar(entries: [HandTarEntry(name: name)]).write(to: archive)
+        let visible = "safe\\u{202a}\\u{202b}\\u{202c}\\u{202d}\\u{202e}\\u{2066}\\u{2067}\\u{2068}\\u{2069}txt.exe"
+        for command in ["list", "sha"] {
+            let output = try KaitoCLI.run([command, archive.path])
+            XCTAssertTrue(output.contains(visible), output)
+            XCTAssertFalse(output.unicodeScalars.contains { (0x202a...0x202e).contains($0.value)
+                || (0x2066...0x2069).contains($0.value) })
+        }
+    }
+
     func testInputLatencyFlagParses() throws {
         let directory = try TarTestSupport.temporaryDirectory()
         let archive = directory.appendingPathComponent("latency.7z")

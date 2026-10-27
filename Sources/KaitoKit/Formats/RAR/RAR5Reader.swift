@@ -27,6 +27,7 @@ final class RAR5Reader: FormatReader {
     private let solidGroupMembers: [Int: [Int]]
     private let solidGroupExcludedMembers: [Int: [Int]]
     private let keyCache = RAR5KeyCache()
+    let entryKDFBudget: KDFWorkBudget
     // Independent members recycle decoder windows and tables through this pool.
     private let scratchPool: RAR5Decoder.ScratchPool
     private var password: String?
@@ -60,6 +61,8 @@ final class RAR5Reader: FormatReader {
         self.source = source
         self.sourceURL = sourceURL
         self.options = options
+        self.entryKDFBudget = KDFWorkBudget(limit: options.limits.maxRAR5EntryKDFWork,
+                                          subject: "RAR5 entry KDF work")
         self.password = options.password
         self.scratchPool = RAR5Decoder.ScratchPool(
             capacity: max(4, options.resolvedDecodeThreads + 1),
@@ -116,6 +119,8 @@ final class RAR5Reader: FormatReader {
         self.source = source
         self.sourceURL = sourceURL
         self.options = options
+        self.entryKDFBudget = KDFWorkBudget(limit: options.limits.maxRAR5EntryKDFWork,
+                                          subject: "RAR5 entry KDF work")
         self.entries = entries
         self.records = records
         self.quickOpenVerification = quickOpenVerification
@@ -138,9 +143,10 @@ final class RAR5Reader: FormatReader {
     var guardedHeaderCountForTesting: Int { records.flatMap(\.headerGuards).compactMap { $0 }.count }
 
     func setPassword(_ password: String?) {
-        guard self.password != password else { return }
+        guard self.password.map({ Array($0.utf8) }) != password.map({ Array($0.utf8) }) else { return }
         self.password = password
         keyCache.removeAll()
+        entryKDFBudget.reset()
         for coordinator in solidCoordinators.values {
             coordinator.invalidateAndRelease()
         }
@@ -227,7 +233,8 @@ final class RAR5Reader: FormatReader {
             options: options,
             limits: limits,
             password: password,
-            keyCache: keyCache
+            keyCache: keyCache,
+            entryKDFBudget: entryKDFBudget
         )
 
         let outputLength: UInt64? = record.unpackedSize
@@ -356,6 +363,7 @@ final class RAR5Reader: FormatReader {
             let capturedOptions = options
             let capturedPassword = password
             let capturedKeyCache = keyCache
+            let capturedEntryKDFBudget = entryKDFBudget
             let capturedSourceURL = sourceURL
             let capturedPriming = solidPriming
             coordinator = RARSolidCoordinator<RAR5Decoder.SolidState>(
@@ -377,6 +385,7 @@ final class RAR5Reader: FormatReader {
                     limits: limits,
                     password: capturedPassword,
                     keyCache: capturedKeyCache,
+                    entryKDFBudget: capturedEntryKDFBudget,
                     sourceURL: capturedSourceURL,
                     state: state
                 )
@@ -439,6 +448,7 @@ final class RAR5Reader: FormatReader {
         limits: ReadLimits,
         password: String?,
         keyCache: RAR5KeyCache,
+        entryKDFBudget: KDFWorkBudget,
         sourceURL: URL?,
         state: RAR5Decoder.SolidState
     ) throws -> EntryStream {
@@ -457,7 +467,8 @@ final class RAR5Reader: FormatReader {
             options: options,
             limits: limits,
             password: password,
-            keyCache: keyCache
+            keyCache: keyCache,
+            entryKDFBudget: entryKDFBudget
         )
 
         let decompressor: any Decompressor
@@ -603,7 +614,8 @@ final class RAR5Reader: FormatReader {
         try validateStreamCompatibility(record, options: options, sourceURL: sourceURL)
         let prepared = try preparePayload(
             record, entryIndex: entryIndex, options: options, limits: limits,
-            password: nil, keyCache: RAR5KeyCache()
+            password: nil, keyCache: RAR5KeyCache(),
+            entryKDFBudget: KDFWorkBudget(limit: 0, subject: "RAR5 entry KDF work")
         )
         var source = prepared.source
         if let span, record.packedSegments.count == 1,
@@ -838,7 +850,8 @@ final class RAR5Reader: FormatReader {
         options: ReaderOptions,
         limits: ReadLimits,
         password: String?,
-        keyCache: RAR5KeyCache
+        keyCache: RAR5KeyCache,
+        entryKDFBudget: KDFWorkBudget
     ) throws -> PreparedPayload {
         // stream・solid factory・prefetch が全 guard を照合した局所 record のみを受け取る。
         // validatePackedParts も同じ順序で走るため、KDF と packed 検査は照合より後になる。
@@ -856,7 +869,11 @@ final class RAR5Reader: FormatReader {
                 password: password,
                 salt: encryption.salt,
                 count: encryption.kdfCount,
-                checkValue: encryption.checkValue
+                checkValue: encryption.checkValue,
+                refund: entryKDFBudget.refund,
+                charge: { _ in
+                    try entryKDFBudget.charge((UInt64(1) << UInt64(encryption.kdfCount)) + 32)
+                }
             )
             mismatchIsWrongPassword = !verified
             encryptionKey = keys.encryptionKey

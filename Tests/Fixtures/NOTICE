@@ -1,6 +1,12 @@
 Project-generated fixtures
 ==========================
 
+  sevenzip-kdf/*.7z.b64、stuffitx-kdf/catalog65536.sitx.b64（2026-10-26、MIT）
+    自作 header / p2 writer と自作 payload。7z は Python hashlib と OpenSSL の AES primitive、
+    StuffIt X は既存 StuffItXContainerTests.Writer と同じ文法を使う。
+    各 directory の generate.py / manifest.json / README.md に再生成・SHA-256 を記録する。
+    第三者の archive 実装ソースは参照していない。
+
   wim/xpress-4k.wim.b64、wim/xpress-64k.wim.b64（2026-09-22）
     自作 XPRESS encoder、4 / 64 KiB chunk。自作 payload の全 3 file を 7zz x で byte 照合した。
     generate-chunk-sizes.py で再生成。サイズ・SHA-1・SHA-256 は wim/manifest.json。

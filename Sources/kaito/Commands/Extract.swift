@@ -12,7 +12,7 @@ private struct ExtractArguments {
 private func parseExtract(_ arguments: [String]) throws -> ExtractArguments {
     var archive: String?
     var output: String?
-    var password: String?
+    var password = PasswordArgument()
     var threads = DecodeThreadsArgument()
     var latency = InputLatencyArgument()
     var cursor = ArgumentCursor(arguments)
@@ -22,7 +22,9 @@ private func parseExtract(_ arguments: [String]) throws -> ExtractArguments {
         case "-o":
             output = try cursor.value(unlessSet: output)
         case "-p":
-            password = try cursor.value(unlessSet: password)
+            try password.parse(from: &cursor)
+        case "--password-stdin":
+            try password.parseStdin()
         case "--input-latency":
             try latency.parse(from: &cursor)
         case "--threads":
@@ -36,7 +38,7 @@ private func parseExtract(_ arguments: [String]) throws -> ExtractArguments {
     }
 
     guard let archive, let output else { throw CLIError.usage(usage) }
-    return ExtractArguments(archive: archive, output: output, password: password, decodeThreads: threads.value, inputLatency: latency.value)
+    return ExtractArguments(archive: archive, output: output, password: try password.read(), decodeThreads: threads.value, inputLatency: latency.value)
 }
 
 func runExtract(_ arguments: [String]) throws {

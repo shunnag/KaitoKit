@@ -48,12 +48,16 @@ struct SevenZipAESKeyCacheKey: Hashable, Sendable {
 
 final class SevenZipAESKeyCache {
     @TaskLocal static var didDeriveKey: (@Sendable () -> Void)?
+    // reader 内で最大 64 鍵。FIFO で追い出し、再導出は予算に再び課金する。
+    static let capacity = 64
     private var values: [SevenZipAESKeyCacheKey: Data] = [:]
+    private var insertionOrder: [SevenZipAESKeyCacheKey] = []
 
     func key(
         password: String,
         properties: SevenZipAESProperties,
-        chargeKDFWork: (UInt64) throws -> Void = { _ in }
+        chargeKDFWork: (UInt64) throws -> Void = { _ in },
+        refundKDFWork: (UInt64) -> Void = { _ in }
     ) throws -> Data {
         let passwordBytes = Self.passwordBytes(password)
         let cacheKey = SevenZipAESKeyCacheKey(
@@ -67,13 +71,23 @@ final class SevenZipAESKeyCache {
         let rounds = properties.cyclesPower == 0x3F
             ? 0 : try Checked.shiftLeft(1, by: UInt64(properties.cyclesPower))
         try chargeKDFWork(rounds)
-        let derived = try Self.derive(cacheKey)
+        let derived: Data
+        do { derived = try Self.derive(cacheKey) }
+        catch is CancellationError {
+            refundKDFWork(rounds)
+            throw CancellationError()
+        }
+        if insertionOrder.count == Self.capacity {
+            values.removeValue(forKey: insertionOrder.removeFirst())
+        }
         values[cacheKey] = derived
+        insertionOrder.append(cacheKey)
         return derived
     }
 
     func removeAll() {
         values.removeAll(keepingCapacity: false)
+        insertionOrder.removeAll(keepingCapacity: false)
     }
 
     private static func passwordBytes(_ password: String) -> Data {
@@ -121,6 +135,7 @@ final class SevenZipAESKeyCache {
         var counter: UInt64 = 0
 
         while counter < rounds {
+            try Task.checkCancellation()
             let count = try Checked.toInt(min(UInt64(recordsPerChunk), rounds - counter))
             for record in 0..<count {
                 let base = record * recordSize

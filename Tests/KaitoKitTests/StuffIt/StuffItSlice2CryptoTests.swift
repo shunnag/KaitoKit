@@ -177,3 +177,25 @@ final class StuffItSlice2CryptoTests: XCTestCase {
         }
     }
 }
+
+extension StuffItSlice2CryptoTests {
+    func testStuffIt5VerifierAcceptRejectAndLengthSemantics() throws {
+        let password = Array("password".utf8)
+        let key = StuffItCrypto.first5(password), verifier = StuffItCrypto.first5(key)
+        XCTAssertEqual(try StuffItCrypto.sit5Key(password: password, hash: verifier), key)
+        for index in verifier.indices {
+            var different = verifier; different[index] ^= 1
+            XCTAssertFalse(ConstantTime.equals(verifier, different))
+            XCTAssertThrowsError(try StuffItCrypto.sit5Key(password: password, hash: different)) {
+                XCTAssertEqual($0 as? KaitoError, .wrongPassword)
+            }
+        }
+        for length in [0, 4, 6] {
+            XCTAssertFalse(ConstantTime.equals(verifier, [UInt8](repeating: 0, count: length)))
+            XCTAssertThrowsError(try StuffItCrypto.sit5Key(password: password, hash: [UInt8](repeating: 0, count: length))) {
+                XCTAssertEqual($0 as? KaitoError, .malformed("StuffIt 5 archive hash"))
+            }
+        }
+        XCTAssertTrue(ConstantTime.equals([UInt8](), []))
+    }
+}

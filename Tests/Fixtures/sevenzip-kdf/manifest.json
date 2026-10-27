@@ -1,0 +1,21 @@
+{
+  "writer": "project-owned Python + OpenSSL AES-256-CBC",
+  "password": "anypw",
+  "plaintext": "Kaito KDF test!\n",
+  "fixtures": [
+    {
+      "file": "distinct.7z.b64",
+      "sha256": "55e840c69d31cde289fa922f44da3a737a3f5b737a5751f71560b5d997ed050c",
+      "folders": 33,
+      "cyclesPower": 8,
+      "sharedSalt": false
+    },
+    {
+      "file": "shared.7z.b64",
+      "sha256": "fa65602303ad52ff082efdc6c9177b357638b7b0fc8a1be01991eaebc399d09b",
+      "folders": 2,
+      "cyclesPower": 8,
+      "sharedSalt": true
+    }
+  ]
+}

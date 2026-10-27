@@ -892,6 +892,30 @@ final class TarHardeningTests: XCTestCase {
 
     // MARK: - base-256 の数値と符号付きの checksum
 
+    func testUnsignedAndSignedOnlyHeaderChecksumsRemainAccepted() throws {
+        let archive = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "checksum.txt")])
+        for signed in [false, true] {
+            let edited = try editingFirstHeader(in: archive, checksumUsesSignedBytes: signed) {
+                $0[147] = 0x20
+                $0[156] = UInt8(ascii: "0")
+                $0[511] = 0xFF
+            }
+            let header = Array(edited.prefix(512))
+            let unsignedSum = header.enumerated().reduce(0) { sum, item in
+                sum + ((148..<156).contains(item.offset) ? 0x20 : Int(item.element))
+            }
+            let signedSum = header.enumerated().reduce(0) { sum, item in
+                sum + ((148..<156).contains(item.offset) ? 0x20 : Int(Int8(bitPattern: item.element)))
+            }
+            XCTAssertNotEqual(unsignedSum, signedSum)
+            XCTAssertEqual(try FormatDetector.detect(data: edited), .tar)
+            XCTAssertEqual(try ArchiveReader.open(data: edited).entries.first?.name, "checksum.txt")
+            var corrupt = edited
+            corrupt[511] ^= 1
+            XCTAssertThrowsError(try ArchiveReader.open(data: corrupt))
+        }
+    }
+
     func testPositiveBase256SizeAndNegativeBase256ModificationTime() throws {
         let payload = Data([0x01, 0x02, 0x03])
         let archive = try TarTestSupport.makeTar(entries: [

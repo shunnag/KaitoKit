@@ -46,15 +46,15 @@ final class RAR5PasswordCompatibilityTests: XCTestCase {
         let fullKeys = try RAR5KeyDerivation.derive(password: password, salt: firstSalt, count: 0)
         var attempted: [Data] = []
         _ = try cache.checkedKey(password: password, salt: firstSalt, count: 0,
-                                 checkValue: Array(fullKeys.passwordCheckValue)) { attempted.append($0) }
+                                 checkValue: Array(fullKeys.passwordCheckValue), charge: { attempted.append($0) })
         XCTAssertEqual(attempted, RAR5PasswordSelection.candidates(password))
         let secondKeys = try RAR5KeyDerivation.derive(password: password, salt: secondSalt, count: 0)
-        for salt in [secondSalt, firstSalt, secondSalt] {
+        for (index, salt) in [secondSalt, firstSalt, secondSalt].enumerated() {
             attempted.removeAll()
             let expected = salt == firstSalt ? fullKeys : secondKeys
             let result = try cache.checkedKey(password: password, salt: salt, count: 0,
-                                             checkValue: Array(expected.passwordCheckValue)) { attempted.append($0) }
-            XCTAssertEqual(attempted, [Data(password.utf8)])
+                                             checkValue: Array(expected.passwordCheckValue), charge: { attempted.append($0) })
+            XCTAssertEqual(attempted, index == 0 ? [Data(password.utf8)] : [])
             XCTAssertEqual(result.keys, expected)
         }
         cache.removeAll()

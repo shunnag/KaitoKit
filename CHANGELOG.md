@@ -6,6 +6,44 @@
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-27
+
+### リリース前レビューの修正
+
+タグ前の敵対的レビュー（37 agent、6 観点 + 所見ごとに反証 2 観点 + 見落とし critic）で生存した所見。
+詳細は [Documentation/verification/2026-10-27-release-review-0.17.0.md](Documentation/verification/2026-10-27-release-review-0.17.0.md)。
+
+- R1. resource fork だけの entry が、同じ展開でこの reader が作った data file の mtime を失わせていた（`d2fa536` の回帰）。`trustedTargets` と照合して自分が作った inode にだけ復元する。
+- R2. 7z の password 変更判定が Swift String の正準等価比較で、鍵は厳密な UTF-16 から導いていたため、正準等価な別綴りの正しい password が恒久的に通らなかった。7z は UTF-16、RAR5 は UTF-8 の厳密比較に揃えた（ZIP は guard が無く同症状は成立しない）。
+- R3. RAR5 の entry 鍵導出が無課金・中断不能だった。`ReadLimits.maxRAR5EntryKDFWork` を設け、4,096 HMAC ごとに取消しを検査する。
+- R4. 取消しで課金だけが残り再試行が二重課金になっていた。`CancellationError` の導出分だけを返金する。
+- R5. README の既定値と scope、CHANGELOG の節構成、`embedding.md` の英語の field 列挙、KDF 記録の「最終既定値」が実装と食い違っていた。
+
+### 追加
+
+- `ExtractionOptions.preserveSetUserIDBits`（既定 `false`）で file の setuid / setgid bit の復元を選べる。
+- CLI の `list` / `extract` / `sha` / `bench` に `--password-stdin` を追加。stdin の先頭行を使い、`-p` との併用・重複・空入力を拒否する。
+- 7z entry KDF に `ReadLimits.maxSevenZipEntryKDFWork`（既定 `16 * (1 << 24)` rounds）を設け、reader と password の組ごとに cache miss を累積課金する。異なる salt の自作 1 / 4 folder が修正前に 0.48 / 2.13 秒の user CPU を使った線形増幅を制限し、鍵 cache も最大 64 件にする。
+- StuffIt X に `ReadLimits.maxStuffItXKDFWork`（既定 `1 << 22` MD5 圧縮回数）を設け、catalog と entry の鍵・verifier 導出を reader と password の組ごとに累積する。192 byte の自作書庫が約 68.5 GB の MD5 入力を生み、修正前に user CPU 706.16 秒を使った二次増幅を導出前に拒否し、round ごとに取消しを検査する。鍵長の受理範囲は維持する。
+- RAR5 entry KDF に `ReadLimits.maxRAR5EntryKDFWork`（既定 `16 * ((1 << 24) + 32)` HMAC-SHA256 iterations）を設け、通常・solid の cache miss を reader と password の組ごとに累積課金する。header の既定予算は変えない。
+
+### 変更
+
+- file の setuid / setgid bit は既定で復元しない。`ExtractionOptions.preserveSetUserIDBits` で従来の復元を選べる。directory の特殊 bit は従来どおり復元する。
+- resource-fork entry は、この reader が同じ展開 root で作った data inode にだけ書庫の mode / mtime を復元する。reader が作っていない既存 inode には適用せず、fork 書込みによる OS の mtime 更新は残る。
+- 7z / RAR5 / StuffIt X は別 password の設定時に予算を全額戻す（同じ password の再設定では戻さない）。7z / RAR5 の鍵導出は chunk ごとに取消しを検査する。
+
+### 修正
+
+- 7z / RAR5 の password 変更判定を鍵導出と同じ byte 綴りで行い、正準等価な別 password の鍵・coordinator・予算が残る問題を修正する。
+- data fork → resource fork の順に展開した場合も、この reader が作った data file の mtime を書庫の値に戻す。
+- 7z / RAR5 / StuffIt X は `CancellationError` で中断した導出だけを返金し、同じ reader / password で再試行できる。誤 password などの失敗は返金しない。
+- CLI の名前・エラー表示で bidi 制御文字 U+202A〜U+202E / U+2066〜U+2069 を escape する。
+- 7z の folder digest が無い場合は、検証に使わない folder CRC32 の更新を省く。
+- tar header checksum の byte ごとの throwing 加算・範囲判定を除く。unsigned / signed checksum の受理規則は維持する。
+- CI の既存 version 表示に差分検証 oracle（7zz / xz / brotli / zstd）の version を記録する。
+- StuffIt 5 の 5 byte password verifier を `ConstantTime.equals` に揃え、受理・拒否と長さ不一致の意味を維持する。
+
 ## [0.16.0] - 2026-10-22
 
 ### 追加

@@ -18,18 +18,6 @@ final class SevenZipHeaderDecoder {
         let isEncrypted: Bool
     }
 
-    /// header の復号に使う 7zAES 鍵導出の SHA-256 回数の残り。
-    private struct KDFWorkBudget {
-        var remaining: UInt64
-
-        mutating func charge(_ rounds: UInt64) throws {
-            guard rounds <= remaining else {
-                throw KaitoError.limitExceeded("7z header KDF work")
-            }
-            remaining -= rounds
-        }
-    }
-
     private static let signature: [UInt8] = [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]
     private static let signatureHeaderSize: UInt64 = 32
 
@@ -44,7 +32,7 @@ final class SevenZipHeaderDecoder {
     private let metadataBudget: SevenZipMetadataBudget
     private let passwordProvider: (any PasswordProvider)?
     private let editRecorder: SevenZipEditRecorder?
-    private var kdfBudget: KDFWorkBudget
+    private let kdfBudget: KDFWorkBudget
     /// options の password。header の復号で provider に尋ねたときは、その答え。
     private(set) var password: String?
 
@@ -67,7 +55,8 @@ final class SevenZipHeaderDecoder {
         self.metadataBudget = metadataBudget
         self.passwordProvider = options.passwordProvider
         self.editRecorder = editRecorder
-        self.kdfBudget = KDFWorkBudget(remaining: options.limits.maxSevenZipHeaderKDFWork)
+        self.kdfBudget = KDFWorkBudget(limit: options.limits.maxSevenZipHeaderKDFWork,
+                                      subject: "7z header KDF work")
         self.password = options.password
     }
 
@@ -217,7 +206,7 @@ final class SevenZipHeaderDecoder {
             aggregate = try Checked.add(aggregate, factory.finalSize)
             try Checked.size(aggregate, limit: limit)
             folderData.append(try factory.decodeAll(limit: limit) {
-                try kdfBudget.charge($0)
+                try self.kdfBudget.charge($0)
             })
         }
 

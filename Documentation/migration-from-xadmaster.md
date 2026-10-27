@@ -497,6 +497,8 @@ multi-volume RAR、split ZIP（`.z01`…`.zip` / `.zx01`…`.zipx`）と `.001` 
   hard-link target は従来どおり `..` を許容しません。
 - **directory modes**: 書庫に記録された sticky / setgid bit を復元します。macOS 上の rar 6/7 の
   展開結果と異なることがありますが、XADMaster / bsdtar -xp と一致する属性保持の方針です。
+  file など directory 以外の setuid / setgid bit は既定で復元しません。従来の mode 復元には
+  `ExtractionOptions(preserveSetUserIDBits: true)` を指定します（`preserveMetadata: true` 時）。
 - **RAR3 passwords**: 長い password の旧 SHA-1 更新規則と、BMP 外の文字に対する UTF-16 優先 / Unix
   scalar 下位 16 bit fallback に対応します。host OS metadata だけでは方式を決めません。
   候補は最大二つで、header CRC または entry の展開後 CRC で検証します。file data の選択には
@@ -557,6 +559,8 @@ XADMaster は UDF を読めません。BIN/CUE などの生 sector image（2352 
 > - **Directory modes**: the sticky and setgid bits recorded in the archive are restored. This can
 >   differ from what rar 6 and 7 produce on macOS, but it follows the attribute-preserving policy of
 >   XADMaster and `bsdtar -xp`.
+>   For files and other non-directory entries, setuid and setgid bits are stripped by default.
+>   Use `ExtractionOptions(preserveSetUserIDBits: true)` with `preserveMetadata: true` for the previous mode restoration.
 > - **RAR3 passwords**: the old SHA-1 update rule for long passwords is supported, as is preferring
 >   UTF-16 for characters outside the BMP with a fallback to the low 16 bits of the Unix scalars.
 >   The scheme is not decided from host OS metadata alone. There are at most two candidates, and

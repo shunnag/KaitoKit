@@ -72,6 +72,9 @@ XADMaster からの移行状況は
 
 ## CI
 
+GitHub Actions はコミット SHA で固定し、Dependabot で月 1 回、更新を 1 つの PR にまとめて追跡します。
+`brew install` は従来どおりバージョンを固定しない方針です。
+
 [CI workflow](../.github/workflows/ci.yml) は Xcode 27 / Swift 6.4 で build / 全テストを実行し、
 7zz / xz / brotli / zstd の外部ツール不足を failure とします。Asia/Tokyo の LHA golden も明示的に実行します。
 Xcode 27 で universal build した test bundle・`kaito`・xctest と依存 framework / dylib を運び、

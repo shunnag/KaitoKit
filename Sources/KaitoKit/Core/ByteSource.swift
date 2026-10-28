@@ -11,6 +11,15 @@ public protocol ByteSource: Sendable {
     func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int
 }
 
+// 検証済みの packed 範囲だけを通知する任意の最適化。通常の source は何もしない。
+protocol ByteSourceReadAhead: ByteSource {
+    func hintReadAhead(offset: UInt64, count: UInt64)
+}
+
+func hintByteRange(source: any ByteSource, offset: UInt64, count: UInt64) {
+    (source as? any ByteSourceReadAhead)?.hintReadAhead(offset: offset, count: count)
+}
+
 // 形式 parser が検証済みの一範囲を一括取得するための共通 primitive。
 // 通常の FileByteSource では最初の pread が全範囲を返し、短い実装だけ継続する。
 func readByteRange(

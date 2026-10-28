@@ -25,6 +25,8 @@ struct ChunkedSourceInput {
         self.chunkSize = capacity
         self.sourceOffset = offset
         self.input = Storage(count: capacity)
+        // 途中で止まる stream は先頭 16 MiB だけを先読みし、以後は read ごとに通知する。
+        hintByteRange(source: source, offset: offset, count: min(endOffset - offset, 16 << 20))
     }
 
     var availableCount: Int { inputCount - inputOffset }

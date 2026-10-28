@@ -4,6 +4,7 @@ set -euo pipefail
 usage() {
     echo "Usage: $0 <new-or-empty-dir> [--scale <factor>]"
     echo "DECODE_AB_SCALE defaults to 1 (256 MiB text + 256 MiB random + 50,000 small files)."
+    echo "RAR4 adds three 12 MiB color pages, 24 MiB stereo PCM, and 12 MiB synthetic x86 code."
 }
 
 if [[ $# -eq 1 && ( $1 == --help || $1 == -h ) ]]; then usage; exit 0; fi
@@ -27,8 +28,10 @@ for tool in ditto zip bsdtar xz zstd lzip lz4 7zz lha rar bzip2 gzip; do
     fi
 done
 
-python3 - "$destination" "$scale" "${available_tools[@]}" <<'PY'
+fixture_generator="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../Scripts/fixtures" && pwd)/make-rar4.py"
+python3 - "$destination" "$scale" "$fixture_generator" "${available_tools[@]}" <<'PY'
 import hashlib
+import importlib.util
 import json
 import math
 import platform
@@ -44,7 +47,16 @@ if not math.isfinite(scale) or scale <= 0:
     sys.exit("scale must be a positive finite number")
 if root.exists() and (not root.is_dir() or any(root.iterdir())):
     sys.exit("Refusing non-empty destination: {}".format(root))
-tools = {name: shutil.which(name) for name in sys.argv[3:]}
+spec = importlib.util.spec_from_file_location("rar4_fixtures", sys.argv[3])
+rar4 = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rar4)
+tools = {name: shutil.which(name) for name in sys.argv[4:]}
+rar4_path, rar4_version = rar4.rar4_tool()
+if rar4_path:
+    tools["rar4"] = rar4_path
+else:
+    print("warning: RAR 6.x is missing; skipping RAR4 archives "
+          "(set RAR4_TOOL or install rar6)", file=sys.stderr)
 source = root / "inputs"
 archives = root / "archives"
 logs = root / "logs"
@@ -55,7 +67,7 @@ for directory in (source, archives, logs, work):
 size = max(1, int(256 * 1024 * 1024 * scale))
 small_count = max(1, int(50_000 * scale))
 chunk_size = 1024 * 1024
-seeds = {"text": 20260924, "random": 20260925, "small": 20260926}
+seeds = {"text": 20260924, "random": 20260925, "small": 20260926, **rar4.SEEDS}
 password = "decode-ab-password"
 # OS の辞書に依存しない固定語彙。GyoshukuKit と同じ MT19937 / 1 MiB block 方式。
 words = [word + b" " for word in (
@@ -99,6 +111,15 @@ for index in range(small_count):
     (source / "small" / "{:05d}.txt".format(index)).write_bytes(
         word_block(rng, rng.randint(1024, 4096)))
 
+# 通常は 12 MiB の 24-bit BMP を 3 page、24 MiB の PCM、12 MiB の模擬 code。
+# scale は画素数・sample 数・code 長に掛け、smoke でも有効な header を残す。
+dimension = max(32, int(2048 * math.sqrt(scale)))
+image_names = ["page-{:02d}.bmp".format(index + 1) for index in range(3)]
+for index, name in enumerate(image_names):
+    (source / name).write_bytes(rar4.image_bmp(dimension, dimension, index))
+(source / "stereo.wav").write_bytes(rar4.pcm_wave(max(32, int(6 * 1024 * 1024 * scale))))
+(source / "x86-code.bin").write_bytes(rar4.x86_code(max(32, int(12 * 1024 * 1024 * scale))))
+
 inputs = sorted(source.rglob("*"))
 for item in inputs:
     item.chmod(0o755 if item.is_dir() else 0o644)
@@ -113,12 +134,14 @@ manifest = {
     "generator": "MT19937; fixed vocabulary; random getrandbits little endian; 1 MiB blocks",
     "seeds": seeds, "mtime_utc": "2023-11-14T22:13:20Z", "tools": tools,
     "inputs": {"big_file_bytes": size, "small_files": small_count},
+    "rar4": {"version": rar4_version, "image_dimensions": [dimension, dimension],
+             "x86_input": "synthetic x86_64-like bytes; no system binary"},
     "archives": [], "skipped": [],
 }
 print("inputs: {} bytes each text/random, {} small files".format(size, small_count), flush=True)
 
 
-def create(name, command, to_stdout=False, encrypted=False, publish=True):
+def create(name, command, to_stdout=False, encrypted=False, publish=True, metadata=None):
     output = archives / name if publish else work / name
     partial = output.with_name(".tmp-" + output.name)
     # Writer が拡張子から形式を推測しないよう、出力の形式は command で指定する。
@@ -141,9 +164,24 @@ def create(name, command, to_stdout=False, encrypted=False, publish=True):
                   "size": output.stat().st_size, "sha256": sha256(output)}
         if encrypted:
             record["password"] = password
+        if metadata:
+            record.update(metadata)
         manifest["archives"].append(record)
         print("{}: {} bytes".format(name, record["size"]), flush=True)
     return output
+
+
+def create_rar4(name, members, switches, solid=False):
+    files = []
+    for member in members:
+        path = source / member
+        files.extend(sorted(p for p in path.rglob("*") if p.is_file()) if path.is_dir() else [path])
+    entries = [{"path": path.relative_to(source).as_posix(), "size": path.stat().st_size,
+                "sha256": sha256(path)} for path in files]
+    flags = rar4.RAR4_FLAGS + ["-r"] + switches
+    return create(name, [rar4_path, "a"] + flags + ["{output}"] + members,
+                  metadata={"format": "rar4", "rar_version": rar4_version,
+                            "switches": flags, "solid": solid, "entries": entries})
 
 
 for corpus, item in (("text", "text.txt"), ("random", "random.bin"), ("small", "small")):
@@ -181,6 +219,19 @@ for corpus, item in (("text", "text.txt"), ("random", "random.bin"), ("small", "
         for suffix, flags in (("rar5", []), ("rar5-blake2", ["-htb"])):
             create(corpus + "-" + suffix + ".rar", [tools["rar"], "a", "-ma5", "-m3",
                    "-r", "-cfg-", "-idq", "-tsc-", "-tsa-"] + flags + ["{output}", item])
+    if rar4_path:
+        create_rar4(corpus + "-rar4.rar", [item], ["-s-"])
+        create_rar4(corpus + "-rar4-solid.rar", [item], ["-s"], solid=True)
+
+if rar4_path:
+    create_rar4("text-rar4-ppmd.rar", ["text.txt"], ["-s-", "-mc-", "-mc8:16T+"])
+    filtered_inputs = [(name, kind) for name in image_names for kind in ("rgb", "delta")]
+    filtered_inputs += [("stereo.wav", "audio"), ("stereo.wav", "delta"), ("x86-code.bin", "e8")]
+    for name, kind in filtered_inputs:
+        for enabled in (True, False):
+            switch = rar4.FILTERS[kind] if enabled else rar4.FILTERS[kind][:-1] + "-"
+            create_rar4("{}-rar4-{}-{}.rar".format(Path(name).stem, kind, "on" if enabled else "off"),
+                        [name], ["-s-", "-mc-", switch])
 
 for extension, tool, flags in (
     ("xz", "xz", ["-6", "-T0", "--block-size=1MiB", "-c"]),

@@ -1,0 +1,167 @@
+{
+  "rar_version": "6.24",
+  "seeds": {
+    "image": 2026102801,
+    "audio": 2026102802,
+    "x86": 2026102803
+  },
+  "x86_input": "synthetic x86_64-like bytes; no system binary",
+  "archives": [
+    {
+      "path": "r0-rgb.rar",
+      "kind": "rgb",
+      "size": 16706,
+      "sha256": "bd7b66bb14b2d4b191d93cc0321b3a9ddd60766961677bbeb81ccd4cf14ef802",
+      "switches": [
+        "-ma4",
+        "-m3",
+        "-cfg-",
+        "-idq",
+        "-mt1",
+        "-tsc-",
+        "-tsa-",
+        "-mc-",
+        "-s-",
+        "-mcC+"
+      ],
+      "entries": [
+        {
+          "path": "page.bmp",
+          "size": 49206,
+          "sha256": "64db9031805ea13fcbde277b614aedb5b00036b18931fb47c9fb40b76a737dae"
+        }
+      ],
+      "oracles": {
+        "unrar": "matched",
+        "bsdtar": "matched",
+        "kaito": "matched"
+      }
+    },
+    {
+      "path": "r0-delta.rar",
+      "kind": "delta",
+      "size": 19543,
+      "sha256": "6408c57b1c383d84f7fc245a7c54c857efe993b35cda6b14e1219de528df23e9",
+      "switches": [
+        "-ma4",
+        "-m3",
+        "-cfg-",
+        "-idq",
+        "-mt1",
+        "-tsc-",
+        "-tsa-",
+        "-mc-",
+        "-s-",
+        "-mc4D+"
+      ],
+      "entries": [
+        {
+          "path": "stereo.wav",
+          "size": 32812,
+          "sha256": "1115d620efe1f5c70a7b8f7640147e658ae67c3ef49112b58846907de7405da1"
+        }
+      ],
+      "oracles": {
+        "unrar": "matched",
+        "bsdtar": "matched",
+        "kaito": "matched"
+      }
+    },
+    {
+      "path": "r0-e8.rar",
+      "kind": "e8",
+      "size": 9273,
+      "sha256": "3d95a4b3ebbae01e6f5e44c8e0bf63015830be5ddaa472e6d589e9759af5c0b4",
+      "switches": [
+        "-ma4",
+        "-m3",
+        "-cfg-",
+        "-idq",
+        "-mt1",
+        "-tsc-",
+        "-tsa-",
+        "-mc-",
+        "-s-",
+        "-mcE+"
+      ],
+      "entries": [
+        {
+          "path": "code.bin",
+          "size": 49152,
+          "sha256": "03468e356f076c2868cf9028666995e1552656f05455ee8448d6670fb61681a9"
+        }
+      ],
+      "oracles": {
+        "unrar": "matched",
+        "bsdtar": "matched",
+        "kaito": "matched"
+      }
+    },
+    {
+      "path": "r0-audio.rar",
+      "kind": "audio",
+      "size": 19795,
+      "sha256": "7e0f4bd624624faecf69bc6dc6aa3a2824de8963dd0b8628b4ec2cb80b7b5607",
+      "switches": [
+        "-ma4",
+        "-m3",
+        "-cfg-",
+        "-idq",
+        "-mt1",
+        "-tsc-",
+        "-tsa-",
+        "-mc-",
+        "-s-",
+        "-mc4A+"
+      ],
+      "entries": [
+        {
+          "path": "stereo.wav",
+          "size": 32812,
+          "sha256": "1115d620efe1f5c70a7b8f7640147e658ae67c3ef49112b58846907de7405da1"
+        }
+      ],
+      "oracles": {
+        "unrar": "matched",
+        "bsdtar": "matched",
+        "kaito": "matched"
+      }
+    },
+    {
+      "path": "r0-ppmd-solid.rar",
+      "kind": "ppmd-solid",
+      "size": 224,
+      "sha256": "bc5cab3e7d5ccc9003be067bdb7167ef0d8a7c1154205ef73269160cf596d072",
+      "switches": [
+        "-ma4",
+        "-m3",
+        "-cfg-",
+        "-idq",
+        "-mt1",
+        "-tsc-",
+        "-tsa-",
+        "-mc-",
+        "-s",
+        "-ds",
+        "-mc8:16T+"
+      ],
+      "entries": [
+        {
+          "path": "text-0.txt",
+          "size": 23064,
+          "sha256": "f44e627bb8aab1a8135127cbf8b1285bb82a607c246acc3650d71018adc06129"
+        },
+        {
+          "path": "text-1.txt",
+          "size": 23064,
+          "sha256": "cd3a4942a7a55b4e1684c0396bfb590e47a8a554aff139b0acb3ee801e4903d6"
+        }
+      ],
+      "oracles": {
+        "unrar": "matched",
+        "bsdtar": "unsupported: RAR solid archive support unavailable",
+        "kaito": "matched"
+      }
+    }
+  ]
+}

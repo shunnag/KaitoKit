@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### 追加
+
+- RAR4 decode 計測の R0 基盤。RAR 6.x による solid / 非 solid / PPMd と、noise を含む color BMP・stereo PCM・x86 風 code の filter on/off corpus、標準 filter 4 種と solid PPMd の小型 fixture・SHA / token 検査・fuzz seed を追加した。decoder の動作は変更しない。
+
 ## [0.17.0] - 2026-10-27
 
 ### リリース前レビューの修正

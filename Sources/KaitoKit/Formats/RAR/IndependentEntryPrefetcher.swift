@@ -1,6 +1,11 @@
 import Foundation
 
-/// Decodes independent (non-solid) RAR5 members ahead of the reader on the
+// Provenance:
+// - Renamed mechanically from KaitoKit's own RAR5EntryPrefetcher; scheduling,
+//   packed-span reads and lifecycle behavior are shared by RAR4 and RAR5.
+// No unrar, 7-Zip, XADMaster, or The Unarchiver source was used.
+
+/// Decodes independent (non-solid) members ahead of the reader on the
 /// shared leaf pool while the caller still consumes earlier members in order.
 ///
 /// Consecutive eligible members are grouped into batches so that tens of

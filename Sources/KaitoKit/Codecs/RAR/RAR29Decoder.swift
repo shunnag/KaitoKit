@@ -10,6 +10,10 @@ import Foundation
 //   https://github.com/libarchive/libarchive/blob/master/libarchive/archive_read_support_format_rar.c
 // - Buffer reuse, retained windows and partial Huffman initialization follow
 //   KaitoKit's own RAR5 decoder patterns.
+// - Prefetch memory accounting follows the allocations in this decoder and
+//   KaitoKit's own RAR5 independent-member scheduler.
+// - Prefetch-only PPMd rejection follows this decoder's block transitions and
+//   model allocation boundary; the serial PPMd path remains enabled by default.
 // No 7-Zip Rar29, unrar source, XADMaster, or The Unarchiver source was used.
 
 /// RAR 2.9/3.x LZ decoder.
@@ -41,12 +45,22 @@ import Foundation
 /// - matches stage one period in caller output before doubling repetitions
 ///   and mirroring into the ring; only very short matches use byte copying.
 final class RAR29Decoder: Decompressor {
+    /// Internal control flow for speculative decoding, never a serial error.
+    enum PrefetchError: Error, Equatable {
+        case ppmdNotAllowed
+    }
+
+    // Test hook: observed immediately before a PPMd model is constructed.
+    @TaskLocal static var testingPPMdModelConstruction: (@Sendable () -> Void)?
+
     private static let mainSymbolCount = 299
     private static let distanceSymbolCount = 60
     private static let lowDistanceSymbolCount = 17
     private static let lengthSymbolCount = 28
     private static let combinedLengthCount = 404
-    private static let sentinelByteCount = 8
+    static let sentinelByteCount = 8
+    /// Four retained Huffman tables, the level table, and their code lengths.
+    static let huffmanTableBytes = 5 * RAR29HuffmanTable.storageBytes + combinedLengthCount + 20
     /// PPMd-H block headers store the model size in MiB, biased by one.
     private static let ppmdMemoryUnit: UInt64 = 1_024 * 1_024
 
@@ -83,6 +97,7 @@ final class RAR29Decoder: Decompressor {
         case malformed(String)
         case unsupported(String)
         case limitExceeded(String)
+        case ppmdNotAllowed
     }
 
     private enum BlockMode {
@@ -182,6 +197,7 @@ final class RAR29Decoder: Decompressor {
     private let declaredDictionarySize: Int
     private let maximumFilterCount: Int
     private let maximumPPMdMemorySize: UInt64
+    private let allowsPPMd: Bool
 
     private let levelTable = RAR29HuffmanTable()
 
@@ -216,7 +232,8 @@ final class RAR29Decoder: Decompressor {
         dictionarySize: UInt64,
         isSolid: Bool,
         limits: ReadLimits,
-        solidState suppliedSolidState: SolidState? = nil
+        solidState suppliedSolidState: SolidState? = nil,
+        allowsPPMd: Bool = true
     ) throws {
         let end = try Checked.add(offset, compressedSize)
         guard end <= source.length else { throw KaitoError.truncated }
@@ -290,6 +307,7 @@ final class RAR29Decoder: Decompressor {
         self.solidState = state
         self.maximumFilterCount = limits.maxMetadataRecordCount
         self.maximumPPMdMemorySize = limits.maxDictionarySize
+        self.allowsPPMd = allowsPPMd
         self.input = inputRaw.bindMemory(to: UInt8.self, capacity: inputAllocationCount)
         self.needsInitialTables = !isSolid || state.nextFileRequiresTables
         if isSolid { state.continuationReady = false }
@@ -365,6 +383,10 @@ final class RAR29Decoder: Decompressor {
                 bitOffset = bits.bitOffset
                 terminalFailure = decodeFailure(from: kaito)
                 throw kaito
+            } catch PrefetchError.ppmdNotAllowed {
+                bitOffset = bits.bitOffset
+                terminalFailure = .ppmdNotAllowed
+                throw PrefetchError.ppmdNotAllowed
             } catch {
                 bitOffset = bits.bitOffset
                 let failure = DecodeFailure.malformed("RAR4 table build failed")
@@ -594,6 +616,8 @@ final class RAR29Decoder: Decompressor {
                     }
                 } catch let kaito as KaitoError {
                     failure = decodeFailure(from: kaito)
+                } catch PrefetchError.ppmdNotAllowed {
+                    failure = .ppmdNotAllowed
                 } catch {
                     failure = .malformed("RAR4 PPMd token is invalid")
                 }
@@ -645,6 +669,8 @@ final class RAR29Decoder: Decompressor {
                         lowRepeats = 0
                     } catch let kaito as KaitoError {
                         failure = decodeFailure(from: kaito)
+                    } catch PrefetchError.ppmdNotAllowed {
+                        failure = .ppmdNotAllowed
                     } catch {
                         failure = .malformed("RAR4 table rebuild failed")
                     }
@@ -887,6 +913,10 @@ final class RAR29Decoder: Decompressor {
     }
 
     private func beginPPMdBlock(bits: inout RAR29RawBitCursor) throws {
+        // Every initial block and later LZ table switch reaches this boundary.
+        // Speculation stops before reading model parameters or allocating an
+        // arena whose stream-selected size is outside the prefetch budget.
+        guard allowsPPMd else { throw PrefetchError.ppmdNotAllowed }
         guard bits.bitOffset >= 0, bits.bitOffset.isMultiple(of: 8) else {
             throw KaitoError.malformed("RAR4 PPMd block is not byte aligned")
         }
@@ -910,6 +940,7 @@ final class RAR29Decoder: Decompressor {
             guard (2...64).contains(order) else {
                 throw KaitoError.malformed("RAR4 PPMd order is outside 2...64")
             }
+            Self.testingPPMdModelConstruction?()
             replacementModel = try PPMd7Model(
                 maximumOrder: order,
                 memorySize: memorySize
@@ -1334,16 +1365,18 @@ final class RAR29Decoder: Decompressor {
         }
     }
 
-    private func error(for failure: DecodeFailure) -> KaitoError {
+    private func error(for failure: DecodeFailure) -> any Error {
         switch failure {
         case .truncated:
-            .truncated
+            KaitoError.truncated
         case let .malformed(reason):
-            .malformed(reason)
+            KaitoError.malformed(reason)
         case let .unsupported(reason):
-            .unsupportedMethod(reason)
+            KaitoError.unsupportedMethod(reason)
         case let .limitExceeded(reason):
-            .limitExceeded(reason)
+            KaitoError.limitExceeded(reason)
+        case .ppmdNotAllowed:
+            PrefetchError.ppmdNotAllowed
         }
     }
 }
@@ -1407,6 +1440,8 @@ final class RAR29HuffmanTable {
     private static let primaryCount = 1 << primaryBits
     private static let maximumBits = 15
     private static let lookupCount = 1 << maximumBits
+    static let storageBytes = (lookupCount + primaryCount) * MemoryLayout<UInt32>.stride
+        + (maximumBits + 1) * 2 * MemoryLayout<Int>.stride
     private let lookup: UnsafeMutablePointer<UInt32>
     private let primary: UnsafeMutablePointer<UInt32>
     private let scratch: UnsafeMutablePointer<Int>

@@ -13,6 +13,7 @@
 ### 変更
 
 - RAR4(RAR29)の展開を速くする(R1)。filter の取り込み・出力・作業領域を再利用する raw buffer にし、RGB / Delta / Audio / E8 をその場で適用する(Audio の 32 sample ごとの配列確保をやめる)。窓と packed 入力の全体ゼロ埋めをやめ、大きさが既知の非 solid member は出力が収まる大きさまで窓を縮める(filter 長の上限は宣言辞書のまま)。Huffman 表は使う範囲だけを消し、作業配列を再利用する。solid の読み捨て用 buffer を再利用する。出力は変わらない。M4 Max の decode-ab(`sha --sink`、base 比、ノイズの幅 ±2〜4%)で、RGB filter あり 0.66〜0.71 倍、Delta あり 0.67〜0.70 倍、Audio あり 0.48 倍、E8 あり 0.75 倍、小ファイル多数の非 solid 0.52 倍、RAR5 は 0.99〜1.01 倍。色付き TIFF の書庫で 1,595 → 987 ms。peak RSS は増えない。
+- 非 solid の RAR4 member を、RAR5 と同じ先行復号(`IndependentEntryPrefetcher`、旧 `RAR5EntryPrefetcher` を改名)で並列に展開する(R2)。対象は暗号化・分割・solid でない、大きさ 8 MiB 以下の v29 圧縮 member で、CRC を確かめてから渡し、失敗した member は直列の経路が同じ error と部分出力を返す。先行復号の decoder は PPMd block に入った時点で諦め(model を確保する前)、その member は直列で展開する(PPMd の model は最大 256 MiB で、並列の予算に入れると先行復号自体が止まるため)。`--threads 1` の挙動は変わらない。M4 Max の `kaito bench`(自動 thread)で、非 solid の JPEG 本 115 → 15 ms、色付きページ 335 → 47 ms、小ファイル 3,000 件 31 → 6.6 ms。peak RSS は RAR5 と同程度(色付きページで 125 MB、RAR5 は 136 MB)。PPMd member 48 個の書庫は 10 thread で 147 MB(PPMd を除外する前は 1,207 MB)。
 
 ## [0.17.0] - 2026-10-27
 

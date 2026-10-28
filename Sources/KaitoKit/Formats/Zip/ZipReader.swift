@@ -65,6 +65,8 @@ final class ZipReader: FormatReader {
     let nameEncoding: String.Encoding?
 
     private let source: any ByteSource
+    private let decodeThreads: Int
+    private let avoidsHeaderScans: Bool
     private let centralDirectoryOffset: UInt64
     private let records: [ZipEntryRecord]
     private let localHeaderOrder: [Int]
@@ -80,6 +82,8 @@ final class ZipReader: FormatReader {
     init(source: any ByteSource, options: ReaderOptions, diskLayout: ZipDiskLayout? = nil,
          readAhead: ZipLocalReadAheadPolicy = .standard) throws {
         self.source = source
+        self.decodeThreads = options.resolvedDecodeThreads
+        self.avoidsHeaderScans = options.resolvedInputLatency(for: source) == .high
         self.password = options.password
         self.localReadAhead = ZipLocalReadAhead(policy: readAhead)
 
@@ -139,6 +143,8 @@ final class ZipReader: FormatReader {
                  entries: [ArchiveEntry], nameEncoding: String.Encoding?,
                  readAhead: ZipLocalReadAheadPolicy = .standard) {
         self.source = source
+        self.decodeThreads = options.resolvedDecodeThreads
+        self.avoidsHeaderScans = options.resolvedInputLatency(for: source) == .high
         self.centralDirectoryOffset = centralDirectoryOffset
         self.records = records
         self.localHeaderOrder = localHeaderOrder
@@ -216,6 +222,7 @@ final class ZipReader: FormatReader {
         do {
             decompressor = try makeDecompressor(
                 method: record.method,
+                encryption: record.encryption,
                 flags: record.flags,
                 source: payload.source,
                 offset: payload.offset,
@@ -656,6 +663,7 @@ final class ZipReader: FormatReader {
 
     private func makeDecompressor(
         method: UInt16,
+        encryption: ZipEntryEncryption,
         flags: UInt16,
         source: any ByteSource,
         offset: UInt64,
@@ -700,6 +708,12 @@ final class ZipReader: FormatReader {
                 expectedSize: uncompressedSize
             )
         case ZipMethod.bzip2:
+            if case .none = encryption, decodeThreads > 1, !avoidsHeaderScans {
+                let range = try BoundedByteSource(source: source, baseOffset: offset, length: compressedSize)
+                return try ParallelBzip2Decompressor(
+                    source: range, limits: limits, workers: decodeThreads, concatenatedStreams: false,
+                    maximumOutputSize: uncompressedSize.map { Int(clamping: $0) } ?? Int.max)
+            }
             return try Bzip2Decompressor(
                 source: source,
                 offset: offset,
@@ -753,9 +767,22 @@ final class ZipReader: FormatReader {
             )
         case ZipMethod.zstdDeprecated, ZipMethod.zstd:
             // APPNOTE: 20 は Zstandard の旧 ID。現行の 93 と同じく展開する。
+            // Decrypting sources are sequential: backward / concurrent reads replay
+            // decryption and authentication. Preserve their serial errors as well.
+            if case .none = encryption, decodeThreads > 1, !avoidsHeaderScans {
+                let range = try BoundedByteSource(source: source, baseOffset: offset, length: compressedSize)
+                return try ZstdDecompressor.parallel(source: range, limits: limits, workers: decodeThreads,
+                                                     expectedSize: uncompressedSize)
+            }
             return try ZstdDecompressor(source: source, offset: offset, compressedSize: compressedSize,
                                         expectedSize: uncompressedSize, limits: limits)
         case ZipMethod.xz:
+            if case .none = encryption, decodeThreads > 1, !avoidsHeaderScans,
+               let uncompressedSize {
+                let range = try BoundedByteSource(source: source, baseOffset: offset, length: compressedSize)
+                return try ParallelXZDecompressor(source: range, limits: limits, workers: decodeThreads,
+                                                   expectedSize: uncompressedSize)
+            }
             return try XZDecompressor(source: source, offset: offset,
                                       compressedSize: compressedSize, limits: limits)
         default:

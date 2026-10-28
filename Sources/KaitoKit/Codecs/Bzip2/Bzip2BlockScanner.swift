@@ -33,6 +33,7 @@ final class Bzip2BlockScanner {
     private let compressedLimit: Int
     private let blockLimit: Int
     private let recordsChecksum: Bool
+    private let concatenatedStreams: Bool
     private let injectedCandidates: [UInt64]
     private let injectedBitCandidates: [UInt64]
     private var bytes: [UInt8] = []
@@ -50,18 +51,21 @@ final class Bzip2BlockScanner {
     private var blockCRCs: [UInt32] = []
     private var combined: UInt32 = 0
     private var checksum = CRC32()
+    private var finished = false
 
     init(source: any ByteSource, compressedLimit: Int, outputLimit: Int, recordsChecksum: Bool,
-         injectedCandidates: [UInt64], injectedBitCandidates: [UInt64]) throws {
+         injectedCandidates: [UInt64], injectedBitCandidates: [UInt64], concatenatedStreams: Bool = true) throws {
         self.source = source; self.compressedLimit = compressedLimit
         self.blockLimit = max(1, min(Self.targetBlockCount, outputLimit / Self.blockOutputSize))
         self.recordsChecksum = recordsChecksum
+        self.concatenatedStreams = concatenatedStreams
         let bitLength = try Checked.mul(source.length, Bzip2StreamLayout.bitsPerByte)
         self.injectedCandidates = injectedCandidates.filter { $0 > 0 && $0 < source.length }.sorted()
         self.injectedBitCandidates = injectedBitCandidates.filter { $0 > 0 && $0 < bitLength }.sorted()
     }
 
     func next() throws -> Result {
+        if finished { return .end }
         if needsHeader {
             streamStart = start
             if start == source.length { return .end }
@@ -104,7 +108,7 @@ final class Bzip2BlockScanner {
                 guard expected == actual else { return .fallback(streamStart) }
                 let end = try byteEnd(Checked.add(marker.bit, Bzip2StreamLayout.trailerBitCount))
                 // 末尾の余分な byte は、元の stream を直列で再生して同じエラーにする。
-                if end != source.length {
+                if concatenatedStreams, end != source.length {
                     guard try ensure(through: Checked.add(end, UInt64(Bzip2StreamLayout.streamHeaderLength))),
                           bytes.withUnsafeBytes({ Bzip2StreamLayout.isStreamHeader($0, at: Int(end - start)) }) else {
                         return .fallback(streamStart)
@@ -133,7 +137,10 @@ final class Bzip2BlockScanner {
         let result = Result.run(Run(bytes: Data(framed), streamStart: streamStart, end: end))
         bytes = Array(bytes.dropFirst(consumed)); start = consumedEnd; firstBit = endBit
         blockStarts = []; blockCRCs = []
-        if streamEnd != nil { needsHeader = true; combined = 0; checksum = CRC32() }
+        if streamEnd != nil {
+            needsHeader = true; combined = 0; checksum = CRC32()
+            finished = !concatenatedStreams
+        }
         return result
     }
 

@@ -28,7 +28,7 @@ final class SevenZipLZMA2IOTests: XCTestCase {
             try SevenZipTestSupport.makeArchive(sourceDirectory: temporary, paths: ["payload.bin"], archiveURL: url,
                 options: ["-m0=LZMA2:c=8m", "-mmt=8", "-mhc=off"])
         }
-        let archive = try Data(contentsOf: url), input = DataByteSource(archive)
+        let input = try FileByteSource(url: url)
         let next = try SevenZipHeaderDecoder.readNextHeader(source: input, limits: ReadLimits(), editRecorder: nil)
         let headerDecoder = SevenZipHeaderDecoder(source: input, packedDataEnd: next.absoluteOffset,
             options: ReaderOptions(password: "secret"), keyCache: SevenZipAESKeyCache(),
@@ -49,14 +49,16 @@ final class SevenZipLZMA2IOTests: XCTestCase {
             let reads = source.bytesRead
             print("7Z-IO \(url.lastPathComponent) workers=\(workers) read=\(reads) packed=\(packed) ratio=\(Double(reads) / Double(packed)) peakWorkers=\(diagnostics.peakWorkers)")
             XCTAssertLessThanOrEqual(reads, packed * 102 / 100)
-            if !factory.isEncrypted {
+            if workers > 1 { XCTAssertGreaterThan(diagnostics.peakWorkers, 1) }
+            do {
                 let points = try XCTUnwrap(factory.makeDictionaryResetIndex())
                 let point = try XCTUnwrap(points.last)
                 XCTAssertGreaterThan(point.uncompressedOffset, 0)
                 source.reset()
                 let decoder = try XCTUnwrap(factory.makeDecoder(restartingAt: point))
                 XCTAssertEqual(try drain(decoder, bufferSize: 65_537), Data(expected[Int(point.uncompressedOffset)...]))
-                let remaining = packed - (point.compressedOffset - ranges.values.first!.offset)
+                let originalOffset = factory.isEncrypted ? 0 : try XCTUnwrap(ranges.values.first).offset
+                let remaining = packed - (point.compressedOffset - originalOffset)
                 print("7Z-IO backward read=\(source.bytesRead) packed=\(remaining)")
                 XCTAssertLessThanOrEqual(source.bytesRead, remaining * 102 / 100)
             }

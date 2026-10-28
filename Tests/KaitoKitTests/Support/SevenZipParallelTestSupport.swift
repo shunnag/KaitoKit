@@ -10,10 +10,12 @@ enum SevenZipParallelTestSupport {
         var filters: [([UInt8], [UInt8])] = []
         var folderCRC: UInt32?
         var entryCRCs: [UInt32]?
+        var aesPlaintextSize: UInt64?
 
         var output: Data { payloads.reduce(into: Data()) { $0.append($1) } }
         var folder: SevenZipFolder {
-            let methods = [([UInt8](arrayLiteral: 0x21), [property])] + filters
+            let aes: [([UInt8], [UInt8])] = aesPlaintextSize == nil ? [] : [([6, 0xF1, 7, 1], [0x3F])]
+            let methods = aes + [([UInt8](arrayLiteral: 0x21), [property])] + filters
             let coders = methods.enumerated().map { index, method in
                 SevenZipCoder(methodID: method.0, inputCount: 1, outputCount: 1,
                               properties: method.1, firstInput: index, firstOutput: index)
@@ -22,20 +24,22 @@ enum SevenZipParallelTestSupport {
                 bindPairs: (1..<coders.count).map { SevenZipBindPair(input: $0, output: $0 - 1) },
                 packedIndices: [0], inputCount: coders.count, outputCount: coders.count,
                 finalOutputIndex: coders.count - 1,
-                unpackSizes: Array(repeating: UInt64(output.count), count: coders.count),
+                unpackSizes: (aesPlaintextSize.map { [$0] } ?? [])
+                    + Array(repeating: UInt64(output.count), count: 1 + filters.count),
                 digest: SevenZipDigest(value: folderCRC))
         }
 
         func factory(workers: Int, limits: ReadLimits = ReadLimits(),
                      diagnostics: ParallelIndependentDecompressor.Diagnostics? = nil,
                      source: (any ByteSource)? = nil,
+                     password: String = "secret",
                      avoidsHeaderScans: Bool = false,
                      resetIndexCache: SevenZipLZMA2ResetIndexCache = SevenZipLZMA2ResetIndexCache(),
                      scanClock: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }) throws -> SevenZipFolderDecoderFactory {
             try SevenZipFolderDecoderFactory(source: source ?? DataByteSource(packed), folder: folder,
                 packedRanges: [0: SevenZipPackRange(offset: 0, size: UInt64(packed.count),
                                                    digest: SevenZipDigest(value: nil))],
-                limits: limits, password: nil, keyCache: SevenZipAESKeyCache(),
+                limits: limits, password: aesPlaintextSize == nil ? nil : password, keyCache: SevenZipAESKeyCache(),
                 maximumAESCyclesPower: 24, workers: workers, parallelDiagnostics: diagnostics,
                 resetIndexCache: resetIndexCache, avoidsHeaderScans: avoidsHeaderScans, scanClock: scanClock)
         }

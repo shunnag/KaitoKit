@@ -330,11 +330,30 @@ final class ZipReader: FormatReader {
         guard fixedEnd <= centralDirectoryOffset else {
             throw KaitoError.malformed("ZIP local header overlaps the central directory")
         }
-        let fixed = try readLocal(
-            offset: central.localHeaderOffset,
-            count: ZipRecordSize.localHeader, position: localHeaderOrderPositions[index], sequential: sequential,
-            limits: limits
-        )
+        let position = localHeaderOrderPositions[index]
+        var hintEnd = min(centralDirectoryOffset, source.length)
+        if position + 1 < localHeaderOrder.count {
+            hintEnd = min(hintEnd, records[localHeaderOrder[position + 1]].localHeaderOffset)
+        }
+        // 中央の長さは一括 read の目安だけ。次の record・metadata 予算を越えて
+        // 先読みせず、local の長さ・検証順・prefix の重複検証は従来どおりに保つ。
+        let hintedCount = max(ZipRecordSize.localHeader, min(
+            ZipRecordSize.localHeader + central.localMetadataSizeHint,
+            Int(clamping: limits.maxMetadataSize),
+            Int(clamping: hintEnd > central.localHeaderOffset ? hintEnd - central.localHeaderOffset : 0)
+        ))
+        let fixed: [UInt8]
+        do {
+            fixed = try readLocal(offset: central.localHeaderOffset, count: hintedCount,
+                                  position: position, sequential: sequential, limits: limits)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // 追加した投機的な byte の失敗で、従来読めた固定部まで失敗させない。
+            guard hintedCount > ZipRecordSize.localHeader else { throw error }
+            fixed = try readLocal(offset: central.localHeaderOffset, count: ZipRecordSize.localHeader,
+                                  position: position, sequential: false, limits: limits)
+        }
         var cursor = ZipByteCursor(fixed)
         guard try cursor.readUInt32LE() == ZipSignature.localHeader else {
             throw KaitoError.malformed("invalid ZIP local-header signature")
@@ -370,11 +389,15 @@ final class ZipReader: FormatReader {
         var usesZIP64 = false
         if extraLength > 0 {
             try Checked.size(extraLength, limit: limits.maxMetadataSize)
-            let extra = try readLocal(
-                offset: extraOffset,
-                count: try Checked.toInt(extraLength), position: localHeaderOrderPositions[index],
-                sequential: false, limits: limits
-            )
+            let extra: [UInt8]
+            let extraStart = try Checked.toInt(extraOffset - central.localHeaderOffset)
+            if extraStart <= fixed.count, extraLength <= UInt64(fixed.count - extraStart) {
+                extra = Array(fixed[extraStart..<extraStart + Int(extraLength)])
+            } else {
+                // local と中央の長さは異なってよい。不足時だけ従来の exact read を行う。
+                extra = try readLocal(offset: extraOffset, count: try Checked.toInt(extraLength),
+                                      position: position, sequential: false, limits: limits)
+            }
             let fields = try ZipExtraFields.parse(
                 extra,
                 recordLimit: limits.maxMetadataRecordCount,

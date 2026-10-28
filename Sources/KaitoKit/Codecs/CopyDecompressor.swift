@@ -25,6 +25,8 @@ public final class CopyDecompressor: Decompressor {
         self.source = source
         self.offset = offset
         self.endOffset = endOffset
+        // 途中で止まる stream は先頭 16 MiB だけを先読みし、以後は read ごとに通知する。
+        hintByteRange(source: source, offset: offset, count: min(compressedSize, 16 << 20))
     }
 
     /// Indicates whether all bytes in the bounded source range were copied.

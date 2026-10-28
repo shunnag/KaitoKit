@@ -175,6 +175,60 @@ final class RAR5QuickOpenVerificationTests: XCTestCase {
             XCTAssertThrowsError(try reopened.stream(for: reopened.entries[index], limits: ReadLimits())) { XCTAssertEqual($0 as? KaitoError, expected) }
         }
     }
+    func testArchiveReopenLatencyChangesRetainQuickOpenVerification() throws {
+        let fixture = try Q.fixture()
+        for latency in [InputLatency.low, .high] {
+            var options = Q.options(.highLatencyInput)
+            options.inputLatency = latency
+            let source = CountingByteSource(DataByteSource(fixture.data()))
+            let primary = try ArchiveReader.open(source: source, options: options)
+            let guarded = try XCTUnwrap(primary.formatReaderForTesting as? RAR5Reader).guardedHeaderCountForTesting
+            XCTAssertEqual(guarded, latency == .high ? 3 : 0)
+            var changed = options
+            changed.inputLatency = latency == .high ? .low : .high
+            changed.decodeThreads = 4
+            source.reset()
+            let reopened = try primary.reopen(options: changed)
+            let chained = try reopened.reopen(options: options)
+            XCTAssertEqual(source.bytesRead, 0)
+            for reader in [primary, reopened, chained] {
+                XCTAssertEqual(reader.entries, primary.entries)
+                XCTAssertEqual(try XCTUnwrap(reader.formatReaderForTesting as? RAR5Reader).guardedHeaderCountForTesting, guarded)
+                for entry in reader.entries {
+                    XCTAssertEqual(try reader.read(entry), Data(repeating: UInt8(entry.index), count: 32))
+                }
+            }
+        }
+    }
+    func testArchiveReopenLatencyChangesRetainLazyMismatchAndSharedPoison() throws {
+        var fixture = try Q.fixture()
+        try fixture.changeHeader(0) { header in
+            let fields = try Q.fields(header)
+            header[fields.name.lowerBound] = 120
+        }
+        for cloneFailsFirst in [false, true] {
+            var options = Q.options(.highLatencyInput)
+            options.inputLatency = .high
+            let source = CountingByteSource(DataByteSource(fixture.data()))
+            let primary = try ArchiveReader.open(source: source, options: options)
+            let rar = try XCTUnwrap(primary.formatReaderForTesting as? RAR5Reader)
+            XCTAssertEqual(rar.guardedHeaderCountForTesting, 3)
+            let expected = KaitoError.malformed(Q.mismatchPrefix + String(rar.headerOffsetForTesting(entry: primary.entries[0])))
+            var changed = options
+            changed.inputLatency = .low
+            source.reset()
+            let reopened = try primary.reopen(options: changed)
+            let chained = try reopened.reopen(options: changed)
+            XCTAssertEqual(source.bytesRead, 0)
+            XCTAssertEqual(reopened.entries, primary.entries)
+            XCTAssertEqual(try XCTUnwrap(reopened.formatReaderForTesting as? RAR5Reader).guardedHeaderCountForTesting, 3)
+            let first = cloneFailsFirst ? reopened : primary
+            XCTAssertThrowsError(try first.read(first.entries[0])) { XCTAssertEqual($0 as? KaitoError, expected) }
+            for reader in [primary, reopened, chained, try reopened.reopen(options: options)] {
+                XCTAssertThrowsError(try reader.read(reader.entries[2])) { XCTAssertEqual($0 as? KaitoError, expected) }
+            }
+        }
+    }
     func testPrefetchedMemberWithLyingCopyIsNeverServed() throws {
         let url = try Q.generated(count: 8, options: ["-qo+", "-m3", "-md128k"])
         var f = try Q.decode(Data(contentsOf: url))

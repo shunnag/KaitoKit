@@ -15,9 +15,11 @@ public struct ReaderOptions: Sendable {
     /// the default preserves already-open files across rename and unlink.
     public var fileAccessPolicy: FileAccessPolicy = .persistent
 
-    /// 入力遅延の方針。automatic は open 時に一度解決し、reopen に引き継ぐ。
+    /// 入力遅延の方針。automatic は open 時に解決し、reopen() はその値を引き継ぐ。
+    /// reopen(options:) は新しい reader 用に解決し直す。
     ///
-    /// Input-latency policy, resolved once at open and preserved by reopen.
+    /// Input-latency policy. `reopen()` preserves the resolved value;
+    /// `reopen(options:)` resolves it again for the new reader.
     public var inputLatency: InputLatency = .automatic
 
     /// RAR5 の一覧に Quick Open を使う方針。既定は使用しない。
@@ -54,7 +56,8 @@ public struct ReaderOptions: Sendable {
     private var automaticThreadsSnapshot: Int?
 
     /// 独立した圧縮単位の要求並列数。nil は CPU 構成・物理メモリ・電力方針から open 時に解決する。
-    /// メモリ予算と process 共通の実行枠は別に適用する。reopen は同じ解決値を引き継ぐ。
+    /// メモリ予算と process 共通の実行枠は別に適用する。reopen() は同じ解決値を引き継ぎ、
+    /// reopen(options:) は新しい reader 用に解決し直す。
     public var decodeThreads: Int? {
         didSet { decodeThreads = decodeThreads.map(Self.clampedDecodeThreads) }
     }
@@ -172,7 +175,8 @@ public struct ReaderOptions: Sendable {
         self.verifyRAR5Blake2sp = verifyRAR5Blake2sp
     }
 
-    /// 表示時点の自動要求並列数。reader は open 時に一度解決し、codec のメモリ予算は別に適用する。
+    /// 表示時点の自動要求並列数。open / reopen(options:) は reader ごとに一度解決する。
+    /// codec のメモリ予算は別に適用する。
     public static func automaticDecodeThreads(powerPolicy: DecodePowerPolicy = .reduceInLowPowerMode) -> Int {
         if let testingAutomaticThreads { return testingAutomaticThreads(powerPolicy) }
         let process = ProcessInfo.processInfo
@@ -202,6 +206,39 @@ public struct ReaderOptions: Sendable {
         if decodeThreads == nil, automaticThreadsSnapshot == nil {
             result.automaticThreadsSnapshot = Self.automaticDecodeThreads(powerPolicy: decodePowerPolicy)
         }
+        return result
+    }
+
+    // 解析時の方針と上限を維持し、実行時だけの指定を取り込む。provider は原本を保持する。
+    func reopening(with proposed: Self) throws -> Self {
+        func requireUnchanged<T: Equatable>(_ original: T, _ replacement: T, _ name: String) throws {
+            guard original == replacement else { throw KaitoError.unsupportedMethod("reopen cannot change \(name)") }
+        }
+        try requireUnchanged(fileAccessPolicy, proposed.fileAccessPolicy, "fileAccessPolicy")
+        try requireUnchanged(rar5QuickOpenPolicy, proposed.rar5QuickOpenPolicy, "rar5QuickOpenPolicy")
+        try requireUnchanged(recordsSevenZipEditLayout, proposed.recordsSevenZipEditLayout, "recordsSevenZipEditLayout")
+        try requireUnchanged(recordsTarEditLayout, proposed.recordsTarEditLayout, "recordsTarEditLayout")
+        try requireUnchanged(maximumSFXScanSize, proposed.maximumSFXScanSize, "maximumSFXScanSize")
+        try requireUnchanged(scanForSFXInData, proposed.scanForSFXInData, "scanForSFXInData")
+        try requireUnchanged(encodingPolicy, proposed.encodingPolicy, "encodingPolicy")
+        try requireUnchanged(password.map { Array($0.utf8) }, proposed.password.map { Array($0.utf8) }, "password")
+        try requireUnchanged(lazyLocalHeaders, proposed.lazyLocalHeaders, "lazyLocalHeaders")
+        try requireUnchanged(recoverDamagedArchives, proposed.recoverDamagedArchives, "recoverDamagedArchives")
+        try requireUnchanged(maxSevenZipAESCyclesPower, proposed.maxSevenZipAESCyclesPower, "maxSevenZipAESCyclesPower")
+        try requireUnchanged(maxRAR5KDFCountPower, proposed.maxRAR5KDFCountPower, "maxRAR5KDFCountPower")
+        try requireUnchanged(verifyRAR5Blake2sp, proposed.verifyRAR5Blake2sp, "verifyRAR5Blake2sp")
+        try requireUnchanged(appleDoublePolicy, proposed.appleDoublePolicy, "appleDoublePolicy")
+        var parsingLimits = proposed.limits
+        parsingLimits.parallelDecodeMemory = limits.parallelDecodeMemory
+        try requireUnchanged(limits, parsingLimits, "limits (only parallelDecodeMemory may change)")
+
+        var result = self
+        result.decodeThreads = proposed.decodeThreads
+        result.decodePowerPolicy = proposed.decodePowerPolicy
+        result.inputLatency = proposed.inputLatency
+        result.limits.parallelDecodeMemory = proposed.limits.parallelDecodeMemory
+        result.automaticThreadsSnapshot = nil
+        result.resolvedInputLatencySnapshot = nil
         return result
     }
 

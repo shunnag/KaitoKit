@@ -9,6 +9,7 @@
 ### 追加
 
 - RAR4 decode 計測の R0 基盤。RAR 6.x による solid / 非 solid / PPMd と、noise を含む color BMP・stereo PCM・x86 風 code の filter on/off corpus、標準 filter 4 種と solid PPMd の小型 fixture・SHA / token 検査・fuzz seed を追加した。decoder の動作は変更しない。
+- `ArchiveReader.reopen(options:)`。開いた reader と同じ書庫を、実行時の指定(`decodeThreads`・`decodePowerPolicy`・`inputLatency`・`limits.parallelDecodeMemory`)だけを変えて開き直す。解析時の方針・上限・password など他の指定を変えようとすると `KaitoError.unsupportedMethod` を返す。自動の並列数と入力遅延は新しい reader 用に解決し直し、RAR5 Quick Open の reader でも使える。解析済みの状態を共有できる形式では `reopen()` と同じく entry 一覧と名前の文字コードを読み直さないので、ホスト側で先読み用の reader を別の実行設定で作り直すときに header の解析を繰り返さずに済む。
 
 ### 変更
 

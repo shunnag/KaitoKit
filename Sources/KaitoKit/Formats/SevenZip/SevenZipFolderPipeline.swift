@@ -427,7 +427,7 @@ final class SevenZipFolderDecoderFactory {
                     expectedSize: expectedSize,
                     dictionarySizeLimit: limits.maxDictionarySize
                 )
-                if folder.coders.count == 1 {
+                if restartableLZMA2Coder != nil {
                     decoder.resetObserver = LZMA2ResetObserver(cache: resetIndexCache, base: 0,
                                                               maximumPointCount: try observedPointLimit())
                 }
@@ -576,19 +576,28 @@ final class SevenZipFolderDecoderFactory {
         }
     }
 
-    // 並列化する graph は一つの packed LZMA2 と、その出力に続く単純 filter 列だけ。
+    // 並列化する graph は packed LZMA2（直前の AES は任意）と、後続の単純 filter 列だけ。
     // filter は outputValue が入力順の stream を包むので、state を共有せず直列に動く。
     private var parallelLZMA2Coder: SevenZipCoder? {
-        guard !isEncrypted, folder.packedIndices.count == 1 else { return nil }
+        guard folder.packedIndices.count == 1 else { return nil }
         var output = folder.finalOutputIndex, visited = Set<Int>()
         while let index = folder.coderIndex(containingOutput: output), visited.insert(index).inserted {
             let coder = folder.coders[index]
             guard coder.inputCount == 1, coder.outputCount == 1 else { return nil }
             switch SevenZipMethod.kind(for: coder.methodID) {
             case .lzma2:
-                guard visited.count == folder.coders.count,
-                      folder.boundOutput(forInput: coder.firstInput) == nil,
-                      folder.packedIndices == [coder.firstInput] else { return nil }
+                if let bound = folder.boundOutput(forInput: coder.firstInput) {
+                    guard let aesIndex = folder.coderIndex(containingOutput: bound),
+                          visited.insert(aesIndex).inserted else { return nil }
+                    let aes = folder.coders[aesIndex]
+                    guard SevenZipMethod.kind(for: aes.methodID) == .aes,
+                          aes.inputCount == 1, aes.outputCount == 1, aes.firstOutput == bound,
+                          folder.boundOutput(forInput: aes.firstInput) == nil,
+                          folder.packedIndices == [aes.firstInput] else { return nil }
+                } else {
+                    guard folder.packedIndices == [coder.firstInput] else { return nil }
+                }
+                guard visited.count == folder.coders.count else { return nil }
                 return coder
             case .branch, .delta, .swap:
                 guard let bound = folder.boundOutput(forInput: coder.firstInput) else { return nil }
@@ -600,27 +609,48 @@ final class SevenZipFolderDecoderFactory {
         return nil
     }
 
-    // seek は filter state を復元できないので、従来どおり単一 coder だけに限定する。
+    // seek は filter state を復元できない。AES は位置指定で読めるので状態の復元は不要。
+    private var restartableLZMA2Coder: SevenZipCoder? {
+        guard let coder = parallelLZMA2Coder, coder.firstOutput == folder.finalOutputIndex else { return nil }
+        return coder
+    }
+
+    private func resetInput(for coder: SevenZipCoder) throws -> SevenZipByteInput? {
+        if let bound = folder.boundOutput(forInput: coder.firstInput) {
+            guard let index = folder.coderIndex(containingOutput: bound) else { return nil }
+            let aes = folder.coders[index]
+            guard let range = packedRanges[aes.firstInput] else { return nil }
+            try packedStreamVerifier.verify([aes.firstInput: range])
+            let length = folder.unpackSizes[aes.firstOutput]
+            return try decryptedBytes(coder: aes,
+                input: SevenZipByteInput(source: source, offset: range.offset, length: range.size),
+                expectedSize: length, chargeKDFWork: entryKDFBudget.charge,
+                refundKDFWork: entryKDFBudget.refund).asBytes(expectedSize: length, limits: limits)
+        }
+        guard let range = packedRanges[coder.firstInput] else { return nil }
+        return SevenZipByteInput(source: source, offset: range.offset, length: range.size)
+    }
+
     func makeDictionaryResetIndex(
         includingFilters: Bool = false, forParallelDecode: Bool = false
     ) throws -> [LZMA2ResetPoint]? {
-        guard includingFilters || folder.coders.count == 1,
+        guard includingFilters || restartableLZMA2Coder != nil,
               let coder = parallelLZMA2Coder,
-              coder.properties.count == 1,
-              let range = packedRanges[coder.firstInput] else {
+              coder.properties.count == 1 else {
             return nil
         }
         if let index = resetIndexCache.index { return try index.get() }
         do {
+            guard let input = try resetInput(for: coder) else { return nil }
             let maximumPointCount = try observedPointLimit()
             let index: [LZMA2ResetPoint]?
             if forParallelDecode {
                 let dictionarySize = try LZMA2Decoder.dictionarySize(for: coder.properties[0])
                 let searchLimit = max(try Checked.mul(dictionarySize, 4), 64 * 1_024 * 1_024)
                 let scanSource: any ByteSource = avoidsHeaderScans
-                    ? LZMA2TimedScanSource(source: source, clock: scanClock) : source
+                    ? LZMA2TimedScanSource(source: input.source, clock: scanClock) : input.source
                 index = try LZMA2Decoder.makeParallelDictionaryResetIndex(
-                    source: scanSource, offset: range.offset, compressedSize: range.size,
+                    source: scanSource, offset: input.offset, compressedSize: input.length,
                     expectedSize: finalSize, maximumPointCount: maximumPointCount,
                     singleResetOutputLimit: searchLimit,
                     observer: avoidsHeaderScans
@@ -629,7 +659,7 @@ final class SevenZipFolderDecoderFactory {
                 )
             } else {
                 index = try LZMA2Decoder.makeDictionaryResetIndex(
-                    source: source, offset: range.offset, compressedSize: range.size,
+                    source: input.source, offset: input.offset, compressedSize: input.length,
                     expectedSize: finalSize, maximumPointCount: maximumPointCount
                 )
             }
@@ -643,6 +673,11 @@ final class SevenZipFolderDecoderFactory {
             // 中断した走査は未完了なので、次の要求が改めて作れるようにする。
             throw CancellationError()
         } catch {
+            // 誤 key の走査失敗も最適化の不成立に留め、元の直列復号に error を決めさせる。
+            if isEncrypted {
+                resetIndexCache.index = .success(nil)
+                return nil
+            }
             resetIndexCache.index = .failure(error)
             throw error
         }
@@ -655,7 +690,7 @@ final class SevenZipFolderDecoderFactory {
 
     func backwardRestartPoint(atOrBefore target: UInt64) throws -> LZMA2ResetPoint? {
         lastBackwardRestartKind = .head
-        guard folder.coders.count == 1, parallelLZMA2Coder != nil else { return nil }
+        guard restartableLZMA2Coder != nil else { return nil }
         if case .success(let points?) = resetIndexCache.index,
            let point = points.last(where: { $0.isRestartable && $0.uncompressedOffset <= target }) {
             lastBackwardRestartKind = .fullIndex
@@ -707,19 +742,22 @@ final class SevenZipFolderDecoderFactory {
     }
 
     private func makeParallelUnits() throws -> [ParallelIndependentDecompressor.Unit]? {
-        guard let coder = parallelLZMA2Coder, coder.properties.count == 1,
-              let range = packedRanges[coder.firstInput] else { return nil }
+        guard let coder = parallelLZMA2Coder, coder.properties.count == 1 else { return nil }
         let dictionarySize = try LZMA2Decoder.dictionarySize(for: coder.properties[0])
         try Checked.size(dictionarySize, limit: limits.maxDictionarySize)
         // 宣言辞書 + ByteReader、raw chunk、一時 copy、確率表、range coder の先読み。
         // 出力と終端検査の 1 byte は Unit 自身が加算し、再実行用の一単位分も pool が予約する。
-        let scratch = try Checked.add(dictionarySize, 1_048_576)
+        // AES の一組の領域は各 decoder が所有し、unit cache には残さない。
+        let aesScratch = isEncrypted ? UInt64(AESCBCRandomAccess.scratchBytes) : 0
+        let scratch = try Checked.add(Checked.add(dictionarySize, 1_048_576), aesScratch)
         let budget = UInt64(limits.resolvedParallelDecodeMemory())
         guard scratch <= budget / 3,
               let index = try makeDictionaryResetIndex(includingFilters: true, forParallelDecode: true) else { return nil }
         let points = index.filter(\.isRestartable)
         guard points.count >= 2, points.first?.uncompressedOffset == 0 else { return nil }
-        let source = self.source, properties = coder.properties, limits = self.limits
+        guard let input = try resetInput(for: coder) else { return nil }
+        let source = input.source, properties = coder.properties, limits = self.limits
+        let range = SevenZipPackRange(offset: input.offset, size: input.length, digest: .init(value: nil))
         var units: [ParallelIndependentDecompressor.Unit] = []
         units.reserveCapacity(points.count)
         for (id, point) in points.enumerated() {
@@ -730,8 +768,9 @@ final class SevenZipFolderDecoderFactory {
             guard size <= limits.maxInMemorySize,
                   try Checked.add(Checked.add(size, 1), scratch) <= budget / 3 else { return nil }
             units.append(try .init(outputSize: size, scratchBytes: scratch) {
-                try Self.makeDecoder(
-                    restartingAt: point, endingAt: next, source: source, range: range,
+                let input: any ByteSource = (source as? SevenZipAESByteSource)?.independent() ?? source
+                return try Self.makeDecoder(
+                    restartingAt: point, endingAt: next, source: input, range: range,
                     properties: properties, expectedSize: size, dictionarySizeLimit: limits.maxDictionarySize
                 )
             })
@@ -740,19 +779,15 @@ final class SevenZipFolderDecoderFactory {
     }
 
     func makeDecoder(restartingAt point: LZMA2ResetPoint) throws -> (any Decompressor)? {
-        guard folder.coders.count == 1,
-              let coder = folder.coders.first,
-              SevenZipMethod.kind(for: coder.methodID) == .lzma2,
-              coder.inputCount == 1,
-              coder.outputCount == 1,
-              coder.properties.count == 1,
-              let range = packedRanges[coder.firstInput],
-              point.uncompressedOffset <= finalSize else {
+        guard let coder = restartableLZMA2Coder, coder.properties.count == 1,
+              point.uncompressedOffset <= finalSize,
+              let input = try resetInput(for: coder) else {
             return nil
         }
         let remaining = try Checked.sub(finalSize, point.uncompressedOffset)
+        let range = SevenZipPackRange(offset: input.offset, size: input.length, digest: .init(value: nil))
         let decoder = try Self.makeDecoder(
-            restartingAt: point, endingAt: nil, source: source, range: range,
+            restartingAt: point, endingAt: nil, source: input.source, range: range,
             properties: coder.properties, expectedSize: remaining, dictionarySizeLimit: limits.maxDictionarySize
         )
         if let decoder = decoder as? LZMA2Decoder {

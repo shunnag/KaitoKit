@@ -210,6 +210,16 @@ final class SevenZipAESByteSource: ByteSource {
         )
     }
 
+    private init(randomAccess: AESCBCRandomAccess, length: UInt64) {
+        self.randomAccess = randomAccess
+        self.length = length
+    }
+
+    // unit cache は key と位置だけを保持し、worker の一時領域は decoder と一緒に解放する。
+    func independent() -> SevenZipAESByteSource {
+        SevenZipAESByteSource(randomAccess: randomAccess.independent(), length: length)
+    }
+
     func read(
         into buffer: UnsafeMutableRawBufferPointer,
         at offset: UInt64

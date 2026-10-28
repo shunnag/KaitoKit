@@ -182,6 +182,11 @@ final class SevenZipReader: FormatReader {
         keyCache.removeAll()
         entryKDFBudget.reset()
         coordinators.removeAll(keepingCapacity: false)
+        // 暗号化 folder の index と unit は旧 key の復号位置・入力を保持している。
+        resetIndexCaches = resetIndexCaches.filter { index, _ in
+            guard let streams, streams.folders.indices.contains(index) else { return false }
+            return !streams.folders[index].coders.contains { SevenZipMethod.kind(for: $0.methodID) == .aes }
+        }
     }
 
     private func resetIndexCache(for folderIndex: Int) -> SevenZipLZMA2ResetIndexCache {

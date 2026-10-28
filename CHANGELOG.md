@@ -16,6 +16,10 @@
 - AES-256 → LZMA2 の 7z folder でも、dictionary reset 点での並列復号と後方 seek の再開を使う。復号後の random-access source を走査と各単位の入力にし、AES の buffer は decoder ごとに再利用して並列の予算に数える。誤った password・壊れた入力の error と部分出力は直列と同じ。block 分割した暗号化 7z(8 MiB × 5)で自動 thread 75 → 22.6 ms(平文と同じ)。
 - RAR4(RAR29)の展開を速くする(R1)。filter の取り込み・出力・作業領域を再利用する raw buffer にし、RGB / Delta / Audio / E8 をその場で適用する(Audio の 32 sample ごとの配列確保をやめる)。窓と packed 入力の全体ゼロ埋めをやめ、大きさが既知の非 solid member は出力が収まる大きさまで窓を縮める(filter 長の上限は宣言辞書のまま)。Huffman 表は使う範囲だけを消し、作業配列を再利用する。solid の読み捨て用 buffer を再利用する。出力は変わらない。M4 Max の decode-ab(`sha --sink`、base 比、ノイズの幅 ±2〜4%)で、RGB filter あり 0.66〜0.71 倍、Delta あり 0.67〜0.70 倍、Audio あり 0.48 倍、E8 あり 0.75 倍、小ファイル多数の非 solid 0.52 倍、RAR5 は 0.99〜1.01 倍。色付き TIFF の書庫で 1,595 → 987 ms。peak RSS は増えない。
 - 非 solid の RAR4 member を、RAR5 と同じ先行復号(`IndependentEntryPrefetcher`、旧 `RAR5EntryPrefetcher` を改名)で並列に展開する(R2)。対象は暗号化・分割・solid でない、大きさ 8 MiB 以下の v29 圧縮 member で、CRC を確かめてから渡し、失敗した member は直列の経路が同じ error と部分出力を返す。先行復号の decoder は PPMd block に入った時点で諦め(model を確保する前)、その member は直列で展開する(PPMd の model は最大 256 MiB で、並列の予算に入れると先行復号自体が止まるため)。`--threads 1` の挙動は変わらない。M4 Max の `kaito bench`(自動 thread)で、非 solid の JPEG 本 115 → 15 ms、色付きページ 335 → 47 ms、小ファイル 3,000 件 31 → 6.6 ms。peak RSS は RAR5 と同程度(色付きページで 125 MB、RAR5 は 136 MB)。PPMd member 48 個の書庫は 10 thread で 147 MB(PPMd を除外する前は 1,207 MB)。
+- StuffIt X の暗号化 entry の復号を CommonCrypto の CFB cryptor にする(AES / DES / Blowfish)。block ごとの ECB 呼び出しをやめ、M4 Max の release で AES 62 → 11,155 MB/s、DES 2.6 → 139 MB/s、Blowfish 0.16 → 284 MB/s。CFB の `CCCryptorReset` は未実装(`kCCUnimplemented`)なので、後方 seek は直前の暗号文 block を IV に cryptor を作り直す(先頭からの再生はしない)。出力は変わらない。
+- RAR5 の鍵導出(PBKDF2-HMAC-SHA256)で、password から作る HMAC の ipad / opad の状態を使い回す。2^15 回 8.1 → 2.1 ms、2^18 回 63.9 → 17.0 ms。KDF の予算・取消し・返金と出力は変わらない。
+- 7z AES の鍵導出(SHA-256 の反復)の作業領域を使い回し、7.3 → 3.7 ms。
+- WinZip AES の小さな entry で、復号と認証の buffer を使い回す(1 entry あたり 2.3 → 0.9 µs)。entry ごとの PBKDF2 は変わらないので、小ファイル多数の書庫全体ではほぼ PBKDF2 の時間になる。
 
 ## [0.17.0] - 2026-10-27
 

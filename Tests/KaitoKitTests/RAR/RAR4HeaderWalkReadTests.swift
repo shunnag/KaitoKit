@@ -25,6 +25,24 @@ final class RAR4HeaderWalkReadTests: RAR4BuilderTestCase {
         XCTAssertLessThanOrEqual(source.readCount, 44)
         XCTAssertLessThanOrEqual(source.readBytes, 40 * (16 << 10) + (1 << 20))
     }
+    func testHighLatencySparseListingDoesNotReadPayloadTails() throws {
+        let count = 12
+        let bytes = archive(sizes: Array(repeating: 600 << 10, count: count))
+        var expected: [ArchiveEntry]?
+        for latency in [InputLatency.low, .high] {
+            let source = CallCountingByteSource(DataByteSource(bytes))
+            var options = ReaderOptions()
+            options.inputLatency = latency
+            let reader = try RAR4Reader(source: source, options: options)
+            XCTAssertEqual(reader.entries.count, count)
+            if let expected { XCTAssertEqual(reader.entries, expected) }
+            expected = reader.entries
+            // signature probe + marker + main/first file の窓 + 残りの file 窓 + end header。
+            XCTAssertEqual(source.readCount, count + 3)
+            XCTAssertEqual(source.readBytes, count * (16 << 10) + 22)
+            print("RAR4-SPARSE latency=\(latency) reads=\(source.readCount) bytes=\(source.readBytes)")
+        }
+    }
     func testMixedSpacingRunsBoundWastedBytes() throws {
         let sizes = Array(repeating: 4096, count: 60) + Array(repeating: 600 << 10, count: 10) + Array(repeating: 4096, count: 60)
         let bytes = archive(sizes: sizes)

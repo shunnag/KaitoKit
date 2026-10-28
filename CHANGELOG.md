@@ -9,9 +9,11 @@
 ### 追加
 
 - RAR4 decode 計測の R0 基盤。RAR 6.x による solid / 非 solid / PPMd と、noise を含む color BMP・stereo PCM・x86 風 code の filter on/off corpus、標準 filter 4 種と solid PPMd の小型 fixture・SHA / token 検査・fuzz seed を追加した。decoder の動作は変更しない。
+- `ArchiveReader.reopen(options:)`。開いた reader と同じ書庫を、実行時の指定(`decodeThreads`・`decodePowerPolicy`・`inputLatency`・`limits.parallelDecodeMemory`)だけを変えて開き直す。解析時の方針・上限・password など他の指定を変えようとすると `KaitoError.unsupportedMethod` を返す。自動の並列数と入力遅延は新しい reader 用に解決し直し、RAR5 Quick Open の reader でも使える。解析済みの状態を共有できる形式では `reopen()` と同じく entry 一覧と名前の文字コードを読み直さないので、ホスト側で先読み用の reader を別の実行設定で作り直すときに header の解析を繰り返さずに済む。
 
 ### 変更
 
+- NAS や cache に無い書庫の I/O を減らす。mmap した書庫の 64 KiB 以上の読み取りに `madvise(MADV_WILLNEED)` を出す(stream 開始時の範囲は最初の 16 MiB まで、指示済みの範囲は覚えて重ねて出さない、lock の外で出す、mmap の判定は `mach_vm_region_recurse` の short info)。ZIP の遅延 local header 検証は 1 件 1 回の pread にし(200 ページの最終ページで 400→200)、LHA の header 走査は窓 reader に通す(161→41 回、読む byte 94% 減)。RAR4 の header 走査は、payload を余分に読むことになるので据え置いた。Mac mini M4 の cold(新しい vnode)で stored の JPEG CBZ 174→68 ms、stored の色付きページ 69→28 ms、deflate 0.74 倍、LHA 0.87 倍。warm は変わらないか速い(小ファイル多数の stored は 1.0→1.1 ms)。出力・error は変わらない。
 - LZMA2 の圧縮 chunk を range decoder が source から読み直さないようにする。外側の reader が読んだ payload をそのまま渡すので、7z の読み取り量が書庫の約 1.89 倍から 1.00 倍になる(NAS で cold のスプールや暗号化 folder で効く)。出力は変わらない。
 - AES-256 → LZMA2 の 7z folder でも、dictionary reset 点での並列復号と後方 seek の再開を使う。復号後の random-access source を走査と各単位の入力にし、AES の buffer は decoder ごとに再利用して並列の予算に数える。誤った password・壊れた入力の error と部分出力は直列と同じ。block 分割した暗号化 7z(8 MiB × 5)で自動 thread 75 → 22.6 ms(平文と同じ)。
 - RAR4(RAR29)の展開を速くする(R1)。filter の取り込み・出力・作業領域を再利用する raw buffer にし、RGB / Delta / Audio / E8 をその場で適用する(Audio の 32 sample ごとの配列確保をやめる)。窓と packed 入力の全体ゼロ埋めをやめ、大きさが既知の非 solid member は出力が収まる大きさまで窓を縮める(filter 長の上限は宣言辞書のまま)。Huffman 表は使う範囲だけを消し、作業配列を再利用する。solid の読み捨て用 buffer を再利用する。出力は変わらない。M4 Max の decode-ab(`sha --sink`、base 比、ノイズの幅 ±2〜4%)で、RGB filter あり 0.66〜0.71 倍、Delta あり 0.67〜0.70 倍、Audio あり 0.48 倍、E8 あり 0.75 倍、小ファイル多数の非 solid 0.52 倍、RAR5 は 0.99〜1.01 倍。色付き TIFF の書庫で 1,595 → 987 ms。peak RSS は増えない。

@@ -3,7 +3,7 @@ import Foundation
 /// Opens an archive, lists its entries, and reads or extracts their contents.
 ///
 /// `ArchiveReader` is deliberately not thread-safe. Call ``reopen()`` to make
-/// an inexpensive independent reader that shares the immutable byte source.
+/// an independent reader that shares the immutable byte source.
 public final class ArchiveReader {
     private let source: any ByteSource
     private let stagedContainerSource: (any ByteSource)?
@@ -16,6 +16,8 @@ public final class ArchiveReader {
     private let reader: any FormatReader
     // Test hook: the format reader behind this archive.
     var formatReaderForTesting: any FormatReader { reader }
+    // 呼出側の open 指定は runtime password や実行時の解決値と分けて保持する。
+    private let openingOptions: ReaderOptions
     private let options: ReaderOptions
     private let outputBudget: ArchiveOutputBudget
     private var extractionRootKey: String?
@@ -47,7 +49,8 @@ public final class ArchiveReader {
     /// The password used for subsequent encrypted-entry operations.
     public var password: String?
 
-    private init(input: OpenedArchiveInput, options: ReaderOptions) throws {
+    private init(input: OpenedArchiveInput, options: ReaderOptions, openingOptions: ReaderOptions? = nil) throws {
+        self.openingOptions = openingOptions ?? options
         let options = options.resolvingDecodeThreads().resolvingInputLatency(for: input.source)
         self.source = input.source
         self.sourceURL = input.sourceURL
@@ -77,6 +80,7 @@ public final class ArchiveReader {
         sharing source: any ByteSource,
         sourceURL: URL?,
         options: ReaderOptions,
+        openingOptions: ReaderOptions? = nil,
         parsedReader: any FormatReader,
         outputBudget: ArchiveOutputBudget,
         zipDiskLayout: ZipDiskLayout? = nil,
@@ -84,6 +88,7 @@ public final class ArchiveReader {
         stagedContainerSource: (any ByteSource)? = nil,
         tarEditingState: TarEditingSnapshot? = nil
     ) throws {
+        self.openingOptions = openingOptions ?? options
         let options = options.resolvingDecodeThreads().resolvingInputLatency(for: source)
         self.source = source
         self.stagedContainerSource = stagedContainerSource
@@ -295,6 +300,41 @@ public final class ArchiveReader {
     ///
     /// The returned reader can be sent to another isolation domain.
     public func reopen() throws -> sending ArchiveReader {
+        try reopen(using: options)
+    }
+
+    /// Makes an independent reader with different execution options, sharing parsed state
+    /// wherever ``reopen()`` does.
+    ///
+    /// Only `decodeThreads`, `decodePowerPolicy`, `inputLatency`, and
+    /// `limits.parallelDecodeMemory` may differ from the original opening options.
+    /// Automatic thread counts and input latency are resolved again for the returned
+    /// reader. Formats supporting parsed-state sharing retain their entry list and
+    /// filename-encoding selection without reading headers again. Other formats use
+    /// the same source-opening fallback as ``reopen()``, which may parse headers and
+    /// detect filename encoding again. Changing input latency does not reconsider
+    /// an existing RAR5 Quick Open listing or bypass its retained verification checks.
+    /// Other memory limits can affect metadata decoding or staging during open
+    /// and must remain unchanged.
+    ///
+    /// All other values must match the original opening options, including the initial
+    /// password, encoding and AppleDouble policies, local-header and Quick Open policies,
+    /// file access, recovery, SFX, verification, editing-layout flags, and remaining limits.
+    /// A mismatch throws ``KaitoError/unsupportedMethod(_:)`` with a message naming
+    /// the option that cannot change. `passwordProvider`
+    /// is ignored and the original provider is retained. As with ``reopen()``, the returned
+    /// reader inherits the current ``password``, independent decoder/cache state, and
+    /// the original source's file-identity checks and handle-retention policy.
+    ///
+    /// The returned reader can be sent to another isolation domain. The caller must
+    /// serialize this call with operations on this reader.
+    public func reopen(options: ReaderOptions) throws -> sending ArchiveReader {
+        let reopenedOptions = try openingOptions.reopening(with: options)
+            .resolvingDecodeThreads().resolvingInputLatency(for: source)
+        return try reopen(using: reopenedOptions)
+    }
+
+    private func reopen(using options: ReaderOptions) throws -> sending ArchiveReader {
         var reopenedOptions = options
         reopenedOptions.password = password
         if let parsedReader = try reader.reopened(options: reopenedOptions) {
@@ -302,6 +342,7 @@ public final class ArchiveReader {
                 sharing: stagedContainerSource ?? source,
                 sourceURL: sourceURL,
                 options: reopenedOptions,
+                openingOptions: openingOptions,
                 parsedReader: parsedReader,
                 outputBudget: outputBudget.reopened(),
                 zipDiskLayout: zipDiskLayout,
@@ -314,13 +355,15 @@ public final class ArchiveReader {
             // 圧縮 cpio / pbzx の展開結果は保持済みなので、再展開せずその source から開き直す。
             return try ArchiveReader(
                 input: OpenedArchiveInput(source: stagedContainerSource, volumeSet: volumeSet),
-                options: reopenedOptions
+                options: reopenedOptions,
+                openingOptions: openingOptions
             )
         }
         return try ArchiveReader(
             input: OpenedArchiveInput(source: source, sourceURL: sourceURL,
                                      zipDiskLayout: zipDiskLayout, volumeSet: volumeSet),
-            options: reopenedOptions
+            options: reopenedOptions,
+            openingOptions: openingOptions
         )
     }
 
@@ -395,7 +438,7 @@ public final class ArchiveReader {
             layoutUnavailableReason: tar == nil ? .wrappedEntries : tar?.layoutStorage?.unavailableReason,
             chunkMap: verifier.map, chunkMapUnavailableReason: verifier.mapUnavailableReason,
             archiveIdentity: identity, limits: options.limits)
-        return try ArchiveReader(sharing: output, sourceURL: sourceURL, options: tarOptions,
+        return try ArchiveReader(sharing: output, sourceURL: sourceURL, options: tarOptions, openingOptions: options,
             parsedReader: parsed, outputBudget: budget, stagedContainerSource: image, tarEditingState: snapshot)
     }
 

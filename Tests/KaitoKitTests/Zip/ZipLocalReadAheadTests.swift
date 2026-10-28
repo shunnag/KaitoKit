@@ -92,7 +92,7 @@ final class ZipLocalReadAheadTests: XCTestCase {
             XCTAssertLessThanOrEqual(traces[1].reduce(0) { $0 + $1.count },
                                     Int(bound - lower) + traces[0].reduce(0) { $0 + $1.count }, id)
             if id == "gap-100" { XCTAssertEqual(traces[1].count, 1) }
-            if id == "gap-8192" { XCTAssertEqual(traces[1].first?.count, 30); XCTAssertEqual(traces[1].count, 2) }
+            if id == "gap-8192" { XCTAssertEqual(traces[1].first?.count, 34); XCTAssertEqual(traces[1].count, 2) }
         }
     }
 

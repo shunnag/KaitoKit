@@ -92,6 +92,12 @@ make_archive -t7z -m0=LZMA2 -pKaitoFuzz -mhe=on "$OUTPUT_DIR/7z-aes.7z"
 
 install_seed "$RAR4_LZ_SEED" "$OUTPUT_DIR/rar4-lz.rar"
 install_seed "$RAR4_PPMD_SEED" "$OUTPUT_DIR/rar4-ppmd.rar"
+# RAR 6.24 の各標準 filter と PPMd solid continuation を packed 変異へ渡す。
+RAR4_FILTER_SEEDS=()
+for kind in rgb delta e8 audio ppmd-solid; do
+    install_seed "$ROOT_DIR/Tests/Fixtures/rar4/r0-$kind.rar.b64" "$OUTPUT_DIR/rar4-$kind.rar"
+    RAR4_FILTER_SEEDS+=("$OUTPUT_DIR/rar4-$kind.rar")
+done
 
 if [[ -n "$RAR5_LZ_SEED" ]]; then
     install_seed "$RAR5_LZ_SEED" "$OUTPUT_DIR/rar5-lz.rar"
@@ -126,6 +132,7 @@ done
 python3 - "$SCRIPT_DIR/mutate.py" \
     "$OUTPUT_DIR/rar4-lz.rar" \
     "$OUTPUT_DIR/rar4-ppmd.rar" \
+    "${RAR4_FILTER_SEEDS[@]}" \
     "$OUTPUT_DIR/rar5-lz.rar" \
     "$OUTPUT_DIR/lha-lh4.lzh" \
     "$OUTPUT_DIR/lha-lh6.lzh" \

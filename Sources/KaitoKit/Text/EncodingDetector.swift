@@ -10,6 +10,7 @@ public typealias EncodingDetection = (
 
 /// Detects and decodes archive entry names without sending valid UTF-8 to a guesser.
 public enum EncodingDetector {
+    @TaskLocal static var testingArchiveDetection: (@Sendable () -> Void)?
     // Archive-wide guessing is a heuristic. Bound both its representative
     // input and per-name scoring so unusually long central-directory names do
     // not make open time grow through repeated Foundation normalization.
@@ -100,6 +101,7 @@ public enum EncodingDetector {
         maximumBatchByteCount: Int?,
         metrics: ArchiveEncodingDetectionMetrics?
     ) -> String.Encoding? {
+        testingArchiveDetection?()
         guard !names.isEmpty else { return nil }
 
         switch policy {

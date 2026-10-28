@@ -3,7 +3,7 @@ import Foundation
 @testable import KaitoKit
 import XCTest
 
-/// Independent-member prefetching (RAR5EntryPrefetcher), the recycled decoder
+/// Independent-member prefetching (IndependentEntryPrefetcher), the recycled decoder
 /// state pool and the in-window match copy: every thread count and buffer size
 /// must deliver the serial path's bytes, errors and partial output exactly.
 final class RAR5PrefetchTests: XCTestCase {
@@ -278,7 +278,7 @@ final class RAR5PrefetchTests: XCTestCase {
         for requestedWorkers in [2, 3, 8] {
             let workers = min(requestedWorkers, LeafDecodePool.shared.capacity)
             let window = 2 * workers
-            let batchMembers = RAR5EntryPrefetcher.batchMemberLimit
+            let batchMembers = IndependentEntryPrefetcher.batchMemberLimit
             let outputSize = 64
             let scratchBytes = 128
             let batchBytes = batchMembers * (outputSize + 1) + scratchBytes
@@ -286,9 +286,9 @@ final class RAR5PrefetchTests: XCTestCase {
             // A roomy budget must not let completed, untaken batches grow
             // beyond the window; a tight budget still serves every member.
             for budget in [window * batchBytes, 8 * window * batchBytes] {
-                let prefetcher = try XCTUnwrap(RAR5EntryPrefetcher(
+                let prefetcher = try XCTUnwrap(IndependentEntryPrefetcher(
                     workers: requestedWorkers, memoryBudget: budget, memberCount: memberCount,
-                    candidate: { RAR5EntryPrefetcher.Candidate(
+                    candidate: { IndependentEntryPrefetcher.Candidate(
                         index: $0, outputSize: outputSize, scratchBytes: scratchBytes
                     ) },
                     decodeBatch: { members, _ in members.map {
@@ -327,11 +327,11 @@ final class RAR5PrefetchTests: XCTestCase {
         try XCTSkipIf(LeafDecodePool.shared.capacity < 2, "needs two workers")
         let workers = 2
         let window = 2 * workers
-        let batchMembers = RAR5EntryPrefetcher.batchMemberLimit
+        let batchMembers = IndependentEntryPrefetcher.batchMemberLimit
         let budget = 1 << 20
-        let prefetcher = try XCTUnwrap(RAR5EntryPrefetcher(
+        let prefetcher = try XCTUnwrap(IndependentEntryPrefetcher(
             workers: workers, memoryBudget: budget, memberCount: 12 * batchMembers,
-            candidate: { RAR5EntryPrefetcher.Candidate(index: $0, outputSize: 64, scratchBytes: 128) },
+            candidate: { IndependentEntryPrefetcher.Candidate(index: $0, outputSize: 64, scratchBytes: 128) },
             decodeBatch: { members, _ in members.map {
                 Data(repeating: UInt8(truncatingIfNeeded: $0.index), count: $0.outputSize)
             } }
@@ -376,9 +376,9 @@ final class RAR5PrefetchTests: XCTestCase {
         let entered = expectation(description: "batch entered decoder")
         let gate = PrefetchGate()
         defer { gate.open() }
-        let prefetcher = try XCTUnwrap(RAR5EntryPrefetcher(
+        let prefetcher = try XCTUnwrap(IndependentEntryPrefetcher(
             workers: 2, memoryBudget: 4_096, memberCount: 4,
-            candidate: { RAR5EntryPrefetcher.Candidate(index: $0, outputSize: 64, scratchBytes: 128) },
+            candidate: { IndependentEntryPrefetcher.Candidate(index: $0, outputSize: 64, scratchBytes: 128) },
             decodeBatch: { members, _ in
                 entered.fulfill()
                 gate.wait()
@@ -424,9 +424,9 @@ final class RAR5PrefetchTests: XCTestCase {
 
     func testFailedAndRepeatedTakesDoNotConsumeOtherOutputs() throws {
         try XCTSkipIf(LeafDecodePool.shared.capacity < 2, "needs two workers")
-        let prefetcher = try XCTUnwrap(RAR5EntryPrefetcher(
+        let prefetcher = try XCTUnwrap(IndependentEntryPrefetcher(
             workers: 2, memoryBudget: 4_096, memberCount: 4,
-            candidate: { RAR5EntryPrefetcher.Candidate(index: $0, outputSize: 64, scratchBytes: 128) },
+            candidate: { IndependentEntryPrefetcher.Candidate(index: $0, outputSize: 64, scratchBytes: 128) },
             decodeBatch: { members, _ in members.map { $0.index == 1 ? nil : Data(repeating: 1, count: 64) } }
         ))
         prefetcher.schedule(after: 0)
@@ -448,10 +448,10 @@ final class RAR5PrefetchTests: XCTestCase {
         let spanReads = Counter()
         // Two 100-byte segments separated by 28 bytes: output + scratch + 228-byte span.
         let budget = 2 * 17 + 128 + 228
-        let prefetcher = try XCTUnwrap(RAR5EntryPrefetcher(
+        let prefetcher = try XCTUnwrap(IndependentEntryPrefetcher(
             workers: 2, memoryBudget: budget, memberCount: 4,
             candidate: { index in
-                RAR5EntryPrefetcher.Candidate(
+                IndependentEntryPrefetcher.Candidate(
                     index: index, outputSize: 16, scratchBytes: 128,
                     packedSegment: SourceSegment(source: file, offset: UInt64(32 + (index - 1) * 128), length: 100)
                 )
@@ -488,16 +488,16 @@ final class RAR5PrefetchTests: XCTestCase {
 
     func testPrefetcherDeliversInOrderDropsPassedBatchesAndStopsWhenAbandoned() throws {
         let decoded = Counter()
-        let prefetcher = try XCTUnwrap(RAR5EntryPrefetcher(
+        let prefetcher = try XCTUnwrap(IndependentEntryPrefetcher(
             workers: 3,
             memoryBudget: 1 << 30,
             memberCount: 1_000,
             candidate: { index in
                 // Every third member is ineligible; member 500 is "too large".
                 guard index % 3 != 2 else { return nil }
-                return RAR5EntryPrefetcher.Candidate(
+                return IndependentEntryPrefetcher.Candidate(
                     index: index,
-                    outputSize: index == 500 ? RAR5EntryPrefetcher.maximumMemberSize + 1 : 64,
+                    outputSize: index == 500 ? IndependentEntryPrefetcher.maximumMemberSize + 1 : 64,
                     scratchBytes: 128
                 )
             },
@@ -544,13 +544,13 @@ final class RAR5PrefetchTests: XCTestCase {
     }
 
     func testPrefetcherNeedsTwoWorkersAndRespectsTheBudgetWhenScheduling() throws {
-        XCTAssertNil(RAR5EntryPrefetcher(
+        XCTAssertNil(IndependentEntryPrefetcher(
             workers: 1, memoryBudget: 1 << 30, memberCount: 10,
             candidate: { _ in nil }, decodeBatch: { _, _ in [] }
         ))
-        let prefetcher = try XCTUnwrap(RAR5EntryPrefetcher(
+        let prefetcher = try XCTUnwrap(IndependentEntryPrefetcher(
             workers: 4, memoryBudget: 3 * 1_024 + 2 * 128 + 10, memberCount: 100,
-            candidate: { RAR5EntryPrefetcher.Candidate(index: $0, outputSize: 1_024, scratchBytes: 128) },
+            candidate: { IndependentEntryPrefetcher.Candidate(index: $0, outputSize: 1_024, scratchBytes: 128) },
             decodeBatch: { members, _ in members.map { Data(repeating: 1, count: $0.outputSize) } }
         ))
         prefetcher.schedule(after: 0)

@@ -45,9 +45,9 @@ final class RAR5Reader: FormatReader {
     }
     private let solidPriming = SolidPriming()
     // Decodes later independent members on the leaf pool; nil below two workers.
-    private lazy var prefetcher: RAR5EntryPrefetcher? = makePrefetcher()
+    private lazy var prefetcher: IndependentEntryPrefetcher? = makePrefetcher()
     // Test hook: creates the prefetcher if the first stream has not yet.
-    var prefetcherForTesting: RAR5EntryPrefetcher? { prefetcher }
+    var prefetcherForTesting: IndependentEntryPrefetcher? { prefetcher }
     var pooledScratchByteCount: Int { scratchPool.heldByteCount }
 
     var resolvedPassword: String? { password }
@@ -509,12 +509,12 @@ final class RAR5Reader: FormatReader {
 
     // MARK: - Independent-member prefetch
 
-    private func makePrefetcher() -> RAR5EntryPrefetcher? {
+    private func makePrefetcher() -> IndependentEntryPrefetcher? {
         let workers = options.resolvedDecodeThreads
         guard workers >= 2 else { return nil }
         let entries = entries, records = records, options = options
         let limits = options.limits, scratchPool = scratchPool, sourceURL = sourceURL
-        return RAR5EntryPrefetcher(
+        return IndependentEntryPrefetcher(
             workers: workers,
             memoryBudget: limits.resolvedParallelDecodeMemory(),
             memberCount: records.count,
@@ -536,7 +536,7 @@ final class RAR5Reader: FormatReader {
         _ index: Int,
         entries: [ArchiveEntry],
         records: [RAR5EntryRecord]
-    ) -> RAR5EntryPrefetcher.Candidate? {
+    ) -> IndependentEntryPrefetcher.Candidate? {
         guard entries.indices.contains(index), records.indices.contains(index) else { return nil }
         let entry = entries[index]
         let record = records[index]
@@ -551,7 +551,7 @@ final class RAR5Reader: FormatReader {
             expectedSize: unpackedSize, dictionarySize: dictionarySize
         )
         // ここでは入力範囲の計画だけを行い、worker の照合前に復号・出力しない。
-        return RAR5EntryPrefetcher.Candidate(
+        return IndependentEntryPrefetcher.Candidate(
             index: index,
             outputSize: outputSize,
             scratchBytes: packedSize + window + RAR5Decoder.ScratchPool.stateOverheadBytes,
@@ -565,7 +565,7 @@ final class RAR5Reader: FormatReader {
     /// one file the whole span is read with a single call. A member that fails
     /// here is left nil for the serial path to decode and report.
     private static func decodeIndependentBatch(
-        _ members: [RAR5EntryPrefetcher.Candidate],
+        _ members: [IndependentEntryPrefetcher.Candidate],
         records: [RAR5EntryRecord],
         options: ReaderOptions,
         limits: ReadLimits,

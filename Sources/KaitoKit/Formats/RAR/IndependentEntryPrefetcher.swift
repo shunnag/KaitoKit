@@ -1,6 +1,11 @@
 import Foundation
 
-/// Decodes independent (non-solid) RAR5 members ahead of the reader on the
+// Provenance:
+// - Renamed mechanically from KaitoKit's own RAR5EntryPrefetcher; scheduling,
+//   packed-span reads and lifecycle behavior are shared by RAR4 and RAR5.
+// No unrar, 7-Zip, XADMaster, or The Unarchiver source was used.
+
+/// Decodes independent (non-solid) members ahead of the reader on the
 /// shared leaf pool while the caller still consumes earlier members in order.
 ///
 /// Consecutive eligible members are grouped into batches so that tens of
@@ -11,7 +16,7 @@ import Foundation
 /// decodes it serially, which reproduces the exact error and partial output of
 /// the serial path. A waiting consumer runs its own unstarted batch inline
 /// after one poll, so a saturated pool never blocks the caller.
-final class RAR5EntryPrefetcher: @unchecked Sendable {
+final class IndependentEntryPrefetcher: @unchecked Sendable {
     struct Candidate: Sendable {
         let index: Int
         let outputSize: Int
@@ -46,9 +51,9 @@ final class RAR5EntryPrefetcher: @unchecked Sendable {
     /// Releases the batch's memory reservation once both the registry entry
     /// and the (possibly never started) job have let go of it.
     private final class Reservation: @unchecked Sendable {
-        private weak var owner: RAR5EntryPrefetcher?
+        private weak var owner: IndependentEntryPrefetcher?
         private let bytes: Int
-        init(owner: RAR5EntryPrefetcher, bytes: Int) { self.owner = owner; self.bytes = bytes }
+        init(owner: IndependentEntryPrefetcher, bytes: Int) { self.owner = owner; self.bytes = bytes }
         deinit { owner?.release(bytes) }
     }
 
@@ -329,7 +334,7 @@ final class PrefetchedPackedSpan: ByteSource {
         private var members = 0
         private var eligible = true
 
-        mutating func append(_ member: RAR5EntryPrefetcher.Candidate) {
+        mutating func append(_ member: IndependentEntryPrefetcher.Candidate) {
             members += 1
             guard eligible else { return }
             guard let segment = member.packedSegment,
@@ -377,7 +382,7 @@ final class PrefetchedPackedSpan: ByteSource {
         }
     }
 
-    static func read(members: [RAR5EntryPrefetcher.Candidate]) -> PrefetchedPackedSpan? {
+    static func read(members: [IndependentEntryPrefetcher.Candidate]) -> PrefetchedPackedSpan? {
         var plan = Plan()
         for member in members { plan.append(member) }
         return plan.read()

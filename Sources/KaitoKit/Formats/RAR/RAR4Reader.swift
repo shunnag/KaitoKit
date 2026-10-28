@@ -7,6 +7,9 @@ import Foundation
 //   for format behaviour (block traversal, optional-field order, Unicode-name
 //   decoding, and extended timestamps), not for code or structure:
 //   https://github.com/libarchive/libarchive/blob/master/libarchive/archive_read_support_format_rar.c
+// - Independent-member prefetch follows KaitoKit's own RAR5Reader and
+//   IndependentEntryPrefetcher; decoder storage sizes come from RAR29Decoder.
+//   Prefetch decoders reject PPMd at that decoder's model allocation boundary.
 // No 7-Zip Rar29, unrar source, XADMaster, or The Unarchiver source was used.
 
 /// Reader for the RAR 1.5-4.x container (normally called "RAR4").
@@ -40,8 +43,25 @@ final class RAR4Reader: FormatReader {
     }
     private let passwordEncodings: PasswordEncodingSelection
     private var isPasswordProbe = false
+    // Decodes later independent members on the shared leaf pool.
+    private var prefetcherInitialized = false
+    private lazy var prefetcher: IndependentEntryPrefetcher? = {
+        prefetcherInitialized = true
+        return makePrefetcher()
+    }()
+    // Test hooks use the same plans and scheduler as the public stream path.
+    var prefetcherForTesting: IndependentEntryPrefetcher? { prefetcher }
+    func prefetchCandidateForTesting(_ index: Int) -> IndependentEntryPrefetcher.Candidate? {
+        Self.prefetchCandidate(index, entries: entries, records: records)
+    }
 
     var resolvedPassword: String? { password }
+
+    deinit {
+        // An in-flight job retains the scheduler, so reader teardown must
+        // explicitly stop it without creating an otherwise unused scheduler.
+        if prefetcherInitialized { prefetcher?.abandon() }
+    }
 
     init(
         source: any ByteSource,
@@ -200,23 +220,35 @@ final class RAR4Reader: FormatReader {
                 compressedSize: record.unpackedSize
             )
         case RAR4Method.compressed:
-            decompressor = try Self.makeCompressedDecompressor(
-                source: payload.source,
-                offset: payload.offset,
-                compressedSize: record.packedSize,
-                uncompressedSize: record.unpackedSize,
-                unpackVersion: record.unpackVersion,
-                method: record.method,
-                dictionarySize: record.dictionarySize,
-                isSolid: record.firstFlags & RAR4FileFlag.solid != 0,
-                limits: limits,
-                mismatchIsWrongPassword: record.isEncrypted
-            )
+            if let prefetched = try prefetcher?.take(entry.index) {
+                // The batch checked the CRC before publication. The ordinary
+                // stream below still verifies it like the serial path.
+                decompressor = try CopyDecompressor(
+                    source: DataByteSource(data: prefetched),
+                    offset: 0,
+                    compressedSize: UInt64(prefetched.count)
+                )
+            } else {
+                decompressor = try Self.makeCompressedDecompressor(
+                    source: payload.source,
+                    offset: payload.offset,
+                    compressedSize: record.packedSize,
+                    uncompressedSize: record.unpackedSize,
+                    unpackVersion: record.unpackVersion,
+                    method: record.method,
+                    dictionarySize: record.dictionarySize,
+                    isSolid: record.firstFlags & RAR4FileFlag.solid != 0,
+                    limits: limits,
+                    mismatchIsWrongPassword: record.isEncrypted
+                )
+            }
         default:
             throw KaitoError.unsupportedMethod(
                 String(format: "RAR4 method 0x%02x", record.method)
             )
         }
+
+        prefetcher?.schedule(after: entry.index)
 
         return try EntryStream(
             decompressor: decompressor,
@@ -375,6 +407,135 @@ final class RAR4Reader: FormatReader {
         }
     }
 
+    // MARK: - Independent-member prefetch
+
+    private func makePrefetcher() -> IndependentEntryPrefetcher? {
+        let workers = options.resolvedDecodeThreads
+        guard workers >= 2, !isPasswordProbe else { return nil }
+        let entries = entries, records = records, limits = options.limits
+        let modelConstructionObserver = RAR29Decoder.testingPPMdModelConstruction
+        return IndependentEntryPrefetcher(
+            workers: workers,
+            memoryBudget: limits.resolvedParallelDecodeMemory(),
+            memberCount: records.count,
+            candidate: { index in
+                Self.prefetchCandidate(index, entries: entries, records: records)
+            },
+            decodeBatch: { members, shouldStop in
+                // Dispatch does not inherit task locals. Carry the allocation
+                // observer into workers so tests cover the real batch path.
+                RAR29Decoder.$testingPPMdModelConstruction.withValue(modelConstructionObserver) {
+                    Self.decodeIndependentBatch(members, records: records, limits: limits, shouldStop: shouldStop)
+                }
+            }
+        )
+    }
+
+    /// Complete, independent, unencrypted version-29 compressed files only.
+    /// Stored members keep the same serial copy path as RAR5 stored members.
+    private static func prefetchCandidate(
+        _ index: Int,
+        entries: [ArchiveEntry],
+        records: [RAR4EntryRecord]
+    ) -> IndependentEntryPrefetcher.Candidate? {
+        guard entries.indices.contains(index), records.indices.contains(index) else { return nil }
+        let entry = entries[index], record = records[index]
+        let excludedFlags = RAR4FileFlag.solid | RAR4FileFlag.encrypted
+            | RAR4FileFlag.splitBefore | RAR4FileFlag.splitAfter
+        guard entry.solidGroup < 0, entry.kind == .file, !entry.isIncomplete,
+              (record.firstFlags | record.lastFlags) & excludedFlags == 0,
+              record.packedSegments.count == 1,
+              record.unpackVersion == 29, RAR4Method.compressed.contains(record.method),
+              record.unpackedSize > 0,
+              record.unpackedSize <= UInt64(IndependentEntryPrefetcher.maximumMemberSize),
+              let outputSize = Int(exactly: record.unpackedSize),
+              let packedSize = Int(exactly: record.packedSize),
+              let dictionarySize = Int(exactly: record.dictionarySize) else { return nil }
+        let window = RAR29Decoder.retainedWindowSize(
+            expectedSize: record.unpackedSize, dictionarySize: dictionarySize
+        )
+        // Count both lazily allocated filter buffers even for unfiltered
+        // members: concurrent extractors share the parallel decode allowance.
+        // PPMd arenas are excluded by the worker decoder before allocation.
+        let overhead = window + RAR29Decoder.huffmanTableBytes
+            + RAR29Decoder.sentinelByteCount + 2 * RARStandardFilters.rar3WorkAreaSize
+        let (scratchBytes, overflow) = packedSize.addingReportingOverflow(overhead)
+        guard !overflow else { return nil }
+        return IndependentEntryPrefetcher.Candidate(
+            index: index, outputSize: outputSize, scratchBytes: scratchBytes,
+            packedSegment: record.packedSegments.first,
+            headerOffset: entry.formatSpecific["headerOffset"].flatMap(UInt64.init)
+        )
+    }
+
+    /// Read consecutive packed bodies together when they share a plain file.
+    /// A failed member remains absent so the serial decoder reports its exact
+    /// error and partial output. Jobs capture records, never the mutable reader.
+    private static func decodeIndependentBatch(
+        _ members: [IndependentEntryPrefetcher.Candidate],
+        records: [RAR4EntryRecord],
+        limits: ReadLimits,
+        shouldStop: () -> Bool
+    ) -> [Data?] {
+        var outputs = [Data?](repeating: nil, count: members.count)
+        guard !shouldStop() else { return outputs }
+        let span = PrefetchedPackedSpan.read(members: members)
+        for (position, member) in members.enumerated() {
+            if shouldStop() { break }
+            outputs[position] = try? decodeIndependentMember(
+                records[member.index], entryIndex: member.index, limits: limits, span: span
+            )
+        }
+        return outputs
+    }
+
+    /// Drain the ordinary decoder with one spare byte to check the declared
+    /// end, then verify CRC32 before making any output available to the reader.
+    private static func decodeIndependentMember(
+        _ record: RAR4EntryRecord,
+        entryIndex: Int,
+        limits: ReadLimits,
+        span: PrefetchedPackedSpan?
+    ) throws -> Data {
+        let payload = try preparePayload(
+            record, entryIndex: entryIndex, limits: limits,
+            password: nil, keyCache: RAR3KeyCache(), unixScalars: false
+        )
+        let source: any ByteSource
+        if let span, span.covers(payload.offset, length: record.packedSize) {
+            source = span
+        } else {
+            source = payload.source
+        }
+        let decoder = try makeCompressedDecompressor(
+            source: source, offset: payload.offset, compressedSize: record.packedSize,
+            uncompressedSize: record.unpackedSize, unpackVersion: record.unpackVersion,
+            method: record.method, dictionarySize: record.dictionarySize,
+            isSolid: false, limits: limits, mismatchIsWrongPassword: false,
+            allowsPPMd: false
+        )
+        let size = try Checked.toInt(record.unpackedSize)
+        var output = Data(count: size + 1)
+        try output.withUnsafeMutableBytes { destination in
+            var total = 0
+            while total <= size, !decoder.isFinished {
+                let count = try decoder.read(into: UnsafeMutableRawBufferPointer(
+                    rebasing: destination[total..<(size + 1)]
+                ))
+                guard count > 0 else { break }
+                total += count
+            }
+            guard total == size, decoder.isFinished else {
+                throw KaitoError.malformed("RAR4 prefetched member size mismatch")
+            }
+        }
+        output.removeLast()
+        guard CRC32.checksum(output) == record.crc32 else {
+            throw KaitoError.checksumMismatch(entry: entryIndex)
+        }
+        return output
+    }
+
     private static func makeSolidVerifiedStream(
         entry: ArchiveEntry,
         record: RAR4EntryRecord,
@@ -487,7 +648,8 @@ final class RAR4Reader: FormatReader {
         isSolid: Bool,
         limits: ReadLimits,
         solidState: RAR29Decoder.SolidState? = nil,
-        mismatchIsWrongPassword: Bool
+        mismatchIsWrongPassword: Bool,
+        allowsPPMd: Bool = true
     ) throws -> any Decompressor {
         do {
             let decoder = try RAR29Decoder(
@@ -500,7 +662,8 @@ final class RAR4Reader: FormatReader {
                 dictionarySize: dictionarySize,
                 isSolid: isSolid,
                 limits: limits,
-                solidState: solidState
+                solidState: solidState,
+                allowsPPMd: allowsPPMd
             )
             guard mismatchIsWrongPassword else { return decoder }
             return RARPasswordAmbiguousDecompressor(

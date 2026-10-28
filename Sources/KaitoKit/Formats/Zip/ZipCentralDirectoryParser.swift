@@ -26,6 +26,7 @@ struct ZipEntryRecord: Sendable {
     let usesZIP64: Bool
     var availableCompressedSize: UInt64? = nil
     var hasKnownCompressedSize = true
+    var localMetadataSizeHint = 0
 }
 
 /// 中央ディレクトリの位置。`archiveBase` は書庫内の相対 offset を絶対位置へ直す基準（SFX の前置きの長さ）で、
@@ -291,7 +292,8 @@ enum ZipCentralDirectoryParser {
                 encryption: encryption,
                 usesZIP64: extraFields.contains { $0.identifier == ZipExtraFieldID.zip64 },
                 availableCompressedSize: extent?.availableSize,
-                hasKnownCompressedSize: extent?.unknownSize != true
+                hasKnownCompressedSize: extent?.unknownSize != true,
+                localMetadataSizeHint: header.rawName.count + header.extra.count
             ))
         }
 

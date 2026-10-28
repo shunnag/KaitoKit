@@ -263,7 +263,7 @@ final class RAR5QuickOpenVerificationTests: XCTestCase {
         let reader = try RAR5Reader(source: probe, options: Q.options())
         let members = reader.recordsForTesting.enumerated().map { index, record in
             let segment = record.packedSegments[0]
-            return RAR5EntryPrefetcher.Candidate(index: index, outputSize: 32, scratchBytes: 0,
+            return IndependentEntryPrefetcher.Candidate(index: index, outputSize: 32, scratchBytes: 0,
                 packedSegment: SourceSegment(source: file, offset: segment.offset, length: segment.length),
                 headerOffset: record.headerOffset)
         }

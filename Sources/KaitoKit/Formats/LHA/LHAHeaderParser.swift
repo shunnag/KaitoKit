@@ -30,7 +30,8 @@ enum LHAHeaderParser {
         policy: EncodingPolicy,
         limits: ReadLimits,
         startOffset: UInt64 = 0,
-        recoverDamagedArchives: Bool = false
+        recoverDamagedArchives: Bool = false,
+        inputLatency: InputLatency = .low
     ) throws -> LHAParsedArchive {
         var pendingEntries: [LHAPendingEntry?] = []
         var records: [LHAEntryRecord] = []
@@ -40,13 +41,16 @@ enum LHAHeaderParser {
         var terminator: LHAArchiveTerminator?
         var sawAnonymousRegularMember = false
         var retainedPendingMetadataSize: UInt64 = 0
-        var reader = try ByteReader(source: source)
+        // 最初の byte・prefix・拡張 header を同じ窓に通す。本文を飛び越えた後に
+        // ByteReader の大きな窓と exact read で同じ本文を再取得しない。
+        let window = HeaderWindowByteSource(base: source,
+            planner: HeaderReadPlanner(inputLatency == .high ? .adaptive : .fixed(16 << 10)),
+            maximumReadSize: max(1, Int(clamping: limits.maxMetadataSize)))
         var timestampDecoder = DOSTimestampDecoder()
 
         while offset < source.length {
             try checkCancellation(every: pendingEntries.count)
-            try reader.seek(to: offset)
-            let firstByte = try reader.readUInt8()
+            let firstByte = try readByteRange(source: window, offset: offset, count: 1)[0]
             if firstByte == 0 {
                 foundEndMarker = true
                 if !recoverDamagedArchives { terminator = .zeroByte(offset: offset) }
@@ -60,17 +64,19 @@ enum LHAHeaderParser {
             }
             let prefixCount = try Checked.toInt(min(remaining, 26))
             let prefix = try readByteRange(
-                source: source,
+                source: window,
                 offset: offset,
                 count: prefixCount
             )
+            // prefix が窓の末尾を跨いでも、base header の再読で古い窓へ戻らない。
+            window.seed(offset: offset, bytes: prefix)
             let level = prefix[20]
             let parsed: ParsedHeader
             do {
                 switch level {
                 case 0:
                     parsed = try parseLevel0(
-                        source: source,
+                        source: window,
                         offset: offset,
                         firstByte: firstByte,
                         limits: limits,
@@ -79,7 +85,7 @@ enum LHAHeaderParser {
                     )
                 case 1:
                     parsed = try parseLevel1(
-                        source: source,
+                        source: window,
                         offset: offset,
                         firstByte: firstByte,
                         limits: limits,
@@ -88,14 +94,14 @@ enum LHAHeaderParser {
                     )
                 case 2:
                     parsed = try parseLevel2(
-                        source: source,
+                        source: window,
                         offset: offset,
                         limits: limits,
                         recoverDamagedArchives: recoverDamagedArchives
                     )
                 case 3:
                     parsed = try parseLevel3(
-                        source: source,
+                        source: window,
                         offset: offset,
                         limits: limits,
                         recoverDamagedArchives: recoverDamagedArchives
@@ -150,6 +156,7 @@ enum LHAHeaderParser {
                 headerLevel: record.headerLevel,
                 osID: record.osID
             ))
+            window.noteBlock(offset: offset, nextOffset: parsed.nextOffset)
             offset = parsed.nextOffset
         }
 

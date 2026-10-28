@@ -3,7 +3,7 @@ import Foundation
 /// A zero-copy view that presents a suffix of another byte source at offset
 /// zero. Container readers use this when an executable prefix precedes an
 /// otherwise native archive stream.
-final class RebasedByteSource: ByteSource, VolumeLocalityHinting {
+final class RebasedByteSource: ByteSource, VolumeLocalityHinting, ByteSourceReadAhead {
     private let source: any ByteSource
     private let baseOffset: UInt64
 
@@ -35,10 +35,15 @@ final class RebasedByteSource: ByteSource, VolumeLocalityHinting {
         }
         return count
     }
+
+    func hintReadAhead(offset: UInt64, count: UInt64) {
+        guard offset < length else { return }
+        hintByteRange(source: source, offset: baseOffset + offset, count: min(count, length - offset))
+    }
 }
 
 /// 別の source の一範囲を offset 0 から提示し、後続 member を codec が消費しないようにする。
-final class BoundedByteSource: ByteSource, VolumeLocalityHinting {
+final class BoundedByteSource: ByteSource, VolumeLocalityHinting, ByteSourceReadAhead {
     private let source: any ByteSource
     private let baseOffset: UInt64
     let isOnNonLocalVolume: Bool
@@ -61,5 +66,10 @@ final class BoundedByteSource: ByteSource, VolumeLocalityHinting {
             throw KaitoError.malformed("ByteSource returned an invalid byte count")
         }
         return actual
+    }
+
+    func hintReadAhead(offset: UInt64, count: UInt64) {
+        guard offset < length else { return }
+        hintByteRange(source: source, offset: baseOffset + offset, count: min(count, length - offset))
     }
 }

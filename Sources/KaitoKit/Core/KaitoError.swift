@@ -5,7 +5,7 @@ public enum KaitoError: Error, Sendable, Equatable {
     /// The input does not use a recognized or currently readable archive format.
     case unsupportedFormat
 
-    /// The archive uses a recognized method that is not implemented.
+    /// The archive method or requested operation is not supported.
     case unsupportedMethod(String)
 
     /// The archive contains structurally invalid data.

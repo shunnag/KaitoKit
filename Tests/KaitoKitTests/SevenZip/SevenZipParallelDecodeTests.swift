@@ -56,6 +56,65 @@ final class SevenZipParallelDecodeTests: XCTestCase {
         func record() { lock.withLock { value += 1 } }
     }
 
+    private final class FirstPageSource: ByteSource, @unchecked Sendable {
+        private let source: DataByteSource
+        private let firstEnd: UInt64
+        private let condition = NSCondition()
+        private var released = false
+        private var firstReadEnd: UInt64 = 0
+        private var laterReads = 0
+        let laterStarted = DispatchSemaphore(value: 0)
+        var length: UInt64 { source.length }
+        var firstPayloadEnd: UInt64 { condition.withLock { firstReadEnd } }
+        var completedLaterReads: Int { condition.withLock { laterReads } }
+
+        init(_ bytes: Data, firstEnd: UInt64) {
+            source = DataByteSource(bytes); self.firstEnd = firstEnd
+        }
+        func release() {
+            condition.lock(); released = true; condition.broadcast(); condition.unlock()
+        }
+        func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
+            // index の control / size / property 読み取りは gate の対象にしない。
+            if buffer.count > 4 {
+                condition.lock()
+                if offset >= firstEnd {
+                    laterStarted.signal()
+                    while !released { condition.wait() }
+                    laterReads += 1
+                } else {
+                    firstReadEnd = max(firstReadEnd, offset + UInt64(buffer.count))
+                }
+                condition.unlock()
+            }
+            return try source.read(into: buffer, at: offset)
+        }
+    }
+
+    func testFirstUnitStreamsBeforeItsTailAndLaterWorkersComplete() throws {
+        let fixture = SevenZipParallelTestSupport.raw(sizes: [1 << 20, 65_539, 65_541])
+        let firstEnd = UInt64(SevenZipParallelTestSupport.rawUnit(fixture.payloads[0]).count)
+        let source = FirstPageSource(fixture.packed, firstEnd: firstEnd)
+        defer { source.release() }
+        let diagnostics = ParallelIndependentDecompressor.Diagnostics(), submissions = Submissions()
+        let decoder = try fixture.factory(workers: 3, diagnostics: diagnostics, source: source).makeDecoder()
+        var first = [UInt8](repeating: 0, count: 17)
+        let count = try LeafDecodePool.$testingSubmission.withValue({ submissions.record() }) {
+            try first.withUnsafeMutableBytes { try decoder.read(into: $0) }
+        }
+        XCTAssertEqual(count, first.count)
+        XCTAssertEqual(Data(first), fixture.payloads[0].prefix(first.count))
+        XCTAssertEqual(submissions.count, 2, "unit 0 belongs to the consumer")
+        XCTAssertEqual(source.laterStarted.wait(timeout: .now() + 5), .success)
+        // gate が閉じたまま first bytes を受け取り、unit 0 の tail も未読。
+        // wall time の大小ではなく、完了順序だけを検証する。
+        XCTAssertEqual(source.completedLaterReads, 0)
+        XCTAssertLessThan(source.firstPayloadEnd, firstEnd)
+        source.release()
+        XCTAssertEqual(Data(first) + (try drain(decoder, bufferSize: 4_099)), fixture.output)
+        waitForRelease(diagnostics)
+    }
+
     func testReaderUsesResolvedThreadsAndReopenSnapshot() throws {
         let fixture = SevenZipParallelTestSupport.raw(), archive = fixture.archive()
         for threads: Int? in [1, nil, 16] {
@@ -66,7 +125,7 @@ final class SevenZipParallelDecodeTests: XCTestCase {
                     for entry in reader.entries { _ = try reader.read(entry) }
                 }
             }
-            XCTAssertEqual(submissions.count, threads == 16 ? fixture.payloads.count : 0)
+            XCTAssertEqual(submissions.count, threads == 16 ? fixture.payloads.count - 1 : 0)
         }
         let submissions = Submissions()
         try ReaderOptions.$testingAutomaticThreads.withValue({ _ in 2 }) {
@@ -78,7 +137,7 @@ final class SevenZipParallelDecodeTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(submissions.count, fixture.payloads.count)
+        XCTAssertEqual(submissions.count, fixture.payloads.count - 1)
     }
 
     func testSingleResetAndUnsupportedGraphsKeepSerialDecoder() throws {
@@ -248,6 +307,22 @@ final class SevenZipParallelDecodeTests: XCTestCase {
             XCTAssertThrowsError(try reader.read(reader.entries[1])) {
                 XCTAssertEqual($0 as? KaitoError, .malformed("invalid LZMA2 control byte"))
             }
+        }
+    }
+
+    func testCorruptFirstUnitPreservesPartialBytesAtReadBoundaries() throws {
+        let prefix = Data(repeating: 65, count: 524_291), last = Data(repeating: 66, count: 65_539)
+        var corrupt = try Hex.data("e00011000800003099abddc0cb070000")
+        corrupt.removeLast(); corrupt[0] = 0xC0; corrupt[6] = 1
+        let fixture = SevenZipParallelTestSupport.Fixture(
+            packed: SevenZipParallelTestSupport.rawUnit(prefix) + corrupt
+                + SevenZipParallelTestSupport.rawUnit(last) + Data([0]),
+            payloads: [prefix + Data("abcabcabcabcabcabc".utf8), last])
+        for chunk in [7, 4_099, 262_144] {
+            let expected = outcome(try fixture.factory(workers: 1).makeDecoder(), chunk: chunk)
+            XCTAssertNotNil(expected.error)
+            XCTAssertFalse(expected.bytes.isEmpty)
+            XCTAssertEqual(outcome(try fixture.factory(workers: 16).makeDecoder(), chunk: chunk), expected)
         }
     }
 

@@ -1,6 +1,9 @@
 import Foundation
 
-// 一つの同期走査だけが所有する。復号 worker には渡さず、走査中の pread だけを計時する。
+// 一つの同期走査だけが所有する。復号 worker には渡さず、header 内の read 時間を合算する。
+// 一つの header 標本に旧 read 数（raw 3、LZMA 5 / property 付き 6）の重みを持たせる。
+// 旧窓では先頭 slot に合計時間、残りに零を置く。header ごとに cold read が一回ある媒体で、
+// 二つの最大値を除く short 窓も含め、read 回数ではなく従来の打ち切り方針を保つ。
 final class LZMA2TimedScanSource: ByteSource, @unchecked Sendable {
     struct TooSlow: Error {}
 
@@ -13,6 +16,7 @@ final class LZMA2TimedScanSource: ByteSource, @unchecked Sendable {
     private var total: UInt64 = 0
     private var stallTotal: UInt64 = 0
     private var rawTotal: UInt64 = 0
+    private var headerElapsed: UInt64 = 0
     var length: UInt64 { source.length }
 
     init(source: any ByteSource, clock: @escaping @Sendable () -> UInt64) {
@@ -24,6 +28,28 @@ final class LZMA2TimedScanSource: ByteSource, @unchecked Sendable {
         let start = clock()
         let actual = try source.read(into: buffer, at: offset)
         let elapsed = clock() &- start
+        // 最大の予算 + 1 ns で飽和する。加算後もこの上限内なので、極端な遅延でも overflow しない。
+        let maximum: UInt64 = 256 * 500_000 + 1
+        headerElapsed += min(elapsed, maximum - headerElapsed)
+        return actual
+    }
+
+    func beginHeader() { headerElapsed = 0 }
+
+    func finishHeader(_ header: LZMA2ChunkHeader) throws {
+        let weight: Int
+        switch header {
+        case .end: weight = 1
+        case .uncompressed: weight = 3
+        case .compressed(_, _, _, _, let properties): weight = properties == nil ? 5 : 6
+        }
+        // header 完了時だけ判定する。重みは旧来の窓の幅を進めるためのもので、
+        // 消えた warm read に新たな latency を捏造したり、合計時間を水増ししたりしない。
+        try observe(headerElapsed)
+        for _ in 1..<weight { try observe(0) }
+    }
+
+    private func observe(_ elapsed: UInt64) throws {
         // 各窓の標本をそれぞれの予算 + 1 ns に抑え、極端な遅延でも合計の桁あふれを防ぐ。
         let shortBudget: UInt64 = 14 * 500_000
         let sample = min(elapsed, shortBudget + 1)
@@ -60,6 +86,5 @@ final class LZMA2TimedScanSource: ByteSource, @unchecked Sendable {
             || rawTotal > rawBudget {
             throw TooSlow()
         }
-        return actual
     }
 }

@@ -8,6 +8,8 @@ import Foundation
 //   for behaviour (block/table transitions, match state, and validation), not
 //   for code or structure:
 //   https://github.com/libarchive/libarchive/blob/master/libarchive/archive_read_support_format_rar.c
+// - Buffer reuse, retained windows and partial Huffman initialization follow
+//   KaitoKit's own RAR5 decoder patterns.
 // No 7-Zip Rar29, unrar source, XADMaster, or The Unarchiver source was used.
 
 /// RAR 2.9/3.x LZ decoder.
@@ -159,11 +161,16 @@ final class RAR29Decoder: Decompressor {
             window = raw.bindMemory(to: UInt8.self, capacity: size)
             windowSize = size
             windowMask = size - 1
-            window.initialize(repeating: 0, count: size)
+            // historySize starts at zero. Both LZ and PPMd matches require
+            // distance <= historySize before reading; literals and completed
+            // matches initialize exactly the history they add. Solid members
+            // retain that history and never resize this ring. Filters read
+            // separately captured bytes, not unused dictionary storage. The
+            // bounded match copier never reads past a period or ring end, so
+            // the window needs neither a zero fill nor a sentinel tail.
         }
 
         deinit {
-            window.deinitialize(count: windowSize)
             free(UnsafeMutableRawPointer(window))
         }
     }
@@ -172,6 +179,7 @@ final class RAR29Decoder: Decompressor {
     private let inputCount: Int
     private let solidState: SolidState
     private let expectedSize: UInt64
+    private let declaredDictionarySize: Int
     private let maximumFilterCount: Int
     private let maximumPPMdMemorySize: UInt64
 
@@ -184,9 +192,11 @@ final class RAR29Decoder: Decompressor {
     private var pendingLength = 0
     private var scheduledFilters: [ScheduledFilter] = []
     private var nextFilterIndex = 0
-    private var filterCapture: [UInt8] = []
+    private var filterInput: UnsafeMutablePointer<UInt8>?
+    private var filterOutput: UnsafeMutablePointer<UInt8>?
+    private var filterFillCount = 0
     private var filterCaptureStart: UInt64?
-    private var filteredOutput: [UInt8] = []
+    private var filteredOutputCount = 0
     private var filteredOutputIndex = 0
     private var blockMode: BlockMode = .lz
     private var ppmdRangeDecoder: RARPPMdRangeDecoder?
@@ -265,7 +275,9 @@ final class RAR29Decoder: Decompressor {
                         "RAR4 solid continuation requires shared state"
                     )
                 }
-                state = try SolidState(dictionarySize: dictionarySize)
+                state = try SolidState(dictionarySize: UInt64(Self.retainedWindowSize(
+                    expectedSize: expectedSize, dictionarySize: dictionaryCount
+                )))
             }
         } catch {
             free(inputRaw)
@@ -274,15 +286,18 @@ final class RAR29Decoder: Decompressor {
 
         self.inputCount = compressedCount
         self.expectedSize = expectedSize
+        self.declaredDictionarySize = dictionaryCount
         self.solidState = state
         self.maximumFilterCount = limits.maxMetadataRecordCount
         self.maximumPPMdMemorySize = limits.maxDictionarySize
         self.input = inputRaw.bindMemory(to: UInt8.self, capacity: inputAllocationCount)
         self.needsInitialTables = !isSolid || state.nextFileRequiresTables
         if isSolid { state.continuationReady = false }
-        self.input.initialize(
-            repeating: 0,
-            count: inputAllocationCount
+        // All packed bytes are filled before any decoder can read them.
+        // Only the bounded 40-bit peek's eight-byte sentinel needs zeroing;
+        // compressedCount + sentinelByteCount was checked above.
+        self.input.advanced(by: compressedCount).initialize(
+            repeating: 0, count: Self.sentinelByteCount
         )
 
         do {
@@ -310,8 +325,21 @@ final class RAR29Decoder: Decompressor {
     }
 
     deinit {
-        input.deinitialize(count: inputCount + Self.sentinelByteCount)
         free(UnsafeMutableRawPointer(input))
+        if let filterInput { free(UnsafeMutableRawPointer(filterInput)) }
+        if let filterOutput { free(UnsafeMutableRawPointer(filterOutput)) }
+    }
+
+    /// Only an independent member can shrink: its complete known output fits
+    /// in this power-of-two ring. Supplied solid states retain the full group
+    /// dictionary. Starting at one also supports small synthetic dictionaries.
+    static func retainedWindowSize(expectedSize: UInt64, dictionarySize: Int) -> Int {
+        guard expectedSize < UInt64(dictionarySize) else { return dictionarySize }
+        var size = 1
+        // dictionarySize is a positive power of two representable by Int;
+        // each doubling is at most dictionarySize and cannot overflow.
+        while UInt64(size) < expectedSize { size *= 2 }
+        return size
     }
 
     func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
@@ -397,22 +425,21 @@ final class RAR29Decoder: Decompressor {
                 failure = .truncated
                 break
             }
-            if filteredOutputIndex < filteredOutput.count {
+            if filteredOutputIndex < filteredOutputCount {
                 let count = min(
-                    filteredOutput.count - filteredOutputIndex,
+                    filteredOutputCount - filteredOutputIndex,
                     buffer.count - outputCount
                 )
-                filteredOutput.withUnsafeBytes { source in
-                    UnsafeMutableRawPointer(destination.advanced(by: outputCount)).copyMemory(
-                        from: source.baseAddress!.advanced(by: filteredOutputIndex),
-                        byteCount: count
-                    )
-                }
+                // The ready range was fully captured/transformed. Both
+                // offsets plus count stay within that range and caller output.
+                destination.advanced(by: outputCount).update(
+                    from: filterInput!.advanced(by: filteredOutputIndex), count: count
+                )
                 filteredOutputIndex += count
                 outputCount += count
                 localEmitted += UInt64(count)
-                if filteredOutputIndex == filteredOutput.count {
-                    filteredOutput.removeAll(keepingCapacity: true)
+                if filteredOutputIndex == filteredOutputCount {
+                    filteredOutputCount = 0
                     filteredOutputIndex = 0
                 }
                 continue
@@ -422,11 +449,11 @@ final class RAR29Decoder: Decompressor {
                nextFilterIndex < scheduledFilters.count {
                 let filter = scheduledFilters[nextFilterIndex]
                 guard filter.start == captureStart,
-                      filterCapture.count <= filter.length else {
+                      filterFillCount <= filter.length else {
                     failure = .malformed("RAR3 filter capture state is inconsistent")
                     break
                 }
-                if filterCapture.count == filter.length {
+                if filterFillCount == filter.length {
                     do {
                         try prepareCapturedFilters(start: captureStart)
                     } catch let kaito as KaitoError {
@@ -450,9 +477,14 @@ final class RAR29Decoder: Decompressor {
                         failure = .malformed("RAR3 raw and emitted positions diverged")
                         break
                     }
+                    do {
+                        try ensureFilterBuffers()
+                    } catch {
+                        failure = .limitExceeded("unable to allocate RAR4 filter buffers")
+                        break
+                    }
                     filterCaptureStart = filter.start
-                    filterCapture.removeAll(keepingCapacity: true)
-                    filterCapture.reserveCapacity(filter.length)
+                    filterFillCount = 0
                     continue
                 }
             }
@@ -471,7 +503,7 @@ final class RAR29Decoder: Decompressor {
                         windowPosition: &windowPosition,
                         distance: matchDistance,
                         remaining: &matchRemaining,
-                        maximumCount: filter.length - filterCapture.count,
+                        maximumCount: filter.length - filterFillCount,
                         outputPosition: &outputPosition
                     )
                     historySize += min(windowSize - historySize, Int(outputPosition - previousPosition))
@@ -515,7 +547,10 @@ final class RAR29Decoder: Decompressor {
                         windowPosition = (windowPosition + 1) & windowMask
                         historySize = min(windowSize, historySize + 1)
                         if filterCaptureStart != nil {
-                            filterCapture.append(byte)
+                            // Capture is checked for completion before each
+                            // token; length <= the allocated work area.
+                            filterInput![filterFillCount] = byte
+                            filterFillCount += 1
                         } else {
                             destination[outputCount] = byte
                             outputCount += 1
@@ -580,7 +615,9 @@ final class RAR29Decoder: Decompressor {
                 windowPosition = (windowPosition + 1) & windowMask
                 historySize = min(windowSize, historySize + 1)
                 if filterCaptureStart != nil {
-                    filterCapture.append(byte)
+                    // As above, the active capture has at least one free byte.
+                    filterInput![filterFillCount] = byte
+                    filterFillCount += 1
                 } else {
                     destination[outputCount] = byte
                     outputCount += 1
@@ -765,7 +802,7 @@ final class RAR29Decoder: Decompressor {
                   localEmitted == expectedSize,
                   matchRemaining == 0,
                   filterCaptureStart == nil,
-                  filteredOutput.isEmpty,
+                  filteredOutputCount == 0,
                   nextFilterIndex == scheduledFilters.count else {
                 failure = .truncated
                 terminalFailure = failure
@@ -965,11 +1002,13 @@ final class RAR29Decoder: Decompressor {
             context: RAR3FilterToken.Context(
                 outputPosition: outputPosition,
                 expectedSize: expectedSize,
-                windowSize: solidState.windowSize,
+                // Filter grammar is bounded by the declared dictionary, even
+                // when this independent member retains a smaller history ring.
+                windowSize: declaredDictionarySize,
                 programs: solidState.filterPrograms,
                 lastProgram: solidState.lastFilterProgram,
                 maximumProgramCount: maximumFilterCount,
-                canResetPrograms: filterCaptureStart == nil && filteredOutput.isEmpty
+                canResetPrograms: filterCaptureStart == nil && filteredOutputCount == 0
             )
         )
         return resolveFilter(token)
@@ -1019,35 +1058,79 @@ final class RAR29Decoder: Decompressor {
         scheduledFilters.append(filter)
     }
 
+    private func ensureFilterBuffers() throws {
+        guard filterInput == nil else { return }
+        // The descriptor parser bounds every capture by rar3WorkAreaSize,
+        // independently of the retained ring. Allocate once per member and
+        // ping-pong for stacked transforms without copying between Arrays.
+        let capacity = RARStandardFilters.rar3WorkAreaSize
+        guard let inputRaw = malloc(capacity) else {
+            throw KaitoError.limitExceeded("unable to allocate RAR4 filter buffers")
+        }
+        guard let outputRaw = malloc(capacity) else {
+            free(inputRaw)
+            throw KaitoError.limitExceeded("unable to allocate RAR4 filter buffers")
+        }
+        filterInput = inputRaw.bindMemory(to: UInt8.self, capacity: capacity)
+        filterOutput = outputRaw.bindMemory(to: UInt8.self, capacity: capacity)
+    }
+
     private func prepareCapturedFilters(start: UInt64) throws {
-        guard filteredOutput.isEmpty,
+        guard filteredOutputCount == 0,
               filterCaptureStart == start,
-              nextFilterIndex < scheduledFilters.count else {
+              nextFilterIndex < scheduledFilters.count,
+              var input = filterInput, var output = filterOutput else {
             throw KaitoError.malformed("RAR3 filter output state is inconsistent")
         }
-        var bytes = filterCapture
         var index = nextFilterIndex
         repeat {
             let filter = scheduledFilters[index]
-            guard filter.start == start, filter.length == bytes.count else {
+            guard filter.start == start, filter.length == filterFillCount else {
                 throw KaitoError.malformed("RAR3 stacked filter range is inconsistent")
             }
-            try RARStandardFilters.apply(
-                filter.kind,
-                to: &bytes,
-                fileOffset: start,
-                channels: Int(filter.registers[0]),
-                width: Int(filter.registers[0]),
-                positionR: Int(filter.registers[1]),
-                addressMode: .rar3
-            )
+            // Both allocations hold a full work area. Capture initialized this
+            // entire validated range; each transform initializes its complete
+            // output before it becomes the next stacked filter's input.
+            let source = UnsafeMutableRawBufferPointer(start: input, count: filter.length)
+            let destination = UnsafeMutableRawBufferPointer(start: output, count: filter.length)
+            switch filter.kind {
+            case .delta:
+                try RARStandardFilters.decodeDelta(
+                    input: UnsafeRawBufferPointer(source), output: destination,
+                    channels: Int(filter.registers[0])
+                )
+                swap(&input, &output)
+            case .rgb:
+                try RARStandardFilters.decodeRGB(
+                    input: UnsafeRawBufferPointer(source), output: destination,
+                    width: Int(filter.registers[0]), positionR: Int(filter.registers[1])
+                )
+                swap(&input, &output)
+            case .audio:
+                try RARStandardFilters.decodeAudio(
+                    input: UnsafeRawBufferPointer(source), output: destination,
+                    channels: Int(filter.registers[0])
+                )
+                swap(&input, &output)
+            case .e8, .e8e9:
+                try RARStandardFilters.e8(
+                    source, fileOffset: start, includeE9: filter.kind == .e8e9,
+                    addressMode: .rar3
+                )
+            case .itanium:
+                try RARStandardFilters.itanium(source, fileOffset: start)
+            case .arm:
+                try RARStandardFilters.arm(source, fileOffset: start)
+            }
             index += 1
         } while index < scheduledFilters.count
             && scheduledFilters[index].start == start
 
-        filteredOutput = bytes
+        filterInput = input
+        filterOutput = output
+        filteredOutputCount = filterFillCount
         filteredOutputIndex = 0
-        filterCapture.removeAll(keepingCapacity: true)
+        filterFillCount = 0
         filterCaptureStart = nil
         nextFilterIndex = index
     }
@@ -1061,18 +1144,18 @@ final class RAR29Decoder: Decompressor {
         maximumCount: Int,
         outputPosition: inout UInt64
     ) {
-        let count = min(remaining, maximumCount)
-        guard count > 0 else { return }
-        for _ in 0..<count {
-            let sourceOffset = (windowPosition - distance)
-                & windowMask
-            let byte = window[sourceOffset]
-            window[windowPosition] = byte
-            windowPosition = (windowPosition + 1) & windowMask
-            filterCapture.append(byte)
-            outputPosition += 1
-            remaining -= 1
-        }
+        // The token loop validated distance <= historySize and the complete
+        // match against expectedSize. The capture limit is within the work
+        // allocation. copyMatchChunk stages only initialized history, handles
+        // forward overlap, and copies at most one ring turn per invocation.
+        var fill = filterFillCount
+        copyMatchChunk(
+            window: window, windowMask: windowMask, windowPosition: &windowPosition,
+            distance: distance, remaining: &remaining, output: filterInput!,
+            outputCount: &fill, outputCapacity: fill + maximumCount,
+            outputPosition: &outputPosition
+        )
+        filterFillCount = fill
     }
 
     private func readTables(bits: inout RAR29RawBitCursor) throws {
@@ -1316,7 +1399,7 @@ private struct RAR29RawBitCursor {
     }
 }
 
-/// Ten-bit primary lookup with a full 15-bit fallback. A record stores
+/// Ten-bit primary lookup with a fallback using at most 15 bits. A record stores
 /// `(bitCount, symbol + 1)`;
 /// zero therefore remains an invalid-prefix sentinel for incomplete trees.
 final class RAR29HuffmanTable {
@@ -1326,29 +1409,37 @@ final class RAR29HuffmanTable {
     private static let lookupCount = 1 << maximumBits
     private let lookup: UnsafeMutablePointer<UInt32>
     private let primary: UnsafeMutablePointer<UInt32>
+    private let scratch: UnsafeMutablePointer<Int>
+    private let counts: UnsafeMutablePointer<Int>
+    private let nextCode: UnsafeMutablePointer<Int>
+    private var lookupBits = 0
 
     init() {
         primary = .allocate(capacity: Self.primaryCount)
         primary.initialize(repeating: 0, count: Self.primaryCount)
         lookup = .allocate(capacity: Self.lookupCount)
-        lookup.initialize(repeating: 0, count: Self.lookupCount)
+        // Two disjoint 16-slot scratch regions; validated lengths 0...15
+        // bound every count/next-code subscript during builds.
+        scratch = .allocate(capacity: (Self.maximumBits + 1) * 2)
+        counts = scratch
+        nextCode = scratch.advanced(by: Self.maximumBits + 1)
     }
 
     deinit {
         primary.deinitialize(count: Self.primaryCount)
         primary.deallocate()
-        lookup.deinitialize(count: Self.lookupCount)
         lookup.deallocate()
+        scratch.deallocate()
     }
 
     func build(
         _ lengths: ArraySlice<UInt8>,
         requireSymbol: Bool = true
     ) throws {
-        primary.update(repeating: 0, count: Self.primaryCount)
-        lookup.update(repeating: 0, count: Self.lookupCount)
-        var counts = [Int](repeating: 0, count: Self.maximumBits + 1)
+        lookupBits = 0
+        counts.update(repeating: 0, count: Self.maximumBits + 1)
         var symbolCount = 0
+        var longest = 0
         for length in lengths {
             guard Int(length) <= Self.maximumBits else {
                 throw KaitoError.malformed("RAR4 Huffman length exceeds 15")
@@ -1356,6 +1447,7 @@ final class RAR29HuffmanTable {
             if length != 0 {
                 counts[Int(length)] += 1
                 symbolCount += 1
+                longest = max(longest, Int(length))
             }
         }
         guard symbolCount > 0 || !requireSymbol else {
@@ -1370,13 +1462,16 @@ final class RAR29HuffmanTable {
             }
         }
 
-        var nextCode = [Int](repeating: 0, count: Self.maximumBits + 1)
+        // Every nextCode slot read below is overwritten here; counts and
+        // nextCode are fixed raw scratch, reused across builds.
         var code = 0
         for bitCount in 1...Self.maximumBits {
             code = (code + counts[bitCount - 1]) << 1
             nextCode[bitCount] = code
         }
 
+        var primaryFilled = 0
+        var lookupFilled = 0
         for (relativeSymbol, rawLength) in lengths.enumerated() {
             let bitCount = Int(rawLength)
             guard bitCount > 0 else { continue }
@@ -1385,17 +1480,40 @@ final class RAR29HuffmanTable {
             guard canonicalCode < 1 << bitCount else {
                 throw KaitoError.malformed("invalid RAR4 canonical Huffman code")
             }
-            let first = canonicalCode << (Self.maximumBits - bitCount)
-            let repetitions = 1 << (Self.maximumBits - bitCount)
             let record = UInt32(bitCount) << 16 | UInt32(relativeSymbol + 1)
-            lookup.advanced(by: first).update(repeating: record, count: repetitions)
+            if bitCount > Self.primaryBits {
+                // canonicalCode < 2^bitCount, so this whole expanded range
+                // lies inside 2^longest <= the allocated 2^15 entries.
+                let first = canonicalCode << (longest - bitCount)
+                let repetitions = 1 << (longest - bitCount)
+                lookup.advanced(by: first).update(repeating: record, count: repetitions)
+                lookupFilled = max(lookupFilled, first + repetitions)
+            }
             if bitCount <= Self.primaryBits {
                 let primaryFirst = canonicalCode << (Self.primaryBits - bitCount)
                 let primaryRepetitions = 1 << (Self.primaryBits - bitCount)
+                // The same canonical-code bound keeps this short-code
+                // expansion within the allocated 2^10 primary entries.
                 primary.advanced(by: primaryFirst).update(
                     repeating: record, count: primaryRepetitions
                 )
+                primaryFilled = max(primaryFilled, primaryFirst + primaryRepetitions)
             }
+        }
+        // Canonical short codes fill a contiguous prefix. Only its uncovered
+        // suffix needs zeroing, including all slots of an empty optional tree.
+        primary.advanced(by: primaryFilled).update(
+            repeating: 0, count: Self.primaryCount - primaryFilled
+        )
+        if longest > Self.primaryBits {
+            // Fallback is read only for primary-zero prefixes: short-code
+            // prefixes need no fallback writes. Long codes fill the following
+            // contiguous range; clear only the invalid suffix at this build's
+            // actual bit width, so stale slots from older trees are invisible.
+            lookup.advanced(by: lookupFilled).update(
+                repeating: 0, count: (1 << longest) - lookupFilled
+            )
+            lookupBits = longest
         }
     }
 
@@ -1404,7 +1522,9 @@ final class RAR29HuffmanTable {
         // Common short codes touch a 4 KiB table rather than the 128 KiB
         // fallback. Zero covers both longer codes and invalid prefixes.
         var record = primary[Int(bits.peek(Self.primaryBits))]
-        if record == 0 { record = lookup[Int(bits.peek(Self.maximumBits))] }
+        if record == 0, lookupBits > Self.primaryBits {
+            record = lookup[Int(bits.peek(lookupBits))]
+        }
         guard record != 0 else { return -1 }
         let bitCount = Int(record >> 16)
         bits.consume(bitCount)

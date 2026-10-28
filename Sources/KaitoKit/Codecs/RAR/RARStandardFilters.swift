@@ -8,8 +8,9 @@ import Foundation
 // - bitplane/rar-research's unofficial clean-room RAR 1.5-4.x format notes.
 // - The existing KaitoKit BCJ/Delta filters and XZ Utils' 0BSD IA-64 BCJ
 //   description for the architecture-level branch encodings.
-// RAR5 decoder sources, 7-Zip Rar29, unrar, XADMaster, and The Unarchiver were
-// not used for this implementation.
+// - Raw filter work buffers follow KaitoKit's own RAR5 decoder patterns.
+// No external RAR decoder source other than libarchive was used; no unrar,
+// 7-Zip, XADMaster, or The Unarchiver source was consulted.
 
 enum RARStandardFilterKind: UInt8, Sendable, Equatable {
     case delta = 0
@@ -127,6 +128,8 @@ enum RARStandardFilters {
         }
         guard !input.isEmpty else { return }
 
+        // Channel traversal partitions output and consumes exactly one input
+        // byte per sample, so equal extents bound every raw subscript.
         let encoded = input.bindMemory(to: UInt8.self)
         let decoded = output.bindMemory(to: UInt8.self)
         var encodedIndex = 0
@@ -165,6 +168,9 @@ enum RARStandardFilters {
         }
         guard storage.count >= 5 else { return }
 
+        // cursor + 4 < count bounds the opcode and four operand bytes.
+        // Address additions/subtractions intentionally wrap at 32 bits as
+        // required by the filter; they never form a storage offset.
         let bytes = storage.bindMemory(to: UInt8.self)
         let translationRange: UInt32 = 1 << 24
         var cursor = 0
@@ -224,6 +230,8 @@ enum RARStandardFilters {
         guard storage.isEmpty || storage.baseAddress != nil else {
             throw KaitoError.malformed("RAR ARM filter buffer is invalid")
         }
+        // limit rounds down to complete four-byte instructions, bounding
+        // each raw load/store. Wrapped branch arithmetic forms no pointers.
         let bytes = storage.bindMemory(to: UInt8.self)
         let limit = storage.count & ~3
         let firstInstruction = UInt32(truncatingIfNeeded: fileOffset >> 2)
@@ -251,6 +259,8 @@ enum RARStandardFilters {
         guard storage.isEmpty || storage.baseAddress != nil else {
             throw KaitoError.malformed("RAR Itanium filter buffer is invalid")
         }
+        // Only complete 16-byte bundles are visited. Slot byte offsets are
+        // 0, 5, or 10, so every six-byte load/store stays inside its bundle.
         let bytes = storage.bindMemory(to: UInt8.self)
         let branchMask: [UInt8] = [
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -299,14 +309,42 @@ enum RARStandardFilters {
     }
 
     static func rgb(_ bytes: inout [UInt8], width: Int, positionR: Int) throws {
-        guard bytes.count >= 3,
-              (1...bytes.count).contains(width),
+        var decoded = [UInt8](repeating: 0, count: bytes.count)
+        try bytes.withUnsafeBytes { input in
+            try decoded.withUnsafeMutableBytes { output in
+                try decodeRGB(input: input, output: output, width: width, positionR: positionR)
+            }
+        }
+        bytes = decoded
+    }
+
+    /// Input and output must be distinct work buffers of equal length.
+    static func decodeRGB(
+        input: UnsafeRawBufferPointer,
+        output: UnsafeMutableRawBufferPointer,
+        width: Int,
+        positionR: Int
+    ) throws {
+        guard input.count == output.count,
+              input.baseAddress != nil, output.baseAddress != nil,
+              input.count >= 3,
+              (1...input.count).contains(width),
               (0...2).contains(positionR) else {
             throw KaitoError.malformed("RAR RGB filter parameters are invalid")
         }
 
-        let encoded = bytes
-        var decoded = [UInt8](repeating: 0, count: encoded.count)
+        // The component loops consume exactly input.count encoded bytes and
+        // write every output index once. Upper/upper-right loads are checked
+        // against the output extent before dereferencing either pointer.
+        let encoded = input.bindMemory(to: UInt8.self)
+        let decoded = output.bindMemory(to: UInt8.self)
+        // For aligned widths >= 6 the predictor reads only earlier samples
+        // of this component, already written by this invocation. Other valid
+        // widths can read not-yet-written components or the current sample;
+        // preserve the original zero-initialized work-area behavior for them.
+        if width < 6 || width % 3 != 0 {
+            output.initializeMemory(as: UInt8.self, repeating: 0)
+        }
         var encodedIndex = 0
         for component in 0..<3 {
             var predictor: UInt8 = 0
@@ -340,78 +378,101 @@ enum RARStandardFilters {
             decoded[red + 2] &+= decoded[red + 1]
             red += 3
         }
-        bytes = decoded
     }
 
     static func audio(_ bytes: inout [UInt8], channels: Int) throws {
+        var decoded = [UInt8](repeating: 0, count: bytes.count)
+        try bytes.withUnsafeBytes { input in
+            try decoded.withUnsafeMutableBytes { output in
+                try decodeAudio(input: input, output: output, channels: channels)
+            }
+        }
+        bytes = decoded
+    }
+
+    /// Input and output must be distinct work buffers of equal length.
+    static func decodeAudio(
+        input: UnsafeRawBufferPointer,
+        output: UnsafeMutableRawBufferPointer,
+        channels: Int
+    ) throws {
+        guard input.count == output.count,
+              input.isEmpty || (input.baseAddress != nil && output.baseAddress != nil) else {
+            throw KaitoError.malformed("RAR Audio buffer is invalid")
+        }
         guard (1...128).contains(channels) else {
             throw KaitoError.malformed("RAR Audio channel count is outside 1...128")
         }
 
-        let encoded = bytes
-        var decoded = [UInt8](repeating: 0, count: encoded.count)
-        var encodedIndex = 0
-        for channel in 0..<min(channels, encoded.count) {
-            var coefficients = [Int](repeating: 0, count: 3)
-            var differences = [Int](repeating: 0, count: 3)
-            var previousDifference = 0
-            var accumulatedErrors = [Int](repeating: 0, count: 7)
-            var sampleCount = 0
-            var previousSample: UInt8 = 0
-            var outputIndex = channel
+        // The channel loops partition output and consume exactly one input
+        // byte for each output byte. No output is read before being written.
+        let encoded = input.bindMemory(to: UInt8.self)
+        let decoded = output.bindMemory(to: UInt8.self)
+        withUnsafeTemporaryAllocation(of: Int.self, capacity: 7) { accumulatedErrors in
+            var encodedIndex = 0
+            for channel in 0..<min(channels, encoded.count) {
+                var coefficient0 = 0, coefficient1 = 0, coefficient2 = 0
+                var difference0 = 0, difference1 = 0, difference2 = 0
+                var previousDifference = 0
+                // Seven bounded error totals live in one temporary work area,
+                // reset in place per channel and every 32 samples, never an Array.
+                accumulatedErrors.initialize(repeating: 0)
+                var sampleCount = 0
+                var previousSample: UInt8 = 0
+                var outputIndex = channel
 
-            while outputIndex < decoded.count {
-                let residual = Int(Int8(bitPattern: encoded[encodedIndex]))
-                encodedIndex += 1
-                differences[2] = differences[1]
-                differences[1] = previousDifference - differences[0]
-                differences[0] = previousDifference
+                while outputIndex < decoded.count {
+                    let residual = Int(Int8(bitPattern: encoded[encodedIndex]))
+                    encodedIndex += 1
+                    difference2 = difference1
+                    difference1 = previousDifference - difference0
+                    difference0 = previousDifference
 
-                let prediction = (
-                    8 * Int(previousSample)
-                        + coefficients[0] * differences[0]
-                        + coefficients[1] * differences[1]
-                        + coefficients[2] * differences[2]
-                ) >> 3
-                let sample = UInt8(truncatingIfNeeded: prediction - residual)
-                let scaledResidual = residual * 8
-                accumulatedErrors[0] += abs(scaledResidual)
-                accumulatedErrors[1] += abs(scaledResidual - differences[0])
-                accumulatedErrors[2] += abs(scaledResidual + differences[0])
-                accumulatedErrors[3] += abs(scaledResidual - differences[1])
-                accumulatedErrors[4] += abs(scaledResidual + differences[1])
-                accumulatedErrors[5] += abs(scaledResidual - differences[2])
-                accumulatedErrors[6] += abs(scaledResidual + differences[2])
+                    let prediction = (
+                        8 * Int(previousSample)
+                            + coefficient0 * difference0
+                            + coefficient1 * difference1
+                            + coefficient2 * difference2
+                    ) >> 3
+                    let sample = UInt8(truncatingIfNeeded: prediction - residual)
+                    let scaledResidual = residual * 8
+                    accumulatedErrors[0] += abs(scaledResidual)
+                    accumulatedErrors[1] += abs(scaledResidual - difference0)
+                    accumulatedErrors[2] += abs(scaledResidual + difference0)
+                    accumulatedErrors[3] += abs(scaledResidual - difference1)
+                    accumulatedErrors[4] += abs(scaledResidual + difference1)
+                    accumulatedErrors[5] += abs(scaledResidual - difference2)
+                    accumulatedErrors[6] += abs(scaledResidual + difference2)
 
-                previousDifference = Int(Int8(
-                    truncatingIfNeeded: Int(sample) - Int(previousSample)
-                ))
-                previousSample = sample
-                decoded[outputIndex] = sample
+                    previousDifference = Int(Int8(
+                        truncatingIfNeeded: Int(sample) - Int(previousSample)
+                    ))
+                    previousSample = sample
+                    decoded[outputIndex] = sample
 
-                if sampleCount & 31 == 0 {
-                    var best = 0
-                    for candidate in 1..<accumulatedErrors.count
-                    where accumulatedErrors[candidate] < accumulatedErrors[best] {
-                        best = candidate
+                    if sampleCount & 31 == 0 {
+                        var best = 0
+                        for candidate in 1..<accumulatedErrors.count
+                        where accumulatedErrors[candidate] < accumulatedErrors[best] {
+                            best = candidate
+                        }
+                        accumulatedErrors.update(repeating: 0)
+                        switch best {
+                        case 1 where coefficient0 >= -16: coefficient0 -= 1
+                        case 2 where coefficient0 < 16: coefficient0 += 1
+                        case 3 where coefficient1 >= -16: coefficient1 -= 1
+                        case 4 where coefficient1 < 16: coefficient1 += 1
+                        case 5 where coefficient2 >= -16: coefficient2 -= 1
+                        case 6 where coefficient2 < 16: coefficient2 += 1
+                        default: break
+                        }
                     }
-                    accumulatedErrors = [Int](repeating: 0, count: 7)
-                    switch best {
-                    case 1 where coefficients[0] >= -16: coefficients[0] -= 1
-                    case 2 where coefficients[0] < 16: coefficients[0] += 1
-                    case 3 where coefficients[1] >= -16: coefficients[1] -= 1
-                    case 4 where coefficients[1] < 16: coefficients[1] += 1
-                    case 5 where coefficients[2] >= -16: coefficients[2] -= 1
-                    case 6 where coefficients[2] < 16: coefficients[2] += 1
-                    default: break
-                    }
+                    sampleCount += 1
+                    outputIndex += channels
                 }
-                sampleCount += 1
-                outputIndex += channels
             }
+            precondition(encodedIndex == encoded.count)
         }
-        precondition(encodedIndex == encoded.count)
-        bytes = decoded
     }
 
     private static func loadUInt32LE(

@@ -1,14 +1,14 @@
-// 形式の参照資料:
-// - RAR 1.5-4.x の非公式形式ノート:
-//   https://github.com/bitplane/rar-research/blob/master/doc/RAR15_40_FORMAT_SPECIFICATION.md
-// - libarchive の BSD-2 ライセンスの archive_read_support_format_rar.c は、
-//   形式の挙動の確認にのみ参照し、コードや構造は使用していない。
-// - RARLab「RAR 5.0 archive format」:
-//   https://www.rarlab.com/technote.htm（2026-09-06 参照）。
-//   RAR5 は公開された形式記述に基づくクリーンルーム実装。
-// RARLab/UnRAR、7-Zip（Rar29 を含む）、XADMaster、The Unarchiver のソースは使用していない。
-// RAR4Reader は RAR29Decoder.SolidState と既知のサイズ（UInt64）を渡し、
-// RAR5Reader は RAR5Decoder.SolidState と省略可能なサイズ（UInt64?）を渡す。
+import Darwin
+
+// Provenance:
+// - bitplane/rar-research's unofficial RAR 1.5-4.x format notes.
+// - libarchive archive_read_support_format_rar.c (BSD-2-Clause), consulted
+//   for solid-stream behavior only, not for code or structure.
+// - RARLab, "RAR 5.0 archive format": https://www.rarlab.com/technote.htm
+// - KaitoKit's own RAR5 raw-buffer reuse pattern for drain scratch.
+// No unrar, 7-Zip, XADMaster, or The Unarchiver source was used.
+// RAR4Reader supplies RAR29Decoder.SolidState and a known UInt64 size;
+// RAR5Reader supplies RAR5Decoder.SolidState and an optional UInt64 size.
 
 protocol RARSolidState: AnyObject {
     init(dictionarySize: UInt64) throws
@@ -17,9 +17,9 @@ protocol RARSolidState: AnyObject {
 extension RAR29Decoder.SolidState: RARSolidState {}
 extension RAR5Decoder.SolidState: RARSolidState {}
 
-/// ソリッドグループをアーカイブ順に進め、世代で検証する範囲を公開する。
-/// 前方への移動は先行エントリを読み切って検証し、圧縮状態を再利用する。
-/// 後方への移動は圧縮状態を作り直し、グループの先頭から再開する。
+/// Advances a solid group in archive order and publishes generation-checked
+/// ranges. Forward seeks drain and verify predecessors while retaining state;
+/// backward seeks reconstruct state from the beginning of the group.
 final class RARSolidCoordinator<State: RARSolidState> {
     typealias StreamFactory = (
         Int,
@@ -33,6 +33,8 @@ final class RARSolidCoordinator<State: RARSolidState> {
     private let limits: ReadLimits
     private let factory: StreamFactory
 
+    private let drainCapacity = 256 * 1_024
+    private var drainScratch: UnsafeMutableRawPointer?
     private var state: State?
     private var nextPosition = 0
     private var activePosition: Int?
@@ -54,6 +56,10 @@ final class RARSolidCoordinator<State: RARSolidState> {
         self.dictionarySize = dictionarySize
         self.limits = limits
         self.factory = factory
+    }
+
+    deinit {
+        if let drainScratch { free(drainScratch) }
     }
 
     func stream(entryIndex: Int, unpackedSize: UInt64?) throws -> any Decompressor {
@@ -161,11 +167,18 @@ final class RARSolidCoordinator<State: RARSolidState> {
 
     private func drainActiveStream() throws {
         guard let activeStream else { return }
-        var scratch = [UInt8](repeating: 0, count: 256 * 1_024)
-        while activeStream.remaining != 0 {
-            let count = try scratch.withUnsafeMutableBytes {
-                try activeStream.read(into: $0)
+        if drainScratch == nil {
+            guard let scratch = malloc(drainCapacity) else {
+                throw KaitoError.limitExceeded("unable to allocate solid drain scratch")
             }
+            drainScratch = scratch
+        }
+        // EntryStream receives exactly the allocated extent and validates its
+        // returned count. It writes bytes before CRC/limit checks read them;
+        // scratch contents are never consumed here, so no zero fill is needed.
+        let scratch = UnsafeMutableRawBufferPointer(start: drainScratch!, count: drainCapacity)
+        while activeStream.remaining != 0 {
+            let count = try activeStream.read(into: scratch)
             guard count > 0 || activeStream.remaining == 0 else {
                 throw KaitoError.truncated
             }
@@ -183,14 +196,14 @@ final class RARSolidCoordinator<State: RARSolidState> {
         }
     }
 
-    /// 別グループへの切り替え時に公開済みの範囲と辞書を破棄し、
-    /// 非スレッドセーフな親リーダーが保持する辞書を一つに制限する。
+    /// Drops published ranges and the dictionary on a group switch, keeping
+    /// the non-thread-safe parent reader's retained dictionary count at one.
     func invalidateAndRelease() {
         generation &+= 1
         abandonState()
     }
 
-    /// EOF 前に破棄された範囲の世代を確認し、保持中の検証ストリームと辞書を解放する。
+    /// Checks the abandoned range's generation and releases its stream/state.
     fileprivate func releaseAbandonedRange(
         generation expectedGeneration: UInt64,
         entryIndex: Int
@@ -250,7 +263,8 @@ private final class RARSolidRangeDecompressor<State: RARSolidState>: Decompresso
     }
 }
 
-/// 独立したパスワード検証がない場合、破損した暗号文と誤った鍵による構造エラーを区別しない。
+/// Without independent password verification, structural errors from damaged
+/// ciphertext and from incorrect keys have the same password-error semantics.
 final class RARPasswordAmbiguousDecompressor: Decompressor {
     private let base: any Decompressor
     private let expectedSize: UInt64?

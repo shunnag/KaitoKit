@@ -16,30 +16,39 @@ public final class Deflate64Decompressor: Decompressor {
     private let source: any ByteSource
     private let compressedEnd: UInt64
     private let expectedSize: UInt64?
-    private let fixedLiteralDecoder: Deflate64HuffmanDecoder
-    private let fixedDistanceDecoder: Deflate64HuffmanDecoder
+    // The RFC fixed alphabets are trusted constants, built once for all entries.
+    private static let fixedLiteralDecoder = try! Deflate64HuffmanDecoder(
+        lengths: fixedLiteralCodeLengths(), alphabet: "fixed literal/length"
+    )
+    private static let fixedDistanceDecoder = try! Deflate64HuffmanDecoder(
+        lengths: [UInt8](repeating: 5, count: 32), alphabet: "fixed distance", primaryBits: 7
+    )
 
-    private var sourceOffset: UInt64
-    private var input = [UInt8](repeating: 0, count: chunkSize)
-    private var inputOffset = 0
-    private var inputCount = 0
+    // Only source-filled input and previously produced history may be read.
+    // Neither allocation needs an initialized suffix (see the bounds proof in read).
+    private let input: UnsafeMutablePointer<UInt8>
+    private let inputCapacity: Int
+    private let window: UnsafeMutablePointer<UInt8>
+    private var state: State
 
-    private var bitReservoir: UInt64 = 0
-    private var availableBits = 0
-    private var bitAlignment = 0
-
-    // Deflate64 の辞書は常に 64 KiB。未検証の展開サイズで確保しない。
-    private var window = [UInt8](repeating: 0, count: windowSize)
-    private var windowOffset = 0
-    private var totalOutput: UInt64 = 0
+    private struct State {
+        var sourceOffset: UInt64
+        var inputOffset = 0
+        var inputCount = 0
+        var bitReservoir: UInt64 = 0
+        var availableBits = 0
+        var bitAlignment = 0
+        var windowOffset = 0
+        var totalOutput: UInt64 = 0
+        var matchDistance = 0
+        var matchRemaining = 0
+    }
 
     private var blockMode = BlockMode.header
     private var isFinalBlock = false
     private var storedRemaining = 0
     private var literalDecoder: Deflate64HuffmanDecoder?
     private var distanceDecoder: Deflate64HuffmanDecoder?
-    private var matchDistance = 0
-    private var matchRemaining = 0
     private var finished = false
 
     /// Creates a Deflate64 stream over a validated byte-source range.
@@ -61,18 +70,17 @@ public final class Deflate64Decompressor: Decompressor {
         }
 
         self.source = source
-        self.sourceOffset = offset
+        self.state = State(sourceOffset: offset)
         self.compressedEnd = compressedEnd
         self.expectedSize = expectedSize
-        self.fixedLiteralDecoder = try Deflate64HuffmanDecoder(
-            lengths: Self.fixedLiteralCodeLengths(),
-            alphabet: "fixed literal/length"
-        )
-        self.fixedDistanceDecoder = try Deflate64HuffmanDecoder(
-            lengths: [UInt8](repeating: 5, count: 32),
-            alphabet: "fixed distance",
-            primaryBits: 7
-        )
+        inputCapacity = Int(min(UInt64(Self.chunkSize), max(1, compressedSize)))
+        input = .allocate(capacity: inputCapacity)
+        window = .allocate(capacity: Self.windowSize)
+    }
+
+    deinit {
+        input.deallocate()
+        window.deallocate()
     }
 
     /// Indicates whether the final block and its expected output size were validated.
@@ -90,83 +98,109 @@ public final class Deflate64Decompressor: Decompressor {
         }
 
         let outputCapacity = min(buffer.count, Self.chunkSize)
+        let output = buffer.baseAddress!.assumingMemoryBound(to: UInt8.self)
         var outputOffset = 0
+        // State is local for the entire call, including throwing reads. Commit the
+        // consumed input and partially written history on both success and failure.
+        var state = self.state
+        defer { self.state = state }
+        // totalOutput <= expectedSize and UInt64.max is maintained at every write.
+        // Each literal's outputOffset < literalLimit proves both additions safe;
+        // no checked arithmetic or optional expected-size lookup is needed per byte.
+        let literalLimit = Int(min(UInt64(outputCapacity),
+                                   min((expectedSize ?? .max) - state.totalOutput,
+                                       UInt64.max - state.totalOutput)))
 
         while outputOffset < outputCapacity, !finished {
-            if matchRemaining > 0 {
-                try copyMatch(into: buffer, outputOffset: &outputOffset, limit: outputCapacity)
+            if state.matchRemaining > 0 {
+                try copyMatch(into: output, outputOffset: &outputOffset,
+                              limit: outputCapacity, state: &state)
                 continue
             }
 
             switch blockMode {
             case .header:
-                try beginBlock()
+                try beginBlock(state: &state)
 
             case .stored:
                 if storedRemaining == 0 {
-                    try finishBlock()
+                    try finishBlock(state: &state)
                     continue
                 }
-
-                let byte = UInt8(truncatingIfNeeded: try readBits(8))
-                try emit(byte, into: buffer, at: &outputOffset)
-                storedRemaining -= 1
+                // Reservoir bytes precede buffered source bytes, even when a
+                // compressed block speculatively prefetched a stored header.
+                if state.availableBits >= 8 || outputOffset == literalLimit {
+                    let byte = UInt8(truncatingIfNeeded: try readBits(8, state: &state))
+                    try emit(byte, into: output, at: &outputOffset, limit: literalLimit, state: &state)
+                    storedRemaining -= 1
+                    continue
+                }
+                if state.inputOffset == state.inputCount { try refillInput(state: &state) }
+                guard state.inputOffset < state.inputCount else { throw KaitoError.truncated }
+                let count = min(storedRemaining, min(literalLimit - outputOffset,
+                                                     state.inputCount - state.inputOffset))
+                // count fits the caller, initialized input prefix, and remaining
+                // output budget. Split history at its ring edge; count <= 65535.
+                let source = input.advanced(by: state.inputOffset)
+                output.advanced(by: outputOffset).update(from: source, count: count)
+                let first = min(count, Self.windowSize - state.windowOffset)
+                window.advanced(by: state.windowOffset).update(from: source, count: first)
+                if first < count { window.update(from: source.advanced(by: first), count: count - first) }
+                state.inputOffset += count
+                state.windowOffset = (state.windowOffset + count) & (Self.windowSize - 1)
+                state.totalOutput &+= UInt64(count)
+                outputOffset += count
+                storedRemaining -= count
 
             case .compressed:
                 guard let literalDecoder else {
                     throw KaitoError.malformed("Deflate64 block has no literal decoder")
                 }
-                let symbol = try decode(using: literalDecoder)
-                switch symbol {
-                case 0...255:
-                    try emit(UInt8(symbol), into: buffer, at: &outputOffset)
-
-                case 256:
-                    try finishBlock()
-
-                case 257...285:
-                    let length = try decodeLength(symbol: symbol)
-                    guard let distanceDecoder else {
-                        throw KaitoError.malformed(
-                            "Deflate64 length appears without a distance alphabet"
-                        )
+                // Keep the table and state borrowed across literal runs.
+                try literalDecoder.table.withUnsafeBufferPointer { table in
+                    while outputOffset < outputCapacity, blockMode == .compressed {
+                        let symbol = try decode(using: literalDecoder, table: table, state: &state)
+                        switch symbol {
+                        case 0...255:
+                            try emit(UInt8(symbol), into: output, at: &outputOffset,
+                                     limit: literalLimit, state: &state)
+                        case 256:
+                            try finishBlock(state: &state)
+                            return
+                        case 257...285:
+                            let length = try decodeLength(symbol: symbol, state: &state)
+                            guard let distanceDecoder else {
+                                throw KaitoError.malformed("Deflate64 length appears without a distance alphabet")
+                            }
+                            let distanceSymbol = try decode(using: distanceDecoder, state: &state)
+                            let distance = try decodeDistance(symbol: distanceSymbol, state: &state)
+                            guard UInt64(distance) <= min(state.totalOutput, UInt64(Self.windowSize)) else {
+                                throw KaitoError.malformed("Deflate64 match refers beyond available history")
+                            }
+                            state.matchDistance = distance
+                            state.matchRemaining = length
+                            return
+                        case 286, 287:
+                            throw KaitoError.malformed("reserved Deflate64 literal/length symbol \(symbol)")
+                        default:
+                            throw KaitoError.malformed("invalid Deflate64 literal/length symbol \(symbol)")
+                        }
                     }
-                    let distanceSymbol = try decode(using: distanceDecoder)
-                    let distance = try decodeDistance(symbol: distanceSymbol)
-                    let availableHistory = min(totalOutput, UInt64(Self.windowSize))
-                    guard UInt64(distance) <= availableHistory else {
-                        throw KaitoError.malformed(
-                            "Deflate64 match refers beyond available history"
-                        )
-                    }
-                    matchDistance = distance
-                    matchRemaining = length
-
-                case 286, 287:
-                    throw KaitoError.malformed(
-                        "reserved Deflate64 literal/length symbol \(symbol)"
-                    )
-
-                default:
-                    throw KaitoError.malformed(
-                        "invalid Deflate64 literal/length symbol \(symbol)"
-                    )
                 }
             }
         }
-
         return outputOffset
     }
 
-    private func beginBlock() throws {
-        isFinalBlock = try readBits(1) != 0
-        let blockType = try readBits(2)
+    private func beginBlock(state: inout State) throws {
+        isFinalBlock = try readBits(1, state: &state) != 0
+        let blockType = try readBits(2, state: &state)
 
         switch blockType {
         case 0:
-            try alignToByte()
-            let length = UInt16(truncatingIfNeeded: try readBits(16))
-            let complement = UInt16(truncatingIfNeeded: try readBits(16))
+            try alignToByte(state: &state)
+            let length = UInt16(truncatingIfNeeded: try readBits(16, state: &state))
+            let complement = UInt16(truncatingIfNeeded: try readBits(16, state: &state))
             guard length == ~complement else {
                 throw KaitoError.malformed("invalid Deflate64 stored-block length")
             }
@@ -176,12 +210,12 @@ public final class Deflate64Decompressor: Decompressor {
             blockMode = .stored
 
         case 1:
-            literalDecoder = fixedLiteralDecoder
-            distanceDecoder = fixedDistanceDecoder
+            literalDecoder = Self.fixedLiteralDecoder
+            distanceDecoder = Self.fixedDistanceDecoder
             blockMode = .compressed
 
         case 2:
-            let decoders = try readDynamicDecoders()
+            let decoders = try readDynamicDecoders(state: &state)
             literalDecoder = decoders.literal
             distanceDecoder = decoders.distance
             blockMode = .compressed
@@ -194,22 +228,22 @@ public final class Deflate64Decompressor: Decompressor {
         }
     }
 
-    private func finishBlock() throws {
+    private func finishBlock(state: inout State) throws {
         storedRemaining = 0
         literalDecoder = nil
         distanceDecoder = nil
 
         if isFinalBlock {
-            if let expectedSize, totalOutput != expectedSize {
+            if let expectedSize, state.totalOutput != expectedSize {
                 throw KaitoError.malformed(
-                    "Deflate64 output size \(totalOutput) does not match expected size \(expectedSize)"
+                    "Deflate64 output size \(state.totalOutput) does not match expected size \(expectedSize)"
                 )
             }
             // 最終 block の残り 0...7 bit は byte packing の余白として許すが、
             // BFINAL の後に完全な byte が残る圧縮範囲は一つの data stream ではない。
-            guard availableBits < 8,
-                  inputOffset == inputCount,
-                  sourceOffset == compressedEnd else {
+            guard state.availableBits < 8,
+                  state.inputOffset == state.inputCount,
+                  state.sourceOffset == compressedEnd else {
                 throw KaitoError.malformed("trailing bytes after final Deflate64 block")
             }
             finished = true
@@ -218,131 +252,70 @@ public final class Deflate64Decompressor: Decompressor {
         }
     }
 
-    private func emit(
-        _ byte: UInt8,
-        into buffer: UnsafeMutableRawBufferPointer,
-        at outputOffset: inout Int
-    ) throws {
-        let nextOutput = try Checked.add(totalOutput, 1)
-        if let expectedSize, nextOutput > expectedSize {
+    @inline(__always)
+    private func emit(_ byte: UInt8, into output: UnsafeMutablePointer<UInt8>,
+                      at outputOffset: inout Int, limit: Int, state: inout State) throws {
+        guard outputOffset < limit else {
+            if state.totalOutput == .max {
+                throw KaitoError.malformed("unsigned integer addition overflow")
+            }
             throw KaitoError.malformed("Deflate64 output exceeds the expected size")
         }
-        guard outputOffset < buffer.count else {
-            throw KaitoError.malformed("Deflate64 output accounting exceeded its buffer")
-        }
-
-        // outputOffset は buffer.count 未満、windowOffset は 0..<64KiB に維持する。
-        buffer[outputOffset] = byte
-        window[windowOffset] = byte
-        outputOffset += 1
-        totalOutput = nextOutput
-
-        windowOffset += 1
-        if windowOffset == Self.windowSize {
-            windowOffset = 0
-        }
+        // outputOffset < limit <= outputCapacity; ring index is always masked.
+        output[outputOffset] = byte
+        window[state.windowOffset] = byte
+        outputOffset &+= 1
+        state.totalOutput &+= 1
+        state.windowOffset = (state.windowOffset &+ 1) & (Self.windowSize - 1)
     }
 
-    private func copyMatch(
-        into buffer: UnsafeMutableRawBufferPointer,
-        outputOffset: inout Int,
-        limit: Int
-    ) throws {
-        guard matchDistance > 0, matchDistance <= Self.windowSize else {
-            throw KaitoError.malformed("invalid Deflate64 match distance")
+    private func copyMatch(into output: UnsafeMutablePointer<UInt8>, outputOffset: inout Int,
+                           limit: Int, state: inout State) throws {
+        // The token checked 1...65536 and distance <= produced history. Therefore
+        // every old seed byte is initialized, including distance 65536 at wrap.
+        var count = min(state.matchRemaining, limit - outputOffset)
+        if let expectedSize { count = Int(min(UInt64(count), expectedSize - state.totalOutput)) }
+        let nextOutput = try Checked.add(state.totalOutput, UInt64(count))
+        let copyLimit = outputOffset + count
+        // Deflate64's maximum match is 65538. The shared primitive copies at
+        // most one ring turn; a second call handles the remaining two bytes.
+        while outputOffset < copyLimit {
+            copyLZMatchThroughWindow(window: window, windowMask: Self.windowSize - 1,
+                                     windowPosition: &state.windowOffset, distance: state.matchDistance,
+                                     remaining: &state.matchRemaining, output: output,
+                                     outputPosition: &outputOffset, outputLimit: copyLimit)
         }
-
-        var count = min(matchRemaining, limit - outputOffset)
-        if let expectedSize {
-            // Emit the same allowed prefix before reporting an oversized match.
-            count = Int(min(UInt64(count), expectedSize - totalOutput))
-        }
-        let nextOutput = try Checked.add(totalOutput, UInt64(count))
-        let destination = buffer.baseAddress!.advanced(by: outputOffset)
-        window.withUnsafeMutableBytes { history in
-            let base = history.baseAddress!
-            let source = (windowOffset + Self.windowSize - matchDistance) & (Self.windowSize - 1)
-            if matchDistance == 1 {
-                destination.initializeMemory(as: UInt8.self, repeating: history[source], count: count)
-            } else {
-                // Seed at most one period from history, splitting at the ring edge.
-                let seed = min(count, matchDistance)
-                let first = min(seed, Self.windowSize - source)
-                destination.copyMemory(from: base.advanced(by: source), byteCount: first)
-                if first < seed {
-                    destination.advanced(by: first).copyMemory(from: base, byteCount: seed - first)
-                }
-                // Expand overlapping LZ matches from the initialized output prefix.
-                // Each source/destination pair is disjoint, even for distances 2...7.
-                var copied = seed
-                while copied < count {
-                    let run = min(copied, count - copied)
-                    destination.advanced(by: copied).copyMemory(from: destination, byteCount: run)
-                    copied += run
-                }
-            }
-            // Only the last 64 KiB can remain in history. This also handles the
-            // Deflate64 maximum match (65538) and distance 65536 without aliasing.
-            let retained = min(count, Self.windowSize)
-            let skipped = count - retained
-            let start = (windowOffset + skipped) & (Self.windowSize - 1)
-            let first = min(retained, Self.windowSize - start)
-            base.advanced(by: start).copyMemory(from: destination.advanced(by: skipped), byteCount: first)
-            if first < retained {
-                base.copyMemory(from: destination.advanced(by: skipped + first), byteCount: retained - first)
-            }
-        }
-        windowOffset = (windowOffset + count) & (Self.windowSize - 1)
-        outputOffset += count
-        totalOutput = nextOutput
-        matchRemaining -= count
-        if matchRemaining > 0, outputOffset < limit {
+        state.totalOutput = nextOutput
+        if state.matchRemaining > 0, outputOffset < limit {
             throw KaitoError.malformed("Deflate64 output exceeds the expected size")
         }
-
-        if matchRemaining == 0 {
-            matchDistance = 0
-        }
+        if state.matchRemaining == 0 { state.matchDistance = 0 }
     }
 
-    private func decodeLength(symbol: Int) throws -> Int {
+    private func decodeLength(symbol: Int, state: inout State) throws -> Int {
         if symbol == 285 {
-            // Deflate64 では 285 が 3 + 16 bit。RFC 1951 の固定 258 とは異なる。
-            let extra = UInt64(try readBits(16))
-            return try Checked.toInt(try Checked.add(3, extra))
+            // APPNOTE: 3 + 16 bits, hence 3...65538 (fits Int).
+            return 3 + Int(try readBits(16, state: &state))
         }
-
-        let index = symbol - 257
-        guard index >= 0, index < Self.lengthBases.count else {
-            throw KaitoError.malformed("invalid Deflate64 length symbol")
-        }
-        let extraBitCount = Self.lengthExtraBits[index]
-        let extra = UInt64(try readBits(extraBitCount))
-        return try Checked.toInt(
-            try Checked.add(UInt64(Self.lengthBases[index]), extra)
-        )
+        let index = symbol - 257  // caller proved 257...284
+        return Self.lengthBases[index] + Int(try readBits(Self.lengthExtraBits[index], state: &state))
     }
 
-    private func decodeDistance(symbol: Int) throws -> Int {
+    private func decodeDistance(symbol: Int, state: inout State) throws -> Int {
         guard symbol >= 0, symbol < Self.distanceBases.count else {
             throw KaitoError.malformed("invalid Deflate64 distance symbol \(symbol)")
         }
-        let extraBitCount = Self.distanceExtraBits[symbol]
-        let extra = UInt64(try readBits(extraBitCount))
-        let distance = try Checked.add(UInt64(Self.distanceBases[symbol]), extra)
-        guard distance >= 1, distance <= UInt64(Self.windowSize) else {
-            throw KaitoError.malformed("Deflate64 distance exceeds 64 KiB")
-        }
-        return try Checked.toInt(distance)
+        // All 32 bases + their 0...14 extra bits are within 1...65536.
+        return Self.distanceBases[symbol] + Int(try readBits(Self.distanceExtraBits[symbol], state: &state))
     }
 
-    private func readDynamicDecoders() throws -> (
+    private func readDynamicDecoders(state: inout State) throws -> (
         literal: Deflate64HuffmanDecoder,
         distance: Deflate64HuffmanDecoder?
     ) {
-        let literalCount = Int(try readBits(5)) + 257
-        let distanceCount = Int(try readBits(5)) + 1
-        let codeLengthCount = Int(try readBits(4)) + 4
+        let literalCount = Int(try readBits(5, state: &state)) + 257
+        let distanceCount = Int(try readBits(5, state: &state)) + 1
+        let codeLengthCount = Int(try readBits(4, state: &state)) + 4
         guard (257...286).contains(literalCount),
               (1...32).contains(distanceCount),
               (4...19).contains(codeLengthCount) else {
@@ -355,7 +328,7 @@ public final class Deflate64Decompressor: Decompressor {
         ]
         var codeLengthLengths = [UInt8](repeating: 0, count: 19)
         for index in 0..<codeLengthCount {
-            codeLengthLengths[order[index]] = UInt8(truncatingIfNeeded: try readBits(3))
+            codeLengthLengths[order[index]] = UInt8(truncatingIfNeeded: try readBits(3, state: &state))
         }
         let codeLengthDecoder = try Deflate64HuffmanDecoder(
             lengths: codeLengthLengths,
@@ -367,7 +340,7 @@ public final class Deflate64Decompressor: Decompressor {
         var lengths = [UInt8]()
         lengths.reserveCapacity(totalCount)
         while lengths.count < totalCount {
-            let symbol = try decode(using: codeLengthDecoder)
+            let symbol = try decode(using: codeLengthDecoder, state: &state)
             switch symbol {
             case 0...15:
                 lengths.append(UInt8(symbol))
@@ -378,7 +351,7 @@ public final class Deflate64Decompressor: Decompressor {
                         "Deflate64 repeat code has no previous length"
                     )
                 }
-                let repeatCount = Int(try readBits(2)) + 3
+                let repeatCount = Int(try readBits(2, state: &state)) + 3
                 try appendRepeated(
                     previous,
                     count: repeatCount,
@@ -387,7 +360,7 @@ public final class Deflate64Decompressor: Decompressor {
                 )
 
             case 17:
-                let repeatCount = Int(try readBits(3)) + 3
+                let repeatCount = Int(try readBits(3, state: &state)) + 3
                 try appendRepeated(
                     0,
                     count: repeatCount,
@@ -396,7 +369,7 @@ public final class Deflate64Decompressor: Decompressor {
                 )
 
             case 18:
-                let repeatCount = Int(try readBits(7)) + 11
+                let repeatCount = Int(try readBits(7, state: &state)) + 11
                 try appendRepeated(
                     0,
                     count: repeatCount,
@@ -453,37 +426,49 @@ public final class Deflate64Decompressor: Decompressor {
     }
 
     @inline(__always)
-    private func decode(using decoder: Deflate64HuffmanDecoder) throws -> Int {
+    private func decode(using decoder: Deflate64HuffmanDecoder, state: inout State) throws -> Int {
+        try decoder.table.withUnsafeBufferPointer { table in
+            try decode(using: decoder, table: table, state: &state)
+        }
+    }
+
+    @inline(__always)
+    private func decode(using decoder: Deflate64HuffmanDecoder,
+                        table: UnsafeBufferPointer<Deflate64HuffmanDecoder.Entry>,
+                        state: inout State) throws -> Int {
         // Speculative refill uses only bytes already fetched by readBits/refillInput.
         // Never read the source just for lookahead: a short terminal code or an
         // invalid prefix must win over a later truncation or source error.
-        if availableBits < decoder.maximumLength {
-            while availableBits <= 56, inputOffset < inputCount {
-                bitReservoir |= UInt64(input[inputOffset]) << availableBits
-                inputOffset += 1
-                availableBits += 8
+        if state.availableBits < decoder.maximumLength {
+            while state.availableBits <= 56, state.inputOffset < state.inputCount {
+                state.bitReservoir |= UInt64(input[state.inputOffset]) << state.availableBits
+                state.inputOffset += 1
+                state.availableBits += 8
             }
         }
+        // The constructor fills 1 << primaryBits root slots and appends every
+        // secondary suffix range in full. Masks therefore stay inside this table;
+        // no input bits can manufacture a table offset or an out-of-range symbol.
         while true {
-            var entry = decoder.table[Int(bitReservoir & decoder.primaryMask)]
-            if availableBits >= Int(entry.bitCount), entry.value <= -2 {
+            var entry = table[Int(state.bitReservoir & decoder.primaryMask)]
+            if state.availableBits >= Int(entry.bitCount), entry.value <= -2 {
                 let offset = Int(-entry.value - 2)
                 let mask = (UInt64(1) << entry.lookupBits) - 1
-                entry = decoder.table[offset + Int((bitReservoir >> decoder.primaryBits) & mask)]
+                entry = table[offset + Int((state.bitReservoir >> decoder.primaryBits) & mask)]
             }
             let count = Int(entry.bitCount)
-            if availableBits < count {
+            if state.availableBits < count {
                 // Zero padding a lookup is safe only when all bits needed by that
                 // result are present. Invalid slots carry the first missing edge's
                 // depth, preserving malformed versus truncated for incomplete trees.
-                let byte = try readCompressedByte()
-                bitReservoir |= UInt64(byte) << availableBits
-                availableBits += 8
+                let byte = try readCompressedByte(state: &state)
+                state.bitReservoir |= UInt64(byte) << state.availableBits
+                state.availableBits += 8
                 continue
             }
-            bitReservoir >>= count
-            availableBits -= count
-            bitAlignment = (bitAlignment + count) & 7
+            state.bitReservoir >>= count
+            state.availableBits -= count
+            state.bitAlignment = (state.bitAlignment + count) & 7
             guard entry.value >= 0 else {
                 throw KaitoError.malformed("invalid Deflate64 \(decoder.alphabet) Huffman code")
             }
@@ -491,12 +476,12 @@ public final class Deflate64Decompressor: Decompressor {
         }
     }
 
-    private func alignToByte() throws {
-        let count = (8 - bitAlignment) & 7
-        _ = try readBits(count)
+    private func alignToByte(state: inout State) throws {
+        let count = (8 - state.bitAlignment) & 7
+        _ = try readBits(count, state: &state)
     }
 
-    private func readBits(_ count: Int) throws -> UInt32 {
+    private func readBits(_ count: Int, state: inout State) throws -> UInt32 {
         guard (0...32).contains(count) else {
             throw KaitoError.malformed("invalid Deflate64 bit count")
         }
@@ -504,13 +489,13 @@ public final class Deflate64Decompressor: Decompressor {
             return 0
         }
 
-        while availableBits < count {
-            let byte = try readCompressedByte()
-            guard availableBits <= 56 else {
+        while state.availableBits < count {
+            let byte = try readCompressedByte(state: &state)
+            guard state.availableBits <= 56 else {
                 throw KaitoError.malformed("Deflate64 bit reservoir overflow")
             }
-            bitReservoir |= UInt64(byte) << availableBits
-            availableBits += 8
+            state.bitReservoir |= UInt64(byte) << state.availableBits
+            state.availableBits += 8
         }
 
         let mask: UInt64
@@ -519,39 +504,36 @@ public final class Deflate64Decompressor: Decompressor {
         } else {
             mask = (UInt64(1) << count) - 1
         }
-        let value = UInt32(truncatingIfNeeded: bitReservoir & mask)
-        bitReservoir >>= count
-        availableBits -= count
-        bitAlignment = (bitAlignment + count) & 7
+        let value = UInt32(truncatingIfNeeded: state.bitReservoir & mask)
+        state.bitReservoir >>= count
+        state.availableBits -= count
+        state.bitAlignment = (state.bitAlignment + count) & 7
         return value
     }
 
-    private func readCompressedByte() throws -> UInt8 {
-        if inputOffset == inputCount {
-            try refillInput()
+    private func readCompressedByte(state: inout State) throws -> UInt8 {
+        if state.inputOffset == state.inputCount {
+            try refillInput(state: &state)
         }
-        guard inputOffset < inputCount else {
+        guard state.inputOffset < state.inputCount else {
             throw KaitoError.truncated
         }
-        let byte = input[inputOffset]
-        inputOffset += 1
+        let byte = input[state.inputOffset]
+        state.inputOffset += 1
         return byte
     }
 
-    private func refillInput() throws {
-        guard sourceOffset < compressedEnd else {
-            inputOffset = 0
-            inputCount = 0
+    private func refillInput(state: inout State) throws {
+        guard state.sourceOffset < compressedEnd else {
+            state.inputOffset = 0
+            state.inputCount = 0
             return
         }
 
-        let remaining = try Checked.sub(compressedEnd, sourceOffset)
-        let requested = try Checked.toInt(min(UInt64(Self.chunkSize), remaining))
-        let count = try input.withUnsafeMutableBytes { bytes -> Int in
-            // requested は input.count 以下で、圧縮データ範囲の残量だけを公開する。
-            let destination = UnsafeMutableRawBufferPointer(rebasing: bytes[..<requested])
-            return try source.read(into: destination, at: sourceOffset)
-        }
+        let remaining = try Checked.sub(compressedEnd, state.sourceOffset)
+        let requested = try Checked.toInt(min(UInt64(inputCapacity), remaining))
+        let count = try source.read(into: UnsafeMutableRawBufferPointer(start: input, count: requested),
+                                    at: state.sourceOffset)
         guard count >= 0, count <= requested else {
             throw KaitoError.malformed("ByteSource returned an invalid byte count")
         }
@@ -559,9 +541,9 @@ public final class Deflate64Decompressor: Decompressor {
             throw KaitoError.truncated
         }
 
-        sourceOffset = try Checked.add(sourceOffset, UInt64(count))
-        inputOffset = 0
-        inputCount = count
+        state.sourceOffset = try Checked.add(state.sourceOffset, UInt64(count))
+        state.inputOffset = 0
+        state.inputCount = count
     }
 
     private static func fixedLiteralCodeLengths() -> [UInt8] {
@@ -622,7 +604,7 @@ public final class Deflate64Decompressor: Decompressor {
     ]
 }
 
-private struct Deflate64HuffmanDecoder {
+private struct Deflate64HuffmanDecoder: Sendable {
     private struct Node {
         var zeroChild: Int?
         var oneChild: Int?
@@ -630,7 +612,7 @@ private struct Deflate64HuffmanDecoder {
     }
 
     // Nonnegative value: symbol; -1: invalid prefix; <= -2: secondary offset.
-    struct Entry {
+    struct Entry: Sendable {
         let value: Int32
         let bitCount: UInt8
         let lookupBits: UInt8

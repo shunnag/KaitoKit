@@ -132,7 +132,7 @@ enum LZ4BlockDecoder {
 // Grow only after validation, so tiny malformed blocks cannot allocate block max.
 final class LZ4BlockBuffer {
     private var storage: UnsafeMutableRawPointer?
-    private var capacity = 0
+    private(set) var capacity = 0
     private(set) var historyCount = 0
     var outputCount = 0
 

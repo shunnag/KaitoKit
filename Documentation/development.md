@@ -73,7 +73,11 @@ XADMaster からの移行状況は
 ## CI
 
 GitHub Actions はコミット SHA で固定し、Dependabot で月 1 回、更新を 1 つの PR にまとめて追跡します。
-`brew install` は従来どおりバージョンを固定しない方針です。
+必要な外部ツールを `command -v` で確認し、不足時は hosted runner だけで `brew install` します（バージョンは固定しません）。自前 runner の不足は明示的に失敗させます。
+
+Xcode 27 の4 job は push・同一 repo の PR・定時・手動では `[self-hosted, shunnag-arm64]` を使います。
+Mac mini M4（常時稼働）と MacBook Pro M1 Max（停止時あり）は macOS 27.2 / Xcode 27.1（`/Applications/Xcode.app`、`DEVELOPER_DIR` 指定）を使い、fork PR だけは hosted の `xcode-27` に送ります。
+macOS 26 の実行 job は hosted のままです。ビルド元の絶対 checkout path は hosted 側の一時的な symlink で復元し、終了時に削除します。
 
 [CI workflow](../.github/workflows/ci.yml) は Xcode 27 / Swift 6.4 で build / 全テストを実行し、
 7zz / xz / brotli / zstd の外部ツール不足を failure とします。Asia/Tokyo の LHA golden も明示的に実行します。

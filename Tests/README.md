@@ -42,8 +42,9 @@ macOS 同梱の `/usr/bin/{bsdtar,gzip,bzip2,compress,ditto,zip,unzip,hdiutil,py
 
 ## CI と toolchain
 
-build は Xcode 27 / Swift 6.4 のみ。`build-and-test` は `xcode-27` で既定の全 suite と
+build は Xcode 27 / Swift 6.4 のみ。`build-and-test` は Xcode 27 で既定の全 suite と
 Asia/Tokyo の LHA golden を実行し、framework と圧縮 payload の sanitizer smoke も同じ toolchain で検査する。
+Xcode 27 job は自前の `[self-hosted, shunnag-arm64]`、fork PR だけは hosted の `xcode-27` を使う（[CI の運用](../Documentation/development.md#ci)）。
 Swift 6.3.3 の `-O` による `TaskLocal<function?>` の誤コンパイル（2026-10-08 確認）のため、
 Xcode 26 / Swift 6.3 での build は CI でサポートしない。
 
@@ -52,7 +53,7 @@ Xcode 26 / Swift 6.3 での build は CI でサポートしない。
 非 system の依存 framework / dylib、Xcode 27 の xctest を tar で運ぶ。
 同じ install name の `Testing.framework` は universal な platform copy を使い、
 必要な arch のない weak dependency は同梱しない。strong dependency は両 arch を必須にする。
-`macos-26-runtime` は `macos-26` / `macos-26-intel` の同じ checkout path に展開し、
+`macos-26-runtime` は hosted の `macos-26` / `macos-26-intel` に展開し、ビルド元の checkout path を symlink で復元して、
 コンパイルせず同梱 runner と `DYLD_FRAMEWORK_PATH` / `DYLD_LIBRARY_PATH` で二つの bundle と LHA golden を実行する。
 fixture、README / CHANGELOG / 検証記録、生成器は checkout から読み、作業 file は `.build` に置く。
 Xcode 26 の system xctest は XCTestCore の interop symbol が不足し、Xcode 27 の test bundle を load できない。

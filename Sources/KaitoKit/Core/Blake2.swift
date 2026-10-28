@@ -76,6 +76,15 @@ struct Blake2s: Sendable {
         self.isLastNode = isLastNode
     }
 
+    // Resume a leaf after the shared SIMD stripes; final partial blocks still
+    // use the same BLAKE2s finalization and last-node rules as standalone hashes.
+    fileprivate init(chainingValue: SIMD8<UInt32>, compressedByteCount: UInt64,
+                     isLastNode: Bool) {
+        self.chainingValue = chainingValue
+        self.compressedByteCount = compressedByteCount
+        self.isLastNode = isLastNode
+    }
+
     mutating func update(_ data: Data) {
         data.withUnsafeBytes { update($0) }
     }
@@ -247,26 +256,24 @@ struct Blake2s: Sendable {
 
 /// Incremental BLAKE2sp-256 used by the RAR5 file-hash extra record.
 struct Blake2sp: Sendable {
-    private static let lanes = 8
-    private static let blockSize = 64
+    private static let stripeSize = 8 * 64
 
-    private var leaves: [Blake2s]
+    // Structure of arrays: lane i in each word is leaf i. The node offset
+    // occupies parameter word 2; all other parameters are shared by the leaves.
+    private var h0 = SIMD8<UInt32>(repeating: 0x6A09_E667 ^ 0x0208_0020)
+    private var h1 = SIMD8<UInt32>(repeating: 0xBB67_AE85)
+    private var h2 = SIMD8<UInt32>(repeating: 0x3C6E_F372) ^ SIMD8<UInt32>(0, 1, 2, 3, 4, 5, 6, 7)
+    private var h3 = SIMD8<UInt32>(repeating: 0xA54F_F53A ^ 0x2000_0000)
+    private var h4 = SIMD8<UInt32>(repeating: 0x510E_527F)
+    private var h5 = SIMD8<UInt32>(repeating: 0x9B05_688C)
+    private var h6 = SIMD8<UInt32>(repeating: 0x1F83_D9AB)
+    private var h7 = SIMD8<UInt32>(repeating: 0x5BE0_CD19)
+    private var compressedByteCount: UInt64 = 0 // Per leaf, not per stripe.
     private var pending: [UInt8] = []
-    private var stripedBlockCount: UInt64 = 0
     private var finalDigest: Data?
 
     init() {
-        leaves = (0..<Self.lanes).map { lane in
-            Blake2s(
-                fanout: UInt8(Self.lanes),
-                depth: 2,
-                nodeOffset: UInt64(lane),
-                nodeDepth: 0,
-                innerHashLength: 32,
-                isLastNode: lane == Self.lanes - 1
-            )
-        }
-        pending.reserveCapacity(Self.blockSize)
+        pending.reserveCapacity(2 * Self.stripeSize)
     }
 
     mutating func update(_ data: Data) {
@@ -282,56 +289,60 @@ struct Blake2sp: Sendable {
         guard !input.isEmpty else { return }
         let bytes = input.bindMemory(to: UInt8.self)
         var offset = 0
-
         if !pending.isEmpty {
-            let count = min(Self.blockSize - pending.count, input.count)
+            let count = min(2 * Self.stripeSize - pending.count, input.count)
             pending.append(contentsOf: bytes[..<count])
-            offset += count
-            if pending.count == Self.blockSize {
-                // `submitBlock` mutates a leaf, so end the pending-array borrow
-                // before entering it.
-                let block = pending
-                block.withUnsafeBytes { submitBlock($0) }
+            offset = count
+            guard pending.count == 2 * Self.stripeSize else { return }
+            // A complete following stripe proves that every leaf has another
+            // block. An incomplete stripe cannot establish that for all lanes.
+            let buffered = pending
+            buffered.withUnsafeBytes {
+                compressStripe(UnsafeRawBufferPointer(rebasing: $0[..<Self.stripeSize]))
+            }
+            if input.count - offset >= Self.stripeSize {
+                buffered.withUnsafeBytes {
+                    compressStripe(UnsafeRawBufferPointer(rebasing: $0[Self.stripeSize...]))
+                }
                 pending.removeAll(keepingCapacity: true)
+            } else {
+                pending = Array(buffered[Self.stripeSize...])
+                pending.append(contentsOf: bytes[offset...])
+                return
             }
         }
-
-        while input.count - offset >= Self.blockSize {
-            let end = offset + Self.blockSize
-            submitBlock(UnsafeRawBufferPointer(rebasing: input[offset..<end]),
-                        moreFollows: input.count - offset > Self.lanes * Self.blockSize)
-            offset = end
+        while input.count - offset >= 2 * Self.stripeSize {
+            compressStripe(UnsafeRawBufferPointer(rebasing: input[offset..<(offset + Self.stripeSize)]))
+            offset += Self.stripeSize
         }
-        if offset < input.count {
-            pending.append(contentsOf: bytes[offset..<input.count])
-        }
+        pending.append(contentsOf: bytes[offset...])
     }
 
     mutating func finalize() -> Data {
         if let finalDigest { return finalDigest }
-        if !pending.isEmpty {
-            let block = pending
-            block.withUnsafeBytes { block in
-                let lane = Int(stripedBlockCount & UInt64(Self.lanes - 1))
-                leaves[lane].update(block)
-                stripedBlockCount &+= 1
+        var root = Blake2s(fanout: 8, depth: 2, nodeOffset: 0, nodeDepth: 1,
+                          innerHashLength: 32, isLastNode: true)
+        // At most two blocks remain per leaf. Scalar finalization handles the
+        // different final byte counts, including empty leaves, without padding
+        // the logical input or compressing a leaf's final block too early.
+        pending.withUnsafeBytes { bytes in
+            for lane in 0..<8 {
+                let state = SIMD8<UInt32>(h0[lane], h1[lane], h2[lane], h3[lane],
+                                          h4[lane], h5[lane], h6[lane], h7[lane])
+                var leaf = Blake2s(chainingValue: state, compressedByteCount: compressedByteCount,
+                                   isLastNode: lane == 7)
+                for stripe in stride(from: 0, to: bytes.count, by: Self.stripeSize) {
+                    let start = stripe + lane * 64
+                    if start < bytes.count {
+                        leaf.update(UnsafeRawBufferPointer(rebasing: bytes[start..<min(start + 64, bytes.count)]))
+                    }
+                }
+                root.update(leaf.finalize())
             }
-            pending.removeAll(keepingCapacity: false)
-        }
-
-        var root = Blake2s(
-            fanout: UInt8(Self.lanes),
-            depth: 2,
-            nodeOffset: 0,
-            nodeDepth: 1,
-            innerHashLength: 32,
-            isLastNode: true
-        )
-        for index in leaves.indices {
-            root.update(leaves[index].finalize())
         }
         let result = root.finalize()
         finalDigest = result
+        pending.removeAll(keepingCapacity: false)
         return result
     }
 
@@ -342,10 +353,168 @@ struct Blake2sp: Sendable {
         return hash.finalize()
     }
 
-    private mutating func submitBlock(_ block: UnsafeRawBufferPointer, moreFollows: Bool = false) {
-        precondition(block.count == Self.blockSize)
-        let lane = Int(stripedBlockCount & UInt64(Self.lanes - 1))
-        leaves[lane].updateBlock(block, moreFollows: moreFollows)
-        stripedBlockCount &+= 1
+    @inline(__always)
+    private static func loadWord(_ bytes: UnsafeRawBufferPointer, _ word: Int) -> SIMD8<UInt32> {
+        func load(_ lane: Int) -> UInt32 {
+            UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: lane * 64 + word * 4, as: UInt32.self))
+        }
+        return SIMD8<UInt32>(load(0), load(1), load(2), load(3), load(4), load(5), load(6), load(7))
+    }
+
+    private mutating func compressStripe(_ bytes: UnsafeRawBufferPointer) {
+        precondition(bytes.count == Self.stripeSize)
+        compressedByteCount &+= 64
+        let m0 = Self.loadWord(bytes, 0)
+        let m1 = Self.loadWord(bytes, 1)
+        let m2 = Self.loadWord(bytes, 2)
+        let m3 = Self.loadWord(bytes, 3)
+        let m4 = Self.loadWord(bytes, 4)
+        let m5 = Self.loadWord(bytes, 5)
+        let m6 = Self.loadWord(bytes, 6)
+        let m7 = Self.loadWord(bytes, 7)
+        let m8 = Self.loadWord(bytes, 8)
+        let m9 = Self.loadWord(bytes, 9)
+        let m10 = Self.loadWord(bytes, 10)
+        let m11 = Self.loadWord(bytes, 11)
+        let m12 = Self.loadWord(bytes, 12)
+        let m13 = Self.loadWord(bytes, 13)
+        let m14 = Self.loadWord(bytes, 14)
+        let m15 = Self.loadWord(bytes, 15)
+
+        var v0 = h0
+        var v1 = h1
+        var v2 = h2
+        var v3 = h3
+        var v4 = h4
+        var v5 = h5
+        var v6 = h6
+        var v7 = h7
+        var v8 = SIMD8<UInt32>(repeating: 0x6A09_E667)
+        var v9 = SIMD8<UInt32>(repeating: 0xBB67_AE85)
+        var v10 = SIMD8<UInt32>(repeating: 0x3C6E_F372)
+        var v11 = SIMD8<UInt32>(repeating: 0xA54F_F53A)
+        var v12 = SIMD8<UInt32>(repeating: 0x510E_527F ^ UInt32(truncatingIfNeeded: compressedByteCount))
+        var v13 = SIMD8<UInt32>(repeating: 0x9B05_688C ^ UInt32(truncatingIfNeeded: compressedByteCount >> 32))
+        var v14 = SIMD8<UInt32>(repeating: 0x1F83_D9AB)
+        var v15 = SIMD8<UInt32>(repeating: 0x5BE0_CD19)
+
+        // RFC 7693 sigma schedule, unrolled so each message and working word
+        // stays in a SIMD value with no dynamic array indexing in the rounds.
+        Self.mix(&v0, &v4, &v8, &v12, m0, m1)
+        Self.mix(&v1, &v5, &v9, &v13, m2, m3)
+        Self.mix(&v2, &v6, &v10, &v14, m4, m5)
+        Self.mix(&v3, &v7, &v11, &v15, m6, m7)
+        Self.mix(&v0, &v5, &v10, &v15, m8, m9)
+        Self.mix(&v1, &v6, &v11, &v12, m10, m11)
+        Self.mix(&v2, &v7, &v8, &v13, m12, m13)
+        Self.mix(&v3, &v4, &v9, &v14, m14, m15)
+
+        Self.mix(&v0, &v4, &v8, &v12, m14, m10)
+        Self.mix(&v1, &v5, &v9, &v13, m4, m8)
+        Self.mix(&v2, &v6, &v10, &v14, m9, m15)
+        Self.mix(&v3, &v7, &v11, &v15, m13, m6)
+        Self.mix(&v0, &v5, &v10, &v15, m1, m12)
+        Self.mix(&v1, &v6, &v11, &v12, m0, m2)
+        Self.mix(&v2, &v7, &v8, &v13, m11, m7)
+        Self.mix(&v3, &v4, &v9, &v14, m5, m3)
+
+        Self.mix(&v0, &v4, &v8, &v12, m11, m8)
+        Self.mix(&v1, &v5, &v9, &v13, m12, m0)
+        Self.mix(&v2, &v6, &v10, &v14, m5, m2)
+        Self.mix(&v3, &v7, &v11, &v15, m15, m13)
+        Self.mix(&v0, &v5, &v10, &v15, m10, m14)
+        Self.mix(&v1, &v6, &v11, &v12, m3, m6)
+        Self.mix(&v2, &v7, &v8, &v13, m7, m1)
+        Self.mix(&v3, &v4, &v9, &v14, m9, m4)
+
+        Self.mix(&v0, &v4, &v8, &v12, m7, m9)
+        Self.mix(&v1, &v5, &v9, &v13, m3, m1)
+        Self.mix(&v2, &v6, &v10, &v14, m13, m12)
+        Self.mix(&v3, &v7, &v11, &v15, m11, m14)
+        Self.mix(&v0, &v5, &v10, &v15, m2, m6)
+        Self.mix(&v1, &v6, &v11, &v12, m5, m10)
+        Self.mix(&v2, &v7, &v8, &v13, m4, m0)
+        Self.mix(&v3, &v4, &v9, &v14, m15, m8)
+
+        Self.mix(&v0, &v4, &v8, &v12, m9, m0)
+        Self.mix(&v1, &v5, &v9, &v13, m5, m7)
+        Self.mix(&v2, &v6, &v10, &v14, m2, m4)
+        Self.mix(&v3, &v7, &v11, &v15, m10, m15)
+        Self.mix(&v0, &v5, &v10, &v15, m14, m1)
+        Self.mix(&v1, &v6, &v11, &v12, m11, m12)
+        Self.mix(&v2, &v7, &v8, &v13, m6, m8)
+        Self.mix(&v3, &v4, &v9, &v14, m3, m13)
+
+        Self.mix(&v0, &v4, &v8, &v12, m2, m12)
+        Self.mix(&v1, &v5, &v9, &v13, m6, m10)
+        Self.mix(&v2, &v6, &v10, &v14, m0, m11)
+        Self.mix(&v3, &v7, &v11, &v15, m8, m3)
+        Self.mix(&v0, &v5, &v10, &v15, m4, m13)
+        Self.mix(&v1, &v6, &v11, &v12, m7, m5)
+        Self.mix(&v2, &v7, &v8, &v13, m15, m14)
+        Self.mix(&v3, &v4, &v9, &v14, m1, m9)
+
+        Self.mix(&v0, &v4, &v8, &v12, m12, m5)
+        Self.mix(&v1, &v5, &v9, &v13, m1, m15)
+        Self.mix(&v2, &v6, &v10, &v14, m14, m13)
+        Self.mix(&v3, &v7, &v11, &v15, m4, m10)
+        Self.mix(&v0, &v5, &v10, &v15, m0, m7)
+        Self.mix(&v1, &v6, &v11, &v12, m6, m3)
+        Self.mix(&v2, &v7, &v8, &v13, m9, m2)
+        Self.mix(&v3, &v4, &v9, &v14, m8, m11)
+
+        Self.mix(&v0, &v4, &v8, &v12, m13, m11)
+        Self.mix(&v1, &v5, &v9, &v13, m7, m14)
+        Self.mix(&v2, &v6, &v10, &v14, m12, m1)
+        Self.mix(&v3, &v7, &v11, &v15, m3, m9)
+        Self.mix(&v0, &v5, &v10, &v15, m5, m0)
+        Self.mix(&v1, &v6, &v11, &v12, m15, m4)
+        Self.mix(&v2, &v7, &v8, &v13, m8, m6)
+        Self.mix(&v3, &v4, &v9, &v14, m2, m10)
+
+        Self.mix(&v0, &v4, &v8, &v12, m6, m15)
+        Self.mix(&v1, &v5, &v9, &v13, m14, m9)
+        Self.mix(&v2, &v6, &v10, &v14, m11, m3)
+        Self.mix(&v3, &v7, &v11, &v15, m0, m8)
+        Self.mix(&v0, &v5, &v10, &v15, m12, m2)
+        Self.mix(&v1, &v6, &v11, &v12, m13, m7)
+        Self.mix(&v2, &v7, &v8, &v13, m1, m4)
+        Self.mix(&v3, &v4, &v9, &v14, m10, m5)
+
+        Self.mix(&v0, &v4, &v8, &v12, m10, m2)
+        Self.mix(&v1, &v5, &v9, &v13, m8, m4)
+        Self.mix(&v2, &v6, &v10, &v14, m7, m6)
+        Self.mix(&v3, &v7, &v11, &v15, m1, m5)
+        Self.mix(&v0, &v5, &v10, &v15, m15, m11)
+        Self.mix(&v1, &v6, &v11, &v12, m9, m14)
+        Self.mix(&v2, &v7, &v8, &v13, m3, m12)
+        Self.mix(&v3, &v4, &v9, &v14, m13, m0)
+
+        h0 ^= v0 ^ v8
+        h1 ^= v1 ^ v9
+        h2 ^= v2 ^ v10
+        h3 ^= v3 ^ v11
+        h4 ^= v4 ^ v12
+        h5 ^= v5 ^ v13
+        h6 ^= v6 ^ v14
+        h7 ^= v7 ^ v15
+    }
+
+    @inline(__always)
+    private static func mix(_ a: inout SIMD8<UInt32>, _ b: inout SIMD8<UInt32>,
+                            _ c: inout SIMD8<UInt32>, _ d: inout SIMD8<UInt32>,
+                            _ x: SIMD8<UInt32>, _ y: SIMD8<UInt32>) {
+        a = a &+ b &+ x
+        d ^= a
+        d = (d &>> 16) | (d &<< 16)
+        c = c &+ d
+        b ^= c
+        b = (b &>> 12) | (b &<< 20)
+        a = a &+ b &+ y
+        d ^= a
+        d = (d &>> 8) | (d &<< 24)
+        c = c &+ d
+        b ^= c
+        b = (b &>> 7) | (b &<< 25)
     }
 }

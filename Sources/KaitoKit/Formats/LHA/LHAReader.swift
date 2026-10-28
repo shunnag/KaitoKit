@@ -22,7 +22,8 @@ final class LHAReader: FormatReader {
             policy: options.encodingPolicy,
             limits: options.limits,
             startOffset: headerOffset,
-            recoverDamagedArchives: options.recoverDamagedArchives
+            recoverDamagedArchives: options.recoverDamagedArchives,
+            inputLatency: options.resolvedInputLatency(for: source)
         )
         self.source = source
         self.entries = parsed.entries

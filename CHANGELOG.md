@@ -10,6 +10,10 @@
 
 - RAR4 decode 計測の R0 基盤。RAR 6.x による solid / 非 solid / PPMd と、noise を含む color BMP・stereo PCM・x86 風 code の filter on/off corpus、標準 filter 4 種と solid PPMd の小型 fixture・SHA / token 検査・fuzz seed を追加した。decoder の動作は変更しない。
 
+### 変更
+
+- RAR4(RAR29)の展開を速くする(R1)。filter の取り込み・出力・作業領域を再利用する raw buffer にし、RGB / Delta / Audio / E8 をその場で適用する(Audio の 32 sample ごとの配列確保をやめる)。窓と packed 入力の全体ゼロ埋めをやめ、大きさが既知の非 solid member は出力が収まる大きさまで窓を縮める(filter 長の上限は宣言辞書のまま)。Huffman 表は使う範囲だけを消し、作業配列を再利用する。solid の読み捨て用 buffer を再利用する。出力は変わらない。M4 Max の decode-ab(`sha --sink`、base 比、ノイズの幅 ±2〜4%)で、RGB filter あり 0.66〜0.71 倍、Delta あり 0.67〜0.70 倍、Audio あり 0.48 倍、E8 あり 0.75 倍、小ファイル多数の非 solid 0.52 倍、RAR5 は 0.99〜1.01 倍。色付き TIFF の書庫で 1,595 → 987 ms。peak RSS は増えない。
+
 ## [0.17.0] - 2026-10-27
 
 ### リリース前レビューの修正

@@ -4,7 +4,7 @@
 // PPMd7Suballocator に格納し、Swift 側には一時スナップショットと UInt32 の
 // アリーナオフセットだけを保持する。
 
-private final class PPMd7ArenaSEEContext {
+private struct PPMd7ArenaSEEContext {
     var summary: Int
     var shift: Int
     var count: Int
@@ -16,14 +16,14 @@ private final class PPMd7ArenaSEEContext {
     }
 
     @inline(__always)
-    func mean() -> Int {
+    mutating func mean() -> Int {
         let value = (summary & 0xffff) >> shift
         summary = (summary - value) & 0xffff
         return max(value, 1)
     }
 
     @inline(__always)
-    func update() {
+    mutating func update() {
         guard shift < 7 else { return }
         count -= 1
         guard count == 0 else { return }
@@ -53,6 +53,30 @@ private enum PPMd7ArenaAllocationError: Error {
 // RARPPMdRangeDecoder（RAR29Decoder の PPMd block）。ZIP method 98 の variant I rev.1 は
 // 別系統の PPMdVarIModel、PPMdVarISuballocator、PPMdVarIRangeDecoder。
 final class PPMd7Model {
+    // One exclusive access covers a whole output batch. The value cursor keeps
+    // scalar model state together without per-field class exclusivity traffic.
+    // It owns its arena/tables and cannot be copied or outlive this model.
+    private var cursor: PPMd7ModelCursor
+
+    init(maximumOrder: Int, memorySize: UInt64) throws {
+        cursor = PPMd7ModelCursor(maximumOrder: maximumOrder,
+                                 allocator: try PPMd7Suballocator(memorySize: memorySize))
+        try cursor.restartModel()
+    }
+
+    func decode(into buffer: UnsafeMutableRawBufferPointer, using decoder: SevenZipPPMdRangeDecoder) throws {
+        try decoder.withCursor { range in
+            try cursor.decode(into: buffer, using: &range)
+        }
+    }
+
+    func decodeByte<Decoder: PPMd7RangeDecoding>(using decoder: Decoder) throws -> UInt8 {
+        var range = decoder
+        return try cursor.decodeByte(using: &range)
+    }
+}
+
+private struct PPMd7ModelCursor: ~Copyable {
     typealias Offset = PPMd7Suballocator.Offset
 
     // SDK model の定数と successor frequency の計算式。
@@ -115,7 +139,7 @@ final class PPMd7Model {
     // （mask の記号は UInt8）。確保を固定したままにし、記号 loop での COW と
     // exclusivity の検査を避ける。
     private let binarySummaries: UnsafeMutablePointer<Int>
-    private var seeContexts = [[PPMd7ArenaSEEContext]]()
+    private let seeContexts: UnsafeMutablePointer<PPMd7ArenaSEEContext>
     private let characterMask: UnsafeMutablePointer<UInt8>
     private var escapeCount: UInt8 = 1
     private var numberMasked = 0
@@ -130,41 +154,49 @@ final class PPMd7Model {
     private var maximumContext: Offset = PPMd7Suballocator.nullOffset
     private var foundState: Offset = PPMd7Suballocator.nullOffset
 
-    init(maximumOrder: Int, memorySize: UInt64) throws {
+    init(maximumOrder: Int, allocator: PPMd7Suballocator) {
         self.maximumOrder = maximumOrder
-        self.allocator = try PPMd7Suballocator(memorySize: memorySize)
+        self.allocator = allocator
         self.nsToBinaryIndex = Self.makeNS2BSIndex()
         self.nsToSEEIndex = Self.makeNS2SEEIndex()
         self.binarySummaries = .allocate(capacity: Self.binarySummaryRows * Self.binarySummaryColumns)
         self.binarySummaries.initialize(repeating: 0, count: Self.binarySummaryRows * Self.binarySummaryColumns)
+        // Exactly seeRows * seeColumns initialized values; escapeEstimator
+        // validates both coordinates before forming a row-major index.
+        self.seeContexts = .allocate(capacity: Self.seeRows * Self.seeColumns)
+        self.seeContexts.initialize(repeating: PPMd7ArenaSEEContext(initialValue: 0),
+                                    count: Self.seeRows * Self.seeColumns)
         self.characterMask = .allocate(capacity: 256)
         self.characterMask.initialize(repeating: 0, count: 256)
-        try restartModel()
     }
 
     deinit {
         binarySummaries.deinitialize(count: Self.binarySummaryRows * Self.binarySummaryColumns)
         binarySummaries.deallocate()
+        seeContexts.deinitialize(count: Self.seeRows * Self.seeColumns)
+        seeContexts.deallocate()
         characterMask.deinitialize(count: 256)
         characterMask.deallocate()
     }
 
     // The concrete coder lets the optimizer specialize the complete symbol loop.
-    func decode(into buffer: UnsafeMutableRawBufferPointer, using decoder: SevenZipPPMdRangeDecoder) throws {
+    mutating func decode<Decoder: PPMd7RangeDecoding & ~Copyable>(
+        into buffer: UnsafeMutableRawBufferPointer, using decoder: inout Decoder
+    ) throws {
         for index in 0..<buffer.count {
-            buffer[index] = try decodeByte(using: decoder)
+            buffer[index] = try decodeByte(using: &decoder)
         }
     }
 
     @inline(__always)
-    func decodeByte<Decoder: PPMd7RangeDecoding>(using decoder: Decoder) throws -> UInt8 {
+    mutating func decodeByte<Decoder: PPMd7RangeDecoding & ~Copyable>(using decoder: inout Decoder) throws -> UInt8 {
         var minimumContext = maximumContext
         try requireContext(minimumContext)
 
         if try numberOfStats(in: minimumContext) != 0 {
-            try decodeSymbol1(in: minimumContext, using: decoder)
+            try decodeSymbol1(in: minimumContext, using: &decoder)
         } else {
-            try decodeBinarySymbol(in: minimumContext, using: decoder)
+            try decodeBinarySymbol(in: minimumContext, using: &decoder)
         }
 
         var escapedContexts = 0
@@ -195,7 +227,7 @@ final class PPMd7Model {
                 }
             }
             minimumContext = suffix
-            try decodeSymbol2(in: minimumContext, using: decoder)
+            try decodeSymbol2(in: minimumContext, using: &decoder)
         }
 
         // 選ばれた記号の最終区間を、次の記号の確率を変える model 更新より前に確定する。
@@ -230,34 +262,42 @@ final class PPMd7Model {
     }
 
     @inline(__always)
-    private func decodeSymbol1<Decoder: PPMd7RangeDecoding>(
+    private mutating func decodeSymbol1<Decoder: PPMd7RangeDecoding & ~Copyable>(
         in context: Offset,
-        using decoder: Decoder
+        using decoder: inout Decoder
     ) throws {
         // state は初期化/更新時に生成・検査済み。記号ごとの全 state 再走査を避ける。
         // 個別参照の arena 境界と range/頻度の検査は下のアクセス経路に残す。
         try requireContext(context)
         let scale = try summaryFrequency(of: context)
         let count = try decoder.threshold(total: scale)
-        let stateCount = try numberOfStats(in: context) + 1
-        let stateBase = try statsRef(of: context)
+        // summaryFrequency checked this 12-byte multi-state context. Reuse
+        // its count/reference without checking the same context again.
+        let stateCount = Int(allocator.uncheckedGet16(Int(context)))
+        let stateBase = allocator.uncheckedGet32(Int(context) + 4)
+        try requireStateBlock(stateBase, stateCount: stateCount)
         let states = try allocator.checkedBytes(
             at: stateBase, count: stateCount * Self.stateSize
         ).baseAddress!.assumingMemoryBound(to: UInt8.self)
+        // At most 256 UInt8 frequencies sum to at most 65,280. Wrapping
+        // additions below cannot overflow Int, including on corrupt input.
         var low = 0
-
+        var stateBytes = states
+        // The checked block contains stateCount * 6 bytes. Each iteration
+        // reads +1 then advances by 6, ending at most one past that block.
+        // Form an arena offset only for the selected state.
         for index in 0..<stateCount {
-            let state = stateBase + Offset(index * Self.stateSize)
-            let frequency = Int(states[index * Self.stateSize + 1])
-            let high = low + frequency
+            let frequency = Int(stateBytes[1])
+            let high = low &+ frequency
             if count < high {
+                let state = stateBase + Offset(index * Self.stateSize)
                 try decoder.remove(start: low, size: frequency)
                 foundState = state
                 if index == 0 {
                     previousSuccess = 2 * frequency > scale ? 1 : 0
                     runLength += previousSuccess
-                    try setStateFrequency(frequency + 4, at: state)
-                    try setSummaryFrequency(scale + 4, of: context)
+                    try updateDecodedFrequency(frequency + 4, scale: scale + 4,
+                                               context: context, state: state)
                     if frequency + 4 > SDK.maximumFrequency {
                         try rescale(context)
                     }
@@ -268,6 +308,7 @@ final class PPMd7Model {
                 return
             }
             low = high
+            stateBytes += Self.stateSize
         }
 
         guard count < scale else {
@@ -277,16 +318,18 @@ final class PPMd7Model {
         previousSuccess = 0
         highBitsFlag = Self.highBits3(previousFoundSymbol)
         numberMasked = stateCount - 1
-        for index in 0..<stateCount {
-            characterMask[Int(states[index * Self.stateSize])] = escapeCount
+        stateBytes = states
+        for _ in 0..<stateCount {
+            characterMask[Int(stateBytes.pointee)] = escapeCount
+            stateBytes += Self.stateSize
         }
         foundState = Self.null
     }
 
     @inline(__always)
-    private func decodeBinarySymbol<Decoder: PPMd7RangeDecoding>(
+    private mutating func decodeBinarySymbol<Decoder: PPMd7RangeDecoding & ~Copyable>(
         in context: Offset,
-        using decoder: Decoder
+        using decoder: inout Decoder
     ) throws {
         // state は初期化/更新時に生成・検査済み。記号ごとの全 state 再走査を避ける。
         // 個別参照の arena 境界と range/頻度の検査は下のアクセス経路に残す。
@@ -341,9 +384,9 @@ final class PPMd7Model {
     }
 
     @inline(__always)
-    private func decodeSymbol2<Decoder: PPMd7RangeDecoding>(
+    private mutating func decodeSymbol2<Decoder: PPMd7RangeDecoding & ~Copyable>(
         in context: Offset,
-        using decoder: Decoder
+        using decoder: inout Decoder
     ) throws {
         // state は初期化/更新時に生成・検査済み。記号ごとの全 state 再走査を避ける。
         // 個別参照の arena 境界と range/頻度の検査は下のアクセス経路に残す。
@@ -355,22 +398,20 @@ final class PPMd7Model {
         }
 
         let see = try escapeEstimator(for: context)
-        let escapeFrequency = see?.mean() ?? 1
+        let escapeFrequency = see == Self.seeRows * Self.seeColumns ? 1 : seeContexts[see].mean()
         let stateCount = stats + 1
         let stateBase = try statsRef(of: context)
         let states = try allocator.checkedBytes(
             at: stateBase, count: stateCount * Self.stateSize
         ).baseAddress!.assumingMemoryBound(to: UInt8.self)
-        var actualAvailable = 0
-        var symbolFrequency = 0
         let maskBytes = characterMask
-        // state の記号はすべて UInt8。state の範囲と 256 byte の mask は、
-        // 選択後の model 更新まで有効なままである。
-        for index in 0..<stateCount {
-            let available = maskBytes[Int(states[index * Self.stateSize])] != escapeCount ? 1 : 0
-            actualAvailable += available
-            symbolFrequency += Int(states[index * Self.stateSize + 1]) * available
-        }
+        let scan = PPMdStateScan.unmasked(in: states, count: stateCount,
+                                          mask: maskBytes, escapeCount: escapeCount)
+        let actualAvailable = scan.count
+        let symbolFrequency = scan.frequency
+        // Every later cursor uses this same live checked span. Range/SEE
+        // operations do not allocate; update2 ends pointer use.
+        var stateBytes = states
         guard actualAvailable == availableCount else {
             throw KaitoError.malformed("PPMd7 masked-symbol count is inconsistent")
         }
@@ -380,12 +421,14 @@ final class PPMd7Model {
         if count < symbolFrequency {
             let selection: (index: Int, low: Int, frequency: Int)? = {
                 var low = 0
+                var stateBytes = states
                 for index in 0..<stateCount {
-                    let available = maskBytes[Int(states[index * Self.stateSize])] != escapeCount ? 1 : 0
-                    let frequency = Int(states[index * Self.stateSize + 1]) * available
-                    let high = low + frequency
+                    let available = maskBytes[Int(stateBytes.pointee)] != escapeCount ? 1 : 0
+                    let frequency = Int(stateBytes[1]) &* available
+                    let high = low &+ frequency
                     if count < high { return (index, low, frequency) }
                     low = high
+                    stateBytes += Self.stateSize
                 }
                 return nil
             }()
@@ -393,27 +436,28 @@ final class PPMd7Model {
                 throw KaitoError.malformed("PPMd7 failed to select an unmasked state")
             }
             try decoder.remove(start: selection.low, size: selection.frequency)
-            see?.update()
+            if see != Self.seeRows * Self.seeColumns { seeContexts[see].update() }
             try update2(context: context, state: stateBase + Offset(selection.index * Self.stateSize))
             return
         }
 
         try decoder.remove(start: symbolFrequency, size: escapeFrequency)
-        for index in 0..<stateCount {
-            let symbol = states[index * Self.stateSize]
-            characterMask[Int(symbol)] = escapeCount
+        stateBytes = states
+        for _ in 0..<stateCount {
+            characterMask[Int(stateBytes.pointee)] = escapeCount
+            stateBytes += Self.stateSize
         }
         numberMasked = stats
-        if let see {
-            see.summary = (see.summary + scale) & 0xffff
+        if see != Self.seeRows * Self.seeColumns {
+            seeContexts[see].summary = (seeContexts[see].summary + scale) & 0xffff
         }
         foundState = Self.null
     }
 
     @inline(__always)
-    private func escapeEstimator(for context: Offset) throws -> PPMd7ArenaSEEContext? {
+    private func escapeEstimator(for context: Offset) throws -> Int {
         let stats = try numberOfStats(in: context)
-        if stats == 255 { return nil }
+        if stats == 255 { return Self.seeRows * Self.seeColumns }
         let suffix = try self.suffix(of: context)
         guard suffix != Self.null else {
             throw KaitoError.malformed("PPMd7 non-root context has no suffix")
@@ -430,22 +474,23 @@ final class PPMd7Model {
             + 2 * (summary < 11 * (stats + 1) ? 1 : 0)
             + 4 * (numberMasked + 1 > nonMasked ? 1 : 0)
             + highBitsFlag
-        guard seeContexts.indices.contains(row),
-              seeContexts[row].indices.contains(column) else {
+        guard (0..<Self.seeRows).contains(row),
+              (0..<Self.seeColumns).contains(column) else {
             throw KaitoError.malformed("PPMd7 SEE index is out of range")
         }
-        return seeContexts[row][column]
+        // The root sentinel is never dereferenced. All other indices are
+        // below the fixed 25 * 16 allocation, which lives with this cursor.
+        return row * Self.seeColumns + column
     }
 
     // Called only after decodeSymbol1 validates the entire state block and selects
     // an index greater than zero. The preceding six-byte state is in that block.
     @inline(__always)
-    private func update1(context: Offset, state: Offset, frequency: Int, scale: Int) throws {
+    private mutating func update1(context: Offset, state: Offset, frequency: Int, scale: Int) throws {
         let newFrequency = frequency + 4
-        try setStateFrequency(newFrequency, at: state)
-        try setSummaryFrequency(scale + 4, of: context)
+        try updateDecodedFrequency(newFrequency, scale: scale + 4, context: context, state: state)
         let previous = state - Offset(Self.stateSize)
-        if newFrequency > Int(try stateFrequency(at: previous)) {
+        if newFrequency > Int(allocator.uncheckedGet8(Int(previous) + 1)) {
             try swapStates(state, previous)
             foundState = previous
             if newFrequency > SDK.maximumFrequency {
@@ -455,11 +500,13 @@ final class PPMd7Model {
     }
 
     @inline(__always)
-    private func update2(context: Offset, state: Offset) throws {
+    private mutating func update2(context: Offset, state: Offset) throws {
         foundState = state
-        let frequency = Int(try stateFrequency(at: state)) + 4
-        try setStateFrequency(frequency, at: state)
-        try setSummaryFrequency(try summaryFrequency(of: context) + 4, of: context)
+        // decodeSymbol2 selected state from its checked multi-state span;
+        // neither the context nor the state block has moved since that check.
+        let frequency = Int(allocator.uncheckedGet8(Int(state) + 1)) + 4
+        let scale = Int(allocator.uncheckedGet16(Int(context) + 2)) + 4
+        try updateDecodedFrequency(frequency, scale: scale, context: context, state: state)
         if frequency > SDK.maximumFrequency {
             try rescale(context)
         }
@@ -467,7 +514,23 @@ final class PPMd7Model {
         runLength = initialRunLength
     }
 
-    private func rescale(_ context: Offset) throws {
+    // Only decodeSymbol1/2 call this, after checking the 12-byte multi-state
+    // context and the full count * 6 state span. state is a selected member;
+    // +1 and context +2..<+4 therefore lie inside those live allocations.
+    // Allocator invariants keep multi-state storage separate from its context;
+    // updating frequency cannot change NumStats or invalidate the context proof.
+    // Retain frequency/summary value checks and their original write order.
+    @inline(__always)
+    private func updateDecodedFrequency(_ frequency: Int, scale: Int,
+                                        context: Offset, state: Offset) throws {
+        allocator.uncheckedPut8(try byteFrequency(frequency), Int(state) + 1)
+        guard scale > 0, scale <= Int(UInt16.max) else {
+            throw KaitoError.malformed("PPMd7 summary frequency is out of range")
+        }
+        allocator.uncheckedPut16(UInt16(scale), Int(context) + 2)
+    }
+
+    private mutating func rescale(_ context: Offset) throws {
         let oldCount = try numberOfStats(in: context) + 1
         guard oldCount > 1, foundState != Self.null else {
             throw KaitoError.malformed("PPMd7 rescale state is missing")
@@ -555,7 +618,7 @@ final class PPMd7Model {
         try validate(context)
     }
 
-    private func updateModel(minimumContext: Offset) throws {
+    private mutating func updateModel(minimumContext: Offset) throws {
         let selected = foundState
         guard selected != Self.null else {
             throw KaitoError.malformed("PPMd7 update has no selected state")
@@ -866,7 +929,7 @@ final class PPMd7Model {
         return contextSuffix
     }
 
-    private func reduceOrder(
+    private mutating func reduceOrder(
         suffixState: Offset,
         minimumContext: Offset
     ) throws -> Offset {
@@ -958,7 +1021,7 @@ final class PPMd7Model {
         }
     }
 
-    private func restartModel() throws {
+    mutating func restartModel() throws {
         allocator.restart()
         characterMask.update(repeating: 0, count: 256)
         escapeCount = 1
@@ -1003,8 +1066,10 @@ final class PPMd7Model {
             }
         }
 
-        seeContexts = (0..<Self.seeRows).map { row in
-            (0..<Self.seeColumns).map { _ in PPMd7ArenaSEEContext(initialValue: 5 * row + 10) }
+        for row in 0..<Self.seeRows {
+            for column in 0..<Self.seeColumns {
+                seeContexts[row * Self.seeColumns + column] = PPMd7ArenaSEEContext(initialValue: 5 * row + 10)
+            }
         }
         try validate(root)
     }
@@ -1223,11 +1288,12 @@ final class PPMd7Model {
             return try stateSymbol(at: Self.add(context, 2)) == symbol ? 0 : nil
         }
         let base = try statsRef(of: context)
+        // statsRef checked count * 6 bytes inside the live arena. Each
+        // symbol is at index * 6 < count * 6; no allocator mutation occurs
+        // during this search, so the base and its bounds remain valid.
         let states = try allocator.checkedBytes(at: base, count: count * Self.stateSize)
-        for index in 0..<count where states[index * Self.stateSize] == symbol {
-            return index
-        }
-        return nil
+            .baseAddress!.assumingMemoryBound(to: UInt8.self)
+        return PPMdStateScan.index(of: symbol, in: states, count: count)
     }
 
     @discardableResult

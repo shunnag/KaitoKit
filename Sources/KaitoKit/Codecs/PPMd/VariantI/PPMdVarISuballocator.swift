@@ -317,6 +317,15 @@ final class PPMdVarISuballocator {
         return value
     }
 
+    // The checked span is inside the live [heapStart, heapStart + size)
+    // allocation. Callers must finish using it before release or an allocator
+    // operation can reuse its states; no pointer is kept between symbols.
+    @inline(__always)
+    func checkedBytes(_ offset: Offset, count: Int) throws -> UnsafeMutablePointer<UInt8> {
+        let i = try checkedInt(offset, count: count)
+        return storage!.advanced(by: i).assumingMemoryBound(to: UInt8.self)
+    }
+
     @inline(__always)
     func advance(_ offset: Offset, _ count: Int) throws -> Offset {
         let (value, overflow) = Int(offset).addingReportingOverflow(count)
@@ -371,6 +380,15 @@ final class PPMdVarISuballocator {
     @inline(__always)
     internal func uncheckedPut8(_ value: UInt8, _ i: Int) {
         storage!.storeBytes(of: value, toByteOffset: i, as: UInt8.self)
+    }
+    @inline(__always)
+    internal func uncheckedGet16(_ i: Int) -> UInt16 {
+        UInt16(littleEndian: storage!.loadUnaligned(fromByteOffset: i, as: UInt16.self))
+    }
+    @inline(__always)
+    internal func uncheckedPut16(_ value: UInt16, _ i: Int) {
+        var little = value.littleEndian
+        memcpy(storage!.advanced(by: i), &little, 2)
     }
     @inline(__always)
     internal func uncheckedGet32(_ i: Int) -> UInt32 {

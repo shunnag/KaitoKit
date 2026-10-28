@@ -83,7 +83,6 @@ final class PPMdVarIModel {
     private let binSumm: UnsafeMutablePointer<UInt16>
     private let see: UnsafeMutablePointer<SEE>
     private var dummySEE = SEE(signature: 0x84ACAF8F)
-    private let unmasked: UnsafeMutablePointer<Offset>
     private var needsNormalization = false
 
     // Test hook: 以下の四つは ZipPPMdTests と PPMdVarIMemoryTests が復元方式と arena の解放を
@@ -103,11 +102,9 @@ final class PPMdVarIModel {
         charMask = .allocate(capacity: 256)
         binSumm = .allocate(capacity: Self.binarySummaryRows * Self.binarySummaryColumns)
         see = .allocate(capacity: Self.seeRows * Self.seeColumns)
-        unmasked = .allocate(capacity: 256)
         charMask.initialize(repeating: 0, count: 256)
         binSumm.initialize(repeating: 0, count: Self.binarySummaryRows * Self.binarySummaryColumns)
         see.initialize(repeating: SEE(0), count: Self.seeRows * Self.seeColumns)
-        unmasked.initialize(repeating: 0, count: 256)
         // 確保後の例外は全プロパティの初期化後に発生させ、失敗時も解放処理を通す。
         try startModelRare()
     }
@@ -119,8 +116,6 @@ final class PPMdVarIModel {
         binSumm.deallocate()
         see.deinitialize(count: Self.seeRows * Self.seeColumns)
         see.deallocate()
-        unmasked.deinitialize(count: 256)
-        unmasked.deallocate()
     }
 
     func releaseArena() { arena.release() }
@@ -233,42 +228,52 @@ final class PPMdVarIModel {
         let base = try stats(c), n = try numStats(c), total = try sum(c)
         let count = try decoder.threshold(total: total)
         // stats が検証した連続領域内だけを読み、領域を変更する更新の後は再利用しない。
-        let first = uncheckedState(Int(base))
-        var high = first.frequency
+        // stats already checked (n + 1) * 6 bytes. All symbol/frequency
+        // offsets below are i * 6 + {0, 1}, i <= n, inside this live span.
+        // No allocation/release occurs before a selected-state update returns.
+        let states = try arena.checkedBytes(base, count: (n + 1) * Self.stateSize)
+        // n + 1 <= 256 and every frequency is UInt8: every partial sum
+        // is <= 65,280, so wrapping addition cannot overflow even on corrupt
+        // input. The range decoder still checks the resulting interval.
+        var high = Int(states[1])
         if count < high {
             try decoder.remove(low: 0, high: high)
             previousSuccess = 2 * high >= total ? 1 : 0
             foundState = base
-            try setFrequency(base, high + 4)
-            try setSum(c, total + 4)
+            try updateDecodedFrequency(c, base, frequency: high + 4, total: total + 4)
             runLength &+= Int32(previousSuccess)
             if high + 4 > 124 { try rescale(c) }
             return
         }
         previousSuccess = 0
+        var stateBytes = states + Self.stateSize
         for i in 1...n {
-            let p = base + Offset(i * Self.stateSize), f = Int(arena.uncheckedGet8(Int(p) + 1))
-            high += f
+            let f = Int(stateBytes[1])
+            high &+= f
             if count < high {
                 try decoder.remove(low: high - f, high: high)
-                try update1(c, p)
+                try update1(c, base + Offset(i * Self.stateSize), frequency: f + 4, total: total + 4)
                 return
             }
+            stateBytes += Self.stateSize
         }
         try decoder.remove(low: high, high: total)
-        for i in 0...n { charMask[Int(arena.uncheckedGet8(Int(base) + i * Self.stateSize))] = escapeCount }
+        stateBytes = states
+        for _ in 0...n {
+            charMask[Int(stateBytes.pointee)] = escapeCount
+            stateBytes += Self.stateSize
+        }
         numberMasked = n
         foundState = 0
     }
 
     @inline(__always)
-    private func update1(_ c: Offset, _ p: Offset) throws {
+    private func update1(_ c: Offset, _ p: Offset, frequency f: Int, total: Int) throws {
         foundState = p
-        let f = try frequency(p) + 4
-        try setFrequency(p, f)
-        try setSum(c, sum(c) + 4)
-        let previous = try arena.advance(p, -Self.stateSize)
-        if f > (try frequency(previous)) {
+        try updateDecodedFrequency(c, p, frequency: f, total: total)
+        // decodeSymbol1 selected i >= 1 inside the checked state block.
+        let previous = p - Offset(Self.stateSize)
+        if f > Int(arena.uncheckedGet8(Int(previous) + 1)) {
             try swap(p, previous)
             foundState = previous
             if f > 124 { try rescale(c) }
@@ -278,12 +283,27 @@ final class PPMdVarIModel {
     @inline(__always)
     private func update2(_ c: Offset, _ p: Offset) throws {
         foundState = p
-        let f = try frequency(p) + 4
-        try setFrequency(p, f)
-        try setSum(c, sum(c) + 4)
+        // decodeSymbol2 selected p from its checked state block; range/SEE
+        // updates have not allocated, released or moved either span.
+        let f = Int(arena.uncheckedGet8(Int(p) + 1)) + 4
+        let total = Int(arena.uncheckedGet16(Int(c) + 2)) + 4
+        try updateDecodedFrequency(c, p, frequency: f, total: total)
         if f > 124 { try rescale(c) }
         escapeCount &+= 1
         runLength = initialRunLength
+    }
+
+    // Only used after decodeSymbol1/2 validate the complete context and
+    // state block. p is a selected six-byte member; p + 1 and c + 2..<c + 4
+    // are inside those live spans. The allocator gives multi-state storage
+    // and its context disjoint live units, so the frequency write cannot change
+    // NumStats or invalidate that proof. Preserve value checks and write order.
+    @inline(__always)
+    private func updateDecodedFrequency(_ c: Offset, _ p: Offset, frequency: Int, total: Int) throws {
+        guard (0...255).contains(frequency) else { throw malformed("invalid state frequency") }
+        arena.uncheckedPut8(UInt8(frequency), Int(p) + 1)
+        guard (0...Int(UInt16.max)).contains(total) else { throw malformed("invalid frequency sum") }
+        arena.uncheckedPut16(UInt16(total), Int(c) + 2)
     }
 
     @inline(__always)
@@ -307,37 +327,43 @@ final class PPMdVarIModel {
         let n = try numStats(c), base = try stats(c)
         let expected = n - numberMasked
         guard expected > 0 else { throw malformed("no unmasked states") }
-        var count = 0, high = 0
-        for i in 0...n {
-            let p = base + Offset(i * Self.stateSize), s = uncheckedState(Int(p))
-            if charMask[Int(s.symbol)] != escapeCount {
-                // n は一バイト、count は処理済みの状態数以下なので書込み添字は 0...255。
-                unmasked[count] = p
-                count += 1
-                high += s.frequency
-            }
-        }
-        guard count == expected else { throw malformed("inconsistent symbol mask") }
+        // All cursors stay inside the checked (n + 1) * 6 span. The shared
+        // H/I scan counts unmasked states without a branch or scratch offsets.
+        // No range/SEE operation allocates; update2 ends pointer use.
+        let states = try arena.checkedBytes(base, count: (n + 1) * Self.stateSize)
+        let scan = PPMdStateScan.unmasked(in: states, count: n + 1,
+                                         mask: charMask, escapeCount: escapeCount)
+        guard scan.count == expected else { throw malformed("inconsistent symbol mask") }
+        let high = scan.frequency
         let total = high + estimator.scale
         let threshold = try decoder.threshold(total: total)
         if threshold < high {
-            high = 0
-            for i in 0..<count {
-                let p = unmasked[i], f = Int(arena.uncheckedGet8(Int(p) + 1))
-                high += f
-                if threshold < high {
-                    try decoder.remove(low: high - f, high: high)
+            var low = 0
+            var stateBytes = states
+            for i in 0...n {
+                let available = charMask[Int(stateBytes.pointee)] != escapeCount ? 1 : 0
+                let f = Int(stateBytes[1]) &* available
+                let next = low &+ f
+                if threshold < next {
+                    try decoder.remove(low: low, high: next)
                     if let index = estimator.index { see[index].update() }
                     else { dummySEE.update() }
-                    try update2(c, p)
+                    try update2(c, base + Offset(i * Self.stateSize))
                     return
                 }
+                low = next
+                stateBytes += Self.stateSize
             }
             throw malformed("unmasked symbol is missing")
         }
         try decoder.remove(low: high, high: total)
         numberMasked = n
-        for i in 0..<count { charMask[Int(arena.uncheckedGet8(Int(unmasked[i])))] = escapeCount }
+        var stateBytes = states
+        for _ in 0...n {
+            // Already-masked symbols receive the same value again.
+            charMask[Int(stateBytes.pointee)] = escapeCount
+            stateBytes += Self.stateSize
+        }
         if let index = estimator.index { see[index].sum &+= UInt16(truncatingIfNeeded: total) }
         else { dummySEE.sum &+= UInt16(truncatingIfNeeded: total) }
     }
@@ -918,12 +944,14 @@ final class PPMdVarIModel {
     @inline(__always)
     private func findState(_ c: Offset, _ symbol: UInt8) throws -> Offset {
         let n = try numStats(c), base = try n == 0 ? oneState(c) : stats(c)
-        // 複数状態は stats の全範囲検査、単一状態は oneState の文脈検査に含まれる。
-        for i in 0...n {
-            let p = base + Offset(i * Self.stateSize)
-            if arena.uncheckedGet8(Int(p)) == symbol { return p }
+        // stats checks all multi-state bytes; oneState checks the enclosing
+        // 12-byte binary context. i * 6 is within the (n + 1) * 6 span, which
+        // remains live and unchanged throughout this search.
+        let states = try arena.checkedBytes(base, count: (n + 1) * Self.stateSize)
+        guard let index = PPMdStateScan.index(of: symbol, in: states, count: n + 1) else {
+            throw malformed("suffix symbol is missing")
         }
-        throw malformed("suffix symbol is missing")
+        return base + Offset(index * Self.stateSize)
     }
     @inline(__always)
     private func malformed(_ message: String) -> KaitoError { .malformed("PPMd var.I: " + message) }

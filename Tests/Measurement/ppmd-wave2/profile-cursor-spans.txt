@@ -1,0 +1,42 @@
+pc-H-after.tsv total samples 5121
+  1839  35.9% generic specialization <KaitoKit.SevenZipPPMdRangeCursor> of KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).decode<A where A: KaitoKit.PPMd7RangeDecoding, A: ~Swift.Copyable>(into: Swift.UnsafeMutableRawBufferPointer, using: inout A) throws -> ()
+   754  14.7% generic specialization <KaitoKit.SevenZipPPMdRangeCursor> of KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).decodeSymbol2<A where A: KaitoKit.PPMd7RangeDecoding, A: ~Swift.Copyable>(in: Swift.UInt32, using: inout A) throws -> ()
+   472   9.2% KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).indexOfSymbol(_: Swift.UInt8, in: Swift.UInt32) throws -> Swift.Int?
+   422   8.2% /usr/lib/system/libsystem_kernel.dylib
+   343   6.7% KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).updateModel(minimumContext: Swift.UInt32) throws -> ()
+   246   4.8% generic specialization <KaitoKit.SevenZipPPMdRangeCursor> of KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).decodeSymbol1<A where A: KaitoKit.PPMd7RangeDecoding, A: ~Swift.Copyable>(in: Swift.UInt32, using: inout A) throws -> ()
+   157   3.1% /usr/lib/swift/libswiftCore.dylib
+   139   2.7% KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).appendState(_: KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).StateValue, summaryFrequency: Swift.Int, to: Swift.UInt32) throws -> Swift.UInt32
+   103   2.0% KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).initializeBinaryContext(_: Swift.UInt32, state: KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).StateValue, suffix: Swift.UInt32) throws -> ()
+    70   1.4% /usr/lib/system/libsystem_platform.dylib
+    66   1.3% /usr/lib/system/libsystem_malloc.dylib
+    64   1.2% KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).createSuccessors(skipFoundState: Swift.Bool, suffixState: Swift.UInt32, minimumContext: Swift.UInt32) throws -> Swift.UInt32
+    55   1.1% generic specialization <KaitoKit.SevenZipPPMdRangeCursor> of KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).decodeBinarySymbol<A where A: KaitoKit.PPMd7RangeDecoding, A: ~Swift.Copyable>(in: Swift.UInt32, using: inout A) throws -> ()
+    46   0.9% function signature specialization <Arg[1] = Dead> of static KaitoKit.PPMd7Suballocator.(bytes in _F6087D0BDC78C6B0A3DBA397CECC627C)(forClass: Swift.Int) throws -> Swift.Int
+    43   0.8% KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).rescale(Swift.UInt32) throws -> ()
+    42   0.8% function signature specialization <Arg[3] = Dead> of KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).materializeSuccessors(_: [Swift.UInt32], baseContext: Swift.UInt32, upBranch: Swift.UInt32, symbol: Swift.UInt8) throws -> Swift.UInt32
+    37   0.7% KaitoKit.PPMd7Suballocator.(requireFrontierOrder in _F6087D0BDC78C6B0A3DBA397CECC627C)() throws -> ()
+    34   0.7% KaitoKit.PPMd7Suballocator.allocateUnits(Swift.Int) throws -> Swift.UInt32?
+    31   0.6% KaitoKit.PPMd7Suballocator.(requireAllocatedUnitBlock in _F6087D0BDC78C6B0A3DBA397CECC627C)(_: Swift.UInt32, classIndex: Swift.Int) throws -> ()
+    26   0.5% merged outlined destroy of ((extension in Foundation):Swift.String.Encoding?, (extension in Foundation):Swift.String.Encoding?)
+pc-I-after.tsv total samples 5358
+  3098  57.8% KaitoKit.PPMdVarIDecoder.read(into: Swift.UnsafeMutableRawBufferPointer) throws -> Swift.Int
+   495   9.2% KaitoKit.(PPMdVarIModelCursor in _4869A70BB7CDE5A17498FC1120B9B6A8).updateModel(Swift.UInt32) throws -> ()
+   489   9.1% KaitoKit.(PPMdVarIModelCursor in _4869A70BB7CDE5A17498FC1120B9B6A8).findState(Swift.UInt32, Swift.UInt8) throws -> Swift.UInt32
+   424   7.9% /usr/lib/system/libsystem_kernel.dylib
+   242   4.5% closure #1 (Swift.UnsafeMutableBufferPointer<Swift.UInt32>) throws -> Swift.UInt32 in KaitoKit.(PPMdVarIModelCursor in _4869A70BB7CDE5A17498FC1120B9B6A8).createSuccessors(skip: Swift.Bool, hint: Swift.UInt32, context: Swift.UInt32) throws -> Swift.UInt32
+   123   2.3% /usr/lib/swift/libswiftCore.dylib
+   114   2.1% /usr/lib/system/libsystem_platform.dylib
+    82   1.5% KaitoKit.(PPMdVarIModelCursor in _4869A70BB7CDE5A17498FC1120B9B6A8).decodeBinSymbol(Swift.UInt32, inout KaitoKit.PPMdVarIRangeCursor) throws -> ()
+    39   0.7% KaitoKit.PPMdVarISuballocator.allocateUnits(Swift.Int) throws -> Swift.UInt32
+    33   0.6% merged outlined destroy of ((extension in Foundation):Swift.String.Encoding?, (extension in Foundation):Swift.String.Encoding?)
+    28   0.5% KaitoKit.(PPMdVarIModelCursor in _4869A70BB7CDE5A17498FC1120B9B6A8).rescale(Swift.UInt32) throws -> ()
+    26   0.5% KaitoKit.PPMdVarISuballocator.appendText(Swift.UInt8) throws -> Swift.UInt32
+    24   0.4% KaitoKit.PPMdVarISuballocator.(allocateUnitsRare in _297C0DF94CE78BCC94B4C683BEE3F7DD)(Swift.Int) throws -> Swift.UInt32
+    23   0.4% generic specialization <Swift.Int> of Swift.StrideThroughIterator.next() -> A?
+    20   0.4% KaitoKit.PPMdVarISuballocator.(remove in _297C0DF94CE78BCC94B4C683BEE3F7DD)(Swift.Int) throws -> Swift.UInt32
+    19   0.4% KaitoKit.PPMdVarISuballocator.allocateContext() throws -> Swift.UInt32
+    19   0.4% KaitoKit.PPMdVarISuballocator.expandUnits(Swift.UInt32, Swift.Int) throws -> Swift.UInt32
+    18   0.3% KaitoKit.PPMdVarISuballocator.copy(from: Swift.UInt32, to: Swift.UInt32, count: Swift.Int) throws -> ()
+    17   0.3% KaitoKit.PPMdVarISuballocator.(insert in _297C0DF94CE78BCC94B4C683BEE3F7DD)(_: Swift.UInt32, _: Swift.Int, units: Swift.Int) throws -> ()
+    16   0.3% KaitoKit.(PPMdVarIModelCursor in _4869A70BB7CDE5A17498FC1120B9B6A8).step(inout Swift.Int) throws -> ()

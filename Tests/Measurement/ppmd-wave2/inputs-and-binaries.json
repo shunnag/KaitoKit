@@ -1,0 +1,85 @@
+{
+  "architecture": "arm64",
+  "files": [
+    {
+      "path": "/tmp/kaitokit-wave1-kc/bench-inputs/color-0.bmp",
+      "sha256": "de9d31a91d3915d82cff65db368335fdc9cbc4a10ac2e39f83c874b037d352e0",
+      "size": 12582966
+    },
+    {
+      "path": "/tmp/kaitokit-wave1-kc/bench-inputs/color-1.bmp",
+      "sha256": "3184a2beb5bbc6b3dd8495a9cbc2d41c3b53974019b5889580cb9392bbcea224",
+      "size": 12582966
+    },
+    {
+      "path": "/tmp/kaitokit-wave1-kc/bench-inputs/color-2.bmp",
+      "sha256": "60e7c419c40b52f126f31b6d2a84061cdfb36c46f684de13624f8f8933345021",
+      "size": 12582966
+    },
+    {
+      "path": "/tmp/kaitokit-wave1-kc/bench-inputs/jpeg-0.jpg",
+      "sha256": "2018bea2e4134d82a7798e347c89809a818c3c4f96e8364e79f60c5a9e01d902",
+      "size": 1282848
+    },
+    {
+      "path": "/tmp/kaitokit-wave1-kc/bench-inputs/jpeg-1.jpg",
+      "sha256": "43326d9253cec430109899e29fd32f5d26fd7c1d930e0b2aa6ac7e08b37704be",
+      "size": 1282847
+    },
+    {
+      "path": "/tmp/kaitokit-wave1-kc/bench-inputs/jpeg-2.jpg",
+      "sha256": "b5ce57a6addd75d4d7cd6e536f6d638af31ae0125dc82c2bc8cf742adddcc990",
+      "size": 1283138
+    },
+    {
+      "path": "/tmp/kaitokit-wave1-kc/bench-inputs/text.txt",
+      "sha256": "05d63ec193be7d607d6f00dea05fc8c70467aa407939497e198333c1084505d0",
+      "size": 16777216
+    },
+    {
+      "path": "/tmp/kaitokit-wave2-kd/text.7z",
+      "sha256": "9ade6ef409ec8af5c5474aaf58cab87fc51b0bda98145248d637f7f4c542eab7",
+      "size": 1903767
+    },
+    {
+      "path": "/tmp/kaitokit-wave2-kd/text.zip",
+      "sha256": "62f99aba23b209852666bbdd8bde7d6479ec65da117f76e6f04ea6ddbd52b2c9",
+      "size": 1914617
+    },
+    {
+      "path": "/tmp/kaitokit-wave2-kd/color.7z",
+      "sha256": "8a41972a951feff4c50957e2c8f9724af8ae74178062cb01f8c771fe1fdd945e",
+      "size": 19683714
+    },
+    {
+      "path": "/tmp/kaitokit-wave2-kd/color.zip",
+      "sha256": "8e19b9cca4cd9c8ba6333207fd7083bc4f8eb4b7131e6c1c06b57269b682d83e",
+      "size": 19672237
+    },
+    {
+      "path": "/tmp/kaitokit-wave2-kd/jpeg.7z",
+      "sha256": "0af954183a96597977b5f2e1dcc71a765c793bcace84cd9873a12fe341733be4",
+      "size": 3645877
+    },
+    {
+      "path": "/tmp/kaitokit-wave2-kd/jpeg.zip",
+      "sha256": "2dd2ff99ece9bdfbab53747e8af06ed99807bb32f3c92f352d2174044a8757f9",
+      "size": 3649760
+    },
+    {
+      "path": "/tmp/kaitokit-wave2-kd/kaito-before",
+      "sha256": "7e7df46c80b946d70da30ff111afe3575674671bf3c9080a311c5aed2f0a689d",
+      "size": 6125912
+    },
+    {
+      "path": "/tmp/kaitokit-wave2-kd/kaito-accepted",
+      "sha256": "f961fa31387ce1032c8fc04b725cce81b77d56fcff4587a49a4c49fd0beba23f",
+      "size": 6123768
+    }
+  ],
+  "hardware_query": "denied",
+  "head": "7b1e5837718f6e4f11a36cd427a857c6851b8814",
+  "os": "macOS 27.2 (26B118)",
+  "sevenzip": "26.05 arm64",
+  "swift": "6.4 swiftlang-6.4.0.34.1"
+}

@@ -615,8 +615,7 @@ public final class LZMADecoder: Decompressor {
     // LZMA2 chunk は range coder だけを毎回初期化し、reset flag に応じて
     // 確率状態を初期化する。dictionary は別 flag のときだけ捨てる。
     func beginLZMA2Chunk(
-        source: any ByteSource,
-        offset: UInt64,
+        reader: inout ByteReader,
         compressedSize: UInt64,
         unpackedSize: UInt64,
         resetState: Bool,
@@ -643,16 +642,10 @@ public final class LZMADecoder: Decompressor {
             resetCodingState()
         }
 
-        let compressedEnd = try Checked.add(offset, compressedSize)
-        guard compressedEnd <= source.length else {
-            throw KaitoError.truncated
-        }
+        guard compressedSize <= reader.remaining else { throw KaitoError.truncated }
         expectedSize = try Checked.add(outputPosition, unpackedSize)
         rangeDecoder = try LZMARangeDecoder(
-            source: source,
-            offset: offset,
-            endOffset: compressedEnd,
-            storage: inputStorage
+            reader: &reader, compressedSize: compressedSize, storage: inputStorage
         )
         pendingMatchLength = 0
         finished = false
@@ -810,7 +803,7 @@ private enum LZMAProbabilityOffset {
 // 入力末尾の読み越しは zero sentinel で遅延検出する。同じ coder を BCJ2Decompressor が
 // inline で持つ（一覧: Core/BitReader.swift の先頭）。
 private struct LZMARangeDecoder {
-    private let source: any ByteSource
+    private let source: (any ByteSource)?
     private let endOffset: UInt64
     private let storageBase: UnsafeMutablePointer<UInt8>
     private let storageCount: Int
@@ -843,6 +836,31 @@ private struct LZMARangeDecoder {
         self.storageCount = storage.count &- LZMADecoder.maximumBytesPerSymbol
         self.nextSourceOffset = offset
         try refillInput()
+        try initializeCode()
+    }
+
+    // LZMA2 の payload は外側の 256 KiB 窓から既存 storage へ写す。source を
+    // 持たず、valid 末尾の 64 byte sentinel と consumedAllInput の条件は共通にする。
+    init(
+        reader: inout ByteReader, compressedSize: UInt64,
+        storage: UnsafeMutableBufferPointer<UInt8>
+    ) throws {
+        let count = try Checked.toInt(compressedSize)
+        guard storage.count > LZMADecoder.maximumBytesPerSymbol,
+              count <= storage.count - LZMADecoder.maximumBytesPerSymbol,
+              let base = storage.baseAddress else { throw KaitoError.truncated }
+        self.source = nil
+        self.endOffset = compressedSize
+        self.storageBase = base
+        self.storageCount = storage.count - LZMADecoder.maximumBytesPerSymbol
+        self.nextSourceOffset = compressedSize
+        try reader.read(into: UnsafeMutableRawBufferPointer(start: base, count: count))
+        inputCount = count
+        Darwin.memset(base.advanced(by: count), 0, LZMADecoder.maximumBytesPerSymbol)
+        try initializeCode()
+    }
+
+    private mutating func initializeCode() throws {
         guard inputCount >= 5 else {
             throw KaitoError.truncated
         }
@@ -896,6 +914,7 @@ private struct LZMARangeDecoder {
                 start: base.advanced(by: inputCount),
                 count: requested
             )
+            guard let source else { throw KaitoError.truncated }
             let actual = try source.read(into: destination, at: nextSourceOffset)
             guard actual > 0, actual <= requested else {
                 throw KaitoError.truncated

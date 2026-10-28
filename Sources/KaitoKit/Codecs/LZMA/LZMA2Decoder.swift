@@ -63,7 +63,6 @@ public final class LZMA2Decoder: Decompressor {
     private static let outputChunkSize = 256 * 1_024
     private static let maximumResetPointCount = 1_000_000
 
-    private let source: any ByteSource
     private let endOffset: UInt64
     private let expectedSize: UInt64?
     private var reader: ByteReader
@@ -112,7 +111,6 @@ public final class LZMA2Decoder: Decompressor {
             throw KaitoError.truncated
         }
 
-        self.source = source
         self.endOffset = endOffset
         self.expectedSize = expectedSize
         // 外側の ByteReader も folder の検証済み packed 範囲だけを読み、後続 member を消費しない。
@@ -480,11 +478,8 @@ public final class LZMA2Decoder: Decompressor {
             let packedOffset = reader.offset
             let next = try Checked.add(packedOffset, packedSize)
             guard next <= endOffset else { throw KaitoError.truncated }
-            try reader.seek(to: next)
-
             try lzma.beginLZMA2Chunk(
-                source: source,
-                offset: packedOffset,
+                reader: &reader,
                 compressedSize: packedSize,
                 unpackedSize: unpackedSize,
                 resetState: resetsState,

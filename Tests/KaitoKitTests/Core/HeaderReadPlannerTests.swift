@@ -29,6 +29,23 @@ final class HeaderReadPlannerTests: XCTestCase {
         _ = planner.windowSize(offset: 0, request: 1, length: 4 << 20)
         XCTAssertEqual(planner.windowSize(offset: 1 << 20, request: 1, length: 4 << 20), 256 << 10)
     }
+    func testMaximumSpacingWaitsForFullHistoryAndKeepsLargeSkips() {
+        var planner = HeaderReadPlanner(.adaptive, minimumWindowSize: 4096, spacingEstimate: .maximum)
+        XCTAssertEqual(planner.windowSize(offset: 0, request: 4096, length: 16 << 20), 4096)
+        for _ in 0..<7 {
+            planner.noteBlock(offset: 0, nextOffset: 1024)
+            XCTAssertEqual(planner.windowSize(offset: 1 << 20, request: 4096, length: 16 << 20), 4096)
+        }
+        planner.noteBlock(offset: 0, nextOffset: 1024)
+        XCTAssertEqual(planner.windowSize(offset: 1 << 20, request: 4096, length: 16 << 20), 256 << 10)
+        planner.noteBlock(offset: 0, nextOffset: 4 << 20)
+        for _ in 0..<3 {
+            planner.noteBlock(offset: 0, nextOffset: 1024)
+            XCTAssertEqual(planner.windowSize(offset: 2 << 20, request: 4096, length: 16 << 20), 4096)
+        }
+        planner.noteBlock(offset: 0, nextOffset: 1024)
+        XCTAssertEqual(planner.windowSize(offset: 2 << 20, request: 4096, length: 16 << 20), 256 << 10)
+    }
     func testWholeFileWindowAtOrBelowOneMiB() {
         for length in [123, 1 << 20] {
             var planner = HeaderReadPlanner(.adaptive)

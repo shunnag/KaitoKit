@@ -26,16 +26,25 @@ enum ArchivePath {
     }
     /// hard link / file copy の照合用の相対 path。NUL・絶対 path・`..` は拒否し、
     /// `.` と重複する `/` だけを除く。OS 固有の名前変換は呼出側で先に行う。
-    static func normalizedExtractionPath(_ path: String) -> String? {
-        guard !path.isEmpty, path.utf8.first != 0x2F, !path.utf8.contains(0) else {
-            return nil
+    static func normalizedExtractionPath(_ path: String, components: [String]? = nil) -> String? {
+        guard !path.isEmpty, path.utf8.first != 0x2F else { return nil }
+        var previousWasSlash = false
+        var repeatedSlash = false
+        for byte in path.utf8 {
+            guard byte != 0 else { return nil }
+            let slash = byte == 0x2F
+            repeatedSlash = repeatedSlash || (slash && previousWasSlash)
+            previousWasSlash = slash
         }
-        let rawComponents = path
-            .utf8.split(separator: 0x2F, omittingEmptySubsequences: true)
+        let rawComponents = components ?? path.utf8
+            .split(separator: 0x2F, omittingEmptySubsequences: true)
             .map { String(decoding: $0, as: UTF8.self) }
-        guard !rawComponents.contains("..") else { return nil }
-        let components = rawComponents.filter { $0 != "." }
-        guard !components.isEmpty else { return nil }
-        return components.joined(separator: "/")
+        guard !rawComponents.isEmpty, !rawComponents.contains("..") else { return nil }
+        let hasDot = rawComponents.contains(".")
+        // Ordinary member names already are the lookup key. Share their String
+        // storage instead of allocating a second split/filter/join result.
+        if !hasDot, !repeatedSlash, !previousWasSlash { return path }
+        let normalized = rawComponents.lazy.filter { $0 != "." }.joined(separator: "/")
+        return normalized.isEmpty ? nil : normalized
     }
 }

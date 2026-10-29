@@ -502,6 +502,7 @@ final class SevenZipReader: FormatReader {
         entries.reserveCapacity(files.count)
         records.reserveCapacity(files.count)
         var streamIndex = 0
+        var specificCache = FormatSpecificCache()
 
         for (index, file) in files.enumerated() {
             try checkCancellation(every: index)
@@ -536,7 +537,7 @@ final class SevenZipReader: FormatReader {
                 SevenZipMethod.kind(for: $0.methodID) == .aes
             } ?? false
             let methods = folder?.coders.map(SevenZipMethod.description(for:)) ?? ["Copy"]
-            let specific = formatSpecific(for: file, kind: kind, isEncrypted: encrypted)
+            let specific = formatSpecific(for: file, kind: kind, isEncrypted: encrypted, cache: &specificCache)
 
             var entryMetadata = try Checked.add(
                 UInt64(file.rawName.count),
@@ -611,20 +612,57 @@ final class SevenZipReader: FormatReader {
         return (kind, unixMode)
     }
 
+    private struct FormatSpecificKey: Equatable {
+        let encrypted: Bool
+        let anti: Bool
+        let emptyFile: Bool
+        let hasStream: Bool
+        let attributes: UInt32?
+        let symlink: Bool
+    }
+
+    /// Bounded per-parse FIFO, matching ZIP's COW dictionary sharing.
+    private struct FormatSpecificCache {
+        private var slots: [(key: FormatSpecificKey, value: [String: String])] = []
+        private var nextReplacement = 0
+        init() { slots.reserveCapacity(8) }
+        func value(for key: FormatSpecificKey) -> [String: String]? {
+            slots.first(where: { $0.key == key })?.value
+        }
+        mutating func insert(_ value: [String: String], for key: FormatSpecificKey) {
+            if slots.count < 8 { slots.append((key, value)) }
+            else {
+                slots[nextReplacement] = (key, value)
+                nextReplacement = (nextReplacement + 1) % 8
+            }
+        }
+    }
+
     /// `ArchiveEntry.formatSpecific` に載せる 7z 固有の値。
     private static func formatSpecific(
         for file: SevenZipFileMetadata,
         kind: EntryKind,
-        isEncrypted: Bool
+        isEncrypted: Bool,
+        cache: inout FormatSpecificCache
     ) -> [String: String] {
-        var specific: [String: String] = [
-            "encryption": isEncrypted ? "7zAES-256" : "none",
-            "anti": file.isAnti ? "true" : "false",
-            "emptyFile": file.isEmptyFile ? "true" : "false",
-            "emptyStream": file.hasStream ? "false" : "true"
-        ]
-        if let attributes = file.windowsAttributes {
-            specific["windowsAttributes"] = hexadecimalAttributes(attributes)
+        let key = FormatSpecificKey(encrypted: isEncrypted, anti: file.isAnti,
+                                    emptyFile: file.isEmptyFile, hasStream: file.hasStream,
+                                    attributes: file.windowsAttributes, symlink: kind == .symlink)
+        var specific: [String: String]
+        if let cached = cache.value(for: key) {
+            specific = cached
+        } else {
+            specific = [
+                "encryption": isEncrypted ? "7zAES-256" : "none",
+                "anti": file.isAnti ? "true" : "false",
+                "emptyFile": file.isEmptyFile ? "true" : "false",
+                "emptyStream": file.hasStream ? "false" : "true"
+            ]
+            if let attributes = file.windowsAttributes {
+                specific["windowsAttributes"] = hexadecimalAttributes(attributes)
+            }
+            if kind == .symlink { specific["linkTargetStoredAsData"] = "true" }
+            cache.insert(specific, for: key)
         }
         if let startPosition = file.startPosition {
             specific["startPosition"] = String(startPosition)
@@ -635,7 +673,6 @@ final class SevenZipReader: FormatReader {
         if let accessTime = file.accessTime {
             specific["accessTime"] = String(accessTime.timeIntervalSince1970)
         }
-        if kind == .symlink { specific["linkTargetStoredAsData"] = "true" }
         return specific
     }
 

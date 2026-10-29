@@ -8,7 +8,8 @@ enum TarParser {
         policy: EncodingPolicy,
         limits: ReadLimits,
         recoverDamagedArchives: Bool,
-        recordsLayout: Bool
+        recordsLayout: Bool,
+        highLatencyInput: Bool = false
     ) throws -> (
         entries: [ArchiveEntry],
         records: [TarEntryRecord],
@@ -26,9 +27,14 @@ enum TarParser {
         var longLink: [UInt8]?
         var pendingMetadataFloor: UInt64 = 0
         var foundTerminator = false
-        // header の間には member の本文があり、一覧の走査はそれを先読みしない。
-        // 拡張 header の payload は、範囲を限った読み出しで別に読む。
-        var byteReader = try ByteReader(source: source, bufferCapacity: 4 * 1_024)
+        // Adapt only the header walk on high-latency inputs. Sparse member
+        // spacing keeps the window small; extension payloads remain bounded reads.
+        let window = highLatencyInput ? HeaderWindowByteSource(base: source,
+            planner: HeaderReadPlanner(.adaptive, minimumWindowSize: 4 * 1_024, spacingEstimate: .maximum),
+            // Tar's fixed header buffer never depended on the extension-payload
+            // metadata limit. Do not turn one header fill into tiny base reads.
+            maximumReadSize: max(4 * 1_024, Int(clamping: limits.maxMetadataSize))) : nil
+        var byteReader = try ByteReader(source: window ?? source, bufferCapacity: 4 * 1_024)
         var headerCount = 0
 
         while offset < source.length {
@@ -102,6 +108,7 @@ enum TarParser {
                     recoverDamagedArchives: recoverDamagedArchives
                 )
                 layout?.recordExtension(type: typeByte, start: offset, end: extensionEnd)
+                window?.noteBlock(offset: offset, nextOffset: extensionEnd)
                 offset = extensionEnd
                 continue
             }
@@ -313,6 +320,7 @@ enum TarParser {
             hasLocalPAX = false
             longName = nil
             longLink = nil
+            window?.noteBlock(offset: offset, nextOffset: nextOffset)
             offset = nextOffset
         }
 

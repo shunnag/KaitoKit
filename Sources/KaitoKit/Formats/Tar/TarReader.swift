@@ -16,7 +16,8 @@ final class TarReader: FormatReader {
             policy: options.encodingPolicy,
             limits: options.limits,
             recoverDamagedArchives: options.recoverDamagedArchives,
-            recordsLayout: options.recordsTarEditLayout
+            recordsLayout: options.recordsTarEditLayout,
+            highLatencyInput: options.resolvedInputLatency(for: source) == .high
         )
         entries = parsed.entries
         nameEncoding = parsed.nameEncoding

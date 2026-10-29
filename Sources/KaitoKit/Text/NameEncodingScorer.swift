@@ -134,9 +134,52 @@ enum NameEncodingScorer {
         }
     }
 
+    // Unicode.GeneralCategory is resilient; store a local byte so scalar traits
+    // can be copied without stdlib enum metadata operations. Unknown future
+    // categories retain the existing fall-through behavior in scoring rules.
+    enum ScalarCategory: UInt8, Sendable {
+        case uppercaseLetter, lowercaseLetter, titlecaseLetter, modifierLetter, otherLetter, nonspacingMark, spacingMark, enclosingMark, decimalNumber, letterNumber, otherNumber, connectorPunctuation, dashPunctuation, openPunctuation, closePunctuation, initialPunctuation, finalPunctuation, otherPunctuation, mathSymbol, currencySymbol, modifierSymbol, otherSymbol, spaceSeparator, lineSeparator, paragraphSeparator, control, format, surrogate, privateUse, unassigned, unknown
+
+        init(_ category: Unicode.GeneralCategory) {
+            switch category {
+            case .uppercaseLetter: self = .uppercaseLetter
+            case .lowercaseLetter: self = .lowercaseLetter
+            case .titlecaseLetter: self = .titlecaseLetter
+            case .modifierLetter: self = .modifierLetter
+            case .otherLetter: self = .otherLetter
+            case .nonspacingMark: self = .nonspacingMark
+            case .spacingMark: self = .spacingMark
+            case .enclosingMark: self = .enclosingMark
+            case .decimalNumber: self = .decimalNumber
+            case .letterNumber: self = .letterNumber
+            case .otherNumber: self = .otherNumber
+            case .connectorPunctuation: self = .connectorPunctuation
+            case .dashPunctuation: self = .dashPunctuation
+            case .openPunctuation: self = .openPunctuation
+            case .closePunctuation: self = .closePunctuation
+            case .initialPunctuation: self = .initialPunctuation
+            case .finalPunctuation: self = .finalPunctuation
+            case .otherPunctuation: self = .otherPunctuation
+            case .mathSymbol: self = .mathSymbol
+            case .currencySymbol: self = .currencySymbol
+            case .modifierSymbol: self = .modifierSymbol
+            case .otherSymbol: self = .otherSymbol
+            case .spaceSeparator: self = .spaceSeparator
+            case .lineSeparator: self = .lineSeparator
+            case .paragraphSeparator: self = .paragraphSeparator
+            case .control: self = .control
+            case .format: self = .format
+            case .surrogate: self = .surrogate
+            case .privateUse: self = .privateUse
+            case .unassigned: self = .unassigned
+            @unknown default: self = .unknown
+            }
+        }
+    }
+
     struct Traits: Sendable {
         let scalar: UInt32
-        let category: Unicode.GeneralCategory
+        let category: ScalarCategory
         let mainMask: UInt64
         let auxiliaryMask: UInt64
         let script: Script
@@ -188,7 +231,7 @@ enum NameEncodingScorer {
         }
         let scalar = Unicode.Scalar(value)!
         let p = scalar.properties
-        let category = p.generalCategory
+        let category = ScalarCategory(p.generalCategory)
         let bad = category == .control || category == .privateUse || category == .unassigned || category == .surrogate
         let letter = category == .uppercaseLetter || category == .lowercaseLetter || category == .titlecaseLetter || category == .otherLetter || category == .modifierLetter
         var vowel = vowels.contains(value)

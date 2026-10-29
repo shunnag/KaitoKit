@@ -279,14 +279,19 @@ public enum EncodingDetector {
     ) {
         guard !range.isEmpty else { return }
         let combined = concatenate(names, range: range, separator: 0)
-        if let decoded = decode(bytes: combined, as: encoding) {
-            let pieces = decoded.utf8.split(separator: 0, omittingEmptySubsequences: false)
-            if pieces.count == range.count {
+        if var decoded = decode(bytes: combined, as: encoding) {
+            // CF-backed legacy decodes otherwise transcode on every UTF8View
+            // index/subscript. Materialize once before walking the batch.
+            decoded.makeContiguousUTF8()
+            let succeeded = decoded.utf8.withContiguousStorageIfAvailable { bytes in
+                let pieces = bytes.split(separator: 0, omittingEmptySubsequences: false)
+                guard pieces.count == range.count else { return false }
                 for (index, piece) in zip(range, pieces) {
-                    results[index] = String(decoding: piece, as: UTF8.self)
+                    results[index] = String(decoding: UnsafeBufferPointer(rebasing: piece), as: UTF8.self)
                 }
-                return
+                return true
             }
+            if succeeded == true { return }
         }
 
         if range.count == 1 {

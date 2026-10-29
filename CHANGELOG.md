@@ -13,6 +13,7 @@
 
 ### 変更
 
+- tar の高遅延 header 走査で、小さな `maxMetadataSize` が 4 KiB の読み取りを 1 byte ごとに分割しないようにする。8 header を観測した後、直近 4 間隔の最大値で窓を選び、PAX / AppleDouble の小さな record に続く大きな payload を余分に先読みしない。小 3 件 + 4 MiB の member を 40 組並べた書庫は 41 回のまま 10,228,736 → 164,864 byte。密な 10 万件は 25,003 → 395 回、疎な 202 件は読取回数・byte 数を維持する。entry 一覧の比較 test は辞書の表示順に依存しない `Equatable` にする。検証は [open/IO R2 追補](Documentation/verification/2026-10-29-open-io-r2.md#adversarial-review-follow-up)。
 - NAS や cache に無い書庫の I/O を減らす。mmap した書庫の 64 KiB 以上の読み取りに `madvise(MADV_WILLNEED)` を出す(stream 開始時の範囲は最初の 16 MiB まで、指示済みの範囲は覚えて重ねて出さない、lock の外で出す、mmap の判定は `mach_vm_region_recurse` の short info)。ZIP の遅延 local header 検証は 1 件 1 回の pread にし(200 ページの最終ページで 400→200)、LHA の header 走査は窓 reader に通す(161→41 回、読む byte 94% 減)。RAR4 の header 走査は、payload を余分に読むことになるので据え置いた。Mac mini M4 の cold(新しい vnode)で stored の JPEG CBZ 174→68 ms、stored の色付きページ 69→28 ms、deflate 0.74 倍、LHA 0.87 倍。warm は変わらないか速い(小ファイル多数の stored は 1.0→1.1 ms)。出力・error は変わらない。
 - 整合性検査を速くする。RAR5 の BLAKE2sp は 8 本の葉を `SIMD8<UInt32>` の 8 レーンで同時に計算し(3.38 倍)、xz の CRC64 は PMULL による folding(13.45 倍)、ZipCrypto の鍵更新の CRC は ARMv8 の `__crc32b` 命令(1.42 倍)にする。出力は変わらない(スカラー版の BLAKE2sp を test 側に残して照合する)。
 - LZMA2 の圧縮 chunk を range decoder が source から読み直さないようにする。外側の reader が読んだ payload をそのまま渡すので、7z の読み取り量が書庫の約 1.89 倍から 1.00 倍になる(NAS で cold のスプールや暗号化 folder で効く)。出力は変わらない。

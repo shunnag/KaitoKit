@@ -92,7 +92,7 @@ enum TarEntryPublisher {
                 isIncomplete: pending.isIncomplete
             )
             entries.append(entry)
-            if let normalizedName = ArchivePath.normalizedExtractionPath(resolvedName) {
+            if let normalizedName = ArchivePath.normalizedExtractionPath(resolvedName, components: pathComponents) {
                 // hard link の解決後に挿入し、参照先を必ず過去の member に限定する。
                 lastEntryByNormalizedPath[normalizedName] = entry.index
             }

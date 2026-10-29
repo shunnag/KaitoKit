@@ -2,18 +2,26 @@ import Foundation
 
 struct HeaderReadPlanner {
     enum Mode { case fixed(Int), adaptive }
+    enum SpacingEstimate { case median, maximum }
     private let mode: Mode
+    private let minimumWindowSize: Int
+    private let spacingEstimate: SpacingEstimate
     private let maximumCoalescingSpacing: UInt64
     private var spacings: [UInt64] = []
     private var hasMiss = false
+    private var observedBlocks = 0
 
-    init(_ mode: Mode, maximumCoalescingSpacing: UInt64 = 64 << 10) {
+    init(_ mode: Mode, minimumWindowSize: Int = 16 << 10, spacingEstimate: SpacingEstimate = .median,
+         maximumCoalescingSpacing: UInt64 = 64 << 10) {
         self.mode = mode
+        self.minimumWindowSize = minimumWindowSize
+        self.spacingEstimate = spacingEstimate
         self.maximumCoalescingSpacing = maximumCoalescingSpacing
     }
 
     mutating func noteBlock(offset: UInt64, nextOffset: UInt64) {
         guard nextOffset >= offset else { return }
+        if spacingEstimate == .maximum, observedBlocks < 8 { observedBlocks += 1 }
         spacings.append(nextOffset - offset)
         if spacings.count > 4 { spacings.removeFirst() }
     }
@@ -21,24 +29,33 @@ struct HeaderReadPlanner {
     mutating func windowSize(offset: UInt64, request: Int, length: UInt64) -> Int {
         guard offset < length, request > 0 else { return 0 }
         let maximum = 1 << 20
-        var size = 16 << 10
+        var size = minimumWindowSize
         switch mode {
         case .fixed(let fixed): size = fixed
         case .adaptive:
-            if !hasMiss { size = length <= UInt64(maximum) ? maximum : 16 << 10 }
+            if !hasMiss { size = length <= UInt64(maximum) ? maximum : minimumWindowSize }
             else if !spacings.isEmpty {
-                let sorted = spacings.sorted()
-                let middle = sorted.count / 2
-                let median = sorted.count % 2 == 0
-                    ? sorted[middle - 1] + (sorted[middle] - sorted[middle - 1]) / 2
-                    : sorted[middle]
+                let spacing: UInt64?
+                switch spacingEstimate {
+                case .median:
+                    let sorted = spacings.sorted()
+                    let middle = sorted.count / 2
+                    spacing = sorted.count % 2 == 0
+                        ? sorted[middle - 1] + (sorted[middle] - sorted[middle - 1]) / 2
+                        : sorted[middle]
+                case .maximum:
+                    // tar は大きな本体の前に小さな PAX / AppleDouble の record を置くことがある。
+                    // 先頭の directory や PAX の並びを密な file 列と見誤らないよう 8 header を
+                    // 観測してから広げ、以後は直近 4 間隔に大きな飛びが一つでもあれば広げない。
+                    spacing = observedBlocks == 8 ? spacings.max() : nil
+                }
                 // 1 要求は約 9 ms + bytes/(30〜60 MB/s)。間隔 270〜540 KiB 未満なら
                 // ストリームが有利で、64 KiB は遅い Wi-Fi にも 4〜8 倍の余裕を持つ。
                 // 直近 4 個の中央値なら JPEG 列中の大きな TIFF 1 枚で揺れない。
                 // 実測では 6 MB/395 件が 3.9→1.08 秒、110 MB/124 件は窓拡大で
                 // 2.13→2.64 秒・転送量 4→36 MB となったため疎な列は小窓を保つ。
-                if median <= maximumCoalescingSpacing {
-                    size = Int(max(256 << 10, min(UInt64(maximum / 64), median) * 64))
+                if let spacing, spacing <= maximumCoalescingSpacing {
+                    size = Int(max(256 << 10, min(UInt64(maximum / 64), spacing) * 64))
                 }
             }
         }

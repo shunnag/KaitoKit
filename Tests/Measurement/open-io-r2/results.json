@@ -1,0 +1,3547 @@
+{
+  "schema": 1,
+  "baseline": "15be97b",
+  "branch": "perf/r2-open-io",
+  "toolchain": "Apple Swift 6.4 (swiftlang-6.4.0.34.1)",
+  "binaries": {
+    "before": {
+      "kaito": "1869800224833995b74aad9f1ca576a6438ae7e48ddce337259d894683305168",
+      "libKaitoKitDynamic.dylib": "3c23fda8c678b8d029c16d7bbbafd78462bb3ed64443bff970a74bc3c3d6d02e"
+    },
+    "traits": {
+      "kaito": "2528f0ec38d6a2c16f60c8ad12d9d5393689fa51cdafdecc7eb2985eed679229",
+      "libKaitoKitDynamic.dylib": "f99e3b63876be48e1ee5d111292c074501346f27bd95c40b70cb0ac3d06b4a68"
+    },
+    "shared": {
+      "kaito": "f962249b6549552783653166c61ed540aa4f9496331a079accb52be417b39e0a",
+      "libKaitoKitDynamic.dylib": "c44a1a58250eeb4d0988b80b6cf8de1cf95b4198bea7a8564cf06c354e10a192"
+    },
+    "floor": {
+      "kaito": "7af0eb5982b1cfcdca4286bd2115df45cea53f037610f257ec11a328c37b8d07",
+      "libKaitoKitDynamic.dylib": "4124bb2bf0e90e39f24fd7c519aa3f942b49b7b46cf3eacc086affb2733b805c"
+    }
+  },
+  "corpus": [
+    {
+      "file": "7z-10000.7z",
+      "bytes": 380082,
+      "sha256": "276db88c2bcec287c899e73401837aa991c527c47936ceb50ce115c52b433df6"
+    },
+    {
+      "file": "7z-100000.7z",
+      "bytes": 3800098,
+      "sha256": "680464a006a05f4b92a2e84ff3bc8fddcfde37ffceee2ea7cd801ad252550d40"
+    },
+    {
+      "file": "rar5-10000.rar",
+      "bytes": 570024,
+      "sha256": "40243765b636392fc758333fb5838124003dbf0fa1ab9760fa707eb34a370444"
+    },
+    {
+      "file": "rar5-100000.rar",
+      "bytes": 5700024,
+      "sha256": "943b9989c235dee3a55b9a534d9777d892c96e3dd6fa1d3b3cb81bcd0f97e3c8"
+    },
+    {
+      "file": "tar-10000-cp932.tar",
+      "bytes": 10250240,
+      "sha256": "a8e048c652890d3c43bfb8eba4beb5cb59d254f9f8d74096451e6f29f049ede5"
+    },
+    {
+      "file": "tar-10000.tar",
+      "bytes": 10250240,
+      "sha256": "674778d9603875dd6a5be0ec60485322b021706aec052c89d74c8c27a931ed8d"
+    },
+    {
+      "file": "tar-100000-cp932.tar",
+      "bytes": 102410240,
+      "sha256": "a03790b08575b9b1df466844a025f02893d1b58275e44b1c05957864d64e05e1"
+    },
+    {
+      "file": "tar-100000.tar",
+      "bytes": 102410240,
+      "sha256": "cf30ca138424fe5ff1975866906af69a8991293c4ca0926e4389234179875678"
+    },
+    {
+      "file": "tar-sparse.tar",
+      "bytes": 53063680,
+      "sha256": "79acbdf1bcf77fa2a17239a6a1dd2a81964557b1e197327476cb5e44dad048ce"
+    },
+    {
+      "file": "zip-10000-cp932.zip",
+      "bytes": 1140022,
+      "sha256": "6143628b1bae823a974fda25f659f4b5f100f7882c2dfceb0ea2f255142005e3"
+    },
+    {
+      "file": "zip-100000-cp932.zip",
+      "bytes": 11400098,
+      "sha256": "2f11ba647d692d3da8182f4f151eab15389cacf9351f65c465ca8ecc22a961b1"
+    },
+    {
+      "file": "zip64-10000.zip",
+      "bytes": 21460098,
+      "sha256": "64ddc034b2e9775864644ab923f1e362512950da4c73a55487ccb2d3fc879dec"
+    },
+    {
+      "file": "zip64-100000.zip",
+      "bytes": 214600098,
+      "sha256": "c5b02fcb91e86dd8fcf5810252f010c0fcf7310d6992fe20b8cae8bcd170dd1f"
+    }
+  ],
+  "paired": [
+    {
+      "candidate": 14,
+      "file": "zip-10000-cp932.zip",
+      "beforeStage": "before",
+      "beforeFlags": [],
+      "afterStage": "traits",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 44.858333,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 46.188416,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 45.473542,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 45.100125,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 45.392541,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 45.004167,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 45.010875,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 45.141625,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 44.965292,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 30.345125,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 29.732416,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 29.580667,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 30.383709,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 30.055459,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 30.300208,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 30.9325,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 30.134042,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 30.159916,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 45.100125,
+          "allocations": 104698,
+          "allocatedBytes": 38069562,
+          "reads": 5,
+          "readBytes": 716601
+        },
+        "after": {
+          "ms": 30.159916,
+          "allocations": 104698,
+          "allocatedBytes": 38069562,
+          "reads": 5,
+          "readBytes": 716601
+        }
+      }
+    },
+    {
+      "candidate": 14,
+      "file": "zip-100000-cp932.zip",
+      "beforeStage": "before",
+      "beforeFlags": [],
+      "afterStage": "traits",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 210.702875,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 210.483083,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 213.800667,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 213.347708,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 209.172041,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 208.254,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 213.012542,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 210.986584,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 218.950375,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 195.29925,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 194.456375,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 195.711875,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 202.707125,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 194.300667,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 197.35675,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 205.139958,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 195.693667,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 196.084458,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 210.986584,
+          "allocations": 644713,
+          "allocatedBytes": 148281386,
+          "reads": 7,
+          "readBytes": 17966713
+        },
+        "after": {
+          "ms": 195.711875,
+          "allocations": 644713,
+          "allocatedBytes": 148281386,
+          "reads": 7,
+          "readBytes": 17966713
+        }
+      }
+    },
+    {
+      "candidate": 15,
+      "file": "zip64-10000.zip",
+      "beforeStage": "before",
+      "beforeFlags": [],
+      "afterStage": "shared",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 21279453,
+            "allocations": 30067,
+            "digest": "56bfbe458472fa5e72a080378bc0274dbf8523e273a1c49c7decdb70c7d82a56",
+            "entries": 10000,
+            "file": "zip64-10000.zip",
+            "ms": 5.158041,
+            "nameEncoding": "nil",
+            "readBytes": 17413873,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 21279453,
+            "allocations": 30067,
+            "digest": "56bfbe458472fa5e72a080378bc0274dbf8523e273a1c49c7decdb70c7d82a56",
+            "entries": 10000,
+            "file": "zip64-10000.zip",
+            "ms": 5.297792,
+            "nameEncoding": "nil",
+            "readBytes": 17413873,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 21279453,
+            "allocations": 30067,
+            "digest": "56bfbe458472fa5e72a080378bc0274dbf8523e273a1c49c7decdb70c7d82a56",
+            "entries": 10000,
+            "file": "zip64-10000.zip",
+            "ms": 10.233083,
+            "nameEncoding": "nil",
+            "readBytes": 17413873,
+            "reads": 7
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 4502293,
+            "allocations": 30067,
+            "digest": "56bfbe458472fa5e72a080378bc0274dbf8523e273a1c49c7decdb70c7d82a56",
+            "entries": 10000,
+            "file": "zip64-10000.zip",
+            "ms": 5.361417,
+            "nameEncoding": "nil",
+            "readBytes": 636713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 4502293,
+            "allocations": 30067,
+            "digest": "56bfbe458472fa5e72a080378bc0274dbf8523e273a1c49c7decdb70c7d82a56",
+            "entries": 10000,
+            "file": "zip64-10000.zip",
+            "ms": 7.521458,
+            "nameEncoding": "nil",
+            "readBytes": 636713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 4502293,
+            "allocations": 30067,
+            "digest": "56bfbe458472fa5e72a080378bc0274dbf8523e273a1c49c7decdb70c7d82a56",
+            "entries": 10000,
+            "file": "zip64-10000.zip",
+            "ms": 5.239334,
+            "nameEncoding": "nil",
+            "readBytes": 636713,
+            "reads": 7
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 5.297792,
+          "allocations": 30067,
+          "allocatedBytes": 21279453,
+          "reads": 7,
+          "readBytes": 17413873
+        },
+        "after": {
+          "ms": 5.361417,
+          "allocations": 30067,
+          "allocatedBytes": 4502293,
+          "reads": 7,
+          "readBytes": 636713
+        }
+      }
+    },
+    {
+      "candidate": 15,
+      "file": "zip64-10000.zip",
+      "beforeStage": "before",
+      "beforeFlags": [
+        "model"
+      ],
+      "afterStage": "shared",
+      "afterFlags": [
+        "model"
+      ],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 21279453,
+            "allocations": 30067,
+            "digest": "56bfbe458472fa5e72a080378bc0274dbf8523e273a1c49c7decdb70c7d82a56",
+            "entries": 10000,
+            "file": "zip64-10000.zip",
+            "ms": 185.400959,
+            "nameEncoding": "nil",
+            "readBytes": 17413873,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 21279453,
+            "allocations": 30067,
+            "digest": "56bfbe458472fa5e72a080378bc0274dbf8523e273a1c49c7decdb70c7d82a56",
+            "entries": 10000,
+            "file": "zip64-10000.zip",
+            "ms": 172.704458,
+            "nameEncoding": "nil",
+            "readBytes": 17413873,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 21279453,
+            "allocations": 30067,
+            "digest": "56bfbe458472fa5e72a080378bc0274dbf8523e273a1c49c7decdb70c7d82a56",
+            "entries": 10000,
+            "file": "zip64-10000.zip",
+            "ms": 173.488209,
+            "nameEncoding": "nil",
+            "readBytes": 17413873,
+            "reads": 7
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 4502293,
+            "allocations": 30067,
+            "digest": "56bfbe458472fa5e72a080378bc0274dbf8523e273a1c49c7decdb70c7d82a56",
+            "entries": 10000,
+            "file": "zip64-10000.zip",
+            "ms": 18.006667,
+            "nameEncoding": "nil",
+            "readBytes": 636713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 4502293,
+            "allocations": 30067,
+            "digest": "56bfbe458472fa5e72a080378bc0274dbf8523e273a1c49c7decdb70c7d82a56",
+            "entries": 10000,
+            "file": "zip64-10000.zip",
+            "ms": 20.044583,
+            "nameEncoding": "nil",
+            "readBytes": 636713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 4502293,
+            "allocations": 30067,
+            "digest": "56bfbe458472fa5e72a080378bc0274dbf8523e273a1c49c7decdb70c7d82a56",
+            "entries": 10000,
+            "file": "zip64-10000.zip",
+            "ms": 18.7155,
+            "nameEncoding": "nil",
+            "readBytes": 636713,
+            "reads": 7
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 173.488209,
+          "allocations": 30067,
+          "allocatedBytes": 21279453,
+          "reads": 7,
+          "readBytes": 17413873
+        },
+        "after": {
+          "ms": 18.7155,
+          "allocations": 30067,
+          "allocatedBytes": 4502293,
+          "reads": 7,
+          "readBytes": 636713
+        }
+      }
+    },
+    {
+      "candidate": 15,
+      "file": "zip64-100000.zip",
+      "beforeStage": "before",
+      "beforeFlags": [],
+      "afterStage": "shared",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 61149453,
+            "allocations": 300067,
+            "digest": "485bc37fc7267ba40ef03faa301e2e7e3b778978856f432fdcafaba982391c83",
+            "entries": 100000,
+            "file": "zip64-100000.zip",
+            "ms": 54.23475,
+            "nameEncoding": "nil",
+            "readBytes": 22543873,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 61149453,
+            "allocations": 300067,
+            "digest": "485bc37fc7267ba40ef03faa301e2e7e3b778978856f432fdcafaba982391c83",
+            "entries": 100000,
+            "file": "zip64-100000.zip",
+            "ms": 52.631083,
+            "nameEncoding": "nil",
+            "readBytes": 22543873,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 61149453,
+            "allocations": 300067,
+            "digest": "485bc37fc7267ba40ef03faa301e2e7e3b778978856f432fdcafaba982391c83",
+            "entries": 100000,
+            "file": "zip64-100000.zip",
+            "ms": 46.780916,
+            "nameEncoding": "nil",
+            "readBytes": 22543873,
+            "reads": 7
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 44372293,
+            "allocations": 300067,
+            "digest": "485bc37fc7267ba40ef03faa301e2e7e3b778978856f432fdcafaba982391c83",
+            "entries": 100000,
+            "file": "zip64-100000.zip",
+            "ms": 46.927417,
+            "nameEncoding": "nil",
+            "readBytes": 5766713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 44372293,
+            "allocations": 300067,
+            "digest": "485bc37fc7267ba40ef03faa301e2e7e3b778978856f432fdcafaba982391c83",
+            "entries": 100000,
+            "file": "zip64-100000.zip",
+            "ms": 52.91125,
+            "nameEncoding": "nil",
+            "readBytes": 5766713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 44372293,
+            "allocations": 300067,
+            "digest": "485bc37fc7267ba40ef03faa301e2e7e3b778978856f432fdcafaba982391c83",
+            "entries": 100000,
+            "file": "zip64-100000.zip",
+            "ms": 51.877333,
+            "nameEncoding": "nil",
+            "readBytes": 5766713,
+            "reads": 7
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 52.631083,
+          "allocations": 300067,
+          "allocatedBytes": 61149453,
+          "reads": 7,
+          "readBytes": 22543873
+        },
+        "after": {
+          "ms": 51.877333,
+          "allocations": 300067,
+          "allocatedBytes": 44372293,
+          "reads": 7,
+          "readBytes": 5766713
+        }
+      }
+    },
+    {
+      "candidate": 15,
+      "file": "zip64-100000.zip",
+      "beforeStage": "before",
+      "beforeFlags": [
+        "model"
+      ],
+      "afterStage": "shared",
+      "afterFlags": [
+        "model"
+      ],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 61149453,
+            "allocations": 300067,
+            "digest": "485bc37fc7267ba40ef03faa301e2e7e3b778978856f432fdcafaba982391c83",
+            "entries": 100000,
+            "file": "zip64-100000.zip",
+            "ms": 268.506125,
+            "nameEncoding": "nil",
+            "readBytes": 22543873,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 61149453,
+            "allocations": 300067,
+            "digest": "485bc37fc7267ba40ef03faa301e2e7e3b778978856f432fdcafaba982391c83",
+            "entries": 100000,
+            "file": "zip64-100000.zip",
+            "ms": 273.056208,
+            "nameEncoding": "nil",
+            "readBytes": 22543873,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 61149453,
+            "allocations": 300067,
+            "digest": "485bc37fc7267ba40ef03faa301e2e7e3b778978856f432fdcafaba982391c83",
+            "entries": 100000,
+            "file": "zip64-100000.zip",
+            "ms": 284.402083,
+            "nameEncoding": "nil",
+            "readBytes": 22543873,
+            "reads": 7
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 44372293,
+            "allocations": 300067,
+            "digest": "485bc37fc7267ba40ef03faa301e2e7e3b778978856f432fdcafaba982391c83",
+            "entries": 100000,
+            "file": "zip64-100000.zip",
+            "ms": 117.15325,
+            "nameEncoding": "nil",
+            "readBytes": 5766713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 44372293,
+            "allocations": 300067,
+            "digest": "485bc37fc7267ba40ef03faa301e2e7e3b778978856f432fdcafaba982391c83",
+            "entries": 100000,
+            "file": "zip64-100000.zip",
+            "ms": 118.240041,
+            "nameEncoding": "nil",
+            "readBytes": 5766713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 44372293,
+            "allocations": 300067,
+            "digest": "485bc37fc7267ba40ef03faa301e2e7e3b778978856f432fdcafaba982391c83",
+            "entries": 100000,
+            "file": "zip64-100000.zip",
+            "ms": 122.437208,
+            "nameEncoding": "nil",
+            "readBytes": 5766713,
+            "reads": 7
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 273.056208,
+          "allocations": 300067,
+          "allocatedBytes": 61149453,
+          "reads": 7,
+          "readBytes": 22543873
+        },
+        "after": {
+          "ms": 118.240041,
+          "allocations": 300067,
+          "allocatedBytes": 44372293,
+          "reads": 7,
+          "readBytes": 5766713
+        }
+      }
+    },
+    {
+      "candidate": 16,
+      "file": "tar-10000-cp932.tar",
+      "beforeStage": "traits",
+      "beforeFlags": [
+        "fixed"
+      ],
+      "afterStage": "shared",
+      "afterFlags": [
+        "fixed"
+      ],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 39606313,
+            "allocations": 319913,
+            "digest": "c0f2ec36f140ba6d6a188631aadf8c324b35a62e5fb809feeddb5abc604a7855",
+            "entries": 10000,
+            "file": "tar-10000-cp932.tar",
+            "ms": 39.449416,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 10245120,
+            "reads": 2503
+          },
+          {
+            "allocatedBytes": 39606313,
+            "allocations": 319913,
+            "digest": "c0f2ec36f140ba6d6a188631aadf8c324b35a62e5fb809feeddb5abc604a7855",
+            "entries": 10000,
+            "file": "tar-10000-cp932.tar",
+            "ms": 39.554209,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 10245120,
+            "reads": 2503
+          },
+          {
+            "allocatedBytes": 39606313,
+            "allocations": 319913,
+            "digest": "c0f2ec36f140ba6d6a188631aadf8c324b35a62e5fb809feeddb5abc604a7855",
+            "entries": 10000,
+            "file": "tar-10000-cp932.tar",
+            "ms": 38.235875,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 10245120,
+            "reads": 2503
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 39545288,
+            "allocations": 309915,
+            "digest": "c0f2ec36f140ba6d6a188631aadf8c324b35a62e5fb809feeddb5abc604a7855",
+            "entries": 10000,
+            "file": "tar-10000-cp932.tar",
+            "ms": 34.279625,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 10245120,
+            "reads": 2503
+          },
+          {
+            "allocatedBytes": 39545288,
+            "allocations": 309915,
+            "digest": "c0f2ec36f140ba6d6a188631aadf8c324b35a62e5fb809feeddb5abc604a7855",
+            "entries": 10000,
+            "file": "tar-10000-cp932.tar",
+            "ms": 32.981666,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 10245120,
+            "reads": 2503
+          },
+          {
+            "allocatedBytes": 39545288,
+            "allocations": 309915,
+            "digest": "c0f2ec36f140ba6d6a188631aadf8c324b35a62e5fb809feeddb5abc604a7855",
+            "entries": 10000,
+            "file": "tar-10000-cp932.tar",
+            "ms": 34.104667,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 10245120,
+            "reads": 2503
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 39.449416,
+          "allocations": 319913,
+          "allocatedBytes": 39606313,
+          "reads": 2503,
+          "readBytes": 10245120
+        },
+        "after": {
+          "ms": 34.104667,
+          "allocations": 309915,
+          "allocatedBytes": 39545288,
+          "reads": 2503,
+          "readBytes": 10245120
+        }
+      }
+    },
+    {
+      "candidate": 16,
+      "file": "tar-100000-cp932.tar",
+      "beforeStage": "traits",
+      "beforeFlags": [
+        "fixed"
+      ],
+      "afterStage": "shared",
+      "afterFlags": [
+        "fixed"
+      ],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 401689353,
+            "allocations": 3199927,
+            "digest": "d4431b47ba36d88be54ceb43a2233c1cebe74b945cf7eefb4021728a245c403d",
+            "entries": 100000,
+            "file": "tar-100000-cp932.tar",
+            "ms": 507.494917,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 102405120,
+            "reads": 25003
+          },
+          {
+            "allocatedBytes": 401689353,
+            "allocations": 3199927,
+            "digest": "d4431b47ba36d88be54ceb43a2233c1cebe74b945cf7eefb4021728a245c403d",
+            "entries": 100000,
+            "file": "tar-100000-cp932.tar",
+            "ms": 523.184584,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 102405120,
+            "reads": 25003
+          },
+          {
+            "allocatedBytes": 401689353,
+            "allocations": 3199927,
+            "digest": "d4431b47ba36d88be54ceb43a2233c1cebe74b945cf7eefb4021728a245c403d",
+            "entries": 100000,
+            "file": "tar-100000-cp932.tar",
+            "ms": 476.148667,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 102405120,
+            "reads": 25003
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 401178328,
+            "allocations": 3099929,
+            "digest": "d4431b47ba36d88be54ceb43a2233c1cebe74b945cf7eefb4021728a245c403d",
+            "entries": 100000,
+            "file": "tar-100000-cp932.tar",
+            "ms": 376.606167,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 102405120,
+            "reads": 25003
+          },
+          {
+            "allocatedBytes": 401178328,
+            "allocations": 3099929,
+            "digest": "d4431b47ba36d88be54ceb43a2233c1cebe74b945cf7eefb4021728a245c403d",
+            "entries": 100000,
+            "file": "tar-100000-cp932.tar",
+            "ms": 464.412916,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 102405120,
+            "reads": 25003
+          },
+          {
+            "allocatedBytes": 401178328,
+            "allocations": 3099929,
+            "digest": "d4431b47ba36d88be54ceb43a2233c1cebe74b945cf7eefb4021728a245c403d",
+            "entries": 100000,
+            "file": "tar-100000-cp932.tar",
+            "ms": 443.467458,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 102405120,
+            "reads": 25003
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 507.494917,
+          "allocations": 3199927,
+          "allocatedBytes": 401689353,
+          "reads": 25003,
+          "readBytes": 102405120
+        },
+        "after": {
+          "ms": 443.467458,
+          "allocations": 3099929,
+          "allocatedBytes": 401178328,
+          "reads": 25003,
+          "readBytes": 102405120
+        }
+      }
+    },
+    {
+      "candidate": 16,
+      "file": "zip-10000-cp932.zip",
+      "beforeStage": "traits",
+      "beforeFlags": [
+        "fixed"
+      ],
+      "afterStage": "shared",
+      "afterFlags": [
+        "fixed"
+      ],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 8702204,
+            "allocations": 60092,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 15.902,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 8702204,
+            "allocations": 60092,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 16.09475,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 8702204,
+            "allocations": 60092,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 18.821375,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 8632283,
+            "allocations": 50094,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 11.0865,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 8632283,
+            "allocations": 50094,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 10.840541,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 8632283,
+            "allocations": 50094,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 11.771333,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 16.09475,
+          "allocations": 60092,
+          "allocatedBytes": 8702204,
+          "reads": 5,
+          "readBytes": 716601
+        },
+        "after": {
+          "ms": 11.0865,
+          "allocations": 50094,
+          "allocatedBytes": 8632283,
+          "reads": 5,
+          "readBytes": 716601
+        }
+      }
+    },
+    {
+      "candidate": 16,
+      "file": "zip-100000-cp932.zip",
+      "beforeStage": "traits",
+      "beforeFlags": [
+        "fixed"
+      ],
+      "afterStage": "shared",
+      "afterFlags": [
+        "fixed"
+      ],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 102638732,
+            "allocations": 600098,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 162.646917,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 102638732,
+            "allocations": 600098,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 162.107833,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 102638732,
+            "allocations": 600098,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 158.227583,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 84247387,
+            "allocations": 500099,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 112.2465,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 6566713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 84247387,
+            "allocations": 500099,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 109.948459,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 6566713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 84247387,
+            "allocations": 500099,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 110.484333,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 6566713,
+            "reads": 7
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 162.107833,
+          "allocations": 600098,
+          "allocatedBytes": 102638732,
+          "reads": 7,
+          "readBytes": 17966713
+        },
+        "after": {
+          "ms": 110.484333,
+          "allocations": 500099,
+          "allocatedBytes": 84247387,
+          "reads": 7,
+          "readBytes": 6566713
+        }
+      }
+    },
+    {
+      "candidate": 17,
+      "file": "7z-10000.7z",
+      "beforeStage": "before",
+      "beforeFlags": [],
+      "afterStage": "shared",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 18006729,
+            "allocations": 150118,
+            "digest": "772cc642240aad8e2e5e9c8ca3001d2dcd9fd0778230b66a8aefe2a71cb180e2",
+            "entries": 10000,
+            "file": "7z-10000.7z",
+            "ms": 12.836291,
+            "nameEncoding": "nil",
+            "readBytes": 371112,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 18006729,
+            "allocations": 150118,
+            "digest": "772cc642240aad8e2e5e9c8ca3001d2dcd9fd0778230b66a8aefe2a71cb180e2",
+            "entries": 10000,
+            "file": "7z-10000.7z",
+            "ms": 12.950542,
+            "nameEncoding": "nil",
+            "readBytes": 371112,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 18006729,
+            "allocations": 150118,
+            "digest": "772cc642240aad8e2e5e9c8ca3001d2dcd9fd0778230b66a8aefe2a71cb180e2",
+            "entries": 10000,
+            "file": "7z-10000.7z",
+            "ms": 12.594417,
+            "nameEncoding": "nil",
+            "readBytes": 371112,
+            "reads": 5
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 13827371,
+            "allocations": 120122,
+            "digest": "772cc642240aad8e2e5e9c8ca3001d2dcd9fd0778230b66a8aefe2a71cb180e2",
+            "entries": 10000,
+            "file": "7z-10000.7z",
+            "ms": 9.846792,
+            "nameEncoding": "nil",
+            "readBytes": 371112,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 13827371,
+            "allocations": 120122,
+            "digest": "772cc642240aad8e2e5e9c8ca3001d2dcd9fd0778230b66a8aefe2a71cb180e2",
+            "entries": 10000,
+            "file": "7z-10000.7z",
+            "ms": 9.5245,
+            "nameEncoding": "nil",
+            "readBytes": 371112,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 13827371,
+            "allocations": 120122,
+            "digest": "772cc642240aad8e2e5e9c8ca3001d2dcd9fd0778230b66a8aefe2a71cb180e2",
+            "entries": 10000,
+            "file": "7z-10000.7z",
+            "ms": 9.604458,
+            "nameEncoding": "nil",
+            "readBytes": 371112,
+            "reads": 5
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 12.836291,
+          "allocations": 150118,
+          "allocatedBytes": 18006729,
+          "reads": 5,
+          "readBytes": 371112
+        },
+        "after": {
+          "ms": 9.604458,
+          "allocations": 120122,
+          "allocatedBytes": 13827371,
+          "reads": 5,
+          "readBytes": 371112
+        }
+      }
+    },
+    {
+      "candidate": 17,
+      "file": "7z-100000.7z",
+      "beforeStage": "before",
+      "beforeFlags": [],
+      "afterStage": "shared",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 188029126,
+            "allocations": 1500126,
+            "digest": "a25b53dd630d946698a080fb931fb7d594c00a50bbbf4856acd5f3425967f752",
+            "entries": 100000,
+            "file": "7z-100000.7z",
+            "ms": 122.307625,
+            "nameEncoding": "nil",
+            "readBytes": 3701128,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 188029126,
+            "allocations": 1500126,
+            "digest": "a25b53dd630d946698a080fb931fb7d594c00a50bbbf4856acd5f3425967f752",
+            "entries": 100000,
+            "file": "7z-100000.7z",
+            "ms": 123.86975,
+            "nameEncoding": "nil",
+            "readBytes": 3701128,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 188029126,
+            "allocations": 1500126,
+            "digest": "a25b53dd630d946698a080fb931fb7d594c00a50bbbf4856acd5f3425967f752",
+            "entries": 100000,
+            "file": "7z-100000.7z",
+            "ms": 125.530375,
+            "nameEncoding": "nil",
+            "readBytes": 3701128,
+            "reads": 5
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 146229768,
+            "allocations": 1200130,
+            "digest": "a25b53dd630d946698a080fb931fb7d594c00a50bbbf4856acd5f3425967f752",
+            "entries": 100000,
+            "file": "7z-100000.7z",
+            "ms": 90.951292,
+            "nameEncoding": "nil",
+            "readBytes": 3701128,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 146229768,
+            "allocations": 1200130,
+            "digest": "a25b53dd630d946698a080fb931fb7d594c00a50bbbf4856acd5f3425967f752",
+            "entries": 100000,
+            "file": "7z-100000.7z",
+            "ms": 94.82875,
+            "nameEncoding": "nil",
+            "readBytes": 3701128,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 146229768,
+            "allocations": 1200130,
+            "digest": "a25b53dd630d946698a080fb931fb7d594c00a50bbbf4856acd5f3425967f752",
+            "entries": 100000,
+            "file": "7z-100000.7z",
+            "ms": 92.484917,
+            "nameEncoding": "nil",
+            "readBytes": 3701128,
+            "reads": 5
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 123.86975,
+          "allocations": 1500126,
+          "allocatedBytes": 188029126,
+          "reads": 5,
+          "readBytes": 3701128
+        },
+        "after": {
+          "ms": 92.484917,
+          "allocations": 1200130,
+          "allocatedBytes": 146229768,
+          "reads": 5,
+          "readBytes": 3701128
+        }
+      }
+    },
+    {
+      "candidate": 17,
+      "file": "rar5-10000.rar",
+      "beforeStage": "before",
+      "beforeFlags": [],
+      "afterStage": "shared",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 51611848,
+            "allocations": 240142,
+            "digest": "371f7f941485a780bb3b89ebe5c13cf7fae1588a6180ab8e6d53ba14435643e0",
+            "entries": 10000,
+            "file": "rar5-10000.rar",
+            "ms": 46.757375,
+            "nameEncoding": "nil",
+            "readBytes": 570929,
+            "reads": 39
+          },
+          {
+            "allocatedBytes": 51611848,
+            "allocations": 240142,
+            "digest": "371f7f941485a780bb3b89ebe5c13cf7fae1588a6180ab8e6d53ba14435643e0",
+            "entries": 10000,
+            "file": "rar5-10000.rar",
+            "ms": 32.896208,
+            "nameEncoding": "nil",
+            "readBytes": 570929,
+            "reads": 39
+          },
+          {
+            "allocatedBytes": 51611848,
+            "allocations": 240142,
+            "digest": "371f7f941485a780bb3b89ebe5c13cf7fae1588a6180ab8e6d53ba14435643e0",
+            "entries": 10000,
+            "file": "rar5-10000.rar",
+            "ms": 32.375875,
+            "nameEncoding": "nil",
+            "readBytes": 570929,
+            "reads": 39
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 36173680,
+            "allocations": 220144,
+            "digest": "371f7f941485a780bb3b89ebe5c13cf7fae1588a6180ab8e6d53ba14435643e0",
+            "entries": 10000,
+            "file": "rar5-10000.rar",
+            "ms": 19.319084,
+            "nameEncoding": "nil",
+            "readBytes": 570929,
+            "reads": 39
+          },
+          {
+            "allocatedBytes": 36173680,
+            "allocations": 220144,
+            "digest": "371f7f941485a780bb3b89ebe5c13cf7fae1588a6180ab8e6d53ba14435643e0",
+            "entries": 10000,
+            "file": "rar5-10000.rar",
+            "ms": 19.294125,
+            "nameEncoding": "nil",
+            "readBytes": 570929,
+            "reads": 39
+          },
+          {
+            "allocatedBytes": 36173680,
+            "allocations": 220144,
+            "digest": "371f7f941485a780bb3b89ebe5c13cf7fae1588a6180ab8e6d53ba14435643e0",
+            "entries": 10000,
+            "file": "rar5-10000.rar",
+            "ms": 18.916334,
+            "nameEncoding": "nil",
+            "readBytes": 570929,
+            "reads": 39
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 32.896208,
+          "allocations": 240142,
+          "allocatedBytes": 51611848,
+          "reads": 39,
+          "readBytes": 570929
+        },
+        "after": {
+          "ms": 19.294125,
+          "allocations": 220144,
+          "allocatedBytes": 36173680,
+          "reads": 39,
+          "readBytes": 570929
+        }
+      }
+    },
+    {
+      "candidate": 17,
+      "file": "rar5-100000.rar",
+      "beforeStage": "before",
+      "beforeFlags": [],
+      "afterStage": "shared",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 487279108,
+            "allocations": 2400462,
+            "digest": "8abc2bfb68b2c7189025c34cf5f02ebd47a553b0900abee2729700f97dd417fb",
+            "entries": 100000,
+            "file": "rar5-100000.rar",
+            "ms": 260.652542,
+            "nameEncoding": "nil",
+            "readBytes": 5699837,
+            "reads": 352
+          },
+          {
+            "allocatedBytes": 487279108,
+            "allocations": 2400462,
+            "digest": "8abc2bfb68b2c7189025c34cf5f02ebd47a553b0900abee2729700f97dd417fb",
+            "entries": 100000,
+            "file": "rar5-100000.rar",
+            "ms": 266.549292,
+            "nameEncoding": "nil",
+            "readBytes": 5699837,
+            "reads": 352
+          },
+          {
+            "allocatedBytes": 487279108,
+            "allocations": 2400462,
+            "digest": "8abc2bfb68b2c7189025c34cf5f02ebd47a553b0900abee2729700f97dd417fb",
+            "entries": 100000,
+            "file": "rar5-100000.rar",
+            "ms": 262.27225,
+            "nameEncoding": "nil",
+            "readBytes": 5699837,
+            "reads": 352
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 332880940,
+            "allocations": 2200464,
+            "digest": "8abc2bfb68b2c7189025c34cf5f02ebd47a553b0900abee2729700f97dd417fb",
+            "entries": 100000,
+            "file": "rar5-100000.rar",
+            "ms": 198.500125,
+            "nameEncoding": "nil",
+            "readBytes": 5699837,
+            "reads": 352
+          },
+          {
+            "allocatedBytes": 332880940,
+            "allocations": 2200464,
+            "digest": "8abc2bfb68b2c7189025c34cf5f02ebd47a553b0900abee2729700f97dd417fb",
+            "entries": 100000,
+            "file": "rar5-100000.rar",
+            "ms": 201.63925,
+            "nameEncoding": "nil",
+            "readBytes": 5699837,
+            "reads": 352
+          },
+          {
+            "allocatedBytes": 332880940,
+            "allocations": 2200464,
+            "digest": "8abc2bfb68b2c7189025c34cf5f02ebd47a553b0900abee2729700f97dd417fb",
+            "entries": 100000,
+            "file": "rar5-100000.rar",
+            "ms": 195.137833,
+            "nameEncoding": "nil",
+            "readBytes": 5699837,
+            "reads": 352
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 262.27225,
+          "allocations": 2400462,
+          "allocatedBytes": 487279108,
+          "reads": 352,
+          "readBytes": 5699837
+        },
+        "after": {
+          "ms": 198.500125,
+          "allocations": 2200464,
+          "allocatedBytes": 332880940,
+          "reads": 352,
+          "readBytes": 5699837
+        }
+      }
+    },
+    {
+      "candidate": 18,
+      "file": "rar5-10000.rar",
+      "beforeStage": "shared",
+      "beforeFlags": [],
+      "afterStage": "floor",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 36173680,
+            "allocations": 220144,
+            "digest": "371f7f941485a780bb3b89ebe5c13cf7fae1588a6180ab8e6d53ba14435643e0",
+            "entries": 10000,
+            "file": "rar5-10000.rar",
+            "ms": 22.130209,
+            "nameEncoding": "nil",
+            "readBytes": 570929,
+            "reads": 39
+          },
+          {
+            "allocatedBytes": 36173680,
+            "allocations": 220144,
+            "digest": "371f7f941485a780bb3b89ebe5c13cf7fae1588a6180ab8e6d53ba14435643e0",
+            "entries": 10000,
+            "file": "rar5-10000.rar",
+            "ms": 18.982542,
+            "nameEncoding": "nil",
+            "readBytes": 570929,
+            "reads": 39
+          },
+          {
+            "allocatedBytes": 36173680,
+            "allocations": 220144,
+            "digest": "371f7f941485a780bb3b89ebe5c13cf7fae1588a6180ab8e6d53ba14435643e0",
+            "entries": 10000,
+            "file": "rar5-10000.rar",
+            "ms": 18.951292,
+            "nameEncoding": "nil",
+            "readBytes": 570929,
+            "reads": 39
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 32173688,
+            "allocations": 160144,
+            "digest": "371f7f941485a780bb3b89ebe5c13cf7fae1588a6180ab8e6d53ba14435643e0",
+            "entries": 10000,
+            "file": "rar5-10000.rar",
+            "ms": 14.29925,
+            "nameEncoding": "nil",
+            "readBytes": 570929,
+            "reads": 39
+          },
+          {
+            "allocatedBytes": 32173688,
+            "allocations": 160144,
+            "digest": "371f7f941485a780bb3b89ebe5c13cf7fae1588a6180ab8e6d53ba14435643e0",
+            "entries": 10000,
+            "file": "rar5-10000.rar",
+            "ms": 14.37325,
+            "nameEncoding": "nil",
+            "readBytes": 570929,
+            "reads": 39
+          },
+          {
+            "allocatedBytes": 32173688,
+            "allocations": 160144,
+            "digest": "371f7f941485a780bb3b89ebe5c13cf7fae1588a6180ab8e6d53ba14435643e0",
+            "entries": 10000,
+            "file": "rar5-10000.rar",
+            "ms": 14.688792,
+            "nameEncoding": "nil",
+            "readBytes": 570929,
+            "reads": 39
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 18.982542,
+          "allocations": 220144,
+          "allocatedBytes": 36173680,
+          "reads": 39,
+          "readBytes": 570929
+        },
+        "after": {
+          "ms": 14.37325,
+          "allocations": 160144,
+          "allocatedBytes": 32173688,
+          "reads": 39,
+          "readBytes": 570929
+        }
+      }
+    },
+    {
+      "candidate": 18,
+      "file": "rar5-100000.rar",
+      "beforeStage": "shared",
+      "beforeFlags": [],
+      "afterStage": "floor",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 332880940,
+            "allocations": 2200464,
+            "digest": "8abc2bfb68b2c7189025c34cf5f02ebd47a553b0900abee2729700f97dd417fb",
+            "entries": 100000,
+            "file": "rar5-100000.rar",
+            "ms": 199.807416,
+            "nameEncoding": "nil",
+            "readBytes": 5699837,
+            "reads": 352
+          },
+          {
+            "allocatedBytes": 332880940,
+            "allocations": 2200464,
+            "digest": "8abc2bfb68b2c7189025c34cf5f02ebd47a553b0900abee2729700f97dd417fb",
+            "entries": 100000,
+            "file": "rar5-100000.rar",
+            "ms": 199.281,
+            "nameEncoding": "nil",
+            "readBytes": 5699837,
+            "reads": 352
+          },
+          {
+            "allocatedBytes": 332880940,
+            "allocations": 2200464,
+            "digest": "8abc2bfb68b2c7189025c34cf5f02ebd47a553b0900abee2729700f97dd417fb",
+            "entries": 100000,
+            "file": "rar5-100000.rar",
+            "ms": 204.323834,
+            "nameEncoding": "nil",
+            "readBytes": 5699837,
+            "reads": 352
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 292880948,
+            "allocations": 1600464,
+            "digest": "8abc2bfb68b2c7189025c34cf5f02ebd47a553b0900abee2729700f97dd417fb",
+            "entries": 100000,
+            "file": "rar5-100000.rar",
+            "ms": 142.268333,
+            "nameEncoding": "nil",
+            "readBytes": 5699837,
+            "reads": 352
+          },
+          {
+            "allocatedBytes": 292880948,
+            "allocations": 1600464,
+            "digest": "8abc2bfb68b2c7189025c34cf5f02ebd47a553b0900abee2729700f97dd417fb",
+            "entries": 100000,
+            "file": "rar5-100000.rar",
+            "ms": 149.408917,
+            "nameEncoding": "nil",
+            "readBytes": 5699837,
+            "reads": 352
+          },
+          {
+            "allocatedBytes": 292880948,
+            "allocations": 1600464,
+            "digest": "8abc2bfb68b2c7189025c34cf5f02ebd47a553b0900abee2729700f97dd417fb",
+            "entries": 100000,
+            "file": "rar5-100000.rar",
+            "ms": 144.329459,
+            "nameEncoding": "nil",
+            "readBytes": 5699837,
+            "reads": 352
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 199.807416,
+          "allocations": 2200464,
+          "allocatedBytes": 332880940,
+          "reads": 352,
+          "readBytes": 5699837
+        },
+        "after": {
+          "ms": 144.329459,
+          "allocations": 1600464,
+          "allocatedBytes": 292880948,
+          "reads": 352,
+          "readBytes": 5699837
+        }
+      }
+    },
+    {
+      "candidate": 18,
+      "file": "tar-10000.tar",
+      "beforeStage": "before",
+      "beforeFlags": [],
+      "afterStage": "floor",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 35482792,
+            "allocations": 290090,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 24.842125,
+            "nameEncoding": "nil",
+            "readBytes": 10245120,
+            "reads": 2503
+          },
+          {
+            "allocatedBytes": 35482792,
+            "allocations": 290090,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 23.372916,
+            "nameEncoding": "nil",
+            "readBytes": 10245120,
+            "reads": 2503
+          },
+          {
+            "allocatedBytes": 35482792,
+            "allocations": 290090,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 23.790709,
+            "nameEncoding": "nil",
+            "readBytes": 10245120,
+            "reads": 2503
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 31482792,
+            "allocations": 230090,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 18.583666,
+            "nameEncoding": "nil",
+            "readBytes": 10245120,
+            "reads": 2503
+          },
+          {
+            "allocatedBytes": 31482792,
+            "allocations": 230090,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 18.189208,
+            "nameEncoding": "nil",
+            "readBytes": 10245120,
+            "reads": 2503
+          },
+          {
+            "allocatedBytes": 31482792,
+            "allocations": 230090,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 20.407291,
+            "nameEncoding": "nil",
+            "readBytes": 10245120,
+            "reads": 2503
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 23.790709,
+          "allocations": 290090,
+          "allocatedBytes": 35482792,
+          "reads": 2503,
+          "readBytes": 10245120
+        },
+        "after": {
+          "ms": 18.583666,
+          "allocations": 230090,
+          "allocatedBytes": 31482792,
+          "reads": 2503,
+          "readBytes": 10245120
+        }
+      }
+    },
+    {
+      "candidate": 18,
+      "file": "tar-100000.tar",
+      "beforeStage": "before",
+      "beforeFlags": [],
+      "afterStage": "floor",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 352300520,
+            "allocations": 2900100,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 238.694459,
+            "nameEncoding": "nil",
+            "readBytes": 102405120,
+            "reads": 25003
+          },
+          {
+            "allocatedBytes": 352300520,
+            "allocations": 2900100,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 233.744166,
+            "nameEncoding": "nil",
+            "readBytes": 102405120,
+            "reads": 25003
+          },
+          {
+            "allocatedBytes": 352300520,
+            "allocations": 2900100,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 244.587917,
+            "nameEncoding": "nil",
+            "readBytes": 102405120,
+            "reads": 25003
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 312300520,
+            "allocations": 2300100,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 186.940083,
+            "nameEncoding": "nil",
+            "readBytes": 102405120,
+            "reads": 25003
+          },
+          {
+            "allocatedBytes": 312300520,
+            "allocations": 2300100,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 187.907125,
+            "nameEncoding": "nil",
+            "readBytes": 102405120,
+            "reads": 25003
+          },
+          {
+            "allocatedBytes": 312300520,
+            "allocations": 2300100,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 192.558542,
+            "nameEncoding": "nil",
+            "readBytes": 102405120,
+            "reads": 25003
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 238.694459,
+          "allocations": 2900100,
+          "allocatedBytes": 352300520,
+          "reads": 25003,
+          "readBytes": 102405120
+        },
+        "after": {
+          "ms": 187.907125,
+          "allocations": 2300100,
+          "allocatedBytes": 312300520,
+          "reads": 25003,
+          "readBytes": 102405120
+        }
+      }
+    },
+    {
+      "candidate": 19,
+      "file": "tar-10000.tar",
+      "beforeStage": "before",
+      "beforeFlags": [
+        "high"
+      ],
+      "afterStage": "floor",
+      "afterFlags": [
+        "high"
+      ],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 35482792,
+            "allocations": 290090,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 24.673583,
+            "nameEncoding": "nil",
+            "readBytes": 10245120,
+            "reads": 2503
+          },
+          {
+            "allocatedBytes": 35482792,
+            "allocations": 290090,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 23.379916,
+            "nameEncoding": "nil",
+            "readBytes": 10245120,
+            "reads": 2503
+          },
+          {
+            "allocatedBytes": 35482792,
+            "allocations": 290090,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 25.311084,
+            "nameEncoding": "nil",
+            "readBytes": 10245120,
+            "reads": 2503
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 41737344,
+            "allocations": 230176,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 24.243042,
+            "nameEncoding": "nil",
+            "readBytes": 10251264,
+            "reads": 43
+          },
+          {
+            "allocatedBytes": 41737344,
+            "allocations": 230176,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 19.844,
+            "nameEncoding": "nil",
+            "readBytes": 10251264,
+            "reads": 43
+          },
+          {
+            "allocatedBytes": 41737344,
+            "allocations": 230176,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 18.749,
+            "nameEncoding": "nil",
+            "readBytes": 10251264,
+            "reads": 43
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 24.673583,
+          "allocations": 290090,
+          "allocatedBytes": 35482792,
+          "reads": 2503,
+          "readBytes": 10245120
+        },
+        "after": {
+          "ms": 19.844,
+          "allocations": 230176,
+          "allocatedBytes": 41737344,
+          "reads": 43,
+          "readBytes": 10251264
+        }
+      }
+    },
+    {
+      "candidate": 19,
+      "file": "tar-10000.tar",
+      "beforeStage": "before",
+      "beforeFlags": [
+        "high",
+        "model"
+      ],
+      "afterStage": "floor",
+      "afterFlags": [
+        "high",
+        "model"
+      ],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 35482792,
+            "allocations": 290090,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 2284.918167,
+            "nameEncoding": "nil",
+            "readBytes": 10245120,
+            "reads": 2503
+          },
+          {
+            "allocatedBytes": 35482792,
+            "allocations": 290090,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 2139.005834,
+            "nameEncoding": "nil",
+            "readBytes": 10245120,
+            "reads": 2503
+          },
+          {
+            "allocatedBytes": 35482792,
+            "allocations": 290090,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 2196.206625,
+            "nameEncoding": "nil",
+            "readBytes": 10245120,
+            "reads": 2503
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 41737344,
+            "allocations": 230176,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 179.176625,
+            "nameEncoding": "nil",
+            "readBytes": 10251264,
+            "reads": 43
+          },
+          {
+            "allocatedBytes": 41737344,
+            "allocations": 230176,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 202.685291,
+            "nameEncoding": "nil",
+            "readBytes": 10251264,
+            "reads": 43
+          },
+          {
+            "allocatedBytes": 41737344,
+            "allocations": 230176,
+            "digest": "0bff6d6928c4a66e7a03778e367580afe5ed9f60102ed57136bd301e10ec1efc",
+            "entries": 10000,
+            "file": "tar-10000.tar",
+            "ms": 182.792208,
+            "nameEncoding": "nil",
+            "readBytes": 10251264,
+            "reads": 43
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 2196.206625,
+          "allocations": 290090,
+          "allocatedBytes": 35482792,
+          "reads": 2503,
+          "readBytes": 10245120
+        },
+        "after": {
+          "ms": 182.792208,
+          "allocations": 230176,
+          "allocatedBytes": 41737344,
+          "reads": 43,
+          "readBytes": 10251264
+        }
+      }
+    },
+    {
+      "candidate": 19,
+      "file": "tar-100000.tar",
+      "beforeStage": "before",
+      "beforeFlags": [
+        "high"
+      ],
+      "afterStage": "floor",
+      "afterFlags": [
+        "high"
+      ],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 352300520,
+            "allocations": 2900100,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 238.103583,
+            "nameEncoding": "nil",
+            "readBytes": 102405120,
+            "reads": 25003
+          },
+          {
+            "allocatedBytes": 352300520,
+            "allocations": 2900100,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 237.827625,
+            "nameEncoding": "nil",
+            "readBytes": 102405120,
+            "reads": 25003
+          },
+          {
+            "allocatedBytes": 352300520,
+            "allocations": 2900100,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 236.656083,
+            "nameEncoding": "nil",
+            "readBytes": 102405120,
+            "reads": 25003
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 414748768,
+            "allocations": 2300888,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 196.102375,
+            "nameEncoding": "nil",
+            "readBytes": 102411264,
+            "reads": 394
+          },
+          {
+            "allocatedBytes": 414748768,
+            "allocations": 2300888,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 194.32625,
+            "nameEncoding": "nil",
+            "readBytes": 102411264,
+            "reads": 394
+          },
+          {
+            "allocatedBytes": 414748768,
+            "allocations": 2300888,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 190.889084,
+            "nameEncoding": "nil",
+            "readBytes": 102411264,
+            "reads": 394
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 237.827625,
+          "allocations": 2900100,
+          "allocatedBytes": 352300520,
+          "reads": 25003,
+          "readBytes": 102405120
+        },
+        "after": {
+          "ms": 194.32625,
+          "allocations": 2300888,
+          "allocatedBytes": 414748768,
+          "reads": 394,
+          "readBytes": 102411264
+        }
+      }
+    },
+    {
+      "candidate": 19,
+      "file": "tar-100000.tar",
+      "beforeStage": "before",
+      "beforeFlags": [
+        "high",
+        "model"
+      ],
+      "afterStage": "floor",
+      "afterFlags": [
+        "high",
+        "model"
+      ],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 352300520,
+            "allocations": 2900100,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 20332.201041,
+            "nameEncoding": "nil",
+            "readBytes": 102405120,
+            "reads": 25003
+          },
+          {
+            "allocatedBytes": 352300520,
+            "allocations": 2900100,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 20318.157542,
+            "nameEncoding": "nil",
+            "readBytes": 102405120,
+            "reads": 25003
+          },
+          {
+            "allocatedBytes": 352300520,
+            "allocations": 2900100,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 20912.642125,
+            "nameEncoding": "nil",
+            "readBytes": 102405120,
+            "reads": 25003
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 414748768,
+            "allocations": 2300888,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 1820.018125,
+            "nameEncoding": "nil",
+            "readBytes": 102411264,
+            "reads": 394
+          },
+          {
+            "allocatedBytes": 414748768,
+            "allocations": 2300888,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 1788.7092499999999,
+            "nameEncoding": "nil",
+            "readBytes": 102411264,
+            "reads": 394
+          },
+          {
+            "allocatedBytes": 414748768,
+            "allocations": 2300888,
+            "digest": "eda2d41d0b0336061545f125689598711f904f24ac534739e16ad71957daefa3",
+            "entries": 100000,
+            "file": "tar-100000.tar",
+            "ms": 1751.3647919999999,
+            "nameEncoding": "nil",
+            "readBytes": 102411264,
+            "reads": 394
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 20332.201041,
+          "allocations": 2900100,
+          "allocatedBytes": 352300520,
+          "reads": 25003,
+          "readBytes": 102405120
+        },
+        "after": {
+          "ms": 1788.7092499999999,
+          "allocations": 2300888,
+          "allocatedBytes": 414748768,
+          "reads": 394,
+          "readBytes": 102411264
+        }
+      }
+    },
+    {
+      "candidate": 19,
+      "file": "tar-sparse.tar",
+      "beforeStage": "before",
+      "beforeFlags": [
+        "high",
+        "model"
+      ],
+      "afterStage": "floor",
+      "afterFlags": [
+        "high",
+        "model"
+      ],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 656758,
+            "allocations": 4922,
+            "digest": "e17dbf7ba3fd6810b9379e98ecca8bb52aeb298982b2d0d61312ce8586e2727c",
+            "entries": 202,
+            "file": "tar-sparse.tar",
+            "ms": 164.979042,
+            "nameEncoding": "nil",
+            "readBytes": 832512,
+            "reads": 205
+          },
+          {
+            "allocatedBytes": 656758,
+            "allocations": 4922,
+            "digest": "e17dbf7ba3fd6810b9379e98ecca8bb52aeb298982b2d0d61312ce8586e2727c",
+            "entries": 202,
+            "file": "tar-sparse.tar",
+            "ms": 163.080875,
+            "nameEncoding": "nil",
+            "readBytes": 832512,
+            "reads": 205
+          },
+          {
+            "allocatedBytes": 656758,
+            "allocations": 4922,
+            "digest": "e17dbf7ba3fd6810b9379e98ecca8bb52aeb298982b2d0d61312ce8586e2727c",
+            "entries": 202,
+            "file": "tar-sparse.tar",
+            "ms": 164.216375,
+            "nameEncoding": "nil",
+            "readBytes": 832512,
+            "reads": 205
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 1475742,
+            "allocations": 4726,
+            "digest": "e17dbf7ba3fd6810b9379e98ecca8bb52aeb298982b2d0d61312ce8586e2727c",
+            "entries": 202,
+            "file": "tar-sparse.tar",
+            "ms": 165.466208,
+            "nameEncoding": "nil",
+            "readBytes": 832512,
+            "reads": 205
+          },
+          {
+            "allocatedBytes": 1475742,
+            "allocations": 4726,
+            "digest": "e17dbf7ba3fd6810b9379e98ecca8bb52aeb298982b2d0d61312ce8586e2727c",
+            "entries": 202,
+            "file": "tar-sparse.tar",
+            "ms": 164.811709,
+            "nameEncoding": "nil",
+            "readBytes": 832512,
+            "reads": 205
+          },
+          {
+            "allocatedBytes": 1475742,
+            "allocations": 4726,
+            "digest": "e17dbf7ba3fd6810b9379e98ecca8bb52aeb298982b2d0d61312ce8586e2727c",
+            "entries": 202,
+            "file": "tar-sparse.tar",
+            "ms": 164.938,
+            "nameEncoding": "nil",
+            "readBytes": 832512,
+            "reads": 205
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 164.216375,
+          "allocations": 4922,
+          "allocatedBytes": 656758,
+          "reads": 205,
+          "readBytes": 832512
+        },
+        "after": {
+          "ms": 164.938,
+          "allocations": 4726,
+          "allocatedBytes": 1475742,
+          "reads": 205,
+          "readBytes": 832512
+        }
+      }
+    }
+  ],
+  "initialMixedLoadScoreRows": [
+    {
+      "candidate": 14,
+      "file": "zip-10000-cp932.zip",
+      "beforeStage": "before",
+      "beforeFlags": [],
+      "afterStage": "traits",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 46.52175,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 45.499916,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 45.879042,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 30.572834,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 30.648583,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          },
+          {
+            "allocatedBytes": 38069562,
+            "allocations": 104698,
+            "digest": "306d41ffad2936555ecdc04cb0af0ef3fcc28b1f9bcbbf57ddd8b275863c3b2c",
+            "entries": 10000,
+            "file": "zip-10000-cp932.zip",
+            "ms": 30.935875,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 716601,
+            "reads": 5
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 45.879042,
+          "allocations": 104698,
+          "allocatedBytes": 38069562,
+          "reads": 5,
+          "readBytes": 716601
+        },
+        "after": {
+          "ms": 30.648583,
+          "allocations": 104698,
+          "allocatedBytes": 38069562,
+          "reads": 5,
+          "readBytes": 716601
+        }
+      }
+    },
+    {
+      "candidate": 14,
+      "file": "zip-100000-cp932.zip",
+      "beforeStage": "before",
+      "beforeFlags": [],
+      "afterStage": "traits",
+      "afterFlags": [],
+      "runs": {
+        "before": [
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 215.105375,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 217.361583,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 254.577292,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          }
+        ],
+        "after": [
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 231.191833,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 222.606542,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          },
+          {
+            "allocatedBytes": 148281386,
+            "allocations": 644713,
+            "digest": "329bfdec28401d92f5da5782bed5888cbddfbd22b5e2a14f5855fbd826778760",
+            "entries": 100000,
+            "file": "zip-100000-cp932.zip",
+            "ms": 227.990333,
+            "nameEncoding": "Optional(Japanese (Windows, DOS))",
+            "readBytes": 17966713,
+            "reads": 7
+          }
+        ]
+      },
+      "median": {
+        "before": {
+          "ms": 217.361583,
+          "allocations": 644713,
+          "allocatedBytes": 148281386,
+          "reads": 7,
+          "readBytes": 17966713
+        },
+        "after": {
+          "ms": 227.990333,
+          "allocations": 644713,
+          "allocatedBytes": 148281386,
+          "reads": 7,
+          "readBytes": 17966713
+        }
+      }
+    }
+  ],
+  "text": {
+    "text-before": [
+      {
+        "mode": "score",
+        "names": 200,
+        "runs": [
+          {
+            "ms": 9.265083,
+            "allocations": 14469,
+            "allocatedBytes": 9692520,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 9.222709,
+            "allocations": 14469,
+            "allocatedBytes": 9692520,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 9.131291,
+            "allocations": 14469,
+            "allocatedBytes": 9692520,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 9.127791,
+            "allocations": 14469,
+            "allocatedBytes": 9692520,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 9.034542,
+            "allocations": 14469,
+            "allocatedBytes": 9692520,
+            "result": "Optional(Japanese (Windows, DOS))"
+          }
+        ],
+        "medianMs": 9.131291
+      },
+      {
+        "mode": "decode",
+        "names": 200,
+        "runs": [
+          {
+            "ms": 0.204583,
+            "allocations": 416,
+            "allocatedBytes": 65473,
+            "result": "4490"
+          },
+          {
+            "ms": 0.192292,
+            "allocations": 416,
+            "allocatedBytes": 65473,
+            "result": "4490"
+          },
+          {
+            "ms": 0.192375,
+            "allocations": 416,
+            "allocatedBytes": 65473,
+            "result": "4490"
+          },
+          {
+            "ms": 0.191875,
+            "allocations": 416,
+            "allocatedBytes": 65473,
+            "result": "4490"
+          },
+          {
+            "ms": 0.191792,
+            "allocations": 416,
+            "allocatedBytes": 65473,
+            "result": "4490"
+          }
+        ],
+        "medianMs": 0.192292
+      },
+      {
+        "mode": "score",
+        "names": 512,
+        "runs": [
+          {
+            "ms": 23.615042,
+            "allocations": 36938,
+            "allocatedBytes": 24915808,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 23.444792,
+            "allocations": 36938,
+            "allocatedBytes": 24915808,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 23.12625,
+            "allocations": 36938,
+            "allocatedBytes": 24915808,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 22.89125,
+            "allocations": 36938,
+            "allocatedBytes": 24915808,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 23.488541,
+            "allocations": 36938,
+            "allocatedBytes": 24915808,
+            "result": "Optional(Japanese (Windows, DOS))"
+          }
+        ],
+        "medianMs": 23.444792
+      },
+      {
+        "mode": "decode",
+        "names": 512,
+        "runs": [
+          {
+            "ms": 0.502625,
+            "allocations": 1041,
+            "allocatedBytes": 157369,
+            "result": "11666"
+          },
+          {
+            "ms": 0.496958,
+            "allocations": 1041,
+            "allocatedBytes": 157369,
+            "result": "11666"
+          },
+          {
+            "ms": 0.533375,
+            "allocations": 1041,
+            "allocatedBytes": 157369,
+            "result": "11666"
+          },
+          {
+            "ms": 0.518833,
+            "allocations": 1041,
+            "allocatedBytes": 157369,
+            "result": "11666"
+          },
+          {
+            "ms": 0.513083,
+            "allocations": 1041,
+            "allocatedBytes": 157369,
+            "result": "11666"
+          }
+        ],
+        "medianMs": 0.513083
+      },
+      {
+        "mode": "decode",
+        "names": 10000,
+        "runs": [
+          {
+            "ms": 10.048417,
+            "allocations": 20021,
+            "allocatedBytes": 3122081,
+            "result": "238890"
+          },
+          {
+            "ms": 9.850084,
+            "allocations": 20021,
+            "allocatedBytes": 3122081,
+            "result": "238890"
+          },
+          {
+            "ms": 9.705125,
+            "allocations": 20021,
+            "allocatedBytes": 3122081,
+            "result": "238890"
+          },
+          {
+            "ms": 9.763209,
+            "allocations": 20021,
+            "allocatedBytes": 3122081,
+            "result": "238890"
+          },
+          {
+            "ms": 9.82575,
+            "allocations": 20021,
+            "allocatedBytes": 3122081,
+            "result": "238890"
+          }
+        ],
+        "medianMs": 9.82575
+      },
+      {
+        "mode": "decode",
+        "names": 100000,
+        "runs": [
+          {
+            "ms": 102.787375,
+            "allocations": 200025,
+            "allocatedBytes": 36788433,
+            "result": "2488890"
+          },
+          {
+            "ms": 101.6855,
+            "allocations": 200025,
+            "allocatedBytes": 36788433,
+            "result": "2488890"
+          },
+          {
+            "ms": 102.992208,
+            "allocations": 200025,
+            "allocatedBytes": 36788433,
+            "result": "2488890"
+          },
+          {
+            "ms": 101.371083,
+            "allocations": 200025,
+            "allocatedBytes": 36788433,
+            "result": "2488890"
+          },
+          {
+            "ms": 101.880333,
+            "allocations": 200025,
+            "allocatedBytes": 36788433,
+            "result": "2488890"
+          }
+        ],
+        "medianMs": 101.880333
+      }
+    ],
+    "text-after": [
+      {
+        "mode": "score",
+        "names": 200,
+        "runs": [
+          {
+            "ms": 4.126542,
+            "allocations": 14469,
+            "allocatedBytes": 9692520,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 4.04,
+            "allocations": 14469,
+            "allocatedBytes": 9692520,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 3.950291,
+            "allocations": 14469,
+            "allocatedBytes": 9692520,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 3.946584,
+            "allocations": 14469,
+            "allocatedBytes": 9692520,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 3.954042,
+            "allocations": 14469,
+            "allocatedBytes": 9692520,
+            "result": "Optional(Japanese (Windows, DOS))"
+          }
+        ],
+        "medianMs": 3.954042
+      },
+      {
+        "mode": "decode",
+        "names": 200,
+        "runs": [
+          {
+            "ms": 0.113167,
+            "allocations": 218,
+            "allocatedBytes": 64040,
+            "result": "4490"
+          },
+          {
+            "ms": 0.103875,
+            "allocations": 218,
+            "allocatedBytes": 64040,
+            "result": "4490"
+          },
+          {
+            "ms": 0.103209,
+            "allocations": 218,
+            "allocatedBytes": 64040,
+            "result": "4490"
+          },
+          {
+            "ms": 0.104458,
+            "allocations": 218,
+            "allocatedBytes": 64040,
+            "result": "4490"
+          },
+          {
+            "ms": 0.108458,
+            "allocations": 218,
+            "allocatedBytes": 64040,
+            "result": "4490"
+          }
+        ],
+        "medianMs": 0.104458
+      },
+      {
+        "mode": "score",
+        "names": 512,
+        "runs": [
+          {
+            "ms": 10.101584,
+            "allocations": 36938,
+            "allocatedBytes": 24915808,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 10.181125,
+            "allocations": 36938,
+            "allocatedBytes": 24915808,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 10.386959,
+            "allocations": 36938,
+            "allocatedBytes": 24915808,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 10.146417,
+            "allocations": 36938,
+            "allocatedBytes": 24915808,
+            "result": "Optional(Japanese (Windows, DOS))"
+          },
+          {
+            "ms": 10.09325,
+            "allocations": 36938,
+            "allocatedBytes": 24915808,
+            "result": "Optional(Japanese (Windows, DOS))"
+          }
+        ],
+        "medianMs": 10.146417
+      },
+      {
+        "mode": "decode",
+        "names": 512,
+        "runs": [
+          {
+            "ms": 0.264166,
+            "allocations": 531,
+            "allocatedBytes": 153752,
+            "result": "11666"
+          },
+          {
+            "ms": 0.260042,
+            "allocations": 531,
+            "allocatedBytes": 153752,
+            "result": "11666"
+          },
+          {
+            "ms": 0.263417,
+            "allocations": 531,
+            "allocatedBytes": 153752,
+            "result": "11666"
+          },
+          {
+            "ms": 0.264625,
+            "allocations": 531,
+            "allocatedBytes": 153752,
+            "result": "11666"
+          },
+          {
+            "ms": 0.259125,
+            "allocations": 531,
+            "allocatedBytes": 153752,
+            "result": "11666"
+          }
+        ],
+        "medianMs": 0.263417
+      },
+      {
+        "mode": "decode",
+        "names": 10000,
+        "runs": [
+          {
+            "ms": 5.216625,
+            "allocations": 10023,
+            "allocatedBytes": 3061056,
+            "result": "238890"
+          },
+          {
+            "ms": 5.190417,
+            "allocations": 10023,
+            "allocatedBytes": 3061056,
+            "result": "238890"
+          },
+          {
+            "ms": 5.199958,
+            "allocations": 10023,
+            "allocatedBytes": 3061056,
+            "result": "238890"
+          },
+          {
+            "ms": 5.1835,
+            "allocations": 10023,
+            "allocatedBytes": 3061056,
+            "result": "238890"
+          },
+          {
+            "ms": 5.169833,
+            "allocations": 10023,
+            "allocatedBytes": 3061056,
+            "result": "238890"
+          }
+        ],
+        "medianMs": 5.190417
+      },
+      {
+        "mode": "decode",
+        "names": 100000,
+        "runs": [
+          {
+            "ms": 53.97825,
+            "allocations": 100027,
+            "allocatedBytes": 36342944,
+            "result": "2488890"
+          },
+          {
+            "ms": 53.555625,
+            "allocations": 100027,
+            "allocatedBytes": 36342944,
+            "result": "2488890"
+          },
+          {
+            "ms": 54.211916,
+            "allocations": 100027,
+            "allocatedBytes": 36342944,
+            "result": "2488890"
+          },
+          {
+            "ms": 53.684583,
+            "allocations": 100027,
+            "allocatedBytes": 36342944,
+            "result": "2488890"
+          },
+          {
+            "ms": 54.153292,
+            "allocations": 100027,
+            "allocatedBytes": 36342944,
+            "result": "2488890"
+          }
+        ],
+        "medianMs": 53.97825
+      }
+    ]
+  },
+  "nameEquivalence": {
+    "rows": 735,
+    "groups": 74,
+    "variants": [
+      "before",
+      "traits",
+      "floor"
+    ],
+    "outputs": [
+      {
+        "mode": [],
+        "prior": [],
+        "bytes": 54946,
+        "sha256": "020e6dc55b7a4c8036a8ff23e9675e6b96673f9d6df439f564add0da9abea542"
+      },
+      {
+        "mode": [],
+        "prior": [
+          "--no-language"
+        ],
+        "bytes": 55017,
+        "sha256": "b22f65107fd024305546aafea9d5791f4e84d60fc6b19fb581b0ca162f945139"
+      },
+      {
+        "mode": [],
+        "prior": [
+          "--language",
+          "zh"
+        ],
+        "bytes": 54999,
+        "sha256": "7f3fb75c20d8ec9139b811cafff71c35f3e17786a8809f453342074732ad715b"
+      },
+      {
+        "mode": [
+          "--archive"
+        ],
+        "prior": [],
+        "bytes": 30529,
+        "sha256": "f6a95c2c6d0b007a99ebeeeeaddc3757ad6daad12c65c4d5c8bb769a8d46aaf9"
+      },
+      {
+        "mode": [
+          "--archive"
+        ],
+        "prior": [
+          "--no-language"
+        ],
+        "bytes": 30529,
+        "sha256": "f6a95c2c6d0b007a99ebeeeeaddc3757ad6daad12c65c4d5c8bb769a8d46aaf9"
+      },
+      {
+        "mode": [
+          "--archive"
+        ],
+        "prior": [
+          "--language",
+          "zh"
+        ],
+        "bytes": 30529,
+        "sha256": "f6a95c2c6d0b007a99ebeeeeaddc3757ad6daad12c65c4d5c8bb769a8d46aaf9"
+      }
+    ]
+  },
+  "cliEquivalence": [
+    {
+      "archive": "zip-10000-cp932.zip",
+      "command": [
+        "list",
+        "--raw"
+      ],
+      "bytes": 878890,
+      "sha256": "af866fe8a4fdbc8ad3b72a0d899f96f12573fe88ef622673df3744d06a9de370"
+    },
+    {
+      "archive": "zip-10000-cp932.zip",
+      "command": [
+        "sha"
+      ],
+      "bytes": 958968,
+      "sha256": "0a0127e90614b016a00becd5a5162708760ef83e7a3c0fc8c15345676bea229a"
+    },
+    {
+      "archive": "zip64-10000.zip",
+      "command": [
+        "list",
+        "--raw"
+      ],
+      "bytes": 628890,
+      "sha256": "82c3d87b643d1ba4a75a9ed3023618b5f5651e069595ad4d8902b9c5ff01031f"
+    },
+    {
+      "archive": "zip64-10000.zip",
+      "command": [
+        "sha"
+      ],
+      "bytes": 868968,
+      "sha256": "3c169047a73ffc03d75c1260f1e713a548e915c102d02ca48bf0c59c483dbdd8"
+    },
+    {
+      "archive": "rar5-10000.rar",
+      "command": [
+        "list",
+        "--raw"
+      ],
+      "bytes": 958890,
+      "sha256": "755c21a231aeee1d8fb6bbedfb9dc0e70513ceb32cb609b0b1b31ea11ca50aa1"
+    },
+    {
+      "archive": "rar5-10000.rar",
+      "command": [
+        "sha"
+      ],
+      "bytes": 948968,
+      "sha256": "fdad26569cf2ab338128b744371201d2c95f5dfe1f3de309f17969f8cf6aed52"
+    },
+    {
+      "archive": "7z-10000.7z",
+      "command": [
+        "list",
+        "--raw"
+      ],
+      "bytes": 598890,
+      "sha256": "00bcc9d8cfbb090dca574956695a6b13cfeff151973768c848c90de3e46ca7dd"
+    },
+    {
+      "archive": "7z-10000.7z",
+      "command": [
+        "sha"
+      ],
+      "bytes": 798968,
+      "sha256": "b25b505a04c5bce8af872ce771e96f8f3802e4581291d90e2bbdd71a7afa9a63"
+    },
+    {
+      "archive": "tar-10000.tar",
+      "command": [
+        "list",
+        "--raw"
+      ],
+      "bytes": 968890,
+      "sha256": "110e5344efb128075d7284be6aa97a373949fbc1dcf04200ccbdb064b84c6217"
+    },
+    {
+      "archive": "tar-10000.tar",
+      "command": [
+        "sha"
+      ],
+      "bytes": 948968,
+      "sha256": "fdad26569cf2ab338128b744371201d2c95f5dfe1f3de309f17969f8cf6aed52"
+    },
+    {
+      "archive": "tar-10000-cp932.tar",
+      "command": [
+        "list",
+        "--raw"
+      ],
+      "bytes": 955560,
+      "sha256": "d59fdd3992ca9cb5f4fa9879ee9f44940a88c4b74fc5c2c6437f1fddd30fe7ff"
+    },
+    {
+      "archive": "tar-10000-cp932.tar",
+      "command": [
+        "sha"
+      ],
+      "bytes": 977858,
+      "sha256": "f4706b188a05837e94477133bca66c281b4b0a1f57947d280fc441c96475e293"
+    }
+  ],
+  "rejected16KiBSparsePrototype": [
+    {
+      "file": "tar-sparse.tar",
+      "flags": [
+        "high",
+        "model"
+      ],
+      "runs": [
+        {
+          "allocatedBytes": 3960982,
+          "allocations": 4726,
+          "digest": "e17dbf7ba3fd6810b9379e98ecca8bb52aeb298982b2d0d61312ce8586e2727c",
+          "entries": 202,
+          "file": "tar-sparse.tar",
+          "ms": 196.978166,
+          "readBytes": 3317760,
+          "reads": 205
+        },
+        {
+          "allocatedBytes": 3960982,
+          "allocations": 4726,
+          "digest": "e17dbf7ba3fd6810b9379e98ecca8bb52aeb298982b2d0d61312ce8586e2727c",
+          "entries": 202,
+          "file": "tar-sparse.tar",
+          "ms": 196.807541,
+          "readBytes": 3317760,
+          "reads": 205
+        },
+        {
+          "allocatedBytes": 3960982,
+          "allocations": 4726,
+          "digest": "e17dbf7ba3fd6810b9379e98ecca8bb52aeb298982b2d0d61312ce8586e2727c",
+          "entries": 202,
+          "file": "tar-sparse.tar",
+          "ms": 198.916666,
+          "readBytes": 3317760,
+          "reads": 205
+        }
+      ],
+      "median": {
+        "ms": 196.978166,
+        "allocations": 4726,
+        "allocatedBytes": 3960982,
+        "reads": 205,
+        "readBytes": 3317760
+      },
+      "digest": "e17dbf7ba3fd6810b9379e98ecca8bb52aeb298982b2d0d61312ce8586e2727c"
+    }
+  ],
+  "verification": {
+    "fullSwiftTest": {
+      "tests": 2045,
+      "skipped": 57,
+      "failures": 0,
+      "seconds": 1232.408,
+      "logSha256": "81ddb3e37019cf95ce892a4627765fc1aaeef2b1f00e94e7c212c1bed22909f0",
+      "exitCode": 0,
+      "skipReasons": {
+        "set KAITOKIT_AR_ORACLE to the supplied ar fixture directory": 1,
+        "KAITOKIT_CAB_CORPUS is not configured": 1,
+        "set KAITOKIT_CPIO_ORACLE to the supplied cpio fixture directory": 2,
+        "set KAITOKIT_CPIO_DETECTION_BASELINE to the pre-change detection JSON": 1,
+        "KAITO_CRYPTO_BENCH=1 で release 計測を有効にする": 1,
+        "set M1B_DEFLATE64_BENCHMARK=1 for the 64 MiB release measurement": 1,
+        "set KAITOKIT_LHA_CORPUS to run the LHA corpus tests": 17,
+        "set KAITOKIT_BOOK_LHA to run the book fixture comparison": 1,
+        "Tests/Fixtures/lha is empty": 1,
+        "LHX/LHArk lhasa corpus is absent": 1,
+        "lhasa PMarc 2 corpus is absent": 1,
+        "RAR4 differential corpus is absent": 1,
+        "RAR4 malformed-input corpus is absent": 1,
+        "no additional RAR4 fixtures in Tests/Fixtures/rar4; differential skipped": 1,
+        "KAITOKIT_RAR4_CORPUS is not configured": 5,
+        "RAR3 solid PPMd fixture is absent": 1,
+        "RAR4 oracle archive is absent": 2,
+        "set KAITOKIT_7Z_SCALE_DIR to the frozen scale corpus; run in release": 1,
+        "外部オラクル入力は fixture に収録しない": 3,
+        "外部の go 標本は fixture に収録しない": 1,
+        "外部コーパス未指定": 2,
+        "32 MiB 距離検証は明示実行": 1,
+        "敵対的 JPEG 入力は明示実行": 1,
+        "外部 JPEG コーパスは明示実行": 1,
+        "性能測定は release で明示実行": 1,
+        "外部歴史的書庫は明示実行": 1,
+        "set KAITOKIT_TAR_SPLICE_PROBE_LARGE=1 for the 4 GiB + 1 MiB corpus": 1,
+        "set KAITOKIT_TAR_SPLICE_PROBE to the prototype segment manifest": 1,
+        "Info-ZIP was built without bzip2 support; fixture skipped: ": 1,
+        "Set KAITO_KE2_XZ_BOMB to run the external 2 GiB decoded XZ probe": 1,
+        "set KAITOKIT_ZIP_SCALE_PROBE to a 500k ZIP": 2
+      }
+    },
+    "finalTargeted": {
+      "tests": 21,
+      "failures": 0,
+      "seconds": 1.969,
+      "logSha256": "2b782bd22c56536232a28e4b0673b6a87766025ae4396285407d465712b898ac",
+      "exitCode": 0
+    },
+    "initialTargeted": {
+      "tests": 625,
+      "skipped": 1,
+      "assertionFailures": 5,
+      "affectedTestCases": 2,
+      "reason": "Incorrect new bad-locator expectation (2 assertions); /private/tmp versus /tmp URL spelling (3 assertions). Corrected test and canonical TMPDIR, then focused and full suite passed."
+    },
+    "releaseBuild": "native build complete, 66.58 seconds",
+    "finalDebugBuild": "native build complete, 0.30 seconds",
+    "blackBoxRAR100k": "rar t -idq exit 0",
+    "blackBoxZIP100k": "7zz t: Everything is Ok, 100000 files",
+    "diffCheck": "passed after report generation",
+    "standaloneBuilds": "Both text probes compiled and ran with exit 0; five runs per operation/size."
+  },
+  "scratch": {
+    "path": "/private/tmp/kk-r2io",
+    "observedFreeGiBRange": [
+      41,
+      45
+    ],
+    "observedScratchBelowGiB": 1,
+    "removed": true
+  }
+}

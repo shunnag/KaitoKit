@@ -170,6 +170,16 @@ enum ZipDirectoryLocationResolver {
         guard limits.maxMetadataSize >= UInt64(ZipRecordSize.zip64EndFixed) else {
             throw KaitoError.limitExceeded("ZIP64 end record")
         }
+        // The fixed v1 record is the nearest possible match in the existing
+        // backward scan, including SFX archives with relative locator offsets.
+        // Keep the caller's conservative scan-budget charge and all fallback rules.
+        let adjacentOffset = locatorOffset - UInt64(ZipRecordSize.zip64EndFixed)
+        let adjacent = try readByteRange(source: source, offset: adjacentOffset,
+                                         count: ZipRecordSize.zip64EndFixed)
+        if LittleEndian.uint32(adjacent, at: 0) == ZipSignature.zip64End,
+           LittleEndian.uint64(adjacent, at: 4) == UInt64(ZipRecordSize.zip64EndMinimumPayload) {
+            return adjacentOffset
+        }
         let searchSize = min(locatorOffset, limits.maxMetadataSize)
         let searchCount = try Checked.toInt(searchSize)
         let searchOffset = try Checked.sub(locatorOffset, searchSize)

@@ -9,6 +9,58 @@ import Foundation
 /// per file, and publishes them as `ArchiveEntry` values with the matching
 /// `RAR5EntryRecord` read plans (solid groups, redirections, file copies).
 enum RAR5EntryPublisher {
+    /// Eight FIFO slots per parse; published entries share the dictionary via COW.
+    private struct FormatSpecificCache {
+        private struct Key: Equatable {
+            let compression: RAR5CompressionInfo
+            let hostOS: UInt64
+            let attributes: UInt64
+            let splitBefore: Bool
+            let splitAfter: Bool
+            let multiVolume: Bool
+            let segmentCount: Int
+            let sizeUnknown: Bool
+            let encrypted: Bool
+            let hashType: UInt64?
+        }
+        private var slots: [(key: Key, value: [String: String])] = []
+        private var nextReplacement = 0
+        init() { slots.reserveCapacity(8) }
+
+        mutating func value(for item: RAR5PendingEntry) -> [String: String] {
+            let key = Key(compression: item.compression, hostOS: item.hostOS, attributes: item.attributes,
+                          splitBefore: item.splitBefore, splitAfter: item.splitAfter,
+                          multiVolume: item.isMultiVolume, segmentCount: item.packedSegments.count,
+                          sizeUnknown: item.unpackedSize == nil, encrypted: item.extras.encryption != nil,
+                          hashType: item.extras.hash?.type)
+            if let cached = slots.first(where: { $0.key == key }) { return cached.value }
+            var value: [String: String] = [
+                "rarVersion": item.compression.version == 0 ? "5" : "7",
+                "compressionInfo": "0x" + String(item.compression.rawValue, radix: 16),
+                "method": String(item.compression.method),
+                "dictionarySize": String(item.compression.dictionarySize),
+                "hostOS": String(item.hostOS),
+                "attributes": "0x" + String(item.attributes, radix: 16),
+                "solid": item.compression.isSolid ? "true" : "false",
+                "splitBefore": item.splitBefore ? "true" : "false",
+                "splitAfter": item.splitAfter ? "true" : "false",
+                "multiVolume": item.isMultiVolume ? "true" : "false",
+                "volumeSegmentCount": String(item.packedSegments.count),
+                "unpackedSizeUnknown": item.unpackedSize == nil ? "true" : "false",
+                "encryption": item.extras.encryption == nil ? "none" : "RAR5 AES-256",
+            ]
+            if let hashType = key.hashType {
+                value["hashType"] = hashType == 0 ? "BLAKE2sp" : String(hashType)
+            }
+            if slots.count < 8 { slots.append((key, value)) }
+            else {
+                slots[nextReplacement] = (key, value)
+                nextReplacement = (nextReplacement + 1) % 8
+            }
+            return value
+        }
+    }
+
     private struct QuickOpenPublicationError: Error {}
     static func parse(
         source: any ByteSource,
@@ -427,6 +479,7 @@ enum RAR5EntryPublisher {
             var entries: [ArchiveEntry] = []
             var records: [RAR5EntryRecord] = []
             var lastEntryByNormalizedPath: [String: Int] = [:]
+            var specificCache = FormatSpecificCache()
             entries.reserveCapacity(pending.count)
             records.reserveCapacity(pending.count)
 
@@ -452,23 +505,8 @@ enum RAR5EntryPublisher {
                     ? item.unpackedSize
                     : (zeroBodyRedirection ? 0 : item.unpackedSize)
                 let publishedPackedSize = zeroBodyRedirection ? 0 : item.packedSize
-                var specific: [String: String] = [
-                    "rarVersion": item.compression.version == 0 ? "5" : "7",
-                    "compressionInfo": "0x" + String(item.compression.rawValue, radix: 16),
-                    "method": String(item.compression.method),
-                    "dictionarySize": String(item.compression.dictionarySize),
-                    "hostOS": String(item.hostOS),
-                    "attributes": "0x" + String(item.attributes, radix: 16),
-                    "solid": item.compression.isSolid ? "true" : "false",
-                    "splitBefore": item.splitBefore ? "true" : "false",
-                    "splitAfter": item.splitAfter ? "true" : "false",
-                    "multiVolume": item.isMultiVolume ? "true" : "false",
-                    "volumeSegmentCount": String(item.packedSegments.count),
-                    "unpackedSizeUnknown": item.unpackedSize == nil ? "true" : "false",
-                    "encryption": item.extras.encryption == nil ? "none" : "RAR5 AES-256",
-                ]
+                var specific = specificCache.value(for: item)
                 if let hash = item.extras.hash {
-                    specific["hashType"] = hash.type == 0 ? "BLAKE2sp" : String(hash.type)
                     specific["hash"] = hash.digest.map {
                         let digits = String($0, radix: 16)
                         return $0 < 16 ? "0" + digits : digits
@@ -540,7 +578,7 @@ enum RAR5EntryPublisher {
                     isIncomplete: recoverDamagedArchives && item.isIncomplete
                 )
                 entries.append(entry)
-                if let normalizedName = ArchivePath.normalizedExtractionPath(item.name) {
+                if let normalizedName = ArchivePath.normalizedExtractionPath(item.name, components: item.pathComponents) {
                     // Resolve hard links before insertion so targets are always
                     // earlier archive members and cannot form forward cycles.
                     lastEntryByNormalizedPath[normalizedName] = entry.index

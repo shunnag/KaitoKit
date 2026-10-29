@@ -13,6 +13,7 @@
 
 ### 変更
 
+- tar の高遅延 header 走査で、小さな `maxMetadataSize` が 4 KiB の読み取りを 1 byte ごとに分割しないようにする。8 header を観測した後、直近 4 間隔の最大値で窓を選び、PAX / AppleDouble の小さな record に続く大きな payload を余分に先読みしない。小 3 件 + 4 MiB の member を 40 組並べた書庫は 41 回のまま 10,228,736 → 164,864 byte。密な 10 万件は 25,003 → 395 回、疎な 202 件は読取回数・byte 数を維持する。entry 一覧の比較 test は辞書の表示順に依存しない `Equatable` にする。検証は [open/IO R2 追補](Documentation/verification/2026-10-29-open-io-r2.md#adversarial-review-follow-up)。
 - UDIF の展開済み chunk の LRU を、4 chunk 固定から 64 MiB を下限とする byte 数で管理する。保持量は先読みと同じ並列復号の予算で制限し、HFS+ の file 順と disk 上の配置が異なる DMG で同じ chunk を復号し直す回数を減らす。
 - UDIF の seek や先読み窓の変更で、未開始の葉だけを捨て、実行中・完了済みの先読みは予算内で再利用する。inline 復号を行った Task の取消しを共有結果や LRU に保存せず、他の consumer は復号をやり直せる。要求された chunk の読み取りを無関係な先読みの完了待ちにしない。
 - 複数 block の xz の job を、展開後サイズ・最大 block・要求 thread 数に応じてまとめる。小さな multi-block stream も並列に復号でき、保持 byte の予算による worker 制限は維持する。単一 block と `--threads 1` は直列のまま。

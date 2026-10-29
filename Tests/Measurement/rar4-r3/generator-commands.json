@@ -1,0 +1,294 @@
+[
+  {
+    "cmd": [
+      "sips",
+      "-s",
+      "format",
+      "tiff",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-0.bmp",
+      "--out",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-0.tiff"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "/private/tmp/kaitokit-r3/bench/inputs/page-0.bmp\n  /private/tmp/kaitokit-r3/bench/inputs/page-0.tiff\n",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "sips",
+      "-s",
+      "format",
+      "png",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-0.bmp",
+      "--out",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-0.png"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "/private/tmp/kaitokit-r3/bench/inputs/page-0.bmp\n  /private/tmp/kaitokit-r3/bench/inputs/page-0.png\n",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "sips",
+      "-s",
+      "format",
+      "jpeg",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-0.bmp",
+      "--out",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-0.jpg"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "/private/tmp/kaitokit-r3/bench/inputs/page-0.bmp\n  /private/tmp/kaitokit-r3/bench/inputs/page-0.jpg\n",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "sips",
+      "-s",
+      "format",
+      "tiff",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-1.bmp",
+      "--out",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-1.tiff"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "/private/tmp/kaitokit-r3/bench/inputs/page-1.bmp\n  /private/tmp/kaitokit-r3/bench/inputs/page-1.tiff\n",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "sips",
+      "-s",
+      "format",
+      "png",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-1.bmp",
+      "--out",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-1.png"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "/private/tmp/kaitokit-r3/bench/inputs/page-1.bmp\n  /private/tmp/kaitokit-r3/bench/inputs/page-1.png\n",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "sips",
+      "-s",
+      "format",
+      "jpeg",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-1.bmp",
+      "--out",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-1.jpg"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "/private/tmp/kaitokit-r3/bench/inputs/page-1.bmp\n  /private/tmp/kaitokit-r3/bench/inputs/page-1.jpg\n",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "sips",
+      "-s",
+      "format",
+      "tiff",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-2.bmp",
+      "--out",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-2.tiff"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "/private/tmp/kaitokit-r3/bench/inputs/page-2.bmp\n  /private/tmp/kaitokit-r3/bench/inputs/page-2.tiff\n",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "sips",
+      "-s",
+      "format",
+      "png",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-2.bmp",
+      "--out",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-2.png"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "/private/tmp/kaitokit-r3/bench/inputs/page-2.bmp\n  /private/tmp/kaitokit-r3/bench/inputs/page-2.png\n",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "sips",
+      "-s",
+      "format",
+      "jpeg",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-2.bmp",
+      "--out",
+      "/private/tmp/kaitokit-r3/bench/inputs/page-2.jpg"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "/private/tmp/kaitokit-r3/bench/inputs/page-2.bmp\n  /private/tmp/kaitokit-r3/bench/inputs/page-2.jpg\n",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "/Users/nagash/.local/opt/rar-6.24/rar",
+      "a",
+      "-ma4",
+      "-m3",
+      "-cfg-",
+      "-idq",
+      "-mt1",
+      "-tsc-",
+      "-tsa-",
+      "-s-",
+      "-mc-",
+      "-mcC+",
+      "/private/tmp/kaitokit-r3/bench/archives/tiff-rgb.rar",
+      "page-0.tiff",
+      "page-1.tiff",
+      "page-2.tiff"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "/Users/nagash/.local/opt/rar-6.24/rar",
+      "a",
+      "-ma4",
+      "-m3",
+      "-cfg-",
+      "-idq",
+      "-mt1",
+      "-tsc-",
+      "-tsa-",
+      "-s-",
+      "-mc-",
+      "/private/tmp/kaitokit-r3/bench/archives/jpeg.rar",
+      "page-0.jpg",
+      "page-1.jpg",
+      "page-2.jpg"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "/Users/nagash/.local/opt/rar-6.24/rar",
+      "a",
+      "-ma4",
+      "-m3",
+      "-cfg-",
+      "-idq",
+      "-mt1",
+      "-tsc-",
+      "-tsa-",
+      "-s-",
+      "-mc-",
+      "/private/tmp/kaitokit-r3/bench/archives/text-lz.rar",
+      "text.txt"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "/Users/nagash/.local/opt/rar-6.24/rar",
+      "a",
+      "-ma4",
+      "-m3",
+      "-cfg-",
+      "-idq",
+      "-mt1",
+      "-tsc-",
+      "-tsa-",
+      "-s-",
+      "-mc-",
+      "-mct+",
+      "/private/tmp/kaitokit-r3/bench/archives/text-ppmd.rar",
+      "text.txt"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "/Users/nagash/.local/opt/rar-6.24/rar",
+      "a",
+      "-ma4",
+      "-m3",
+      "-cfg-",
+      "-idq",
+      "-mt1",
+      "-tsc-",
+      "-tsa-",
+      "-s",
+      "-mc-",
+      "/private/tmp/kaitokit-r3/bench/archives/solid-png.rar",
+      "page-0.png",
+      "page-1.png",
+      "page-2.png"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "/Users/nagash/.local/opt/rar-6.24/rar",
+      "a",
+      "-ma4",
+      "-m3",
+      "-cfg-",
+      "-idq",
+      "-mt1",
+      "-tsc-",
+      "-tsa-",
+      "-s-",
+      "-mc-",
+      "-mcE+",
+      "/private/tmp/kaitokit-r3/bench/archives/x86-e8.rar",
+      "x86-code.bin"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "cmd": [
+      "/Users/nagash/.local/opt/rar-6.24/rar",
+      "a",
+      "-ma4",
+      "-m3",
+      "-cfg-",
+      "-idq",
+      "-mt1",
+      "-tsc-",
+      "-tsa-",
+      "-s-",
+      "-mc-",
+      "-mc4A+",
+      "/private/tmp/kaitokit-r3/bench/archives/wav-audio.rar",
+      "stereo.wav"
+    ],
+    "cwd": "/private/tmp/kaitokit-r3/bench/inputs",
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  }
+]

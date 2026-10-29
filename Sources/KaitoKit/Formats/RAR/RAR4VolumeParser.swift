@@ -37,11 +37,12 @@ enum RAR4VolumeParser {
         )
         guard marker == RAR4Reader.signature else { throw KaitoError.unsupportedFormat }
 
-        // 一覧では packed 本文の末尾を読まない。次の offset は現在の検証済み header
-        // から初めて決まるため、疎な header を一要求にまとめると不要な本文を転送する。
-        // NAS の疎な列は 16 KiB の hop を保ち、payload tail の投機読みは加えない。
+        // RAR4 has no Quick Open. On high-latency input, stream across moderately
+        // spaced headers too: 256 KiB fits below the planner's 9 ms / 30 MB/s
+        // break-even point. Sparse runs still use 16 KiB hops; low is unchanged.
         let window = HeaderWindowByteSource(base: source,
-            planner: HeaderReadPlanner(inputLatency == .high ? .adaptive : .fixed(16 << 10)))
+            planner: HeaderReadPlanner(inputLatency == .high ? .adaptive : .fixed(16 << 10),
+                                       maximumCoalescingSpacing: 256 << 10))
         var offset = markerEnd
         var mainHeader: RAR4MainHeader?
         var pendingEntries: [RAR4PendingEntry] = []

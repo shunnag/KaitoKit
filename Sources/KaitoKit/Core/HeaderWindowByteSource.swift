@@ -3,10 +3,14 @@ import Foundation
 struct HeaderReadPlanner {
     enum Mode { case fixed(Int), adaptive }
     private let mode: Mode
+    private let maximumCoalescingSpacing: UInt64
     private var spacings: [UInt64] = []
     private var hasMiss = false
 
-    init(_ mode: Mode) { self.mode = mode }
+    init(_ mode: Mode, maximumCoalescingSpacing: UInt64 = 64 << 10) {
+        self.mode = mode
+        self.maximumCoalescingSpacing = maximumCoalescingSpacing
+    }
 
     mutating func noteBlock(offset: UInt64, nextOffset: UInt64) {
         guard nextOffset >= offset else { return }
@@ -33,7 +37,9 @@ struct HeaderReadPlanner {
                 // 直近 4 個の中央値なら JPEG 列中の大きな TIFF 1 枚で揺れない。
                 // 実測では 6 MB/395 件が 3.9→1.08 秒、110 MB/124 件は窓拡大で
                 // 2.13→2.64 秒・転送量 4→36 MB となったため疎な列は小窓を保つ。
-                if median <= 64 << 10 { size = Int(min(UInt64(maximum), max(256 << 10, median * 64))) }
+                if median <= maximumCoalescingSpacing {
+                    size = Int(max(256 << 10, min(UInt64(maximum / 64), median) * 64))
+                }
             }
         }
         hasMiss = true

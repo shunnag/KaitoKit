@@ -15,6 +15,7 @@ public struct ReadLimits: Sendable, Equatable {
     /// compressed tar archive. Larger streams are staged in an unlinked
     /// temporary file. The default is 64 MiB. AES-encrypted ZIP XZ also uses
     /// this limit for authenticated compressed staging, with a 4 MiB ceiling.
+    /// Verified RAR split-part staging uses the same limit and 4 MiB ceiling.
     public var inMemorySingleFileLimit: UInt64
 
     /// Minimum available space on the temporary volume while staging to disk.

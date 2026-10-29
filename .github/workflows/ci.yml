@@ -4,6 +4,9 @@ name: CI
 # Swift 6.3.3 の -O は TaskLocal<function?> の withValue を誤コンパイルする
 # （valueType metadata が nil、EXC_BAD_ACCESS。GyoshukuKit の 2026-10-08 probe で確認）。
 # macos-26 / macos-26-intel は Xcode 27 で build した test をコンパイルせず実行する。
+# Intel の利用者は少数のため、PR は arm64 だけ検査し、Intel の退行は merge 後の検出を許容する。
+# Intel の 2 shard は main push・schedule・workflow_dispatch で必ず実行する。
+# Xcode 27 job は自前の Apple Silicon へ送る。fork PR だけは hosted runner で実行する。
 # push は main だけにする。PR ブランチへの push でも起動すると
 # pull_request と合わせて同じ commit に job が二重に走る(2026-09-11 PR #5 で確認)。
 # tag の push では起動しない。tag は PR で検査済みの main の merge commit に付ける。
@@ -56,13 +59,15 @@ permissions:
   pull-requests: read
 
 jobs:
-  # PR で全 CI が通った tree と同じ main の push は heavy job を省く。曖昧なら全部走らせる。
+  # PR 対象の全 CI が通った tree と同じ main の push は重複検査だけ省く。曖昧なら全部走らせる。
+  # PR に無い Intel と、その bundle を作る build-for-macos-26 は検査済み tree でも省かない。
   plan:
     runs-on: ubuntu-latest
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 5
     outputs:
       full: ${{ steps.decide.outputs.full }}
+      runtime-matrix: ${{ steps.decide.outputs.runtime-matrix }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Check CI tooling and paths filter
@@ -116,7 +121,7 @@ jobs:
                 return
               fi
               if [ "$count" -ge 1 ]; then
-                reason="tree $tree は PR #$pr の $url で全 CI 済み。heavy job を省略する。"
+                reason="tree $tree は PR #$pr の $url で PR 対象の CI 済み。重複検査だけ省き、Intel の build と実行・coverage 検査は維持する。"
                 skip=true
                 return
               fi
@@ -131,10 +136,11 @@ jobs:
         id: decide
         if: always()
         env:
+          EVENT: ${{ github.event_name }}
           SKIP: ${{ steps.lookup.outputs.skip }}
           LOOKUP_OUTCOME: ${{ steps.lookup.outcome }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           full=true
           if [ "$LOOKUP_OUTCOME" = success ] && [ "$SKIP" = true ]; then
             full=false
@@ -142,17 +148,36 @@ jobs:
             printf 'gate の確認に失敗したため全 CI\n' >> "$GITHUB_STEP_SUMMARY"
           fi
           printf 'full=%s\n' "$full" >> "$GITHUB_OUTPUT"
+          # PR は arm64、検査済み main は Intel だけ、それ以外は両 arch を実行する。
+          matrix="$(jq -cn --arg full "$full" --arg event "$EVENT" '{include: [
+            ({os: "macos-26", shard: "all", shards: "all", timeout: 75} | select($full == "true")),
+            ({os: "macos-26-intel", shard: "1", shards: "2", timeout: 95},
+             {os: "macos-26-intel", shard: "2", shards: "2", timeout: 95} | select($event != "pull_request"))
+          ]}')"
+          printf 'runtime-matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
 
   build-and-test:
     needs: plan
     if: needs.plan.outputs.full == 'true'
-    runs-on: xcode-27
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '["xcode-27"]' || '["self-hosted", "shunnag-arm64"]') }}
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 80
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install differential-test oracles
-        run: brew install sevenzip xz brotli zstd
+        run: |
+          set -euo pipefail
+          missing=()
+          for tool in 7zz xz brotli zstd; do
+            command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
+              printf 'error: self-hosted runner に必要なツールがありません: %s\n' "${missing[*]}" >&2
+              exit 1
+            fi
+            brew install sevenzip xz brotli zstd
+          fi
       - name: Show toolchain versions
         run: |
           sw_vers
@@ -183,12 +208,13 @@ jobs:
 
   build-for-macos-26:
     needs: plan
-    if: needs.plan.outputs.full == 'true'
-    runs-on: xcode-27
+    # PR の検査済み tree でも、main の Intel 実行に必要な artifact は今回の run で作る。
+    if: needs.plan.outputs.full == 'true' || github.event_name != 'pull_request'
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '["xcode-27"]' || '["self-hosted", "shunnag-arm64"]') }}
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 10
     steps:
-      # 全 job で同じ checkout path。#filePath の fixture・生成器・文書の絶対 path を保つ。
+      # build 時の checkout path を artifact に記録し、hosted 実行時に別名で復元する。
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Show toolchain versions
         run: |
@@ -203,6 +229,7 @@ jobs:
           export DEBUG_BIN PACKAGE_STAGE
           DEBUG_BIN="$(swift build --show-bin-path --build-tests --arch arm64 --arch x86_64)"
           PACKAGE_STAGE="$RUNNER_TEMP/macos-26-tests"
+          rm -rf "$PACKAGE_STAGE"
           python3 <<'PYTHON'
           import os
           import plistlib
@@ -220,7 +247,12 @@ jobs:
               directory.mkdir(parents=True, exist_ok=True)
           (runtime / "checkout-path.txt").write_text(str(root) + "\n")
 
-          developer = Path(subprocess.check_output(["xcode-select", "-p"], text=True).strip())
+          # xcrun と同じ Xcode を探す。自前 runner の DEVELOPER_DIR を優先する。
+          developer = Path(os.environ.get("DEVELOPER_DIR") or subprocess.check_output(
+              ["xcode-select", "-p"], text=True
+          ).strip()).resolve()
+          if developer.suffix == ".app":
+              developer /= "Contents/Developer"
           macos = developer / "Platforms/MacOSX.platform/Developer"
           runner = Path(subprocess.check_output(["xcrun", "-f", "xctest"], text=True).strip()).resolve()
           shutil.copy2(runner, runtime / "bin/xctest")
@@ -399,18 +431,27 @@ jobs:
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { os: macos-26, shard: all, shards: all, timeout: 75 }
-          - { os: macos-26-intel, shard: '1', shards: '2', timeout: 95 }
-          - { os: macos-26-intel, shard: '2', shards: '2', timeout: 95 }
+      # Intel は PR の matrix に含めず、検査済み main でも必ず含める。
+      matrix: ${{ fromJSON(needs.plan.outputs.runtime-matrix) }}
     runs-on: ${{ matrix.os }}
     needs: [plan, build-for-macos-26]
-    if: needs.plan.outputs.full == 'true'
+    if: needs.plan.outputs.full == 'true' || github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install differential-test oracles
-        run: brew install sevenzip xz brotli zstd
+        run: |
+          set -euo pipefail
+          missing=()
+          for tool in 7zz xz brotli zstd; do
+            command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
+              printf 'error: self-hosted runner に必要なツールがありません: %s\n' "${missing[*]}" >&2
+              exit 1
+            fi
+            brew install sevenzip xz brotli zstd
+          fi
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: macos-26-tests
@@ -419,8 +460,24 @@ jobs:
         run: |
           set -euo pipefail
           tar -xzf "$RUNNER_TEMP/macos-26-artifact/macos-26-tests.tar.gz" -C "$GITHUB_WORKSPACE"
-          # #filePath の build 時 path と一致することも検査する。
-          test "$(cat .build/ci-runtime/checkout-path.txt)" = "$(pwd -P)"
+          # #filePath の絶対 path を保つ。sudo は使い捨ての hosted runtime job だけで使う。
+          python3 <<'PYTHON'
+          import subprocess
+          from pathlib import Path
+
+          workspace = Path.cwd().resolve()
+          checkout = Path(".build/ci-runtime/checkout-path.txt").read_text().strip()
+          source = Path(checkout)
+          if not source.is_absolute() or source.name != workspace.name or ".." in source.parts:
+              raise RuntimeError(f"Invalid build checkout path: {checkout}")
+          if source.resolve() != workspace:
+              if source.exists() or source.is_symlink():
+                  raise RuntimeError(f"Build checkout alias already exists: {source}")
+              subprocess.run(["sudo", "mkdir", "-p", str(source.parent)], check=True)
+              subprocess.run(["sudo", "ln", "-s", str(workspace), str(source)], check=True)
+          if source.resolve() != workspace:
+              raise RuntimeError(f"Build checkout alias does not resolve to {workspace}")
+          PYTHON
       - name: Run tests and LHA golden without compiling
         env:
           KAITO_REQUIRE_7ZZ: "1"
@@ -487,6 +544,20 @@ jobs:
             grep -q 'LHA-GOLDEN Step0=31 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden-bundled.log"
             grep -q 'LHA-GOLDEN existing=3 TZ=Asia/Tokyo' "$RUNNER_TEMP/lha-golden-bundled.log"
           fi
+      - name: Remove build checkout alias
+        if: always()
+        run: |
+          python3 <<'PYTHON'
+          import subprocess
+          from pathlib import Path
+
+          recorded = Path(".build/ci-runtime/checkout-path.txt")
+          if recorded.is_file():
+              workspace = Path.cwd().resolve()
+              source = Path(recorded.read_text().strip())
+              if source.is_absolute() and source != workspace and source.is_symlink() and source.resolve() == workspace:
+                  subprocess.run(["sudo", "unlink", str(source)], check=True)
+          PYTHON
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: macos-26-shard-summary-${{ matrix.os }}-${{ matrix.shard }}-of-${{ matrix.shards }}
@@ -506,7 +577,7 @@ jobs:
 
   macos-26-runtime-coverage:
     needs: [plan, macos-26-runtime]
-    if: needs.plan.outputs.full == 'true'
+    if: needs.plan.outputs.full == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 5
@@ -520,8 +591,29 @@ jobs:
         with:
           pattern: macos-26-shard-summary-*
           path: ${{ runner.temp }}/summaries
-      # 全 class が arm64 で1回、x86_64 の shard の合計で1回ずつ走ったことを確かめる。
-      - run: python3 Scripts/ci/test_shards.py coverage --inventory "$RUNNER_TEMP/inventory/test-list.txt" --summaries "$RUNNER_TEMP/summaries"
+      # matrix の OS を必須にする。PR は arm64、検査済み main は Intel、それ以外は両 arch。
+      # artifact の有無では省略せず、予定された shard の欠落・重複は既存の coverage で失敗にする。
+      - env:
+          RUNTIME_MATRIX: ${{ needs.plan.outputs.runtime-matrix }}
+        run: |
+          python3 <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, "Scripts/ci")
+          import test_shards
+
+          expected_os = {row["os"] for row in json.loads(os.environ["RUNTIME_MATRIX"])["include"]}
+          if not expected_os or not expected_os <= test_shards.PLAN.keys():
+              raise ValueError(f"Invalid runtime coverage OS: {expected_os}")
+          test_shards.PLAN = {name: test_shards.PLAN[name] for name in expected_os}
+          temporary = Path(os.environ["RUNNER_TEMP"])
+          test_shards.coverage(
+              test_shards.load_inventory(temporary / "inventory/test-list.txt"), temporary / "summaries"
+          )
+          PYTHON
 
   # 利用側の cooViewer は、このスクリプトが作るフレームワークを組み込む。
   # swift build / swift test が緑でも、ここが壊れると利用側はビルドできない（2026-09 に実際に発生）。
@@ -529,7 +621,7 @@ jobs:
   framework:
     needs: plan
     if: needs.plan.outputs.full == 'true'
-    runs-on: xcode-27
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '["xcode-27"]' || '["self-hosted", "shunnag-arm64"]') }}
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 20
     steps:
@@ -576,25 +668,36 @@ jobs:
   compressed-payload-mutants:
     needs: plan
     if: needs.plan.outputs.full == 'true'
-    runs-on: xcode-27
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '["xcode-27"]' || '["self-hosted", "shunnag-arm64"]') }}
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install seed generator
-        run: brew install sevenzip
+        run: |
+          set -euo pipefail
+          if ! command -v 7zz >/dev/null 2>&1; then
+            if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
+              echo 'error: self-hosted runner に必要なツールがありません: 7zz' >&2
+              exit 1
+            fi
+            brew install sevenzip
+          fi
       - name: Check fuzz tooling
         run: |
           bash -n Scripts/build-framework.sh Scripts/fuzz/*.sh
           python3 -m py_compile Scripts/fuzz/mutate.py
       - name: Run compressed-payload sanitizer smoke
         run: |
-          seed_directory="$(mktemp -d)"
+          set -euo pipefail
+          export TMPDIR="$RUNNER_TEMP/"
+          seed_directory="$(mktemp -d "$RUNNER_TEMP/compressed-seeds.XXXXXX")"
+          trap 'rm -rf "$seed_directory"' EXIT
           Scripts/fuzz/make-compressed-seeds.sh "$seed_directory"
           Scripts/fuzz/run-mutants.sh --count 63 --timeout 5 \
             --password KaitoFuzz --require-payload-ranges "$seed_directory"
 
-  # 全 job が通った PR の tree を記録する。main への push はこれを見て heavy job を省く。
+  # PR 対象の全 job が通った tree を記録する。Intel は含まず、main の重複検査だけ省く。
   record-tested-tree:
     needs: [plan, build-and-test, macos-26-runtime-coverage, framework, compressed-payload-mutants]
     if: github.event_name == 'pull_request' && needs.plan.outputs.full == 'true'

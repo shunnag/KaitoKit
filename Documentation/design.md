@@ -20,16 +20,21 @@ CI の Xcode 26 / Swift 6.3 でのコンパイル差の検査は廃止する。
 cooViewer は自身の CI で `Scripts/build-framework.sh` を Xcode 26 でも使うため、
 旧 module 配置の分岐を残し、製品 source に Swift 6.4 専用の構文は加えない。
 
-`build-and-test`、`framework`、`compressed-payload-mutants` は `xcode-27` で実行する。
+`build-and-test`、`framework`、`compressed-payload-mutants` は Xcode 27 で実行する。
+これらと `build-for-macos-26` は自前の `[self-hosted, shunnag-arm64]`、fork PR だけは hosted の `xcode-27` を使う（[CI の運用](development.md#ci)）。
 並行する `build-for-macos-26` も Xcode 27 で二つの test bundle と `kaito` を universal build し、
 両 arch の `otool` で調べた非 system の依存 framework / dylib、Xcode 27 の xctest を tar で運ぶ。
 `Testing.framework` は universal な platform copy を優先し、strong dependency は両 arch を検査する。
-`macos-26-runtime` は `macos-26` / `macos-26-intel` の同じ checkout path に展開し、
+`macos-26-runtime` は hosted の `macos-26` / `macos-26-intel` に展開し、ビルド元の checkout path を symlink で復元して、
 `#filePath` の fixture・生成器・文書の path と `.build` の CLI 配置を保つ。
 Swift の build / test は行わず、同梱 runner と framework / dylib で全 suite と Asia/Tokyo の LHA golden を実行する。
 Xcode 26 の system xctest は XCTestCore の interop symbol が不足し、Xcode 27 の test bundle を load できない。
 製品コードは macOS 26 の OS Swift runtime 上で動かし、OS と arch の差を検査する。
 必須 oracle は両実行 job でそろえ、実際の test failure と実行件数0、golden marker の欠如は失敗にする。
+PR（同一 repo・fork）は arm64 の全 suite だけを検査し、Intel の 2 shard は main push・schedule・workflow_dispatch で実行する（tag push は起動しない）。
+Intel の利用者は少数のため、Intel 固有の退行は merge 後に検出する運用とする。
+`macos-26-runtime-coverage` はその run の matrix に含めた OS の全 class が1回ずつ実行されたことを必須にする。
+PR の検査済み tree と一致する main push は PR と重複する検査だけを省き、`build-for-macos-26` と Intel の全 shard・coverage 検査は維持する。
 
 ## 2. cooViewer が実際に使っている XADMaster の面(移行の最小面)
 

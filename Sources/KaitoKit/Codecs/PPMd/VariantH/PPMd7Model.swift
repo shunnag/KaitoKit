@@ -70,13 +70,25 @@ final class PPMd7Model {
         }
     }
 
+    // RAR's escape bytes are grammar, not output. The caller owns the
+    // literal/escape boundary and may borrow both states only within this scope.
+    // In-place cursor mutations survive throwing exits and solid continuation.
+    func withRARCursor<Result>(
+        using decoder: RARPPMdRangeDecoder,
+        _ body: (inout PPMd7ModelCursor, inout RARPPMdRangeCursor) throws -> Result
+    ) rethrows -> Result {
+        try decoder.withCursor { range in
+            try body(&cursor, &range)
+        }
+    }
+
     func decodeByte<Decoder: PPMd7RangeDecoding>(using decoder: Decoder) throws -> UInt8 {
         var range = decoder
         return try cursor.decodeByte(using: &range)
     }
 }
 
-private struct PPMd7ModelCursor: ~Copyable {
+struct PPMd7ModelCursor: ~Copyable {
     typealias Offset = PPMd7Suballocator.Offset
 
     // SDK model の定数と successor frequency の計算式。

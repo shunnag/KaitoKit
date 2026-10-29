@@ -333,11 +333,13 @@ enum RARStandardFilters {
             throw KaitoError.malformed("RAR RGB filter parameters are invalid")
         }
 
-        // The component loops consume exactly input.count encoded bytes and
-        // write every output index once. Upper/upper-right loads are checked
-        // against the output extent before dereferencing either pointer.
-        let encoded = input.bindMemory(to: UInt8.self)
-        let decoded = output.bindMemory(to: UInt8.self)
+        // The guards establish equal, nonempty raw extents. Component c
+        // visits c, c+3, ... < count; the three visits partition the output
+        // and consume exactly count input bytes. The upper-neighbor tests
+        // below bound both predictor loads. These pointers cannot escape.
+        let count = input.count
+        let encoded = input.baseAddress!.assumingMemoryBound(to: UInt8.self)
+        let decoded = output.baseAddress!.assumingMemoryBound(to: UInt8.self)
         // For aligned widths >= 6 the predictor reads only earlier samples
         // of this component, already written by this invocation. Other valid
         // widths can read not-yet-written components or the current sample;
@@ -350,8 +352,8 @@ enum RARStandardFilters {
             var predictor: UInt8 = 0
             var upperIndex = component - width
             var outputIndex = component
-            while outputIndex < decoded.count {
-                if upperIndex >= 0, upperIndex + 3 < decoded.count {
+            while outputIndex < count {
+                if upperIndex >= 0, upperIndex + 3 < count {
                     let upper = decoded[upperIndex]
                     let upperRight = decoded[upperIndex + 3]
                     let verticalChange = abs(Int(upperRight) - Int(upper))
@@ -370,10 +372,10 @@ enum RARStandardFilters {
                 upperIndex += 3
             }
         }
-        precondition(encodedIndex == encoded.count)
+        precondition(encodedIndex == count)
 
         var red = positionR
-        while red + 2 < decoded.count {
+        while red + 2 < count {
             decoded[red] &+= decoded[red + 1]
             decoded[red + 2] &+= decoded[red + 1]
             red += 3

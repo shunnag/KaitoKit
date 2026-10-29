@@ -5,6 +5,184 @@ import XCTest
 /// RAR5 の LZ decoder（RAR5Decoder）に、このファイルの bit writer で組んだ block・Huffman 表・filter と `rar` の出力
 /// （無ければ skip）を与え、小さい読み出し・solid の状態の引き継ぎ・filter の再開・壊れた入力と source の失敗を検査する。
 final class RAR5DecoderTests: XCTestCase {
+    func testParallelBlocksMatchSerialBytesAndDeferredFailures() throws {
+        let blocks = (0..<9).map { i in
+            makeLiteralBlock(byte: UInt8(65 + i), count: 65_536,
+                             includesTables: true, isLast: i == 8)
+        }
+        let packed = blocks.reduce(Data(), +)
+        var inherited = blocks
+        inherited[4] = makeLiteralBlock(byte: 68, count: 65_536, includesTables: false, isLast: false)
+        var badHeader = packed
+        badHeader[blocks[0].count + 1] ^= 0x80
+        var badTable = packed
+        badTable[blocks[0].count + 5] ^= 0xff
+        var wideDistance = RAR5DecoderBitWriter()
+        for i in 0..<20 { wideDistance.append(i < 2 ? 1 : 0, count: 4) }
+        for i in 0..<430 {
+            wideDistance.append([65, 262, 306 + 63, 306 + 64 + 15].contains(i) ? 1 : 0, count: 1)
+        }
+        wideDistance.append(0, count: 1)
+        wideDistance.append(1, count: 1)
+        wideDistance.append(0, count: 1)
+        wideDistance.append((1 << 26) - 1, count: 26)
+        wideDistance.append(0, count: 1)
+        let wideBlock = makeRawBlock(payload: wideDistance.bytes,
+                                     validBitCount: wideDistance.validBitsInFinalByte,
+                                     includesTables: true, isLast: true)
+        let prefix = blocks.dropLast().reduce(Data(), +)
+        let filter = makeRepeatingLiteralFilterBlock(byte: 0x80, count: 4_099, type: 0,
+                                                     channelsMinusOne: 1)
+        let cases: [(Data, Int?)] = [
+            (prefix + wideBlock, nil), (prefix + filter, nil),
+            (prefix + makeFilterBlock(relativeStart: 0, length: 1, type: 4, channelsMinusOne: nil), nil),
+            (packed, 9 * 65_536), (packed, nil), (packed, 9 * 65_536 - 1),
+            (inherited.reduce(Data(), +), 9 * 65_536), (badHeader, nil), (badTable, nil),
+            (Data(packed.dropLast()), nil),
+        ]
+        for (input, expected) in cases {
+            for bufferSize in [1, 4_099, 65_536] {
+                let serial = parallelOutcome(input, expected: expected, threads: 1, bufferSize: bufferSize)
+                let parallel = parallelOutcome(input, expected: expected, threads: 4, bufferSize: bufferSize)
+                XCTAssertEqual(serial.output, parallel.output)
+                XCTAssertEqual(serial.failure, parallel.failure)
+                XCTAssertEqual(serial.failedBuffer, parallel.failedBuffer)
+            }
+        }
+    }
+
+    func testParallelMatchesAndSolidContinuation() throws {
+        let fixture = makeSyntheticSolidStateBlocks()
+        var block = fixture.first
+        block[0] &= ~0x40
+        block[1] ^= 0x40
+        var packed = Data()
+        for _ in 0..<600 { packed += block }
+        packed += fixture.first
+        for size in [1, 4_099, 65_536] {
+            let serialState = try RAR5Decoder.SolidState(dictionarySize: 128 * 1_024)
+            let parallelState = try RAR5Decoder.SolidState(dictionarySize: 128 * 1_024)
+            for member in [packed, fixture.continuation] {
+                func decode(_ threads: Int, _ state: RAR5Decoder.SolidState) throws -> Data {
+                    let decoder = try RAR5Decoder(
+                        source: DataByteSource(data: member), offset: 0,
+                        compressedSize: UInt64(member.count), expectedSize: nil,
+                        dictionarySize: 128 * 1_024, limits: ReadLimits(),
+                        solidState: state, decodeThreads: threads
+                    )
+                    return try drain(decoder, bufferSize: size)
+                }
+                XCTAssertEqual(try decode(1, serialState), try decode(4, parallelState))
+            }
+        }
+    }
+
+    func testParallelBudgetAndSingleThreadDoNotSubmitLeaves() throws {
+        var packed = Data()
+        for i in 0..<9 {
+            packed += makeLiteralBlock(byte: 65, count: 65_536, includesTables: true, isLast: i == 8)
+        }
+        for (threads, budget, submits) in [(1, UInt64(32 << 20), false), (4, UInt64(128 << 10), false),
+                                            (4, UInt64(32 << 20), true)] {
+            let counter = ParallelSubmissionCounter()
+            try LeafDecodePool.$testingSubmission.withValue({ counter.increment() }) {
+                let decoder = try RAR5Decoder(
+                    source: DataByteSource(data: packed), offset: 0,
+                    compressedSize: UInt64(packed.count), expectedSize: 9 * 65_536,
+                    dictionarySize: 128 * 1_024, limits: ReadLimits(parallelDecodeMemory: budget),
+                    decodeThreads: threads
+                )
+                XCTAssertEqual(try drain(decoder, bufferSize: 4_099).count, 9 * 65_536)
+            }
+            XCTAssertEqual(counter.value > 0, submits)
+        }
+        // 小さい member でも、pool が保持する大きな入力領域を予算から引く。
+        let pool = RAR5Decoder.ScratchPool(capacity: 1)
+        let warmInput = makeLiteralBlock(byte: 65, count: 1, includesTables: true, isLast: true)
+            + Data(repeating: 0, count: 3 << 20)
+        do {
+            let warm = try RAR5Decoder(
+                source: DataByteSource(data: warmInput), offset: 0,
+                compressedSize: UInt64(warmInput.count), expectedSize: 1,
+                dictionarySize: 128 * 1_024, limits: ReadLimits(), scratchPool: pool
+            )
+            XCTAssertEqual(try drain(warm, bufferSize: 4_099), Data([65]))
+        }
+        XCTAssertEqual(pool.freeCount, 1)
+        let counter = ParallelSubmissionCounter()
+        try LeafDecodePool.$testingSubmission.withValue({ counter.increment() }) {
+            let decoder = try RAR5Decoder(
+                source: DataByteSource(data: packed), offset: 0,
+                compressedSize: UInt64(packed.count), expectedSize: 9 * 65_536,
+                dictionarySize: 128 * 1_024, limits: ReadLimits(parallelDecodeMemory: 3 << 20),
+                scratchPool: pool, decodeThreads: 4
+            )
+            XCTAssertEqual(try drain(decoder, bufferSize: 4_099).count, 9 * 65_536)
+        }
+        XCTAssertEqual(counter.value, 0)
+    }
+
+    func testGeneratedSolidAndLargeMemberUseReaderThreadBudget() throws {
+        try RAR5TestSupport.requireRAR()
+        let temporary = try ZipTestSupport.temporaryDirectory(label: "rar5-block-parallel")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let random = RAR5TestSupport.deterministicPayload(count: 1 << 20, seed: 0x52415235)
+        let payload = (0..<10).reduce(into: Data()) { data, _ in data += random }
+        _ = try ZipTestSupport.write(payload, relativePath: "large.bin", below: temporary)
+        _ = try ZipTestSupport.write(random + random, relativePath: "second.bin", below: temporary)
+        for solid in [false, true] {
+            let archive = temporary.appendingPathComponent(solid ? "solid.rar" : "independent.rar")
+            try RAR5TestSupport.makeGeneratedArchive(
+                sourceDirectory: temporary, paths: ["large.bin", "second.bin"], archiveURL: archive,
+                options: ["-m3", solid ? "-s" : "-s-", "-md4m", "-qo-"]
+            )
+            for threads in [1, 3, 4] {
+                let reader = try ArchiveReader.open(url: archive, options: ReaderOptions(decodeThreads: threads))
+                XCTAssertEqual(try reader.read(reader.entries[0]), payload)
+                XCTAssertEqual(try reader.read(reader.entries[1]), random + random)
+                let reopened = try reader.reopen(options: ReaderOptions(decodeThreads: threads))
+                XCTAssertEqual(try reopened.read(reopened.entries[0]), payload)
+            }
+        }
+    }
+
+    private final class ParallelSubmissionCounter: @unchecked Sendable {
+        let lock = NSLock()
+        private var count = 0
+        func increment() { lock.withLock { count += 1 } }
+        var value: Int { lock.withLock { count } }
+    }
+
+    private func parallelOutcome(
+        _ packed: Data, expected: Int?, threads: Int, bufferSize: Int
+    ) -> (output: Data, failure: String?, failedBuffer: Data?) {
+        var output = Data()
+        var buffer = Data(repeating: 0xcc, count: bufferSize)
+        do {
+            let decoder = try RAR5Decoder(
+                source: DataByteSource(data: packed), offset: 0,
+                compressedSize: UInt64(packed.count), expectedSize: expected.map(UInt64.init),
+                dictionarySize: 128 * 1_024, limits: ReadLimits(), decodeThreads: threads
+            )
+            do {
+                for _ in 0..<1_000_000 {
+                    let count = try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }
+                    if count == 0 { return (output, nil, nil) }
+                    output += buffer.prefix(count)
+                }
+                XCTFail("decoder did not finish")
+            } catch {
+                let first = String(describing: error)
+                XCTAssertFalse(decoder.isFinished)
+                XCTAssertThrowsError(try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }) {
+                    XCTAssertEqual(String(describing: $0), first)
+                }
+                return (output, first, buffer)
+            }
+        } catch { return (output, String(describing: error), nil) }
+        return (output, "stalled", nil)
+    }
+
     fileprivate enum SyntheticReadError: Error {
         case failed
     }

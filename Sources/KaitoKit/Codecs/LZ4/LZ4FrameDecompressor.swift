@@ -23,6 +23,9 @@ final class LZ4FrameDecompressor: Decompressor {
     private var frameProduced: UInt64 = 0
     private var checksum = XXH32()
     private let decoded = LZ4BlockBuffer()
+    // Internal allocation diagnostic for buffer-bound regression tests.
+    var decodedCapacity: Int { decoded.capacity }
+    private lazy var appleDecoder = LZ4AppleBlockDecoder()
     private var encoded: [UInt8] = []
     private var pendingOffset = 0
     private var sawFrame = false
@@ -92,7 +95,14 @@ final class LZ4FrameDecompressor: Decompressor {
                         encoded.withUnsafeBytes { decoded.store($0) }
                     } else {
                         try encoded.withUnsafeBytes {
-                            try LZ4BlockDecoder.decode($0, into: decoded, maximumSize: maximum)
+                            if LZ4AppleBlockDecoder.isEligible(independent: header.independent,
+                                                               blockChecksum: header.blockChecksum,
+                                                               contentChecksum: header.contentChecksum) {
+                                try appleDecoder.decode($0, into: decoded,
+                                                        blockMaximum: header.maximumBlockSize, maximumSize: maximum)
+                            } else {
+                                try LZ4BlockDecoder.decode($0, into: decoded, maximumSize: maximum)
+                            }
                         }
                     }
                     frameProduced = try Checked.add(frameProduced, UInt64(decoded.outputCount))
@@ -110,6 +120,8 @@ final class LZ4FrameDecompressor: Decompressor {
                     try Self.charge(&blockCount, limits: limits)
                     let maximum = Int(min(UInt64(Self.legacyBlockSize), limits.maxEntrySize - produced))
                     try input.read(count, into: &encoded)
+                    // Legacy has no checksum. A required token walk plus Apple
+                    // regressed dense text in release measurements; retain Swift.
                     try encoded.withUnsafeBytes {
                         try LZ4BlockDecoder.decode($0, into: decoded, maximumSize: maximum)
                     }

@@ -77,6 +77,9 @@ final class ZipReader: FormatReader {
     private var validatedRawRangePosition = -1
     private var password: String?
     private var aesDerivedKeyCache: [WinZipAESKeyCacheKey: WinZipAESDerivedKeys] = [:]
+    private var aesKeyLookAhead: ZipAESKeyLookAhead?
+    private var lastStreamIndex = -1
+    var aesKeyLookAheadForTesting: ZipAESKeyLookAhead? { aesKeyLookAhead }
     private var localReadAhead: ZipLocalReadAhead
 
     init(source: any ByteSource, options: ReaderOptions, diskLayout: ZipDiskLayout? = nil,
@@ -165,6 +168,11 @@ final class ZipReader: FormatReader {
     }
 
     func setPassword(_ password: String?) {
+        if self.password.map({ Data($0.utf8) }) != password.map({ Data($0.utf8) }) {
+            aesKeyLookAhead?.reset()
+            aesKeyLookAhead = nil
+            lastStreamIndex = -1
+        }
         self.password = password
     }
 
@@ -175,10 +183,15 @@ final class ZipReader: FormatReader {
             throw KaitoError.notFound("zip entry index \(entry.index)")
         }
 
+        let sequential = entry.index == lastStreamIndex + 1
+        if !sequential { aesKeyLookAhead?.reset() }
         let record = records[entry.index]
         let local = try localRecord(at: entry.index, limits: limits)
-        return try makeStream(record: record, entry: entry, local: local, limits: limits,
-                              aesKey: nil, storedOnly: false)
+        let stream = try makeStream(record: record, entry: entry, local: local, limits: limits,
+                                    aesKey: nil, storedOnly: false)
+        lastStreamIndex = entry.index
+        if sequential { prepareAESLookAhead(after: entry.index, limits: limits) }
+        return stream
     }
 
     func zipStream(at index: Int, limits: ReadLimits, aesKey: ZipAESKeyMaterial?, storedOnly: Bool) throws -> EntryStream? {
@@ -189,6 +202,58 @@ final class ZipReader: FormatReader {
         let local = try localRecord(at: index, limits: limits)
         return try makeStream(record: records[index], entry: entries[index], local: local, limits: limits,
                               aesKey: aesKey, storedOnly: storedOnly)
+    }
+
+    private func prepareAESLookAhead(after index: Int, limits: ReadLimits) {
+        guard !avoidsHeaderScans, decodeThreads > 1, let password else { return }
+        if aesKeyLookAhead == nil {
+            guard case .aes = records[index].encryption else { return }
+            aesKeyLookAhead = ZipAESKeyLookAhead(workers: decodeThreads,
+                memoryBudget: limits.resolvedParallelDecodeMemory(), passwordBytes: password.utf8.count)
+        }
+        guard let ahead = aesKeyLookAhead, ahead.capacity > 0 else { return }
+        ahead.drop(through: index)
+        // A fixed entry window also bounds scanning across directories and
+        // unencrypted entries. ZIP has no aggregate KDF work budget in ReadLimits.
+        for next in (index + 1)..<min(records.count, index + 1 + ahead.capacity) {
+            if ahead.count == ahead.capacity { break }
+            guard !ahead.contains(next), !entries[next].isIncomplete,
+                  entries[next].kind != .directory,
+                  case let .aes(metadata) = records[next].encryption else { continue }
+            // Speculation neither validates nor caches future local records.
+            // Any read/parse failure is retried in order by the normal path.
+            guard let key = try? speculativeAESKey(at: next, metadata: metadata,
+                                                  password: password, limits: limits),
+                  aesDerivedKeyCache[key] == nil else { continue }
+            ahead.submit(index: next, key: key)
+        }
+    }
+
+    private func speculativeAESKey(at index: Int, metadata: WinZipAESMetadata,
+                                   password: String, limits: ReadLimits) throws -> WinZipAESKeyCacheKey {
+        let record = records[index]
+        let position = localHeaderOrderPositions[index]
+        var bound = min(centralDirectoryOffset, source.length)
+        if position + 1 < localHeaderOrder.count {
+            bound = min(bound, records[localHeaderOrder[position + 1]].localHeaderOffset)
+        }
+        let fixedEnd = try Checked.add(record.localHeaderOffset, UInt64(ZipRecordSize.localHeader))
+        guard fixedEnd <= bound else { throw KaitoError.truncated }
+        let fixed = try readLocal(offset: record.localHeaderOffset, count: ZipRecordSize.localHeader,
+                                  position: position, sequential: false, limits: limits)
+        var cursor = ZipByteCursor(fixed)
+        guard try cursor.readUInt32LE() == ZipSignature.localHeader else { throw KaitoError.truncated }
+        try cursor.skip(22)
+        let nameLength = UInt64(try cursor.readUInt16LE())
+        let extraLength = UInt64(try cursor.readUInt16LE())
+        try Checked.size(extraLength, limit: limits.maxMetadataSize)
+        let offset = try Checked.add(fixedEnd, Checked.add(nameLength, extraLength))
+        let end = try Checked.add(offset, record.compressedSize)
+        let overhead = UInt64(metadata.strength.saltLength + 12)
+        guard record.compressedSize >= overhead, end <= bound else { throw KaitoError.truncated }
+        let salt = try readLocal(offset: offset, count: metadata.strength.saltLength,
+                                 position: position, sequential: false, limits: limits)
+        return WinZipAESKeyCacheKey(password: password, salt: Data(salt), strength: metadata.strength)
     }
 
     private func makeStream(record: ZipEntryRecord, entry: ArchiveEntry, local: LocalRecord, limits: ReadLimits,
@@ -204,6 +269,7 @@ final class ZipReader: FormatReader {
         }
         let payload = try payloadSource(
             record: record,
+            entryIndex: entry.index,
             local: local,
             limits: limits,
             isIncomplete: entry.isIncomplete,
@@ -564,6 +630,7 @@ final class ZipReader: FormatReader {
 
     private func payloadSource(
         record: ZipEntryRecord,
+        entryIndex: Int,
         local: LocalRecord,
         limits: ReadLimits,
         isIncomplete: Bool,
@@ -608,6 +675,7 @@ final class ZipReader: FormatReader {
             if isIncomplete, availableSize < UInt64(metadata.strength.saltLength + 2) {
                 return (source, local.dataOffset, 0, nil)
             }
+            var usedLookAheadKeys = false
             let result = try WinZipAES.prepareStreamingDecryption(
                 source: source,
                 offset: local.dataOffset,
@@ -621,14 +689,19 @@ final class ZipReader: FormatReader {
                         }
                         return try WinZipAESDerivedKeys(salt: key.salt, strength: key.strength, material: aesKey.bytes)
                     }
-                    return self?.aesDerivedKeyCache[key]
+                    if let cached = self?.aesDerivedKeyCache[key] { return cached }
+                    let prefetched = try self?.aesKeyLookAhead?.take(index: entryIndex, key: key)
+                    usedLookAheadKeys = prefetched != nil
+                    return prefetched
                 },
                 availableCompressedSize: isIncomplete ? availableSize : nil,
                 hasKnownCompressedSize: record.hasKnownCompressedSize
             )
             let derivedKeys = result.derivedKeys
             let cacheKey = result.cacheKey
-            let shouldCacheDerivedKeys = result.shouldCacheDerivedKeys
+            // A speculative key has not passed HMAC yet. Promote it to the
+            // authenticated cache only when this entry finishes successfully.
+            let shouldCacheDerivedKeys = result.shouldCacheDerivedKeys || (usedLookAheadKeys && !isIncomplete)
             let decryptedSource = result.source
             let completionCheck = { [weak self] in
                 try decryptedSource.finishAndVerify()

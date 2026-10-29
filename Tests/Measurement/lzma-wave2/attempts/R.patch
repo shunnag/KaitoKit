@@ -1,0 +1,10 @@
+--- a/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift
++++ b/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift
+@@ -1841 +1841,3 @@
+-        result |= bit << bitIndex
++        // All callers use at most five reverse-tree bits (distance models or
++        // the four-bit alignment tree), so both shift counts are in 0...4.
++        result |= bit &<< bitIndex
+@@ -1848 +1850 @@
+-    result |= bit << (bitCount &- 1)
++    result |= bit &<< (bitCount &- 1)

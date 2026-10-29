@@ -6,14 +6,17 @@ struct HeaderReadPlanner {
     private let mode: Mode
     private let minimumWindowSize: Int
     private let spacingEstimate: SpacingEstimate
+    private let maximumCoalescingSpacing: UInt64
     private var spacings: [UInt64] = []
     private var hasMiss = false
     private var observedBlocks = 0
 
-    init(_ mode: Mode, minimumWindowSize: Int = 16 << 10, spacingEstimate: SpacingEstimate = .median) {
+    init(_ mode: Mode, minimumWindowSize: Int = 16 << 10, spacingEstimate: SpacingEstimate = .median,
+         maximumCoalescingSpacing: UInt64 = 64 << 10) {
         self.mode = mode
         self.minimumWindowSize = minimumWindowSize
         self.spacingEstimate = spacingEstimate
+        self.maximumCoalescingSpacing = maximumCoalescingSpacing
     }
 
     mutating func noteBlock(offset: UInt64, nextOffset: UInt64) {
@@ -41,10 +44,9 @@ struct HeaderReadPlanner {
                         ? sorted[middle - 1] + (sorted[middle] - sorted[middle - 1]) / 2
                         : sorted[middle]
                 case .maximum:
-                    // Tar may put several small PAX/sidecar records before each
-                    // large body. Observe eight headers before expanding so an
-                    // initial directory/PAX prelude cannot look like dense files.
-                    // Thereafter keep any large skip in the last four spacings.
+                    // tar は大きな本体の前に小さな PAX / AppleDouble の record を置くことがある。
+                    // 先頭の directory や PAX の並びを密な file 列と見誤らないよう 8 header を
+                    // 観測してから広げ、以後は直近 4 間隔に大きな飛びが一つでもあれば広げない。
                     spacing = observedBlocks == 8 ? spacings.max() : nil
                 }
                 // 1 要求は約 9 ms + bytes/(30〜60 MB/s)。間隔 270〜540 KiB 未満なら
@@ -52,7 +54,9 @@ struct HeaderReadPlanner {
                 // 直近 4 個の中央値なら JPEG 列中の大きな TIFF 1 枚で揺れない。
                 // 実測では 6 MB/395 件が 3.9→1.08 秒、110 MB/124 件は窓拡大で
                 // 2.13→2.64 秒・転送量 4→36 MB となったため疎な列は小窓を保つ。
-                if let spacing, spacing <= 64 << 10 { size = Int(min(UInt64(maximum), max(256 << 10, spacing * 64))) }
+                if let spacing, spacing <= maximumCoalescingSpacing {
+                    size = Int(max(256 << 10, min(UInt64(maximum / 64), spacing) * 64))
+                }
             }
         }
         hasMiss = true

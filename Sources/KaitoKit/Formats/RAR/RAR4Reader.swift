@@ -582,7 +582,7 @@ final class RAR4Reader: FormatReader {
 
     /// Builds the bounded packed view shared by independent and solid decoders.
     /// The declared packed size is limit-checked and every split part's CRC is
-    /// verified before a decoder reads; encrypted data becomes one AES-CBC view.
+    /// verified and retained before a decoder reads; encrypted data becomes one AES-CBC view.
     private static func preparePayload(
         _ record: RAR4EntryRecord,
         entryIndex: Int,
@@ -592,18 +592,18 @@ final class RAR4Reader: FormatReader {
         unixScalars: Bool
     ) throws -> (source: any ByteSource, offset: UInt64) {
         try Checked.size(record.packedSize, limit: limits.maxEntrySize)
-        try validatePackedParts(record, entryIndex: entryIndex)
+        let segments = try validatePackedParts(record, entryIndex: entryIndex, limits: limits)
 
         let packed: (source: any ByteSource, offset: UInt64)
-        if record.packedSegments.count == 1,
-           let segment = record.packedSegments.first {
+        if segments.count == 1,
+           let segment = segments.first {
             packed = (segment.source, segment.offset)
         } else if record.packedSize == 0 {
             packed = (DataByteSource(data: Data()), 0)
         } else {
             packed = (
                 try ConcatenatedByteSource(
-                    segments: record.packedSegments,
+                    segments: segments,
                     maximumLength: record.packedSize,
                     maximumSegmentCount: limits.maxVolumeCount,
                     label: "RAR split stream"
@@ -678,43 +678,19 @@ final class RAR4Reader: FormatReader {
 
     private static func validatePackedParts(
         _ record: RAR4EntryRecord,
-        entryIndex: Int
-    ) throws {
+        entryIndex: Int,
+        limits: ReadLimits
+    ) throws -> [SourceSegment] {
         guard record.packedPartCRC32.count == record.packedSegments.count else {
             throw KaitoError.malformed("RAR4 split integrity metadata is inconsistent")
         }
-        guard record.packedPartCRC32.contains(where: { $0 != nil }) else { return }
-
-        var buffer = [UInt8](repeating: 0, count: 256 * 1_024)
-        for (segment, expected) in zip(
-            record.packedSegments,
-            record.packedPartCRC32
-        ) {
-            guard let expected else { continue }
-            let end = try Checked.add(segment.offset, segment.length)
-            guard end <= segment.source.length else { throw KaitoError.truncated }
-            var crc = CRC32()
-            var consumed: UInt64 = 0
-            while consumed < segment.length {
-                let wanted = try Checked.toInt(min(
-                    UInt64(buffer.count),
-                    try Checked.sub(segment.length, consumed)
-                ))
-                let count = try buffer.withUnsafeMutableBytes { storage in
-                    try segment.source.read(
-                        into: UnsafeMutableRawBufferPointer(rebasing: storage[..<wanted]),
-                        at: try Checked.add(segment.offset, consumed)
-                    )
-                }
-                guard count > 0, count <= wanted else { throw KaitoError.truncated }
-                buffer.withUnsafeBytes { storage in
-                    crc.update(UnsafeRawBufferPointer(rebasing: storage[..<count]))
-                }
-                consumed = try Checked.add(consumed, UInt64(count))
-            }
-            guard crc.value == expected else {
-                throw KaitoError.checksumMismatch(entry: entryIndex)
-            }
+        let checked = record.packedPartCRC32.map { $0 != nil }
+        guard checked.contains(true) else { return record.packedSegments }
+        return try RARVerifiedPackedParts.prepare(
+            segments: record.packedSegments, checked: checked, limits: limits
+        ) { index in
+            guard let expected = record.packedPartCRC32[index] else { return nil }
+            return RARVerifiedPackedParts.Check(crc32: expected, entryIndex: entryIndex)
         }
     }
 

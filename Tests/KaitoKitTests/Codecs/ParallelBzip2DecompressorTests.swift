@@ -24,6 +24,7 @@ final class ParallelBzip2DecompressorTests: XCTestCase {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/bzip2")
             process.arguments = ["-\(level)", "-k", input.path]
+            process.standardInput = FileHandle.nullDevice
             try process.run(); process.waitUntilExit()
             guard process.terminationStatus == 0 else { throw TarTestSupportError.commandFailed("bzip2 \(level)") }
             packed[level] = try Data(contentsOf: input.appendingPathExtension("bz2"))

@@ -48,10 +48,10 @@ final class CompressedTarChunkMapFixtureTests: XCTestCase {
     }
     func testFrozenWriterBytes() throws {
         let root = TarGoldenCorpus.repository.appendingPathComponent("Tests/Fixtures/tar-edit")
-        let process = Process(), pipe = Pipe()
+        let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sw_vers"); process.arguments = ["-productVersion"]
-        process.standardOutput = pipe; try process.run(); process.waitUntilExit()
-        let os = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let captured = try ZipTestSupport.capture(process)
+        let os = String(decoding: captured.standardOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let fixtureOS = try String(contentsOf: root.appendingPathComponent("macos-version.txt"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         for name in ["gz.tgz", "strgz.tgz", "bz.tbz", "strbz.tbz", "xz.txz", "strxz.txz"] {
             if name.hasSuffix("txz"), os != fixtureOS { print("TAR-FRAMING skip xz byte identity: OS \(os) != \(fixtureOS)"); continue }

@@ -218,6 +218,19 @@ enum ZipTestSupport {
         currentDirectory: URL? = nil,
         standardInput: Data? = nil
     ) throws -> ZipCommandResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.currentDirectoryURL = currentDirectory
+        return try capture(process, standardInput: standardInput)
+    }
+
+    /// Capture to files so a child cannot block on a full output pipe while we
+    /// wait for it. Keep the Process available to callers that check exit reasons.
+    static func capture(
+        _ process: Process,
+        standardInput: Data? = nil
+    ) throws -> ZipCommandResult {
         let capture = try temporaryDirectory(label: "command-output")
         defer { try? FileManager.default.removeItem(at: capture) }
         let outputURL = capture.appendingPathComponent("stdout")
@@ -233,11 +246,8 @@ enum ZipTestSupport {
             try? errorHandle.close()
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.currentDirectoryURL = currentDirectory
         var inputHandle: FileHandle?
+        defer { try? inputHandle?.close() }
         if let standardInput {
             let inputURL = capture.appendingPathComponent("stdin")
             try standardInput.write(to: inputURL)

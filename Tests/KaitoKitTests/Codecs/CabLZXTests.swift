@@ -95,6 +95,7 @@ final class CabLZXTests: XCTestCase {
         process.executableURL = executable
         process.arguments = arguments
         process.currentDirectoryURL = root
+        process.standardInput = FileHandle.nullDevice
         process.standardOutput = handle
         process.standardError = handle
         try process.run()

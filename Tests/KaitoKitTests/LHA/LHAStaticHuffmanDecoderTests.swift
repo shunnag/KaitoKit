@@ -461,17 +461,12 @@ final class LHAStaticHuffmanDecoderTests: XCTestCase {
             ("match.bin", matchPacked, matchExpected),
             ("preset.bin", presetPacked, presetExpected),
         ] {
-            let standardOutput = Pipe()
-            let standardError = Pipe()
             let process = Process()
             process.executableURL = executable
             process.arguments = ["-pq", archiveURL.path, name]
-            process.standardOutput = standardOutput
-            process.standardError = standardError
-            try process.run()
-            let oracle = standardOutput.fileHandleForReading.readDataToEndOfFile()
-            let diagnostic = standardError.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
+            let captured = try ZipTestSupport.capture(process)
+            let oracle = captured.standardOutput
+            let diagnostic = captured.standardError
             XCTAssertEqual(
                 process.terminationStatus,
                 0,

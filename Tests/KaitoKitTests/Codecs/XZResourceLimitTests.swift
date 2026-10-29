@@ -148,6 +148,7 @@ final class XZResourceLimitTests: XCTestCase {
         let output = directory.appendingPathComponent("fixture.xz")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.standardInput = FileHandle.nullDevice
         process.arguments = ["-c", "import lzma,pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(lzma.compress(b'A'*2048, filters=[{'id':lzma.FILTER_LZMA2,'dict_size':int(sys.argv[2])}]))", output.path, String(dictionary)]
         try process.run(); process.waitUntilExit()
         XCTAssertEqual(process.terminationStatus, 0)

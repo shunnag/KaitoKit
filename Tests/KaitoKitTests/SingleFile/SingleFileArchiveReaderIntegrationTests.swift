@@ -311,28 +311,11 @@ final class SingleFileArchiveReaderIntegrationTests: XCTestCase {
         input: Data?
     ) throws -> Data {
         let process = Process()
-        let output = Pipe()
-        let errors = Pipe()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
-        process.standardOutput = output
-        process.standardError = errors
-        let standardInput: Pipe?
-        if input != nil {
-            let pipe = Pipe()
-            process.standardInput = pipe
-            standardInput = pipe
-        } else {
-            standardInput = nil
-        }
-        try process.run()
-        if let input, let standardInput {
-            standardInput.fileHandleForWriting.write(input)
-            try standardInput.fileHandleForWriting.close()
-        }
-        let result = output.fileHandleForReading.readDataToEndOfFile()
-        let diagnostic = errors.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        let captured = try ZipTestSupport.capture(process, standardInput: input)
+        let result = captured.standardOutput
+        let diagnostic = captured.standardError
         guard process.terminationReason == .exit,
               process.terminationStatus == 0 else {
             throw TarTestSupportError.commandFailed(

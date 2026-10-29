@@ -56,18 +56,15 @@ enum TarTestSupport {
         archiveURL: URL
     ) throws {
         let process = Process()
-        let errors = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/bsdtar")
         process.arguments = [
             "-cf", archiveURL.path,
             "--format", format,
             "-C", sourceDirectory.path,
         ] + paths
-        process.standardError = errors
-        try process.run()
-        process.waitUntilExit()
+        let captured = try ZipTestSupport.capture(process)
         let errorText = String(
-            decoding: errors.fileHandleForReading.readDataToEndOfFile(),
+            decoding: captured.standardError,
             as: UTF8.self
         )
         guard process.terminationReason == .exit, process.terminationStatus == 0 else {

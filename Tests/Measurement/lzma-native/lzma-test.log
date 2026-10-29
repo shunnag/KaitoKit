@@ -1,0 +1,283 @@
+warning: /Users/nagash/Library/org.swift.swiftpm/configuration is not accessible or not writable, disabling user-level cache features.
+warning: /Users/nagash/Library/org.swift.swiftpm/security is not accessible or not writable, disabling user-level cache features.
+warning: /Users/nagash/Library/Caches/org.swift.swiftpm is not accessible or not writable, disabling user-level cache features.
+warning: 'kaitokit-wt-lzasm': failed storing manifest for 'kaitokit-wt-lzasm' in cache: attempt to write a readonly database
+[0/1] Planning build
+Building for debugging...
+[0/6] Compiling CLZMAHot LZMAHot.c
+[1/6] Write swift-version--58304C5D6DBC2206.txt
+[2/9] Write Objects.LinkFileList
+[5/9] Linking kaito
+[6/9] Linking libKaitoKitDynamic.dylib
+[7/9] Applying kaito
+[8/9] Linking KaitoKitPackageTests
+Build complete! (1.91s)
+Test Suite 'Selected tests' started at 2026-10-30 04:56:57.217.
+Test Suite 'KaitoKitPackageTests.xctest' started at 2026-10-30 04:56:57.217.
+Test Suite 'CompressedTarAliasTests' started at 2026-10-30 04:56:57.217.
+Test Case '-[KaitoKitTests.CompressedTarAliasTests testCompressedLZMATarRejectsTruncationAndEnforcesStagingAndDictionaryLimits]' started.
+Test Case '-[KaitoKitTests.CompressedTarAliasTests testCompressedLZMATarRejectsTruncationAndEnforcesStagingAndDictionaryLimits]' passed (0.080 seconds).
+Test Case '-[KaitoKitTests.CompressedTarAliasTests testLZMAAndBzip2TarAliasesListMembersAndReopenAfterUnlink]' started.
+Test Case '-[KaitoKitTests.CompressedTarAliasTests testLZMAAndBzip2TarAliasesListMembersAndReopenAfterUnlink]' passed (0.308 seconds).
+Test Case '-[KaitoKitTests.CompressedTarAliasTests testStandaloneLZMAKeepsItsSingleFileSemantics]' started.
+Test Case '-[KaitoKitTests.CompressedTarAliasTests testStandaloneLZMAKeepsItsSingleFileSemantics]' passed (0.069 seconds).
+Test Suite 'CompressedTarAliasTests' passed at 2026-10-30 04:56:57.675.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.458 (0.458) seconds
+Test Suite 'FormatDetectorTests' started at 2026-10-30 04:56:57.675.
+Test Case '-[KaitoKitTests.FormatDetectorTests testLZMAAloneDetectionChecksPropertiesLimitsAndRunsLast]' started.
+Test Case '-[KaitoKitTests.FormatDetectorTests testLZMAAloneDetectionChecksPropertiesLimitsAndRunsLast]' passed (0.019 seconds).
+Test Case '-[KaitoKitTests.FormatDetectorTests testLZMAAloneDetectionRequiresHintAndRejectsNonArchives]' started.
+Test Case '-[KaitoKitTests.FormatDetectorTests testLZMAAloneDetectionRequiresHintAndRejectsNonArchives]' passed (0.073 seconds).
+Test Suite 'FormatDetectorTests' passed at 2026-10-30 04:56:57.767.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.092 (0.092) seconds
+Test Suite 'LZMA2DecoderTests' started at 2026-10-30 04:56:57.768.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testCompressedChunkRequiresTerminalRangeStateAndExactPackedUse]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testCompressedChunkRequiresTerminalRangeStateAndExactPackedUse]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testCompressedChunkWithTinyReads]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testCompressedChunkWithTinyReads]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testDictionaryPropertyLimitIsCheckedBeforeAllocation]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testDictionaryPropertyLimitIsCheckedBeforeAllocation]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testDictionaryResetIndexUsesAbsoluteCompressedOffsets]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testDictionaryResetIndexUsesAbsoluteCompressedOffsets]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testLZMAChunkWithoutPropertiesAfterRawDictionaryResetIsRejected]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testLZMAChunkWithoutPropertiesAfterRawDictionaryResetIsRejected]' passed (0.001 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testMultipleCompressedChunksRetainModelAndDictionary]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testMultipleCompressedChunksRetainModelAndDictionary]' passed (0.021 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testPropertiesResetAfterUncompressedChunk]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testPropertiesResetAfterUncompressedChunk]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testPropertyResetsGrowAndShrinkTheActiveLiteralModels]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testPropertyResetsGrowAndShrinkTheActiveLiteralModels]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRawChunkWithoutDictionaryResetKeepsCodingStateAndProperties]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRawChunkWithoutDictionaryResetKeepsCodingStateAndProperties]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRejectsInvalidControlStatePropertiesAndTrailingBytes]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRejectsInvalidControlStatePropertiesAndTrailingBytes]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRejectsTruncationAndExpectedSizeMismatch]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRejectsTruncationAndExpectedSizeMismatch]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRestartAtRawDictionaryResetFollowedByPropertiesChunk]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRestartAtRawDictionaryResetFollowedByPropertiesChunk]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testSevenZipRawChunksCanContinueWithoutStateReset]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.LZMA2DecoderTests testSevenZipRawChunksCanContinueWithoutStateReset] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testSevenZipRawChunksCanContinueWithoutStateReset]' skipped (0.001 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testStateResetPreservesLiteralAndPositionContextPosition]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.LZMA2DecoderTests testStateResetPreservesLiteralAndPositionContextPosition] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testStateResetPreservesLiteralAndPositionContextPosition]' skipped (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testStateResetWithoutDictionaryReset]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testStateResetWithoutDictionaryReset]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testThreeHundredTwentyDeterministicMutantsDoNotHangOrCrash]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testThreeHundredTwentyDeterministicMutantsDoNotHangOrCrash]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testUncompressedChunks]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testUncompressedChunks]' passed (0.000 seconds).
+Test Suite 'LZMA2DecoderTests' passed at 2026-10-30 04:56:57.795.
+	 Executed 17 tests, with 2 tests skipped and 0 failures (0 unexpected) in 0.026 (0.027) seconds
+Test Suite 'LZMA2ObservedResetIndexTests' started at 2026-10-30 04:56:57.795.
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testInvalidChunkDoesNotRecordPointOrCoverage]' started.
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testInvalidChunkDoesNotRecordPointOrCoverage]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testNonResetChunksDoNotAddObservedPoints]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.LZMA2ObservedResetIndexTests testNonResetChunksDoNotAddObservedPoints] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testNonResetChunksDoNotAddObservedPoints]' skipped (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testObservedIndexEqualsScannedIndex]' started.
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testObservedIndexEqualsScannedIndex]' passed (3.326 seconds).
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testPartialCoverage]' started.
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testPartialCoverage]' passed (0.019 seconds).
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testPointLimitFreezesAtThirdReset]' started.
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testPointLimitFreezesAtThirdReset]' passed (0.019 seconds).
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testRestartExtendsCoverageWithoutDuplicatesOrGaps]' started.
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testRestartExtendsCoverageWithoutDuplicatesOrGaps]' passed (0.049 seconds).
+Test Suite 'LZMA2ObservedResetIndexTests' passed at 2026-10-30 04:57:01.210.
+	 Executed 6 tests, with 1 test skipped and 0 failures (0 unexpected) in 3.415 (3.415) seconds
+Test Suite 'LZMADecoderTests' started at 2026-10-30 04:57:01.210.
+Test Case '-[KaitoKitTests.LZMADecoderTests testEndMarkedStreamRejectsTruncation]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testEndMarkedStreamRejectsTruncation]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testEndMarkedStreamWithDictionaryWrapAndTinyReads]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testEndMarkedStreamWithDictionaryWrapAndTinyReads]' passed (0.001 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testEndMarkerBeforeKnownSizeIsMalformed]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testEndMarkerBeforeKnownSizeIsMalformed]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testHugeLogicalCompressedRangeDoesNotTrapDuringRefillSizing]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testHugeLogicalCompressedRangeDoesNotTrapDuringRefillSizing]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testKnownSizeDoesNotRequireEndMarker]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testKnownSizeDoesNotRequireEndMarker]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testLiteralRunTransfersConsumedMatchHeadWithinOneRead]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testLiteralRunTransfersConsumedMatchHeadWithinOneRead]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testRejectsDictionaryBeyondLimitBeforeAllocation]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testRejectsDictionaryBeyondLimitBeforeAllocation]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testRejectsInvalidPropertiesAndRangeInitialization]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testRejectsInvalidPropertiesAndRangeInitialization]' passed (0.000 seconds).
+Test Suite 'LZMADecoderTests' passed at 2026-10-30 04:57:01.213.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'LZMAMatchCopyTests' started at 2026-10-30 04:57:01.213.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testBitFlipsInEdgeStreamNeverHangOrCrash]' started.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testBitFlipsInEdgeStreamNeverHangOrCrash]' passed (0.091 seconds).
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testDirectCopyMatchesByteLoopForEveryLengthAndDistance]' started.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testDirectCopyMatchesByteLoopForEveryLengthAndDistance]' passed (6.517 seconds).
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testEdgeInputRegeneratesExpectedBytes]' started.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testEdgeInputRegeneratesExpectedBytes]' passed (0.001 seconds).
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testLZMA1EdgeMatchesDecodeAtEveryReadSize]' started.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testLZMA1EdgeMatchesDecodeAtEveryReadSize]' passed (0.018 seconds).
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testLZMA1EdgeRejectsTruncationAndWrongSizeWithTypedErrors]' started.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testLZMA1EdgeRejectsTruncationAndWrongSizeWithTypedErrors]' passed (0.001 seconds).
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testLZMA2EdgeMatchesDecodeAtEveryReadSize]' started.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testLZMA2EdgeMatchesDecodeAtEveryReadSize]' passed (0.019 seconds).
+Test Suite 'LZMAMatchCopyTests' passed at 2026-10-30 04:57:07.861.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 6.648 (6.649) seconds
+Test Suite 'LZMARingWrapTests' started at 2026-10-30 04:57:07.861.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testLZMAAloneG1]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testLZMAAloneG1]' passed (0.004 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testLZMAAloneG8]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testLZMAAloneG8]' passed (0.003 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA1G1]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA1G1]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA1G8]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA1G8]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG0]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG0]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG1]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG1]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG15]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG15]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG16]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG16]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG32]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG32]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG8]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG8]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG11]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG11]' passed (0.004 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG13]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG13]' passed (0.004 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG14]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG14]' passed (0.004 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG15]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG15]' passed (0.004 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG2]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG2]' passed (0.004 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG3]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG3]' passed (0.004 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG5]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG5]' passed (0.004 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG7]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG7]' passed (0.004 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG9]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG9]' passed (0.004 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testZipLZMAG1]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testZipLZMAG1]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testZipLZMAG8]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testZipLZMAG8]' passed (0.002 seconds).
+Test Suite 'LZMARingWrapTests' passed at 2026-10-30 04:57:07.926.
+	 Executed 21 tests, with 0 failures (0 unexpected) in 0.064 (0.065) seconds
+Test Suite 'LzipTests' started at 2026-10-30 04:57:07.926.
+Test Case '-[KaitoKitTests.LzipTests testCompressedTarAliasesRouteLzipToTarAndKeepLZMAAloneForTlz]' started.
+Test Case '-[KaitoKitTests.LzipTests testCompressedTarAliasesRouteLzipToTarAndKeepLZMAAloneForTlz]' passed (0.014 seconds).
+Test Suite 'LzipTests' passed at 2026-10-30 04:57:07.941.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.014 (0.014) seconds
+Test Suite 'SevenZipBranchLargePayloadTests' started at 2026-10-30 04:57:07.941.
+Test Case '-[KaitoKitTests.SevenZipBranchLargePayloadTests testBranchFilterOverLZMA2ArchiveExtractsThroughReader]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SevenZipBranchLargePayloadTests testBranchFilterOverLZMA2ArchiveExtractsThroughReader] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; branch archive skipped
+Test Case '-[KaitoKitTests.SevenZipBranchLargePayloadTests testBranchFilterOverLZMA2ArchiveExtractsThroughReader]' skipped (0.000 seconds).
+Test Suite 'SevenZipBranchLargePayloadTests' passed at 2026-10-30 04:57:07.941.
+	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'SevenZipHardeningTests' started at 2026-10-30 04:57:07.941.
+Test Case '-[KaitoKitTests.SevenZipHardeningTests testFourGiBLZMA2DictionaryFailsViaConfiguredLimit]' started.
+Test Case '-[KaitoKitTests.SevenZipHardeningTests testFourGiBLZMA2DictionaryFailsViaConfiguredLimit]' passed (0.000 seconds).
+Test Suite 'SevenZipHardeningTests' passed at 2026-10-30 04:57:07.941.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'SevenZipInputLatencyTests' started at 2026-10-30 04:57:07.941.
+Test Case '-[KaitoKitTests.SevenZipInputLatencyTests testEncryptedLZMA2AtHighLatencyMatchesLow]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SevenZipInputLatencyTests testEncryptedLZMA2AtHighLatencyMatchesLow] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.SevenZipInputLatencyTests testEncryptedLZMA2AtHighLatencyMatchesLow]' skipped (0.000 seconds).
+Test Suite 'SevenZipInputLatencyTests' passed at 2026-10-30 04:57:07.941.
+	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'SevenZipIntegrationTests' started at 2026-10-30 04:57:07.941.
+Test Case '-[KaitoKitTests.SevenZipIntegrationTests testCopyLZMALZMA2DeflateAndBZip2MatchSevenZipBySHA256]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SevenZipIntegrationTests testCopyLZMALZMA2DeflateAndBZip2MatchSevenZipBySHA256] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.SevenZipIntegrationTests testCopyLZMALZMA2DeflateAndBZip2MatchSevenZipBySHA256]' skipped (0.000 seconds).
+Test Case '-[KaitoKitTests.SevenZipIntegrationTests testManyTinyNonSolidLZMAAndLZMA2Entries]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SevenZipIntegrationTests testManyTinyNonSolidLZMAAndLZMA2Entries] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.SevenZipIntegrationTests testManyTinyNonSolidLZMAAndLZMA2Entries]' skipped (0.000 seconds).
+Test Case '-[KaitoKitTests.SevenZipIntegrationTests testTenMegabyteLZMA2EntryStreamsAndMatchesSevenZipBySHA256]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SevenZipIntegrationTests testTenMegabyteLZMA2EntryStreamsAndMatchesSevenZipBySHA256] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.SevenZipIntegrationTests testTenMegabyteLZMA2EntryStreamsAndMatchesSevenZipBySHA256]' skipped (0.000 seconds).
+Test Suite 'SevenZipIntegrationTests' passed at 2026-10-30 04:57:07.942.
+	 Executed 3 tests, with 3 tests skipped and 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'SevenZipLZMA2IOTests' started at 2026-10-30 04:57:07.942.
+Test Case '-[KaitoKitTests.SevenZipLZMA2IOTests testCompressedPayloadReadOnceInSerialParallelAndBackwardSeek]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SevenZipLZMA2IOTests testCompressedPayloadReadOnceInSerialParallelAndBackwardSeek] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.SevenZipLZMA2IOTests testCompressedPayloadReadOnceInSerialParallelAndBackwardSeek]' skipped (0.000 seconds).
+Test Suite 'SevenZipLZMA2IOTests' passed at 2026-10-30 04:57:07.942.
+	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'SevenZipLZMA2ResetIndexTests' started at 2026-10-30 04:57:07.942.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testBatchedHeadersKeepShortReadsAndValidationOrder]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testBatchedHeadersKeepShortReadsAndValidationOrder]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testCancelledParallelIndexBuildStillStops]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testCancelledParallelIndexBuildStillStops]' passed (0.022 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testCancelledSerialBackwardSeekUsesObservedIndexWithoutScanning]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testCancelledSerialBackwardSeekUsesObservedIndexWithoutScanning]' passed (0.023 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testCompressedIndexReadsOnlyHeadersAndSharesSeekIndex]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testCompressedIndexReadsOnlyHeadersAndSharesSeekIndex]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testContinuedCompressedHeadersUseTwoReadsPerChunk]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testContinuedCompressedHeadersUseTwoReadsPerChunk]' passed (0.003 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testMalformedIndexCachedAfterReadFailureAndKeepsEarlierEntry]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testMalformedIndexCachedAfterReadFailureAndKeepsEarlierEntry]' passed (0.023 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testNonSolidOpensShareIndexButReopenedReaderBuildsItsOwn]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testNonSolidOpensShareIndexButReopenedReaderBuildsItsOwn]' passed (0.001 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testPositiveIndexBuiltOnceAcrossEntriesAndRestarts]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testPositiveIndexBuiltOnceAcrossEntriesAndRestarts]' passed (0.023 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSecondResetWithinBoundCompletesIndexAndLateResetKeepsSerial]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSecondResetWithinBoundCompletesIndexAndLateResetKeepsSerial]' passed (0.004 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSeekIndexRemainsUnboundedAndParallelReusesIt]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSeekIndexRemainsUnboundedAndParallelReusesIt]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSingleResetNegativeIndexCachedAcrossSolidAndNonSolidOpens]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSingleResetNegativeIndexCachedAcrossSolidAndNonSolidOpens]' passed (0.010 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSingleResetStopsAtOutputBoundAndCachesSerialDecision]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSingleResetStopsAtOutputBoundAndCachesSerialDecision]' passed (0.004 seconds).
+Test Suite 'SevenZipLZMA2ResetIndexTests' passed at 2026-10-30 04:57:08.057.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.114 (0.115) seconds
+Test Suite 'SingleFileFormatTests' started at 2026-10-30 04:57:08.057.
+Test Case '-[KaitoKitTests.SingleFileFormatTests testLZMAAloneKnownAndUnknownSizes]' started.
+Test Case '-[KaitoKitTests.SingleFileFormatTests testLZMAAloneKnownAndUnknownSizes]' passed (0.017 seconds).
+Test Case '-[KaitoKitTests.SingleFileFormatTests testLZMAAloneLimitsMalformedHeadersAndTruncation]' started.
+Test Case '-[KaitoKitTests.SingleFileFormatTests testLZMAAloneLimitsMalformedHeadersAndTruncation]' passed (0.010 seconds).
+Test Suite 'SingleFileFormatTests' passed at 2026-10-30 04:57:08.085.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.027 (0.027) seconds
+Test Suite 'SplitVolumeTests' started at 2026-10-30 04:57:08.085.
+Test Case '-[KaitoKitTests.SplitVolumeTests testGeneratedLZMA2VolumesMatchOracleAndReopenAfterUnlink]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SplitVolumeTests testGeneratedLZMA2VolumesMatchOracleAndReopenAfterUnlink] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.SplitVolumeTests testGeneratedLZMA2VolumesMatchOracleAndReopenAfterUnlink]' skipped (0.000 seconds).
+Test Case '-[KaitoKitTests.SplitVolumeTests testSingleAndSplitLZMAAloneUseStemForDetectionAndEntryName]' started.
+Test Case '-[KaitoKitTests.SplitVolumeTests testSingleAndSplitLZMAAloneUseStemForDetectionAndEntryName]' passed (0.015 seconds).
+Test Suite 'SplitVolumeTests' passed at 2026-10-30 04:57:08.100.
+	 Executed 2 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.015 (0.016) seconds
+Test Suite 'XZNativeDecompressorTests' started at 2026-10-30 04:57:08.100.
+Test Case '-[KaitoKitTests.XZNativeDecompressorTests testLZMAChunkWithoutPropertiesAfterRawDictionaryResetFailsLikeCompression]' started.
+Test Case '-[KaitoKitTests.XZNativeDecompressorTests testLZMAChunkWithoutPropertiesAfterRawDictionaryResetFailsLikeCompression]' passed (1.793 seconds).
+Test Suite 'XZNativeDecompressorTests' passed at 2026-10-30 04:57:09.893.
+	 Executed 1 test, with 0 failures (0 unexpected) in 1.793 (1.793) seconds
+Test Suite 'ZipCodecAuditRegressionTests' started at 2026-10-30 04:57:09.893.
+Test Case '-[KaitoKitTests.ZipCodecAuditRegressionTests testLZMAEOSFlagAcceptsEndMarkedStream]' started.
+Test Case '-[KaitoKitTests.ZipCodecAuditRegressionTests testLZMAEOSFlagAcceptsEndMarkedStream]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.ZipCodecAuditRegressionTests testLZMAEOSFlagRejectsMarkerlessStream]' started.
+Test Case '-[KaitoKitTests.ZipCodecAuditRegressionTests testLZMAEOSFlagRejectsMarkerlessStream]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.ZipCodecAuditRegressionTests testLZMAEOSOutputMustMatchCentralDirectorySize]' started.
+Test Case '-[KaitoKitTests.ZipCodecAuditRegressionTests testLZMAEOSOutputMustMatchCentralDirectorySize]' passed (0.000 seconds).
+Test Suite 'ZipCodecAuditRegressionTests' passed at 2026-10-30 04:57:09.894.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ZipCodecByteSourceBoundaryTests' started at 2026-10-30 04:57:09.894.
+Test Case '-[KaitoKitTests.ZipCodecByteSourceBoundaryTests testLZMAKeepsBufferedShortReadsInsideCompressedRange]' started.
+Test Case '-[KaitoKitTests.ZipCodecByteSourceBoundaryTests testLZMAKeepsBufferedShortReadsInsideCompressedRange]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.ZipCodecByteSourceBoundaryTests testLZMARefillsLargeRawStreamAndRejectsTruncatedTail]' started.
+Test Case '-[KaitoKitTests.ZipCodecByteSourceBoundaryTests testLZMARefillsLargeRawStreamAndRejectsTruncatedTail]' passed (0.161 seconds).
+Test Case '-[KaitoKitTests.ZipCodecByteSourceBoundaryTests testSevenZipAESLZMACombinationDecodesAfterHeaderReads]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.ZipCodecByteSourceBoundaryTests testSevenZipAESLZMACombinationDecodesAfterHeaderReads] : Test skipped - 7zz is unavailable; AES + LZMA integration fixture skipped
+Test Case '-[KaitoKitTests.ZipCodecByteSourceBoundaryTests testSevenZipAESLZMACombinationDecodesAfterHeaderReads]' skipped (0.000 seconds).
+Test Suite 'ZipCodecByteSourceBoundaryTests' passed at 2026-10-30 04:57:10.056.
+	 Executed 3 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.161 (0.161) seconds
+Test Suite 'ZipDifferentialTests' started at 2026-10-30 04:57:10.056.
+Test Case '-[KaitoKitTests.ZipDiffewarning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+rentialTests testSevenZipDeflate64LZMABzip2MatchSevenZipBySHA256]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.ZipDifferentialTests testSevenZipDeflate64LZMABzip2MatchSevenZipBySHA256] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; method fixture set skipped
+Test Case '-[KaitoKitTests.ZipDifferentialTests testSevenZipDeflate64LZMABzip2MatchSevenZipBySHA256]' skipped (0.000 seconds).
+Test Suite 'ZipDifferentialTests' passed at 2026-10-30 04:57:10.056.
+	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'KaitoKitPackageTests.xctest' passed at 2026-10-30 04:57:10.056.
+	 Executed 95 tests, with 12 tests skipped and 0 failures (0 unexpected) in 12.832 (12.839) seconds
+Test Suite 'Selected tests' passed at 2026-10-30 04:57:10.056.
+	 Executed 95 tests, with 12 tests skipped and 0 failures (0 unexpected) in 12.832 (12.839) seconds

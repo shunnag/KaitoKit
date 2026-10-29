@@ -1,0 +1,537 @@
+diff --git a/Package.swift b/Package.swift
+index 57c5be0..2eee0d8 100644
+--- a/Package.swift
++++ b/Package.swift
+@@ -22,9 +22,10 @@ let package = Package(
+             name: "CBzip2",
+             path: "Sources/CBzip2"
+         ),
++        .target(name: "CLZMAChunk"),
+         .target(
+             name: "KaitoKit",
+-            dependencies: ["CBzip2"],
++            dependencies: ["CBzip2", "CLZMAChunk"],
+             linkerSettings: [.linkedLibrary("z")]
+         ),
+         .target(
+diff --git a/Scripts/fuzz/build-asan.sh b/Scripts/fuzz/build-asan.sh
+index 6fac131..8772444 100755
+--- a/Scripts/fuzz/build-asan.sh
++++ b/Scripts/fuzz/build-asan.sh
+@@ -4,11 +4,13 @@ set -euo pipefail
+ 
+ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+-BUILD_DIR="$ROOT_DIR/.build-asan"
++BUILD_DIR="${KAITO_FUZZ_BUILD_DIR:-$ROOT_DIR/.build-asan}"
+ 
+ exec swift build \
++    --build-system native \
+     --package-path "$ROOT_DIR" \
+     --scratch-path "$BUILD_DIR" \
+     --disable-sandbox \
+     -c debug \
+-    -Xswiftc -sanitize=address,undefined
++    -Xswiftc -sanitize=address,undefined \
++    -Xcc -fsanitize=address,undefined
+diff --git a/Scripts/fuzz/run-mutants.sh b/Scripts/fuzz/run-mutants.sh
+index 13a25f0..69aa321 100755
+--- a/Scripts/fuzz/run-mutants.sh
++++ b/Scripts/fuzz/run-mutants.sh
+@@ -73,10 +73,10 @@ if ((${#SEEDS[@]} == 0)); then
+     exit 2
+ fi
+ 
+-BUILD_DIR="$ROOT_DIR/.build-asan"
++BUILD_DIR="${KAITO_FUZZ_BUILD_DIR:-$ROOT_DIR/.build-asan}"
+ "$SCRIPT_DIR/build-asan.sh"
+ BIN_DIR="$(swift build --package-path "$ROOT_DIR" --scratch-path "$BUILD_DIR" \
+-    --disable-sandbox -c debug --show-bin-path)"
++    --build-system native --disable-sandbox -c debug --show-bin-path)"
+ Kaito_BIN="$BIN_DIR/kaito"
+ if [[ ! -x "$Kaito_BIN" ]]; then
+     echo "error: ASan kaito binary not found: $Kaito_BIN" >&2
+diff --git a/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift b/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift
+index 7454a7a..1900d4e 100644
+--- a/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift
++++ b/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift
+@@ -1,3 +1,4 @@
++import CLZMAChunk
+ import Darwin
+ import Foundation
+ 
+@@ -372,7 +373,22 @@ public final class LZMADecoder: Decompressor {
+         var failure: LZMAHotFailure?
+         var matchHeadPending = false
+ 
+-        decodeLoop: while window.produced < capacity, !window.finished {
++        let decodedNatively: Bool
++#if arch(arm64)
++        decodedNatively = LZMANativeChunk.enabled
++        if decodedNatively {
++            failure = try decodeLZMAChunkNative(
++                probabilities: probabilityBase, dictionary: dictionaryBase,
++                dictionaryCount: dictionaryCount, destination: destination, capacity: capacity,
++                group: matchGroupBase, groupLimit: matchGroupLimit, outputLimit: expectedSize,
++                contextShift: literalContextShift, previousShift: literalPreviousShift,
++                literalMask: literalPositionMask, positionMask: positionStateMask,
++                decoder: &decoder, window: &window, coder: &coder)
++        }
++#else
++        decodedNatively = false
++#endif
++        decodeLoop: while !decodedNatively, window.produced < capacity, !window.finished {
+             if window.pendingMatchLength > 0 {
+                 copyPendingLZMAMatch(
+                     dictionary: dictionaryBase,
+@@ -2067,3 +2083,72 @@ func copyLZMAShortMatch(
+         destination.pointee = source.pointee
+     }
+ }
++
++#if arch(arm64)
++// 比較用の実験スイッチ。chunk 内の symbol/copy は C が所有する。
++private enum LZMANativeChunk {
++    static let enabled = ProcessInfo.processInfo.environment["KAITOKIT_LZMA_BACKEND"] == "native"
++}
++
++private func decodeLZMAChunkNative(
++    probabilities: UnsafeMutablePointer<UInt16>, dictionary: UnsafeMutablePointer<UInt8>,
++    dictionaryCount: Int, destination: UnsafeMutablePointer<UInt8>, capacity: Int,
++    group: UnsafeMutablePointer<UInt64>, groupLimit: Int, outputLimit: UInt64?,
++    contextShift: UInt64, previousShift: UInt8, literalMask: UInt64, positionMask: UInt64,
++    decoder: inout LZMARangeDecoder, window: inout LZMAWindowCursor,
++    coder: inout LZMACoderCursor
++) throws -> LZMAHotFailure? {
++    var native = KKLZMAChunk(
++        coder: KKLZMACoder(input: UnsafePointer(coder.decoder.inputBase),
++            input_count: coder.decoder.inputCount, input_position: coder.decoder.inputPosition,
++            range: coder.decoder.range, code: coder.decoder.code, state: UInt32(coder.state),
++            rep0: coder.rep0, rep1: coder.rep1, rep2: coder.rep2, rep3: coder.rep3),
++        window: KKLZMAWindow(position: window.dictionaryPosition, available: window.dictionaryBytesAvailable,
++            processed: window.processedPosition, output: window.outputPosition,
++            produced: window.produced, flushed: window.flushed, flush_start: window.flushStart,
++            pending: window.pendingMatchLength, finished: window.finished ? 1 : 0), head_pending: 0)
++    var config = KKLZMAConfig(probabilities: probabilities, dictionary: dictionary,
++        destination: destination, group: group, dictionary_count: dictionaryCount, capacity: capacity,
++        group_limit: groupLimit, output_limit: outputLimit ?? UInt64.max, position_mask: positionMask,
++        literal_mask: literalMask, context_shift: UInt32(contextShift), previous_shift: UInt32(previousShift),
++        has_expected: outputLimit == nil ? 0 : 1, has_more_input: decoder.hasUnreadSource ? 1 : 0)
++    let status: UInt32
++    while true {
++        let result = kk_lzma_chunk(&native, &config)
++        if result != 1 { status = result; break }
++        // ByteSource は Swift が所有し、入力窓の境界だけ refill する。
++        let hot = LZMAHotRangeState(inputBase: coder.decoder.inputBase,
++            inputCount: native.coder.input_count, inputPosition: native.coder.input_position,
++            range: native.coder.range, code: native.coder.code)
++        decoder.commit(hot)
++        try decoder.refillInput()
++        let fresh = decoder.hotState
++        native.coder.input = UnsafePointer(fresh.inputBase)
++        native.coder.input_count = fresh.inputCount
++        native.coder.input_position = fresh.inputPosition
++        config.has_more_input = decoder.hasUnreadSource ? 1 : 0
++    }
++    coder.decoder = LZMAHotRangeState(inputBase: coder.decoder.inputBase,
++        inputCount: native.coder.input_count, inputPosition: native.coder.input_position,
++        range: native.coder.range, code: native.coder.code)
++    coder.state = Int(native.coder.state)
++    coder.rep0 = native.coder.rep0; coder.rep1 = native.coder.rep1
++    coder.rep2 = native.coder.rep2; coder.rep3 = native.coder.rep3
++    window.dictionaryPosition = native.window.position
++    window.dictionaryBytesAvailable = native.window.available
++    window.processedPosition = native.window.processed
++    window.outputPosition = native.window.output
++    window.produced = native.window.produced
++    window.flushed = native.window.flushed
++    window.flushStart = native.window.flush_start
++    window.pendingMatchLength = native.window.pending
++    window.finished = native.window.finished != 0
++    switch status {
++    case 0: return nil
++    case 2: return .truncatedInput
++    case 3: return .invalidDistance
++    case 4: return .outputOverflow
++    default: return .earlyEndMarker
++    }
++}
++#endif
+diff --git a/Sources/CLZMAChunk/include/CLZMAChunk.h b/Sources/CLZMAChunk/include/CLZMAChunk.h
+new file mode 100644
+index 0000000..403f035
+--- /dev/null
++++ b/Sources/CLZMAChunk/include/CLZMAChunk.h
+@@ -0,0 +1,28 @@
++#ifndef KK_LZMA_CHUNK_H
++#define KK_LZMA_CHUNK_H
++#include <stddef.h>
++#include <stdint.h>
++// Swift の確保済み領域を借り、chunk/refill 境界でだけ scalar を受け渡す。
++typedef struct {
++    const uint8_t *input;
++    size_t input_count,input_position;
++    uint32_t range,code,state,rep0,rep1,rep2,rep3;
++} KKLZMACoder;
++typedef struct {
++    size_t position,available;
++    uint64_t processed,output;
++    size_t produced,flushed,flush_start,pending;
++    uint32_t finished;
++} KKLZMAWindow;
++typedef struct { KKLZMACoder coder; KKLZMAWindow window; uint32_t head_pending; } KKLZMAChunk;
++typedef struct {
++    uint16_t *probabilities;
++    uint8_t *dictionary,*destination;
++    uint64_t *group;
++    size_t dictionary_count,capacity,group_limit;
++    uint64_t output_limit,position_mask,literal_mask;
++    uint32_t context_shift,previous_shift,has_expected,has_more_input;
++} KKLZMAConfig;
++// 0=完了、1=refill、2=truncated、3=distance、4=output overflow、5=early marker。
++uint32_t kk_lzma_chunk(KKLZMAChunk *cursor,const KKLZMAConfig *config);
++#endif
+diff --git a/Sources/CLZMAChunk/LZMAChunk.c b/Sources/CLZMAChunk/LZMAChunk.c
+new file mode 100644
+index 0000000..017a2d7
+--- /dev/null
++++ b/Sources/CLZMAChunk/LZMAChunk.c
+@@ -0,0 +1,338 @@
++#include "CLZMAChunk.h"
++#include <string.h>
++
++// 外部実装は参照せず、KaitoKit の LZMADecoder.swift から独立に記述した実験。
++// Intel slice はこのカーネルを呼ばず Swift 経路を使う。
++#if defined(__aarch64__)
++enum {
++    IsMatch = 0, IsRep = 192, G0 = 204, G1 = 216, G2 = 228,
++    Rep0Long = 240, Slot = 432, Position = 688, Align = 802,
++    MatchChoice = 818, MatchLow = 820, MatchMiddle = 948, MatchHigh = 1076,
++    RepChoice = 1332, RepLow = 1334, RepMiddle = 1462, RepHigh = 1590,
++    Literals = 1846
++};
++
++typedef struct { const uint8_t *input, *end; uint32_t range, code; } Range;
++#define INLINE static inline __attribute__((always_inline))
++INLINE Range load(const KKLZMACoder *c) {
++    return (Range){c->input + c->input_position, c->input + c->input_count,
++                   c->range, c->code};
++}
++INLINE void save(KKLZMACoder *c, Range r) {
++    c->input_position = (size_t)(r.input - c->input);
++    c->range = r.range; c->code = r.code;
++}
++INLINE void normalize(Range *r) {
++    if (r->range < (1u << 24)) {
++        r->range <<= 8;
++        r->code = (r->code << 8) | *r->input++;
++    }
++}
++// 一 symbol は最大 48 回 normalize する。Swift の 64 byte sentinel と
++// symbol ごとの overrun 検査により物理 allocation の末尾を越えない。
++INLINE unsigned bit_value(Range *r, uint16_t *p, uint32_t value) {
++    uint32_t bound = (r->range >> 11) * value;
++    unsigned bit;
++    if (r->code < bound) {
++        r->range = bound; value += (2048 - value) >> 5; bit = 0;
++    } else {
++        r->range -= bound; r->code -= bound; value -= value >> 5; bit = 1;
++    }
++    *p = (uint16_t)value;
++    normalize(r);
++    return bit;
++}
++INLINE unsigned bit(Range *r, uint16_t *p) { return bit_value(r, p, *p); }
++// 比較の carry を node 更新にも使い、bit の materialize と再比較を省く。
++// 子の確率は Swift と同じ範囲で先読みする。normalize は子の選択後なので
++// 条件 flags を保存する必要がない。外部の assembly は参照していない。
++INLINE void tree_step(Range *r, uint16_t *p, unsigned *symbol,
++                      unsigned *value, unsigned zero, unsigned one) {
++    uint32_t range = r->range, code = r->code, s = *symbol, probability = *value;
++    uint32_t bound, lower_range, lower_code, up, down;
++    __asm__(
++        "lsr %w[bound], %w[range], #11\n\t"
++        "mul %w[bound], %w[bound], %w[probability]\n\t"
++        "mov %w[up], #2048\n\t"
++        "sub %w[up], %w[up], %w[probability]\n\t"
++        "add %w[up], %w[probability], %w[up], lsr #5\n\t"
++        "sub %w[down], %w[probability], %w[probability], lsr #5\n\t"
++        "sub %w[lower_range], %w[range], %w[bound]\n\t"
++        "sub %w[lower_code], %w[code], %w[bound]\n\t"
++        "cmp %w[code], %w[bound]\n\t"
++        "csel %w[range], %w[bound], %w[lower_range], lo\n\t"
++        "csel %w[code], %w[code], %w[lower_code], lo\n\t"
++        "csel %w[up], %w[up], %w[down], lo\n\t"
++        "strh %w[up], [%[pointer]]\n\t"
++        "adc %w[symbol], %w[symbol], %w[symbol]\n\t"
++        "csel %w[probability], %w[zero], %w[one], lo\n\t"
++        : [range] "+&r" (range), [code] "+&r" (code),
++          [symbol] "+&r" (s), [probability] "+&r" (probability),
++          [bound] "=&r" (bound), [lower_range] "=&r" (lower_range),
++          [lower_code] "=&r" (lower_code), [up] "=&r" (up), [down] "=&r" (down)
++        : [zero] "r" (zero), [one] "r" (one), [pointer] "r" (p)
++        : "cc", "memory");
++    r->range = range; r->code = code;
++    *symbol = s; *value = probability;
++    normalize(r);
++}
++INLINE unsigned tree(Range *r, uint16_t *p, unsigned bits) {
++    unsigned s = 1, value = p[1];
++    for (unsigned i = 1; i < bits; ++i) {
++        unsigned zero = p[s * 2], one = p[s * 2 + 1];
++        tree_step(r, p + s, &s, &value, zero, one);
++    }
++    return s * 2 + bit_value(r, p + s, value) - (1u << bits);
++}
++INLINE unsigned reverse(Range *r, uint16_t *p, unsigned bits) {
++    unsigned s = 1, result = 0, value = p[1];
++    for (unsigned i = 0; i < bits; ++i) {
++        unsigned zero = 0, one = 0;
++        if (i + 1 < bits) { zero = p[s * 2]; one = p[s * 2 + 1]; }
++        unsigned b = bit_value(r, p + s, value);
++        s = s * 2 + b; result |= b << i; value = b ? one : zero;
++    }
++    return result;
++}
++INLINE unsigned length(Range *r, uint16_t *p, unsigned choice, unsigned low,
++                       unsigned middle, unsigned high, unsigned pos) {
++    if (!bit(r, p + choice)) return 2 + tree(r, p + low + pos * 8, 3);
++    if (!bit(r, p + choice + 1)) return 10 + tree(r, p + middle + pos * 8, 3);
++    return 18 + tree(r, p + high, 8);
++}
++INLINE uint32_t distance(Range *r, uint16_t *p, unsigned slot) {
++    if (slot < 4) return slot;
++    unsigned bits = (slot >> 1) - 1;
++    uint32_t prefix = (2u | (slot & 1u)) << bits;
++    if (slot < 14) return prefix + reverse(r, p + Position + prefix - slot - 1, bits);
++    uint32_t direct = 0;
++    for (unsigned i = 0; i < bits - 4; ++i) {
++        r->range >>= 1; direct <<= 1;
++        if (r->code >= r->range) { r->code -= r->range; direct |= 1; }
++        normalize(r);
++    }
++    return prefix + (direct << 4) + reverse(r, p + Align, 4);
++}
++
++static __attribute__((noinline)) uint64_t literals(uint16_t *p, KKLZMACoder *c, uint8_t *dictionary,
++    size_t dictionary_count, KKLZMAWindow *w, unsigned context_shift,
++    unsigned previous_shift, uint64_t literal_mask, uint64_t position_mask,
++    size_t maximum_count, size_t refill_limit) {
++    Range r = load(c);
++    unsigned state = c->state, stop = 0;
++    size_t pos = w->position, available = w->available, count = 0;
++    uint64_t processed = w->processed;
++    unsigned previous = available ? dictionary[pos ? pos - 1 : dictionary_count - 1] : 0;
++    while (count < maximum_count) {
++        uint64_t context = ((processed & literal_mask) << context_shift) | (previous >> previous_shift);
++        uint16_t *model = p + Literals + context * 768;
++        unsigned symbol = 1;
++        if (state >= 7) {
++            size_t dist = (size_t)c->rep0 + 1;
++            if (dist > available || dist > dictionary_count) { stop = 4; break; }
++            size_t source = pos >= dist ? pos - dist : dictionary_count - (dist - pos);
++            unsigned match = dictionary[source];
++            while (symbol < 256) {
++                unsigned mb = (match >> 7) & 1; match <<= 1;
++                unsigned b = bit(&r, model + (1 + mb) * 256 + symbol);
++                symbol = symbol * 2 + b;
++                if (mb != b) {
++                    while (symbol < 256) symbol = symbol * 2 + bit(&r, model + symbol);
++                    break;
++                }
++            }
++        } else { symbol = 256 + tree(&r, model, 8); }
++        if (r.input > r.end) { stop = 3; break; }
++        previous = symbol - 256;
++        dictionary[pos++] = (uint8_t)previous;
++        ++count; ++processed;
++        if (available < dictionary_count) ++available;
++        state = state < 4 ? 0 : (state < 10 ? state - 3 : state - 6);
++        if (count == maximum_count) break;
++        if ((size_t)(r.input - c->input) > refill_limit) { stop = 2; break; }
++        unsigned b = bit(&r, p + IsMatch + state * 16 + (processed & position_mask));
++        if (b) { stop = r.input > r.end ? 3 : 1; break; }
++        if (r.input > r.end) { stop = 3; break; }
++    }
++    save(c, r); c->state = state;
++    w->position = pos == dictionary_count ? 0 : pos;
++    w->available = available; w->processed = processed; w->output += count;
++    return ((uint64_t)stop << 32) | count;
++}
++
++INLINE uint32_t repeated(uint16_t *p, KKLZMACoder *c, unsigned pos) {
++    Range r = load(c);
++    unsigned state = c->state, len;
++    if (!bit(&r, p + G0 + state)) {
++        if (!bit(&r, p + Rep0Long + state * 16 + pos)) {
++            len = 1; state = state < 7 ? 9 : 11;
++        } else {
++            len = length(&r, p, RepChoice, RepLow, RepMiddle, RepHigh, pos);
++            state = state < 7 ? 8 : 11;
++        }
++    } else {
++        uint32_t dist;
++        if (!bit(&r, p + G1 + state)) dist = c->rep1;
++        else {
++            if (!bit(&r, p + G2 + state)) dist = c->rep2;
++            else { dist = c->rep3; c->rep3 = c->rep2; }
++            c->rep2 = c->rep1;
++        }
++        c->rep1 = c->rep0; c->rep0 = dist;
++        len = length(&r, p, RepChoice, RepLow, RepMiddle, RepHigh, pos);
++        state = state < 7 ? 8 : 11;
++    }
++    save(c, r); c->state = state; return len;
++}
++// 各 load/store は実長内。16 byte の前向き copy は距離 >=16 の場合だけ使う。
++INLINE size_t minimum(size_t a,size_t b) {return a<b?a:b;}
++INLINE void direct_copy(uint8_t *d,const uint8_t *s,size_t n) {
++    if(n>=16) {
++        size_t last=n-16,off=0;
++        #pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
++        while(off<last) {
++            uint64_t lo,hi;memcpy(&lo,s+off,8);memcpy(&hi,s+off+8,8);
++            memcpy(d+off,&lo,8);memcpy(d+off+8,&hi,8);off+=16;
++        }
++        uint64_t lo,hi;memcpy(&lo,s+last,8);memcpy(&hi,s+last+8,8);
++        memcpy(d+last,&lo,8);memcpy(d+last+8,&hi,8);
++    } else if(n>=8) {
++        uint64_t a,b;memcpy(&a,s,8);memcpy(&b,s+n-8,8);memcpy(d,&a,8);memcpy(d+n-8,&b,8);
++    } else if(n>=4) {
++        uint32_t a,b;memcpy(&a,s,4);memcpy(&b,s+n-4,4);memcpy(d,&a,4);memcpy(d+n-4,&b,4);
++    } else if(n>=2) {
++        uint16_t a,b;memcpy(&a,s,2);memcpy(&b,s+n-2,2);memcpy(d,&a,2);memcpy(d+n-2,&b,2);
++    } else if(n) *d=*s;
++}
++INLINE void flush(const KKLZMAConfig *c,KKLZMAWindow *w) {
++    memcpy(c->destination+w->flushed,c->dictionary+w->flush_start,w->produced-w->flushed);
++    w->flushed=w->produced;w->flush_start=0;
++}
++static void pending_copy(const KKLZMAConfig *c,KKLZMAWindow *w,uint32_t distance) {
++    size_t count=c->dictionary_count,dist=(size_t)distance+1;
++    uint8_t *d=c->dictionary;
++    do {
++        size_t pos=w->position,n=minimum(w->pending,minimum(c->capacity-w->produced,count-pos));
++        if(!n)break;
++        size_t source=pos>=dist?pos-dist:count-(dist-pos);
++        if((dist>=n||dist>=16)&&n<=count-source) {
++            if(source<pos||source-pos>=n)direct_copy(d+pos,d+source,n);
++            else memmove(d+pos,d+source,n);
++            pos+=n;
++        } else if(dist==1) {
++            memset(d+pos,d[pos?pos-1:count-1],n);pos+=n;
++        } else if(pos>=dist) {
++            memcpy(d+pos,d+pos-dist,dist);
++            size_t copied=dist;
++            while(copied<n) {size_t batch=minimum(copied,n-copied);memcpy(d+pos+copied,d+pos,batch);copied+=batch;}
++            pos+=n;
++        } else {
++            for(size_t i=0;i<n;++i) {d[pos++]=d[source++];if(source==count)source=0;}
++        }
++        w->position=pos==count?0:pos;
++        w->available=n>=count-w->available?count:w->available+n;
++        w->pending-=n;w->produced+=n;w->processed+=n;w->output+=n;
++        if(!w->position)flush(c,w);
++    }while(w->pending&&w->produced<c->capacity);
++}
++INLINE void emit(const KKLZMAConfig *c,KKLZMAWindow *w,size_t n,uint32_t distance) {
++    size_t dist=(size_t)distance+1,pos=w->position,count=c->dictionary_count;
++    size_t source=pos>=dist?pos-dist:count-(dist-pos);
++    if(n<count-pos&&n<=c->capacity-w->produced&&n<=count-source
++       &&(dist>=16||dist>=n)&&(pos>=dist||source-pos>=n)) {
++        direct_copy(c->dictionary+pos,c->dictionary+source,n);
++        w->position=pos+n;w->available=n>=count-w->available?count:w->available+n;
++        w->produced+=n;w->processed+=n;w->output+=n;
++    } else {w->pending=n;pending_copy(c,w,distance);}
++}
++static void apply_group(const KKLZMAConfig *c,KKLZMAWindow *w,unsigned count) {
++    for(unsigned i=0;i<count;++i)emit(c,w,(uint32_t)c->group[i],(uint32_t)(c->group[i]>>32));
++}
++// 旧 run と同じ終端まで drain してから truncated を最優先する。
++static __attribute__((noinline)) uint64_t new_matches(const KKLZMAConfig *config,KKLZMAChunk *cursor,size_t budget) {
++    const KKLZMAConfig c=*config;KKLZMACoder *coder=&cursor->coder;KKLZMAWindow *w=&cursor->window;
++    Range r=load(coder);uint16_t *p=c.probabilities;
++    uint32_t state=coder->state,rep0=coder->rep0,rep1=coder->rep1,rep2=coder->rep2,rep3=coder->rep3;
++    size_t entry_available=w->available,generated=0;
++    uint64_t entry_output=w->output,model=w->processed;
++    unsigned count=0,group_count=0,stop=0,failure=0,pending=cursor->head_pending;
++    size_t refill=c.has_more_input?coder->input_count-64:SIZE_MAX;
++    while(count<256&&generated<budget) {
++        unsigned pos=(unsigned)((model+generated)&c.position_mask);
++        if(!pending) {
++            if((size_t)(r.input-coder->input)>refill) {stop=4;break;}
++            if(!bit(&r,p+IsMatch+state*16+pos)) {stop=1;break;}
++        }
++        pending=0;
++        if(bit(&r,p+IsRep+state)) {stop=2;break;}
++        unsigned len=length(&r,p,MatchChoice,MatchLow,MatchMiddle,MatchHigh,pos);
++        unsigned ls=len-2<3?len-2:3;
++        uint32_t dist=distance(&r,p,tree(&r,p+Slot+ls*64,6));
++        if(r.input>r.end) {stop=5;break;}
++        if(dist==UINT32_MAX) {stop=3;break;}
++        uint64_t output=entry_output+generated;
++        size_t available=generated>=c.dictionary_count-entry_available?c.dictionary_count:entry_available+generated;
++        ++count;generated+=len;state=state<7?7:10;
++        rep3=rep2;rep2=rep1;rep1=rep0;rep0=dist;
++        if(failure)continue;
++        if((size_t)dist+1>available) {failure=3;continue;}
++        if(output>c.output_limit||(uint64_t)len>c.output_limit-output) {failure=4;continue;}
++        c.group[group_count++]=((uint64_t)dist<<32)|len;
++        if(group_count==c.group_limit) {apply_group(&c,w,group_count);group_count=0;}
++    }
++    if(group_count&&!failure)apply_group(&c,w,group_count);
++    save(coder,r);coder->state=state;coder->rep0=rep0;coder->rep1=rep1;coder->rep2=rep2;coder->rep3=rep3;
++    return ((uint64_t)failure<<32)|stop;
++}
++uint32_t kk_lzma_chunk(KKLZMAChunk *restrict cursor,const KKLZMAConfig *restrict config) {
++    const KKLZMAConfig c=*config;KKLZMACoder *coder=&cursor->coder;KKLZMAWindow *w=&cursor->window;
++    while(w->produced<c.capacity&&!w->finished) {
++        if(w->pending) {
++            pending_copy(&c,w,coder->rep0);
++            if(c.has_expected&&w->output==c.output_limit)w->finished=1;
++            continue;
++        }
++        if(coder->input_count-coder->input_position<64&&c.has_more_input)return 1;
++        size_t budget=c.capacity-w->produced;
++        if(c.has_expected&&w->output<=c.output_limit&&c.output_limit-w->output<budget)budget=(size_t)(c.output_limit-w->output);
++        if(!budget) {w->finished=1;continue;}
++        size_t refill=c.has_more_input?coder->input_count-64:SIZE_MAX;
++        uint64_t result=new_matches(&c,cursor,budget);cursor->head_pending=0;
++        if(c.has_expected&&w->output==c.output_limit)w->finished=1;
++        if(coder->input_position>coder->input_count)return 2;
++        if(result>>32)return (uint32_t)(result>>32);
++        if(w->pending||w->produced==c.capacity||w->finished)continue;
++        unsigned stop=(uint32_t)result;
++        if(stop==0||stop==4)continue;
++        if(stop==3) {if(c.has_expected)return 5;w->finished=1;continue;}
++        if(stop==5)return 2;
++        if(stop==1) {
++            size_t maximum=minimum(c.capacity-w->produced,c.dictionary_count-w->position);
++            if(c.has_expected) {
++                if(w->output>c.output_limit)return 4;
++                if(c.output_limit-w->output<maximum)maximum=(size_t)(c.output_limit-w->output);
++            }
++            if(!maximum)return 4;
++            uint64_t literal=literals(c.probabilities,coder,c.dictionary,c.dictionary_count,w,
++                c.context_shift,c.previous_shift,c.literal_mask,c.position_mask,maximum,refill);
++            w->produced+=(uint32_t)literal;
++            if(!w->position)flush(&c,w);
++            if(c.has_expected&&w->output==c.output_limit)w->finished=1;
++            unsigned why=(uint32_t)(literal>>32);
++            if(why==3)return 2;if(why==4)return 3;if(why==1)cursor->head_pending=1;
++            continue;
++        }
++        if(stop!=2)return 2;
++        unsigned pos=(unsigned)(w->processed&c.position_mask);
++        unsigned n=repeated(c.probabilities,coder,pos);
++        if(coder->input_position>coder->input_count)return 2;
++        if((size_t)coder->rep0+1>w->available||(size_t)coder->rep0+1>c.dictionary_count)return 3;
++        if(c.has_expected&&(w->output>c.output_limit||(uint64_t)n>c.output_limit-w->output))return 4;
++        emit(&c,w,n,coder->rep0);
++        if(c.has_expected&&w->output==c.output_limit)w->finished=1;
++    }
++    if(coder->input_position>coder->input_count)return 2;
++    if(w->produced>w->flushed)flush(&c,w);
++    return 0;
++}
++#endif

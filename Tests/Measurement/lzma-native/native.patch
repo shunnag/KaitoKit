@@ -1,0 +1,455 @@
+diff --git a/Package.swift b/Package.swift
+index 57c5be0..146da33 100644
+--- a/Package.swift
++++ b/Package.swift
+@@ -22,9 +22,12 @@ let package = Package(
+             name: "CBzip2",
+             path: "Sources/CBzip2"
+         ),
++        .target(
++            name: "CLZMAHot"
++        ),
+         .target(
+             name: "KaitoKit",
+-            dependencies: ["CBzip2"],
++            dependencies: ["CBzip2", "CLZMAHot"],
+             linkerSettings: [.linkedLibrary("z")]
+         ),
+         .target(
+diff --git a/Scripts/fuzz/build-asan.sh b/Scripts/fuzz/build-asan.sh
+index 6fac131..8772444 100755
+--- a/Scripts/fuzz/build-asan.sh
++++ b/Scripts/fuzz/build-asan.sh
+@@ -4,11 +4,13 @@ set -euo pipefail
+ 
+ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+-BUILD_DIR="$ROOT_DIR/.build-asan"
++BUILD_DIR="${KAITO_FUZZ_BUILD_DIR:-$ROOT_DIR/.build-asan}"
+ 
+ exec swift build \
++    --build-system native \
+     --package-path "$ROOT_DIR" \
+     --scratch-path "$BUILD_DIR" \
+     --disable-sandbox \
+     -c debug \
+-    -Xswiftc -sanitize=address,undefined
++    -Xswiftc -sanitize=address,undefined \
++    -Xcc -fsanitize=address,undefined
+diff --git a/Scripts/fuzz/run-mutants.sh b/Scripts/fuzz/run-mutants.sh
+index 13a25f0..69aa321 100755
+--- a/Scripts/fuzz/run-mutants.sh
++++ b/Scripts/fuzz/run-mutants.sh
+@@ -73,10 +73,10 @@ if ((${#SEEDS[@]} == 0)); then
+     exit 2
+ fi
+ 
+-BUILD_DIR="$ROOT_DIR/.build-asan"
++BUILD_DIR="${KAITO_FUZZ_BUILD_DIR:-$ROOT_DIR/.build-asan}"
+ "$SCRIPT_DIR/build-asan.sh"
+ BIN_DIR="$(swift build --package-path "$ROOT_DIR" --scratch-path "$BUILD_DIR" \
+-    --disable-sandbox -c debug --show-bin-path)"
++    --build-system native --disable-sandbox -c debug --show-bin-path)"
+ Kaito_BIN="$BIN_DIR/kaito"
+ if [[ ! -x "$Kaito_BIN" ]]; then
+     echo "error: ASan kaito binary not found: $Kaito_BIN" >&2
+diff --git a/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift b/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift
+index 7454a7a..a60b20e 100644
+--- a/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift
++++ b/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift
+@@ -1,3 +1,4 @@
++import CLZMAHot
+ import Darwin
+ import Foundation
+ 
+@@ -188,7 +189,7 @@ public final class LZMADecoder: Decompressor {
+             free(dictionaryRaw)
+             throw KaitoError.limitExceeded("unable to allocate LZMA input buffer")
+         }
+-        let matchGroupBytes = Self.matchGroupCapacity
++        let matchGroupBytes = Self.matchRunCapacity
+             &* MemoryLayout<UInt64>.stride
+         guard let matchGroupRaw = malloc(matchGroupBytes) else {
+             free(inputRaw)
+@@ -211,7 +212,7 @@ public final class LZMADecoder: Decompressor {
+         )
+         let matchGroupPointer = matchGroupRaw.bindMemory(
+             to: UInt64.self,
+-            capacity: Self.matchGroupCapacity
++            capacity: Self.matchRunCapacity
+         )
+         // History references are checked against dictionaryBytesAvailable;
+         // range input is written and its 64-byte sentinel cleared by refill;
+@@ -244,7 +245,7 @@ public final class LZMADecoder: Decompressor {
+         )
+         self.matchGroupStorage = UnsafeMutableBufferPointer(
+             start: matchGroupPointer,
+-            count: Self.matchGroupCapacity
++            count: Self.matchRunCapacity
+         )
+         self.matchGroupLimit = dictionaryCount > Self.groupedCopyDictionaryThreshold
+             ? Self.matchGroupCapacity
+@@ -1129,6 +1130,43 @@ private func decodeLZMANewMatchRun(
+     window: inout LZMAWindowCursor,
+     coder: inout LZMACoderCursor
+ ) -> LZMAMatchRunResult {
++#if arch(arm64)
++    if LZMANativeExperiment.enabled {
++        var native = coder.nativeState
++        let result = kk_lzma_matches(probabilities, &native, window.processedPosition,
++            positionStateMask, outputBudget, refillLimit, firstMatchPending ? 1 : 0, group)
++        coder.commitNative(native)
++        let count = Int(UInt32(truncatingIfNeeded: result))
++        var generated = 0
++        var failure: LZMAHotFailure?
++        // run を最後まで復号してから検証し、既存の truncated 優先を維持する。
++        for index in 0..<count {
++            let packed = group[index]
++            let length = Int(UInt32(truncatingIfNeeded: packed))
++            let distance = UInt32(truncatingIfNeeded: packed >> 32)
++            let available = min(dictionaryCount, window.dictionaryBytesAvailable + generated)
++            let position = window.outputPosition &+ UInt64(generated)
++            generated += length
++            if failure == nil {
++                if Int(distance) + 1 > available { failure = .invalidDistance }
++                else if position > outputLimit || UInt64(length) > outputLimit - position {
++                    failure = .outputOverflow
++                }
++            }
++        }
++        if failure == nil {
++            var index = 0
++            while index < count {
++                let amount = min(groupLimit, count - index)
++                applyLZMAMatchGroup(group.advanced(by: index), count: amount,
++                    dictionary: dictionary, dictionaryCount: dictionaryCount,
++                    destination: destination, capacity: capacity, window: &window)
++                index += amount
++            }
++        }
++        return LZMAMatchRunResult(stop: UInt32(truncatingIfNeeded: result >> 32), failure: failure)
++    }
++#endif
+     var localDecoder = coder.decoder
+     var localState = coder.state
+     var rep0 = coder.rep0
+@@ -1460,6 +1498,23 @@ private func decodeLZMALiteralRun(
+     window: inout LZMAWindowCursor,
+     coder: inout LZMACoderCursor
+ ) -> UInt64 {
++#if arch(arm64)
++    if LZMANativeExperiment.enabled {
++        var native = coder.nativeState
++        var nativeWindow = KKLZMAWindow(position: window.dictionaryPosition,
++            available: window.dictionaryBytesAvailable, processed: window.processedPosition,
++            output: window.outputPosition)
++        let result = kk_lzma_literals(probabilities, &native, dictionary, dictionaryCount,
++            &nativeWindow, UInt32(literalContextShift), UInt32(literalPreviousShift),
++            literalPositionMask, positionStateMask, maximumCount, refillLimit)
++        coder.commitNative(native)
++        window.dictionaryPosition = nativeWindow.position
++        window.dictionaryBytesAvailable = nativeWindow.available
++        window.processedPosition = nativeWindow.processed
++        window.outputPosition = nativeWindow.output
++        return result
++    }
++#endif
+     var localDecoder = coder.decoder
+     let rep0 = coder.rep0
+     var localDictionaryPosition = window.dictionaryPosition
+@@ -1642,6 +1697,14 @@ private func decodeLZMARepeatedMatchSymbol(
+     statePositionIndex: Int,
+     coder: inout LZMACoderCursor
+ ) -> Int {
++#if arch(arm64)
++    if LZMANativeExperiment.enabled {
++        var native = coder.nativeState
++        let length = kk_lzma_rep(probabilities, &native, UInt32(positionState))
++        coder.commitNative(native)
++        return Int(length)
++    }
++#endif
+     var localDecoder = coder.decoder
+     var localState = coder.state
+     var localRep0 = coder.rep0
+@@ -2067,3 +2130,25 @@ func copyLZMAShortMatch(
+         destination.pointee = source.pointee
+     }
+ }
++
++#if arch(arm64)
++// 同一 binary の別 process で比較する。実験中の既定は Swift。
++private enum LZMANativeExperiment {
++    static let enabled = ProcessInfo.processInfo.environment["KAITOKIT_LZMA_BACKEND"] == "native"
++}
++
++private extension LZMACoderCursor {
++    var nativeState: KKLZMACoder {
++        KKLZMACoder(input: UnsafePointer(decoder.inputBase), input_count: decoder.inputCount,
++            input_position: decoder.inputPosition, range: decoder.range, code: decoder.code,
++            state: UInt32(state), rep0: rep0, rep1: rep1, rep2: rep2, rep3: rep3)
++    }
++
++    mutating func commitNative(_ native: KKLZMACoder) {
++        decoder = LZMAHotRangeState(inputBase: decoder.inputBase, inputCount: decoder.inputCount,
++            inputPosition: native.input_position, range: native.range, code: native.code)
++        state = Int(native.state)
++        rep0 = native.rep0; rep1 = native.rep1; rep2 = native.rep2; rep3 = native.rep3
++    }
++}
++#endif
+diff --git a/Sources/CLZMAHot/include/CLZMAHot.h b/Sources/CLZMAHot/include/CLZMAHot.h
+new file mode 100644
+index 0000000..e33d365
+--- /dev/null
++++ b/Sources/CLZMAHot/include/CLZMAHot.h
+@@ -0,0 +1,28 @@
++#ifndef KK_LZMA_HOT_H
++#define KK_LZMA_HOT_H
++#include <stdint.h>
++#include <stddef.h>
++
++// Swift が検証・確保した領域だけを借りる。所有権、refill、例外は Swift 側。
++typedef struct {
++    const uint8_t *input;
++    size_t input_count, input_position;
++    uint32_t range, code, state, rep0, rep1, rep2, rep3;
++} KKLZMACoder;
++
++typedef struct {
++    size_t position, available;
++    uint64_t processed, output;
++} KKLZMAWindow;
++
++// stop 値は Swift の LZMABatchStop / LZMALiteralStop と同じ。
++uint64_t kk_lzma_matches(uint16_t *probabilities, KKLZMACoder *coder,
++    uint64_t position, uint64_t mask, size_t budget, size_t refill_limit,
++    int pending, uint64_t *matches);
++uint64_t kk_lzma_literals(uint16_t *probabilities, KKLZMACoder *coder,
++    uint8_t *dictionary, size_t dictionary_count, KKLZMAWindow *window,
++    unsigned context_shift, unsigned previous_shift, uint64_t literal_mask,
++    uint64_t position_mask, size_t maximum_count, size_t refill_limit);
++uint32_t kk_lzma_rep(uint16_t *probabilities, KKLZMACoder *coder,
++    unsigned position_state);
++#endif
+diff --git a/Sources/CLZMAHot/LZMAHot.c b/Sources/CLZMAHot/LZMAHot.c
+new file mode 100644
+index 0000000..379e862
+--- /dev/null
++++ b/Sources/CLZMAHot/LZMAHot.c
+@@ -0,0 +1,215 @@
++#include "CLZMAHot.h"
++
++// 外部実装は参照せず、KaitoKit の LZMADecoder.swift から独立に記述した実験。
++// Intel slice はこのカーネルを呼ばず Swift 経路を使う。
++#if defined(__aarch64__)
++enum {
++    IsMatch = 0, IsRep = 192, G0 = 204, G1 = 216, G2 = 228,
++    Rep0Long = 240, Slot = 432, Position = 688, Align = 802,
++    MatchChoice = 818, MatchLow = 820, MatchMiddle = 948, MatchHigh = 1076,
++    RepChoice = 1332, RepLow = 1334, RepMiddle = 1462, RepHigh = 1590,
++    Literals = 1846
++};
++
++typedef struct { const uint8_t *input, *end; uint32_t range, code; } Range;
++#define INLINE static inline __attribute__((always_inline))
++INLINE Range load(const KKLZMACoder *c) {
++    return (Range){c->input + c->input_position, c->input + c->input_count,
++                   c->range, c->code};
++}
++INLINE void save(KKLZMACoder *c, Range r) {
++    c->input_position = (size_t)(r.input - c->input);
++    c->range = r.range; c->code = r.code;
++}
++INLINE void normalize(Range *r) {
++    if (r->range < (1u << 24)) {
++        r->range <<= 8;
++        r->code = (r->code << 8) | *r->input++;
++    }
++}
++// 一 symbol は最大 48 回 normalize する。Swift の 64 byte sentinel と
++// symbol ごとの overrun 検査により物理 allocation の末尾を越えない。
++INLINE unsigned bit_value(Range *r, uint16_t *p, uint32_t value) {
++    uint32_t bound = (r->range >> 11) * value;
++    unsigned bit;
++    if (r->code < bound) {
++        r->range = bound; value += (2048 - value) >> 5; bit = 0;
++    } else {
++        r->range -= bound; r->code -= bound; value -= value >> 5; bit = 1;
++    }
++    *p = (uint16_t)value;
++    normalize(r);
++    return bit;
++}
++INLINE unsigned bit(Range *r, uint16_t *p) { return bit_value(r, p, *p); }
++// 比較の carry を node 更新にも使い、bit の materialize と再比較を省く。
++// 子の確率は Swift と同じ範囲で先読みする。normalize は子の選択後なので
++// 条件 flags を保存する必要がない。外部の assembly は参照していない。
++INLINE void tree_step(Range *r, uint16_t *p, unsigned *symbol,
++                      unsigned *value, unsigned zero, unsigned one) {
++    uint32_t range = r->range, code = r->code, s = *symbol, probability = *value;
++    uint32_t bound, lower_range, lower_code, up, down;
++    __asm__(
++        "lsr %w[bound], %w[range], #11\n\t"
++        "mul %w[bound], %w[bound], %w[probability]\n\t"
++        "mov %w[up], #2048\n\t"
++        "sub %w[up], %w[up], %w[probability]\n\t"
++        "add %w[up], %w[probability], %w[up], lsr #5\n\t"
++        "sub %w[down], %w[probability], %w[probability], lsr #5\n\t"
++        "sub %w[lower_range], %w[range], %w[bound]\n\t"
++        "sub %w[lower_code], %w[code], %w[bound]\n\t"
++        "cmp %w[code], %w[bound]\n\t"
++        "csel %w[range], %w[bound], %w[lower_range], lo\n\t"
++        "csel %w[code], %w[code], %w[lower_code], lo\n\t"
++        "csel %w[up], %w[up], %w[down], lo\n\t"
++        "strh %w[up], [%[pointer]]\n\t"
++        "adc %w[symbol], %w[symbol], %w[symbol]\n\t"
++        "csel %w[probability], %w[zero], %w[one], lo\n\t"
++        : [range] "+&r" (range), [code] "+&r" (code),
++          [symbol] "+&r" (s), [probability] "+&r" (probability),
++          [bound] "=&r" (bound), [lower_range] "=&r" (lower_range),
++          [lower_code] "=&r" (lower_code), [up] "=&r" (up), [down] "=&r" (down)
++        : [zero] "r" (zero), [one] "r" (one), [pointer] "r" (p)
++        : "cc", "memory");
++    r->range = range; r->code = code;
++    *symbol = s; *value = probability;
++    normalize(r);
++}
++INLINE unsigned tree(Range *r, uint16_t *p, unsigned bits) {
++    unsigned s = 1, value = p[1];
++    for (unsigned i = 1; i < bits; ++i) {
++        unsigned zero = p[s * 2], one = p[s * 2 + 1];
++        tree_step(r, p + s, &s, &value, zero, one);
++    }
++    return s * 2 + bit_value(r, p + s, value) - (1u << bits);
++}
++INLINE unsigned reverse(Range *r, uint16_t *p, unsigned bits) {
++    unsigned s = 1, result = 0, value = p[1];
++    for (unsigned i = 0; i < bits; ++i) {
++        unsigned zero = 0, one = 0;
++        if (i + 1 < bits) { zero = p[s * 2]; one = p[s * 2 + 1]; }
++        unsigned b = bit_value(r, p + s, value);
++        s = s * 2 + b; result |= b << i; value = b ? one : zero;
++    }
++    return result;
++}
++INLINE unsigned length(Range *r, uint16_t *p, unsigned choice, unsigned low,
++                       unsigned middle, unsigned high, unsigned pos) {
++    if (!bit(r, p + choice)) return 2 + tree(r, p + low + pos * 8, 3);
++    if (!bit(r, p + choice + 1)) return 10 + tree(r, p + middle + pos * 8, 3);
++    return 18 + tree(r, p + high, 8);
++}
++INLINE uint32_t distance(Range *r, uint16_t *p, unsigned slot) {
++    if (slot < 4) return slot;
++    unsigned bits = (slot >> 1) - 1;
++    uint32_t prefix = (2u | (slot & 1u)) << bits;
++    if (slot < 14) return prefix + reverse(r, p + Position + prefix - slot - 1, bits);
++    uint32_t direct = 0;
++    for (unsigned i = 0; i < bits - 4; ++i) {
++        r->range >>= 1; direct <<= 1;
++        if (r->code >= r->range) { r->code -= r->range; direct |= 1; }
++        normalize(r);
++    }
++    return prefix + (direct << 4) + reverse(r, p + Align, 4);
++}
++
++uint64_t kk_lzma_matches(uint16_t *p, KKLZMACoder *c, uint64_t position,
++    uint64_t mask, size_t budget, size_t refill_limit, int pending, uint64_t *matches) {
++    Range r = load(c);
++    unsigned state = c->state, count = 0, stop = 0;
++    uint32_t rep0 = c->rep0, rep1 = c->rep1, rep2 = c->rep2, rep3 = c->rep3;
++    size_t generated = 0;
++    while (count < 256 && generated < budget) {
++        unsigned pos = (unsigned)((position + generated) & mask);
++        if (!pending) {
++            if ((size_t)(r.input - c->input) > refill_limit) { stop = 4; break; }
++            if (!bit(&r, p + IsMatch + state * 16 + pos)) { stop = 1; break; }
++        }
++        pending = 0;
++        if (bit(&r, p + IsRep + state)) { stop = 2; break; }
++        unsigned len = length(&r, p, MatchChoice, MatchLow, MatchMiddle, MatchHigh, pos);
++        unsigned ls = len - 2 < 3 ? len - 2 : 3;
++        uint32_t dist = distance(&r, p, tree(&r, p + Slot + ls * 64, 6));
++        if (r.input > r.end) { stop = 5; break; }
++        if (dist == UINT32_MAX) { stop = 3; break; }
++        matches[count++] = ((uint64_t)dist << 32) | len;
++        generated += len;
++        state = state < 7 ? 7 : 10;
++        rep3 = rep2; rep2 = rep1; rep1 = rep0; rep0 = dist;
++    }
++    save(c, r); c->state = state;
++    c->rep0 = rep0; c->rep1 = rep1; c->rep2 = rep2; c->rep3 = rep3;
++    return ((uint64_t)stop << 32) | count;
++}
++
++uint64_t kk_lzma_literals(uint16_t *p, KKLZMACoder *c, uint8_t *dictionary,
++    size_t dictionary_count, KKLZMAWindow *w, unsigned context_shift,
++    unsigned previous_shift, uint64_t literal_mask, uint64_t position_mask,
++    size_t maximum_count, size_t refill_limit) {
++    Range r = load(c);
++    unsigned state = c->state, stop = 0;
++    size_t pos = w->position, available = w->available, count = 0;
++    uint64_t processed = w->processed;
++    unsigned previous = available ? dictionary[pos ? pos - 1 : dictionary_count - 1] : 0;
++    while (count < maximum_count) {
++        uint64_t context = ((processed & literal_mask) << context_shift) | (previous >> previous_shift);
++        uint16_t *model = p + Literals + context * 768;
++        unsigned symbol = 1;
++        if (state >= 7) {
++            size_t dist = (size_t)c->rep0 + 1;
++            if (dist > available || dist > dictionary_count) { stop = 4; break; }
++            size_t source = pos >= dist ? pos - dist : dictionary_count - (dist - pos);
++            unsigned match = dictionary[source];
++            while (symbol < 256) {
++                unsigned mb = (match >> 7) & 1; match <<= 1;
++                unsigned b = bit(&r, model + (1 + mb) * 256 + symbol);
++                symbol = symbol * 2 + b;
++                if (mb != b) {
++                    while (symbol < 256) symbol = symbol * 2 + bit(&r, model + symbol);
++                    break;
++                }
++            }
++        } else { symbol = 256 + tree(&r, model, 8); }
++        if (r.input > r.end) { stop = 3; break; }
++        previous = symbol - 256;
++        dictionary[pos++] = (uint8_t)previous;
++        ++count; ++processed;
++        if (available < dictionary_count) ++available;
++        state = state < 4 ? 0 : (state < 10 ? state - 3 : state - 6);
++        if (count == maximum_count) break;
++        if ((size_t)(r.input - c->input) > refill_limit) { stop = 2; break; }
++        unsigned b = bit(&r, p + IsMatch + state * 16 + (processed & position_mask));
++        if (b) { stop = r.input > r.end ? 3 : 1; break; }
++        if (r.input > r.end) { stop = 3; break; }
++    }
++    save(c, r); c->state = state;
++    w->position = pos == dictionary_count ? 0 : pos;
++    w->available = available; w->processed = processed; w->output += count;
++    return ((uint64_t)stop << 32) | count;
++}
++
++uint32_t kk_lzma_rep(uint16_t *p, KKLZMACoder *c, unsigned pos) {
++    Range r = load(c);
++    unsigned state = c->state, len;
++    if (!bit(&r, p + G0 + state)) {
++        if (!bit(&r, p + Rep0Long + state * 16 + pos)) {
++            len = 1; state = state < 7 ? 9 : 11;
++        } else {
++            len = length(&r, p, RepChoice, RepLow, RepMiddle, RepHigh, pos);
++            state = state < 7 ? 8 : 11;
++        }
++    } else {
++        uint32_t dist;
++        if (!bit(&r, p + G1 + state)) dist = c->rep1;
++        else {
++            if (!bit(&r, p + G2 + state)) dist = c->rep2;
++            else { dist = c->rep3; c->rep3 = c->rep2; }
++            c->rep2 = c->rep1;
++        }
++        c->rep1 = c->rep0; c->rep0 = dist;
++        len = length(&r, p, RepChoice, RepLow, RepMiddle, RepHigh, pos);
++        state = state < 7 ? 8 : 11;
++    }
++    save(c, r); c->state = state; return len;
++}
++#endif

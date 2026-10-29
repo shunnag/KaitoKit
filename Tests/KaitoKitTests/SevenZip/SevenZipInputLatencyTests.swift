@@ -11,7 +11,7 @@ final class SevenZipInputLatencyTests: XCTestCase {
             entryIndex: 0, limits: ReadLimits()).readAll()
     }
     private func scans(_ source: RecordingSource, offset: UInt64 = 1) -> Int {
-        source.reads.filter { $0.count == 1 && $0.offset == offset }.count
+        source.reads.filter { [2, 4].contains($0.count) && $0.offset == offset }.count
     }
     func testHighSingleWorkerUsesObservedIndexWithoutScanningInBothOrders() throws {
         var fixture = SevenZipParallelTestSupport.raw(); fixture.folderCRC = nil
@@ -57,13 +57,13 @@ final class SevenZipInputLatencyTests: XCTestCase {
             limits: ReadLimits(parallelDecodeMemory: 1 << 30), password: nil, keyCache: SevenZipAESKeyCache(),
             maximumAESCyclesPower: 24, workers: 16, resetIndexCache: cache)
         XCTAssertNil(try factory.parallelUnits())
-        XCTAssertEqual(source.reads.count, 1025 * 3)
+        XCTAssertEqual(source.reads.count, 1025 * 2)
         let coordinator = SevenZipFolderCoordinator(factory: factory)
         _ = try read(coordinator, offset: 1200 * 65536, length: 1)
         _ = try read(coordinator, offset: 1150 * 65536, length: 1)
         XCTAssertEqual(coordinator.lastBackwardRestart, .observed)
         XCTAssertEqual(try factory.backwardRestartPoint(atOrBefore: 1150 * 65536)?.uncompressedOffset, 1100 * 65536)
-        XCTAssertEqual(source.reads.filter { $0.count == 1 && $0.offset % RawSource.chunkSize == 1 }.count, 1025)
+        XCTAssertEqual(source.reads.filter { $0.count == 2 && $0.offset % RawSource.chunkSize == 1 }.count, 1025)
     }
     func testCachedScanFailureDoesNotBreakObservedBackwardRead() throws {
         var fixture = SevenZipParallelTestSupport.raw(); fixture.folderCRC = nil

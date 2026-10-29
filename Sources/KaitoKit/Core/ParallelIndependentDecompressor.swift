@@ -47,7 +47,7 @@ final class ParallelIndependentDecompressor: Decompressor {
     private final class Workers: @unchecked Sendable {
         private let condition = NSCondition()
         private let group = LeafDecodePool.Group()
-        private let diagnostics: Diagnostics?
+        let diagnostics: Diagnostics?
         private var abandoned = false
         private var tickets: [Int: LeafDecodePool.Ticket] = [:]
         private var results: [Int: Result<Decoded, any Error>] = [:]
@@ -120,8 +120,11 @@ final class ParallelIndependentDecompressor: Decompressor {
     private let units: [Unit]
     private let workerCount: Int
     private let coalescingReads: Bool
+    private let streamsFirstUnit: Bool
     private let workers: Workers
     private var spare: Reservation?
+    private var firstReservation: Reservation?
+    private var firstOutputCount = 0
     private var submitted = 0, emitted = 0, currentOffset = 0
     private var current: Decoded?
     private var replaying = false
@@ -131,14 +134,16 @@ final class ParallelIndependentDecompressor: Decompressor {
 
     /// 予約は実行中・待機中・未返却の出力に渡す。追加の一単位分は失敗時の直列再実行用。
     /// 走査や予算で並列化できないときは、呼出元が元の直列 decoder に戻す。
+    /// 7z の先頭単位は consumer で逐次復号し、同じ read の充足と失敗順を保つ。
     init?(units: [Unit], limits: ReadLimits, workers: Int, diagnostics: Diagnostics? = nil,
-          coalescingReads: Bool = false) {
+          coalescingReads: Bool = false, streamsFirstUnit: Bool = false) {
         guard units.count >= 2, let maximum = units.map(\.heldBytes).max(), maximum > 0 else { return nil }
         let count = min(max(1, workers), LeafDecodePool.shared.capacity, units.count,
                         max(0, limits.resolvedParallelDecodeMemory() / maximum - 1))
         guard count >= 2 else { return nil }
         self.units = units; workerCount = count; self.workers = Workers(diagnostics)
         self.coalescingReads = coalescingReads
+        self.streamsFirstUnit = streamsFirstUnit
         spare = Reservation(maximum, diagnostics)
     }
     deinit { workers.abandon() }
@@ -153,6 +158,34 @@ final class ParallelIndependentDecompressor: Decompressor {
         do {
             try Task.checkCancellation()
             while emitted < units.count {
+                if streamsFirstUnit, emitted == 0 {
+                    if submitted == 0 {
+                        // consumer も一つの実行枠と予約を使う。後続の worker は count - 1
+                        // 個までで、予算と失敗時の spare は従来と同じ上限を守る。
+                        firstReservation = Reservation(units[0].heldBytes, workers.diagnostics)
+                        submitted = 1
+                    }
+                    while submitted < units.count, submitted - emitted < workerCount {
+                        workers.submit(units[submitted], id: submitted); submitted += 1
+                    }
+                    if serial == nil { serial = try units[0].makeDecoder() }
+                    // written <= capacity <= buffer.count。既に返却予定の prefix を除いた
+                    // 残りだけを渡し、単位境界も同じ read の中で満たす。
+                    let destination = UnsafeMutableRawBufferPointer(rebasing: buffer[written..<capacity])
+                    let count = try serial!.read(into: destination)
+                    if count > 0 {
+                        firstOutputCount += count
+                        written += count
+                        if !coalescingReads || written == capacity { return written }
+                        continue
+                    }
+                    guard serial!.isFinished else { throw KaitoError.malformed("independent decoder made no progress") }
+                    guard firstOutputCount == units[0].outputSize else {
+                        throw KaitoError.malformed("independent unit output size mismatch")
+                    }
+                    serial = nil; firstReservation = nil; emitted += 1
+                    continue
+                }
                 if replaying {
                     if serial == nil { serial = try units[emitted].makeDecoder() }
                     let destination = coalescingReads
@@ -196,7 +229,7 @@ final class ParallelIndependentDecompressor: Decompressor {
             isFinished = true; spare = nil
             return written
         } catch {
-            terminalError = error; workers.abandon(); current = nil; serial = nil; spare = nil
+            terminalError = error; workers.abandon(); current = nil; serial = nil; spare = nil; firstReservation = nil
             throw error
         }
     }

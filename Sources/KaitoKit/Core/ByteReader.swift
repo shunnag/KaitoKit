@@ -10,6 +10,7 @@ public struct ByteReader {
     private var bufferStart: UInt64
     private var bufferCount: Int
     private var bufferOffset: Int
+    private let readAheadLimit: Int
 
     /// Current absolute cursor offset.
     public private(set) var offset: UInt64
@@ -27,7 +28,8 @@ public struct ByteReader {
     /// Internal cursors can use a smaller, caller-bounded read-ahead window.
     /// A one-byte minimum permits scalar header validation even with a zero
     /// metadata budget; no archive-declared size controls this allocation.
-    init(source: any ByteSource, offset: UInt64 = 0, bufferCapacity: Int) throws {
+    init(source: any ByteSource, offset: UInt64 = 0, bufferCapacity: Int,
+         readAheadLimit: Int = Self.bufferSize) throws {
         guard offset <= source.length else {
             throw KaitoError.truncated
         }
@@ -36,7 +38,31 @@ public struct ByteReader {
         self.bufferStart = offset
         self.bufferCount = 0
         self.bufferOffset = 0
+        self.readAheadLimit = max(1, min(buffer.count, readAheadLimit))
         self.offset = offset
+    }
+
+    // header-only cursor は通常 1 byte だけ読み、parser が検査順から確定した
+    // size field だけをまとめて要求する。短い read の残りは通常の refill で読む。
+    mutating func prefetch(_ count: Int) throws {
+        precondition(count > 0 && count <= buffer.count)
+        let retained = bufferCount - bufferOffset
+        guard retained < count else { return }
+        for index in 0..<retained { buffer[index] = buffer[bufferOffset + index] }
+        bufferStart = offset
+        bufferOffset = 0
+        bufferCount = retained
+        let sourceOffset = try Checked.add(offset, UInt64(retained))
+        guard sourceOffset < source.length else { return }
+        let requested = Int(min(UInt64(count - retained), source.length - sourceOffset))
+        let source = self.source
+        let actual = try buffer.withUnsafeMutableBytes { bytes in
+            // retained..<retained+requested は count <= buffer.count の範囲内。
+            try source.read(into: UnsafeMutableRawBufferPointer(
+                rebasing: bytes[retained..<(retained + requested)]), at: sourceOffset)
+        }
+        guard actual > 0, actual <= requested else { throw KaitoError.truncated }
+        bufferCount += actual
     }
 
     /// Moves the cursor to an absolute offset.
@@ -193,12 +219,14 @@ public struct ByteReader {
         bufferOffset = 0
         let source = self.source
         let currentOffset = offset
+        let readAheadLimit = self.readAheadLimit
         // buffer は固定長で、クロージャの間は再確保されず rawBuffer 全域が書き込み可能。
         let count = try buffer.withUnsafeMutableBytes { rawBuffer in
-            try source.read(into: rawBuffer, at: currentOffset)
+            try source.read(into: UnsafeMutableRawBufferPointer(
+                rebasing: rawBuffer[..<readAheadLimit]), at: currentOffset)
         }
         let available = try Checked.sub(source.length, currentOffset)
-        let maximum = try Checked.toInt(min(UInt64(buffer.count), available))
+        let maximum = try Checked.toInt(min(UInt64(readAheadLimit), available))
         guard count > 0, count <= maximum else {
             throw KaitoError.truncated
         }

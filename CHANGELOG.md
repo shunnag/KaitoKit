@@ -28,6 +28,7 @@
 - RAR5 の鍵導出(PBKDF2-HMAC-SHA256)で、password から作る HMAC の ipad / opad の状態を使い回す。2^15 回 8.1 → 2.1 ms、2^18 回 63.9 → 17.0 ms。KDF の予算・取消し・返金と出力は変わらない。
 - 7z AES の鍵導出(SHA-256 の反復)の作業領域を使い回し、7.3 → 3.7 ms。
 - WinZip AES の小さな entry で、復号と認証の buffer を使い回す(1 entry あたり 2.3 → 0.9 µs)。entry ごとの PBKDF2 は変わらないので、小ファイル多数の書庫全体ではほぼ PBKDF2 の時間になる。
+- PPMd var.H(7z・RAR4 の model)と var.I(ZIP)の復号を速くする。model の状態を局所変数に保ち、arena への raw pointer の読み書きを境界の証明付きで行い、状態列の走査・SEE・二値 context の経路を詰める。M4 Max の release(1 thread)で 7z の text 254 → 235 ms、色 7,296 → 6,553 ms、JPEG 1,431 → 1,073 ms、ZIP の text 304 → 293 ms、色 7,112 → 5,721 ms、JPEG 1,539 → 928 ms。出力と破損入力の error・部分出力は HEAD と同じ(643 件の比較と ASan)。
 
 ## [0.17.0] - 2026-10-27
 

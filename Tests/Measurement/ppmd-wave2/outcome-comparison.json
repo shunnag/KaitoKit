@@ -1,0 +1,9 @@
+{
+  "candidate_sha256": "4e553c8f024611634fd8a58d9e17c20652902fc8267a8cc25ac32eeb9a40d198",
+  "cmp_exit": 0,
+  "entry_error_after_returned_bytes": 123,
+  "head_sha256": "4e553c8f024611634fd8a58d9e17c20652902fc8267a8cc25ac32eeb9a40d198",
+  "mutations": 624,
+  "originals": 19,
+  "rows": 643
+}

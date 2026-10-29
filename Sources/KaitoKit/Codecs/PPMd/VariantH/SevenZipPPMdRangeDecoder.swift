@@ -8,6 +8,26 @@ import Foundation
 // 兄弟: RARPPMdRangeDecoder（RAR、marker なし・`low` あり）と PPMdVarIRangeDecoder
 // （ZIP method 98、`low` と `scale`）。一覧: Core/BitReader.swift の先頭。
 final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
+    private var cursor: SevenZipPPMdRangeCursor
+
+    init(source: any ByteSource, offset: UInt64, endOffset: UInt64) throws {
+        cursor = SevenZipPPMdRangeCursor(source: source, offset: offset, endOffset: endOffset)
+        try cursor.initialize()
+    }
+
+    // One borrow per output batch keeps range/code/input positions in value
+    // storage. The cursor owns the refill buffer and cannot escape this owner.
+    func withCursor<Result>(_ body: (inout SevenZipPPMdRangeCursor) throws -> Result) rethrows -> Result {
+        try body(&cursor)
+    }
+
+    func threshold(total: Int) throws -> Int { try cursor.threshold(total: total) }
+    func remove(start: Int, size: Int) throws { try cursor.remove(start: start, size: size) }
+    func decodeBinary(probability: Int) throws -> Bool { try cursor.decodeBinary(probability: probability) }
+    func normalize() throws { try cursor.normalize() }
+}
+
+struct SevenZipPPMdRangeCursor: PPMd7RangeDecoding, ~Copyable {
     private static let topValue: UInt32 = 1 << 24
     private static let bufferSize = 64 * 1_024
 
@@ -21,11 +41,13 @@ final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
     private var range: UInt32 = UInt32.max
     private var code: UInt32 = 0
 
-    init(source: any ByteSource, offset: UInt64, endOffset: UInt64) throws {
+    init(source: any ByteSource, offset: UInt64, endOffset: UInt64) {
         self.source = source
         self.sourceOffset = offset
         self.endOffset = endOffset
+    }
 
+    mutating func initialize() throws {
         let marker = try readByte()
         guard marker == 0 else {
             throw KaitoError.malformed("invalid PPMd7 range-coder marker")
@@ -39,7 +61,7 @@ final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
     }
 
     @inline(__always)
-    func threshold(total: Int) throws -> Int {
+    mutating func threshold(total: Int) throws -> Int {
         guard total > 0, total <= Int(UInt16.max) else {
             throw KaitoError.malformed("invalid PPMd7 frequency total")
         }
@@ -55,7 +77,7 @@ final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
     }
 
     @inline(__always)
-    func remove(start: Int, size: Int) throws {
+    mutating func remove(start: Int, size: Int) throws {
         guard start >= 0, size > 0 else {
             throw KaitoError.malformed("invalid PPMd7 subrange")
         }
@@ -70,7 +92,7 @@ final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
 
     // escape 側なら true、binary symbol 側なら false を返す。
     @inline(__always)
-    func decodeBinary(probability: Int) throws -> Bool {
+    mutating func decodeBinary(probability: Int) throws -> Bool {
         guard probability > 0, probability < 1 << 14 else {
             throw KaitoError.malformed("invalid PPMd7 binary probability")
         }
@@ -89,7 +111,7 @@ final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
     }
 
     @inline(__always)
-    func normalize() throws {
+    mutating func normalize() throws {
         while range < Self.topValue {
             range <<= 8
             code = (code << 8) | UInt32(try readByte())
@@ -99,7 +121,7 @@ final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
     deinit { bytes.deallocate() }
 
     @inline(__always)
-    private func readByte() throws -> UInt8 {
+    private mutating func readByte() throws -> UInt8 {
         // refill publishes only a validated count; 0 <= byteOffset < byteCount
         // covers this load even when the ByteSource returns a short read.
         if byteOffset == byteCount { try refill() }
@@ -109,7 +131,7 @@ final class SevenZipPPMdRangeDecoder: PPMd7RangeDecoding {
     }
 
     @inline(never)
-    private func refill() throws {
+    private mutating func refill() throws {
         guard sourceOffset < endOffset else { throw KaitoError.truncated }
         let requested = Int(min(UInt64(Self.bufferSize), endOffset - sourceOffset))
         byteOffset = 0

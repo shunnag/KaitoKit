@@ -1,0 +1,19 @@
+NSUnbufferedIO=YES KAITO_EXECUTABLE=W/kaito-after swift test --disable-sandbox --scratch-path W/tests-final
+exit 0
+Executed 1954 tests, with 55 tests skipped and 0 failures (0 unexpected) in 1209.862 (1210.017) seconds
+Executed 1954 tests, with 55 tests skipped and 0 failures (0 unexpected) in 1209.862 (1210.018) seconds
+Executed 34 tests, with 0 failures (0 unexpected) in 2.125 (2.129) seconds
+
+swift test --disable-sandbox --scratch-path W/asan --sanitize=address --filter RAR
+exit 0
+Executed 322 tests, with 11 tests skipped and 0 failures (0 unexpected) in 527.852 (527.901) seconds
+Executed 322 tests, with 11 tests skipped and 0 failures (0 unexpected) in 527.852 (527.902) seconds
+
+NSUnbufferedIO=YES swift test --disable-sandbox --scratch-path W/asan --sanitize=address --filter 'RAR29|RAR4|RARCommonPrimitive|RARPasswordCompatibility|RARSymlink'
+exit 0
+Executed 125 tests, with 11 tests skipped and 0 failures (0 unexpected) in 353.244 (353.260) seconds
+Executed 125 tests, with 11 tests skipped and 0 failures (0 unexpected) in 353.244 (353.261) seconds
+
+xctest -XCTest KaitoKitTests.RAR29R3Tests .build/out/Products/Debug/KaitoKitTests.xctest
+exit 0
+Executed 2 tests, with 0 failures (0 unexpected) in 24.105 (24.106) seconds

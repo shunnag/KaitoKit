@@ -1,0 +1,21 @@
+profile-tiff-rgb-after-final.tsv total samples 519
+   177  34.1% function signature specialization <Arg[4] = Dead> of static KaitoKit.RARStandardFilters.decodeRGB(input: Swift.UnsafeRawBufferPointer, output: Swift.UnsafeMutableRawBufferPointer, width: Swift.Int, positionR: Swift.Int) throws -> ()
+   167  32.2% KaitoKit.RAR29Decoder.read(into: Swift.UnsafeMutableRawBufferPointer) throws -> Swift.Int
+   125  24.1% /usr/lib/system/libsystem_kernel.dylib
+    36   6.9% /usr/lib/system/libsystem_platform.dylib
+     6   1.2% KaitoKit.RAR29HuffmanTable.build(_: Swift.ArraySlice<Swift.UInt8>, requireSymbol: Swift.Bool) throws -> ()
+     3   0.6% /usr/lib/system/libsystem_malloc.dylib
+     2   0.4% /usr/lib/swift/libswiftCore.dylib
+     2   0.4% KaitoKit.RAR29Decoder.(readTables in _C05B9549D1CF4D6A356AC14D7836CAD9)(bits: inout KaitoKit.(RAR29RawBitCursor in _C05B9549D1CF4D6A356AC14D7836CAD9)) throws -> ()
+     1   0.2% /usr/lib/libz.1.dylib
+profile-text-ppmd-after-final.tsv total samples 536
+   211  39.4% closure #1 (inout KaitoKit.PPMd7ModelCursor, inout KaitoKit.RARPPMdRangeCursor) throws -> () in KaitoKit.RAR29Decoder.read(into: Swift.UnsafeMutableRawBufferPointer) throws -> Swift.Int
+   141  26.3% generic specialization <KaitoKit.RARPPMdRangeCursor> of KaitoKit.PPMd7ModelCursor.(decodeBinarySymbol in _DC741395BA86A9305DF88AADD59C811E)<A where A: KaitoKit.PPMd7RangeDecoding, A: ~Swift.Copyable>(in: Swift.UInt32, using: inout A) throws -> ()
+   126  23.5% generic specialization <KaitoKit.RARPPMdRangeCursor> of KaitoKit.PPMd7ModelCursor.(decodeSymbol1 in _DC741395BA86A9305DF88AADD59C811E)<A where A: KaitoKit.PPMd7RangeDecoding, A: ~Swift.Copyable>(in: Swift.UInt32, using: inout A) throws -> ()
+    35   6.5% KaitoKit.PPMd7ModelCursor.(update1 in _DC741395BA86A9305DF88AADD59C811E)(context: Swift.UInt32, state: Swift.UInt32, frequency: Swift.Int, scale: Swift.Int) throws -> ()
+     9   1.7% /usr/lib/system/libsystem_kernel.dylib
+     6   1.1% KaitoKit.PPMd7ModelCursor.(validate in _DC741395BA86A9305DF88AADD59C811E)(Swift.UInt32) throws -> ()
+     3   0.6% /usr/lib/libz.1.dylib
+     3   0.6% KaitoKit.PPMd7ModelCursor.(rescale in _DC741395BA86A9305DF88AADD59C811E)(Swift.UInt32) throws -> ()
+     1   0.2% KaitoKit.PPMd7ModelCursor.(appendState in _DC741395BA86A9305DF88AADD59C811E)(_: KaitoKit.PPMd7ModelCursor.(StateValue in _DC741395BA86A9305DF88AADD59C811E), summaryFrequency: Swift.Int, to: Swift.UInt32) throws -> Swift.UInt32
+     1   0.2% /usr/lib/system/libsystem_platform.dylib

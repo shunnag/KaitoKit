@@ -1,0 +1,446 @@
+[
+  {
+    "archive": "archives/tiff-rgb.rar",
+    "label": "before",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-before",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/tiff-rgb.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t3149360\tfceb146d89ea20b8ceb5defa0d99229ef85d1890352fea5f63c2d3fee8810863\tpage-0.tiff\n1\t3149360\t3ece65d555500583b7d30a986bd001a7009e878ad376038f55463b4e403e835b\tpage-1.tiff\n2\t3149360\t9a8062ca3a43a798c6aa4b9ee8f9471f090cbba3cecae517edcedc924f4acc56\tpage-2.tiff\ntotal\t3\t6548bf37c2f85ff3ad55ee1789376cf67e2b0d46b772a53c0b5fe60a8796e72d\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/tiff-rgb.rar",
+    "label": "after",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-after",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/tiff-rgb.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t3149360\tfceb146d89ea20b8ceb5defa0d99229ef85d1890352fea5f63c2d3fee8810863\tpage-0.tiff\n1\t3149360\t3ece65d555500583b7d30a986bd001a7009e878ad376038f55463b4e403e835b\tpage-1.tiff\n2\t3149360\t9a8062ca3a43a798c6aa4b9ee8f9471f090cbba3cecae517edcedc924f4acc56\tpage-2.tiff\ntotal\t3\t6548bf37c2f85ff3ad55ee1789376cf67e2b0d46b772a53c0b5fe60a8796e72d\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/tiff-rgb.rar",
+    "label": "unrar",
+    "entry": "page-0.tiff",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/bench/archives/tiff-rgb.rar",
+      "page-0.tiff"
+    ],
+    "exit": 0,
+    "bytes": 3149360,
+    "sha256": "fceb146d89ea20b8ceb5defa0d99229ef85d1890352fea5f63c2d3fee8810863",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/tiff-rgb.rar",
+    "label": "unrar",
+    "entry": "page-1.tiff",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/bench/archives/tiff-rgb.rar",
+      "page-1.tiff"
+    ],
+    "exit": 0,
+    "bytes": 3149360,
+    "sha256": "3ece65d555500583b7d30a986bd001a7009e878ad376038f55463b4e403e835b",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/tiff-rgb.rar",
+    "label": "unrar",
+    "entry": "page-2.tiff",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/bench/archives/tiff-rgb.rar",
+      "page-2.tiff"
+    ],
+    "exit": 0,
+    "bytes": 3149360,
+    "sha256": "9a8062ca3a43a798c6aa4b9ee8f9471f090cbba3cecae517edcedc924f4acc56",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/jpeg.rar",
+    "label": "before",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-before",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/jpeg.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t324485\t19bb742457ac457b62bb04b4b0e8540c3b68d4e8a067b704c0149e15e6be41ab\tpage-0.jpg\n1\t324535\t284610510c2aabbcd14378dbb6dadb3669706f4dad89385ba908c5f462af2763\tpage-1.jpg\n2\t324313\t2a2898c3689e32ef2790da79787090df324f02100bf1cc20ee440080435aa955\tpage-2.jpg\ntotal\t3\t9ec5db0d1dba92cdad4b4cdb792e26d7f9d8ed713b7fb833185036f5910d5bdf\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/jpeg.rar",
+    "label": "after",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-after",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/jpeg.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t324485\t19bb742457ac457b62bb04b4b0e8540c3b68d4e8a067b704c0149e15e6be41ab\tpage-0.jpg\n1\t324535\t284610510c2aabbcd14378dbb6dadb3669706f4dad89385ba908c5f462af2763\tpage-1.jpg\n2\t324313\t2a2898c3689e32ef2790da79787090df324f02100bf1cc20ee440080435aa955\tpage-2.jpg\ntotal\t3\t9ec5db0d1dba92cdad4b4cdb792e26d7f9d8ed713b7fb833185036f5910d5bdf\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/jpeg.rar",
+    "label": "unrar",
+    "entry": "page-0.jpg",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/bench/archives/jpeg.rar",
+      "page-0.jpg"
+    ],
+    "exit": 0,
+    "bytes": 324485,
+    "sha256": "19bb742457ac457b62bb04b4b0e8540c3b68d4e8a067b704c0149e15e6be41ab",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/jpeg.rar",
+    "label": "unrar",
+    "entry": "page-1.jpg",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/bench/archives/jpeg.rar",
+      "page-1.jpg"
+    ],
+    "exit": 0,
+    "bytes": 324535,
+    "sha256": "284610510c2aabbcd14378dbb6dadb3669706f4dad89385ba908c5f462af2763",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/jpeg.rar",
+    "label": "unrar",
+    "entry": "page-2.jpg",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/bench/archives/jpeg.rar",
+      "page-2.jpg"
+    ],
+    "exit": 0,
+    "bytes": 324313,
+    "sha256": "2a2898c3689e32ef2790da79787090df324f02100bf1cc20ee440080435aa955",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/text-lz.rar",
+    "label": "before",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-before",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/text-lz.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t16777216\t35b6b85eff0d016c2119281779b8fc0a0b19b464c48e91e213271b01ebfd8e55\ttext.txt\ntotal\t1\tbf1fe883305329980b219158d9113fe470c2a8e4ec97d4565c50f04c1d26c172\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/text-lz.rar",
+    "label": "after",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-after",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/text-lz.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t16777216\t35b6b85eff0d016c2119281779b8fc0a0b19b464c48e91e213271b01ebfd8e55\ttext.txt\ntotal\t1\tbf1fe883305329980b219158d9113fe470c2a8e4ec97d4565c50f04c1d26c172\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/text-lz.rar",
+    "label": "unrar",
+    "entry": "text.txt",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/bench/archives/text-lz.rar",
+      "text.txt"
+    ],
+    "exit": 0,
+    "bytes": 16777216,
+    "sha256": "35b6b85eff0d016c2119281779b8fc0a0b19b464c48e91e213271b01ebfd8e55",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/text-ppmd.rar",
+    "label": "before",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-before",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/text-ppmd.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t16777216\t35b6b85eff0d016c2119281779b8fc0a0b19b464c48e91e213271b01ebfd8e55\ttext.txt\ntotal\t1\tbf1fe883305329980b219158d9113fe470c2a8e4ec97d4565c50f04c1d26c172\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/text-ppmd.rar",
+    "label": "after",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-after",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/text-ppmd.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t16777216\t35b6b85eff0d016c2119281779b8fc0a0b19b464c48e91e213271b01ebfd8e55\ttext.txt\ntotal\t1\tbf1fe883305329980b219158d9113fe470c2a8e4ec97d4565c50f04c1d26c172\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/text-ppmd.rar",
+    "label": "unrar",
+    "entry": "text.txt",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/bench/archives/text-ppmd.rar",
+      "text.txt"
+    ],
+    "exit": 0,
+    "bytes": 16777216,
+    "sha256": "35b6b85eff0d016c2119281779b8fc0a0b19b464c48e91e213271b01ebfd8e55",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/solid-png.rar",
+    "label": "before",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-before",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/solid-png.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t1264761\t622b9e540acd76e31b3b237b2aa4393536a37af4e5e3bc599e7bbcaa916f1cb8\tpage-0.png\n1\t1263302\tbf3fbc540992aff9e3b0978c0f92642d152078322da2d8cd95f08f339bca942e\tpage-1.png\n2\t1262313\tbeb205889c30de8a52f5a899cda69fb7209b60d2d88f1abd575135a4e1dadef7\tpage-2.png\ntotal\t3\t560211102f91106a0f9c660c5c3ecab50e86573d3d262e1c04ce46b4a7162fae\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/solid-png.rar",
+    "label": "after",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-after",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/solid-png.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t1264761\t622b9e540acd76e31b3b237b2aa4393536a37af4e5e3bc599e7bbcaa916f1cb8\tpage-0.png\n1\t1263302\tbf3fbc540992aff9e3b0978c0f92642d152078322da2d8cd95f08f339bca942e\tpage-1.png\n2\t1262313\tbeb205889c30de8a52f5a899cda69fb7209b60d2d88f1abd575135a4e1dadef7\tpage-2.png\ntotal\t3\t560211102f91106a0f9c660c5c3ecab50e86573d3d262e1c04ce46b4a7162fae\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/solid-png.rar",
+    "label": "unrar",
+    "entry": "page-0.png",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/bench/archives/solid-png.rar",
+      "page-0.png"
+    ],
+    "exit": 0,
+    "bytes": 1264761,
+    "sha256": "622b9e540acd76e31b3b237b2aa4393536a37af4e5e3bc599e7bbcaa916f1cb8",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/solid-png.rar",
+    "label": "unrar",
+    "entry": "page-1.png",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/bench/archives/solid-png.rar",
+      "page-1.png"
+    ],
+    "exit": 0,
+    "bytes": 1263302,
+    "sha256": "bf3fbc540992aff9e3b0978c0f92642d152078322da2d8cd95f08f339bca942e",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/solid-png.rar",
+    "label": "unrar",
+    "entry": "page-2.png",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/bench/archives/solid-png.rar",
+      "page-2.png"
+    ],
+    "exit": 0,
+    "bytes": 1262313,
+    "sha256": "beb205889c30de8a52f5a899cda69fb7209b60d2d88f1abd575135a4e1dadef7",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/x86-e8.rar",
+    "label": "before",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-before",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/x86-e8.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t12582912\t7884bc1727f02fb8955d978f240ea1bf62ad3b2cffa3369ce1b1a6bcb5272492\tx86-code.bin\ntotal\t1\tabdc4aa082c7d1ec0c0fd44dcb6ead8068a5c2acddc2dd2492847ead76daf54a\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/x86-e8.rar",
+    "label": "after",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-after",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/x86-e8.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t12582912\t7884bc1727f02fb8955d978f240ea1bf62ad3b2cffa3369ce1b1a6bcb5272492\tx86-code.bin\ntotal\t1\tabdc4aa082c7d1ec0c0fd44dcb6ead8068a5c2acddc2dd2492847ead76daf54a\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/x86-e8.rar",
+    "label": "unrar",
+    "entry": "x86-code.bin",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/bench/archives/x86-e8.rar",
+      "x86-code.bin"
+    ],
+    "exit": 0,
+    "bytes": 12582912,
+    "sha256": "7884bc1727f02fb8955d978f240ea1bf62ad3b2cffa3369ce1b1a6bcb5272492",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/wav-audio.rar",
+    "label": "before",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-before",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/wav-audio.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t8388652\t74cad6a8f7300a8c452b53458b5843d7a72329e106f071cf323feaef06594195\tstereo.wav\ntotal\t1\t52d36e8ca2cf42274d5d72bb7e135e0b789cb05ae0d1c53103bcc2c52296ee7c\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/wav-audio.rar",
+    "label": "after",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-after",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/bench/archives/wav-audio.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t8388652\t74cad6a8f7300a8c452b53458b5843d7a72329e106f071cf323feaef06594195\tstereo.wav\ntotal\t1\t52d36e8ca2cf42274d5d72bb7e135e0b789cb05ae0d1c53103bcc2c52296ee7c\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/wav-audio.rar",
+    "label": "unrar",
+    "entry": "stereo.wav",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/bench/archives/wav-audio.rar",
+      "stereo.wav"
+    ],
+    "exit": 0,
+    "bytes": 8388652,
+    "sha256": "74cad6a8f7300a8c452b53458b5843d7a72329e106f071cf323feaef06594195",
+    "stderr": "",
+    "matched": true
+  }
+]

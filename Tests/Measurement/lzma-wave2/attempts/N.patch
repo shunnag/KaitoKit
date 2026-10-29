@@ -1,0 +1,5 @@
+--- a/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift
++++ b/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift
+@@ -1021 +1021 @@
+-        if range < Self.rangeTop {
++        if _slowPath(range < Self.rangeTop) {

@@ -1,5 +1,6 @@
 import Foundation
 private import CommonCrypto
+private import CBzip2
 
 /// CommonCrypto の一括呼出し（AES-ECB、HMAC、PBKDF2）と、その pointer の扱いをこの file に閉じる。
 /// 鍵長や block 整列の検査と error の文言は呼出側（WinZip AES / 7zAES / RAR）が持ち、
@@ -52,13 +53,11 @@ enum CommonCryptoPrimitives {
             saltStorage.withUnsafeBytes { saltBuffer in
                 output.withUnsafeMutableBytes { outputBuffer in
                     // 各 storage はクロージャの間固定され、C 関数は呼び出し後にポインタを保持しない。
-                    CCKeyDerivationPBKDF(
-                        CCPBKDFAlgorithm(kCCPBKDF2),
-                        passwordBuffer.baseAddress?.assumingMemoryBound(to: CChar.self),
+                    kk_pbkdf2_sha1(
+                        passwordBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self),
                         passwordLength,
                         saltBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self),
                         salt.count,
-                        CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1),
                         iterations,
                         outputBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self),
                         outputLength

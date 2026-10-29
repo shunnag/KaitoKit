@@ -268,7 +268,8 @@ final class RAR5Reader: FormatReader {
                     dictionarySize: record.compression.dictionarySize,
                     limits: limits,
                     scratchPool: scratchPool,
-                    mismatchIsWrongPassword: prepared.mismatchIsWrongPassword
+                    mismatchIsWrongPassword: prepared.mismatchIsWrongPassword,
+                    decodeThreads: options.resolvedDecodeThreads
                 )
             } catch KaitoError.truncated {
                 guard options.recoverDamagedArchives, entry.isIncomplete else {
@@ -492,7 +493,8 @@ final class RAR5Reader: FormatReader {
                 dictionarySize: record.compression.dictionarySize,
                 limits: limits,
                 solidState: state,
-                mismatchIsWrongPassword: prepared.mismatchIsWrongPassword
+                mismatchIsWrongPassword: prepared.mismatchIsWrongPassword,
+                decodeThreads: options.resolvedDecodeThreads
             )
         }
         return try makeVerifiedEntryStream(
@@ -816,7 +818,8 @@ final class RAR5Reader: FormatReader {
         solidState: RAR5Decoder.SolidState? = nil,
         scratchPool: RAR5Decoder.ScratchPool? = nil,
         independentState: RAR5Decoder.SolidState? = nil,
-        mismatchIsWrongPassword: Bool
+        mismatchIsWrongPassword: Bool,
+        decodeThreads: Int = 1
     ) throws -> any Decompressor {
         do {
             let decoder = try RAR5Decoder(
@@ -828,7 +831,8 @@ final class RAR5Reader: FormatReader {
                 limits: limits,
                 solidState: solidState,
                 scratchPool: scratchPool,
-                independentState: independentState
+                independentState: independentState,
+                decodeThreads: decodeThreads
             )
             guard mismatchIsWrongPassword else { return decoder }
             return RARPasswordAmbiguousDecompressor(
@@ -883,18 +887,19 @@ final class RAR5Reader: FormatReader {
             }
         }
 
-        try validatePackedParts(
+        let segments = try validatePackedParts(
             record,
             entryIndex: entryIndex,
             options: options,
+            limits: limits,
             encryptionHashKey: encryptionHashKey,
             mismatchIsWrongPassword: mismatchIsWrongPassword
         )
 
         let packedSource: any ByteSource
         let packedOffset: UInt64
-        if record.packedSegments.count == 1,
-           let segment = record.packedSegments.first {
+        if segments.count == 1,
+           let segment = segments.first {
             packedSource = segment.source
             packedOffset = segment.offset
         } else if record.packedSize == 0 {
@@ -904,7 +909,7 @@ final class RAR5Reader: FormatReader {
             // Every split part repeats identical file-encryption metadata
             // (validated while merging), so CBC chaining crosses segments.
             packedSource = try ConcatenatedByteSource(
-                segments: record.packedSegments,
+                segments: segments,
                 maximumLength: record.packedSize,
                 maximumSegmentCount: limits.maxVolumeCount,
                 label: "RAR split stream"
@@ -939,99 +944,40 @@ final class RAR5Reader: FormatReader {
         )
     }
 
-    /// Authenticates each non-final volume range before a decoder observes any
-    /// of the concatenated stream. This is deliberately chunked: packed sizes
-    /// come from the archive and must never become a temporary allocation.
+    /// Authenticates and retains each checked non-final range before decode.
+    /// Replaying the verified bytes avoids a second read from the volume set.
     private static func validatePackedParts(
         _ record: RAR5EntryRecord,
         entryIndex: Int,
         options: ReaderOptions,
+        limits: ReadLimits,
         encryptionHashKey: Data?,
         mismatchIsWrongPassword: Bool
-    ) throws {
+    ) throws -> [SourceSegment] {
         guard record.packedPartIntegrity.count == record.packedSegments.count else {
             throw KaitoError.malformed("RAR5 split integrity metadata is inconsistent")
         }
-        guard record.packedPartIntegrity.contains(where: {
+        let checked = record.packedPartIntegrity.map {
             $0.crc32 != nil || (options.verifyRAR5Blake2sp && $0.hash?.type == 0)
-        }) else {
-            return
         }
-
-        var buffer = [UInt8](repeating: 0, count: 256 * 1_024)
-        for (segment, integrity) in zip(
-            record.packedSegments,
-            record.packedPartIntegrity
-        ) {
-            let hashKey = integrity.usesTweakedChecksums
-                ? encryptionHashKey
-                : nil
+        guard checked.contains(true) else { return record.packedSegments }
+        return try RARVerifiedPackedParts.prepare(
+            segments: record.packedSegments, checked: checked, limits: limits
+        ) { index in
+            let integrity = record.packedPartIntegrity[index]
+            let hashKey = integrity.usesTweakedChecksums ? encryptionHashKey : nil
             if integrity.usesTweakedChecksums, hashKey == nil {
-                throw KaitoError.malformed(
-                    "RAR5 packed checksum is tweaked without encryption"
-                )
+                throw KaitoError.malformed("RAR5 packed checksum is tweaked without encryption")
             }
-            let verifyHash = options.verifyRAR5Blake2sp && integrity.hash?.type == 0
-            guard integrity.crc32 != nil || verifyHash else { continue }
-            let end = try Checked.add(segment.offset, segment.length)
-            guard end <= segment.source.length else { throw KaitoError.truncated }
-
-            var crc = CRC32()
-            var hash = verifyHash ? Blake2sp() : nil
-            var consumed: UInt64 = 0
-            while consumed < segment.length {
-                let wanted = try Checked.toInt(min(
-                    UInt64(buffer.count),
-                    try Checked.sub(segment.length, consumed)
-                ))
-                let count = try buffer.withUnsafeMutableBytes { storage in
-                    try segment.source.read(
-                        into: UnsafeMutableRawBufferPointer(rebasing: storage[..<wanted]),
-                        at: try Checked.add(segment.offset, consumed)
-                    )
-                }
-                guard count > 0, count <= wanted else { throw KaitoError.truncated }
-                buffer.withUnsafeBytes { storage in
-                    let bytes = UnsafeRawBufferPointer(rebasing: storage[..<count])
-                    if integrity.crc32 != nil { crc.update(bytes) }
-                    hash?.update(bytes)
-                }
-                consumed = try Checked.add(consumed, UInt64(count))
-            }
-
-            if let expectedCRC = integrity.crc32 {
-                let actualCRC = hashKey.map {
-                    RAR5ChecksumMAC.crc32(crc.value, hashKey: $0)
-                } ?? crc.value
-                guard actualCRC == expectedCRC else {
-                    if mismatchIsWrongPassword, hashKey != nil {
-                        throw KaitoError.wrongPassword
-                    }
-                    throw KaitoError.checksumMismatch(entry: entryIndex)
-                }
-            }
-            if let expectedHash = integrity.hash,
-               expectedHash.type == 0,
-               verifyHash {
-                guard expectedHash.digest.count == 32 else {
-                    throw KaitoError.malformed("RAR5 BLAKE2sp digest is not 32 bytes")
-                }
-                guard var actualHash = hash?.finalize() else {
-                    throw KaitoError.malformed("RAR5 packed hash state is missing")
-                }
-                if let hashKey {
-                    actualHash = try RAR5ChecksumMAC.blake2sp(
-                        actualHash,
-                        hashKey: hashKey
-                    )
-                }
-                guard ConstantTime.equals(actualHash, Data(expectedHash.digest)) else {
-                    if mismatchIsWrongPassword, hashKey != nil {
-                        throw KaitoError.wrongPassword
-                    }
-                    throw KaitoError.checksumMismatch(entry: entryIndex)
-                }
-            }
+            guard checked[index] else { return nil }
+            return RARVerifiedPackedParts.Check(
+                crc32: integrity.crc32,
+                blake2sp: options.verifyRAR5Blake2sp && integrity.hash?.type == 0
+                    ? integrity.hash?.digest : nil,
+                hashKey: hashKey,
+                mismatchIsWrongPassword: mismatchIsWrongPassword,
+                entryIndex: entryIndex
+            )
         }
     }
 

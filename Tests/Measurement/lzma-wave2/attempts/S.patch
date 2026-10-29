@@ -1,0 +1,8 @@
+--- a/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift
++++ b/Sources/KaitoKit/Codecs/LZMA/LZMADecoder.swift
+@@ -1862,0 +1863,2 @@
++    // slot is a six-bit tree result; this path has slot >= 4, so the
++    // distance-prefix shift is in 1...30 and needs no dynamic width checks.
+@@ -1864 +1866 @@
+-        << UInt32(truncatingIfNeeded: directBitCount)
++        &<< UInt32(truncatingIfNeeded: directBitCount)

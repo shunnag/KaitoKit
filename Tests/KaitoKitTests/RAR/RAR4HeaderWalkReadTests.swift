@@ -25,6 +25,26 @@ final class RAR4HeaderWalkReadTests: RAR4BuilderTestCase {
         XCTAssertLessThanOrEqual(source.readCount, 44)
         XCTAssertLessThanOrEqual(source.readBytes, 40 * (16 << 10) + (1 << 20))
     }
+    func testHighLatencyBatchesHeadersMoreThanSixtyFourKiBApart() throws {
+        for size in [96 << 10, 192 << 10] {
+            let bytes = archive(sizes: Array(repeating: size, count: 64))
+            var expected: [ArchiveEntry]?
+            var reads: [Int] = []
+            for latency in [InputLatency.low, .high, .automatic] {
+                let source = CallCountingByteSource(DataByteSource(bytes), reportsNonLocalVolume: true)
+                var options = ReaderOptions()
+                options.inputLatency = latency
+                let reader = try RAR4Reader(source: source, options: options)
+                if let expected { XCTAssertEqual(reader.entries, expected) }
+                expected = reader.entries
+                reads.append(source.readCount)
+                XCTAssertLessThanOrEqual(source.readBytes, bytes.count + (1 << 20))
+            }
+            XCTAssertEqual(reads[0], 67)
+            XCTAssertLessThan(reads[1], reads[0] / 2)
+            XCTAssertEqual(reads[1], reads[2])
+        }
+    }
     func testHighLatencySparseListingDoesNotReadPayloadTails() throws {
         let count = 12
         let bytes = archive(sizes: Array(repeating: 600 << 10, count: count))

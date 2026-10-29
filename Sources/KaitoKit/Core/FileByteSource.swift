@@ -4,6 +4,7 @@ import Foundation
 /// A byte source backed by a file descriptor and `pread(2)`.
 public final class FileByteSource: ByteSource, VolumeLocalityHinting {
     @TaskLocal static var testingVolumeIsLocal: (@Sendable (Int32) -> Bool)?
+    @TaskLocal static var testingDidRead: (@Sendable (FileByteSource, UInt64, Int) -> Void)?
     let isOnNonLocalVolume: Bool
 
     private static func nonLocalVolume(_ descriptor: Int32) -> Bool {
@@ -291,6 +292,7 @@ public final class FileByteSource: ByteSource, VolumeLocalityHinting {
                 // baseAddress から requested バイトは呼び出し側のバッファ内で、offset + requested は length 以下。
                 let result = Darwin.pread(descriptor, baseAddress, requested, off_t(offset))
                 if result >= 0 {
+                    Self.testingDidRead?(self, offset, result)
                     return result
                 }
                 if errno != EINTR {

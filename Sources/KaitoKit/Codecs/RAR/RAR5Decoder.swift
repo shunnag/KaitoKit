@@ -232,10 +232,195 @@ final class RAR5Decoder: Decompressor {
     private var filterInput: UnsafeMutablePointer<UInt8>?
     private var filterOutput: UnsafeMutablePointer<UInt8>?
 
-    private var bitLengthTable: RAR5HuffmanTable { solidState.bitLengthTable }
-    private var codeLengths: UnsafeMutablePointer<UInt8> { solidState.codeLengths }
-    private var bitCodeLengths: UnsafeMutablePointer<UInt8> { solidState.bitCodeLengths }
+    // block の入力は同期 batch の終了まで decoder が保持する。worker は固有の表と
+    // token 領域だけを書き、window・repeat distance・filter には触れない。
+    private final class TokenBlock: @unchecked Sendable {
+        let start: Int
+        let payload: Int
+        let end: Int
+        let bitLimit: Int
+        let capacity: Int
+        let bytes: UnsafeMutableRawPointer
+        // 8 byte 境界の record。tag 0 は byte 数と後続の literal run、
+        // tag 1/2 は bit 32〜47 の長さと下位 32 bit の距離 / repeat index。
+        // tag 3 は直前の match の再使用。run の末尾だけ 8 byte へ切り上げる。
+        var used = 0
+        var valid = false
 
+        init?(input: UnsafePointer<UInt8>, count: Int, start: Int, budget: Int) {
+            guard start < count, count - start >= 3 else { return nil }
+            let flags = input[start]
+            guard flags & 0x80 != 0 else { return nil }
+            let sizeBytes = Int((flags >> 3) & 3) + 1
+            guard sizeBytes <= 3, count - start >= 2 + sizeBytes else { return nil }
+            var checksum: UInt8 = 0x5a ^ flags
+            var size = 0
+            for i in 0..<sizeBytes {
+                checksum ^= input[start + 2 + i]
+                size |= Int(input[start + 2 + i]) << (i * 8)
+            }
+            let payload = start + 2 + sizeBytes
+            guard checksum == input[start + 1], size > 0, size <= count - payload else { return nil }
+            let capacity = min(4 * 1_024 * 1_024, max(64 * 1_024, size * 16))
+            guard capacity <= budget, let bytes = malloc(capacity) else { return nil }
+            self.start = start
+            self.payload = payload
+            self.end = payload + size
+            self.bitLimit = size * 8 - (7 - Int(flags & 7))
+            self.capacity = capacity
+            self.bytes = bytes
+        }
+
+        deinit { free(bytes) }
+
+        func decode(input: UnsafePointer<UInt8>, state: SolidState) {
+            var bits = RAR5RawBitReader(pointer: input.advanced(by: payload), bitLimit: bitLimit)
+            do { try RAR5Decoder.readTables(from: &bits, state: state) }
+            catch { return }
+            var cursor = 0
+            var literalHeader = 0
+            var literals = 0
+            while !bits.isAtEnd {
+                guard let symbol = state.mainTable.decode(from: &bits) else { return }
+                if symbol < 256 {
+                    if literals == 0 {
+                        guard cursor <= capacity - 16 else { return }
+                        literalHeader = cursor
+                        cursor += 8
+                    }
+                    guard cursor < capacity - 8 else { return }
+                    bytes.storeBytes(of: UInt8(truncatingIfNeeded: symbol), toByteOffset: cursor, as: UInt8.self)
+                    cursor += 1
+                    literals += 1
+                    continue
+                }
+                if literals > 0 {
+                    bytes.storeBytes(of: UInt64(literals), toByteOffset: literalHeader, as: UInt64.self)
+                    cursor = (cursor + 7) & ~7
+                    literals = 0
+                }
+                guard cursor <= capacity - 8 else { return }
+                let token: UInt64
+                switch symbol {
+                case 257:
+                    token = 3 << 56
+                case 258...261:
+                    guard let slot = state.repeatLengthTable.decode(from: &bits),
+                          let length = RAR5Decoder.decodeLengthSlot(slot, bits: &bits) else { return }
+                    token = (2 << 56) | (UInt64(length) << 32) | UInt64(symbol - 258)
+                case 262..<RAR5Decoder.mainSymbolCount:
+                    guard var length = RAR5Decoder.decodeLengthSlot(symbol - 262, bits: &bits),
+                          let slot = state.distanceTable.decode(from: &bits),
+                          let distance = RAR5Decoder.decodeDistance(
+                            slot: slot, bits: &bits, lowDistanceTable: state.lowDistanceTable
+                          ) else { return }
+                    guard distance <= Int(UInt32.max) else { return }
+                    if distance > 0x100 { length += 1 }
+                    if distance > 0x2_000 { length += 1 }
+                    if distance > 0x4_0000 { length += 1 }
+                    token = (1 << 56) | (UInt64(length) << 32) | UInt64(distance)
+                default:
+                    // filter と不正な符号は元の loop で同じ位置・順序で検査する。
+                    return
+                }
+                bytes.storeBytes(of: token, toByteOffset: cursor, as: UInt64.self)
+                cursor += 8
+            }
+            if literals > 0 {
+                bytes.storeBytes(of: UInt64(literals), toByteOffset: literalHeader, as: UInt64.self)
+                cursor = (cursor + 7) & ~7
+            }
+            used = cursor
+            valid = true
+        }
+    }
+
+    private final class BlockPipeline {
+        // batch は最大 2 MiB の圧縮入力、token と表は合わせて最大 32 MiB。
+        private final class Batch: @unchecked Sendable {
+            let input: UnsafePointer<UInt8>
+            let blocks: [TokenBlock]
+            let workers: Int
+            let condition = NSCondition()
+            var remaining: Int
+
+            init(input: UnsafePointer<UInt8>, blocks: [TokenBlock], workers: Int) {
+                self.input = input; self.blocks = blocks; self.workers = workers
+                remaining = workers
+            }
+
+            func run(_ worker: Int) {
+                if let state = try? SolidState(dictionarySize: UInt64(minimumDictionarySize)) {
+                    for i in stride(from: worker, to: blocks.count, by: workers) {
+                        blocks[i].decode(input: input, state: state)
+                    }
+                }
+                condition.withLock {
+                    remaining -= 1
+                    condition.broadcast()
+                }
+            }
+        }
+
+        let input: UnsafePointer<UInt8>
+        let count: Int
+        let workers: Int
+        let budget: Int
+        var blocks: [TokenBlock] = []
+        var index = 0
+
+        init(input: UnsafePointer<UInt8>, count: Int, workers: Int, budget: Int) {
+            self.input = input; self.count = count
+            self.workers = min(workers, LeafDecodePool.shared.capacity)
+            self.budget = budget
+        }
+
+        func tokens(at start: Int) -> TokenBlock? {
+            if index > 0, blocks[index - 1].start == start {
+                return blocks[index - 1].valid ? blocks[index - 1] : nil
+            }
+            if index < blocks.count, blocks[index].start == start {
+                let block = blocks[index]
+                index += 1
+                return block.valid ? block : nil
+            }
+            blocks.removeAll(keepingCapacity: true)
+            index = 0
+            var offset = start
+            // 各 worker の小辞書と表を token とは別に先に予算へ計上する。
+            var available = budget - workers * (minimumDictionarySize + ScratchPool.stateOverheadBytes)
+            while blocks.count < workers * 8, offset - start < 2 * 1_024 * 1_024,
+                  let block = TokenBlock(input: input, count: count, start: offset, budget: available) {
+                guard block.end - start <= 2 * 1_024 * 1_024 else { break }
+                blocks.append(block)
+                available -= block.capacity
+                offset = block.end
+                if input[block.start] & 0x40 != 0 { break }
+            }
+            guard blocks.count >= 2 else { blocks.removeAll(); return nil }
+            let jobs = min(workers, blocks.count)
+            let batch = Batch(input: input, blocks: blocks, workers: jobs)
+            let group = LeafDecodePool.Group()
+            var tickets: [LeafDecodePool.Ticket] = []
+            for worker in 1..<jobs {
+                tickets.append(LeafDecodePool.shared.submit(group: group) { batch.run(worker) })
+            }
+            batch.run(0)
+            // consumer が未開始の葉を実行できるので、外側の先行復号からでも待ち合わない。
+            for ticket in tickets { _ = LeafDecodePool.shared.runInline(ticket) }
+            batch.condition.lock()
+            while batch.remaining > 0 { batch.condition.wait() }
+            batch.condition.unlock()
+            index = 1
+            return blocks[0].valid ? blocks[0] : nil
+        }
+    }
+
+    private var blockPipeline: BlockPipeline?
+    private var activeBlockOffset = 0
+    private var tokenOffset = 0
+    private var literalRemaining = 0
+    private var literalOffset = 0
     private var nextBlockOffset = 0
     private var bits: RAR5RawBitReader?
     private var currentBlockIsLast = false
@@ -302,7 +487,8 @@ final class RAR5Decoder: Decompressor {
         limits: ReadLimits,
         solidState suppliedSolidState: SolidState? = nil,
         scratchPool: ScratchPool? = nil,
-        independentState: SolidState? = nil
+        independentState: SolidState? = nil,
+        decodeThreads: Int = 1
     ) throws {
         if let expectedSize {
             try Checked.size(expectedSize, limit: limits.maxEntrySize)
@@ -412,6 +598,17 @@ final class RAR5Decoder: Decompressor {
                 finished = true
             } else {
                 try readNextBlock()
+                if decodeThreads > 1, inputCount >= 64 * 1_024 {
+                    let budget = limits.resolvedParallelDecodeMemory()
+                    // 再利用した入力は今回の size より大きいことがある。
+                    let resident = state.windowSize + state.inputCapacity + (ownsInput ? allocationCount : 0)
+                    if budget > resident {
+                        blockPipeline = BlockPipeline(
+                            input: UnsafePointer(input), count: inputCount,
+                            workers: decodeThreads, budget: min(32 * 1_024 * 1_024, budget - resident)
+                        )
+                    }
+                }
             }
         } catch {
             // All stored properties have been initialized at this point, so a
@@ -625,6 +822,32 @@ final class RAR5Decoder: Decompressor {
     /// until the caller buffer is full, and every token-boundary check (output
     /// size, filter boundary, block transition) happens at the same symbol.
     private func decodeRaw(
+        into output: UnsafeMutablePointer<UInt8>, capacity: Int, stopAtFilter: Bool,
+        window: UnsafeMutablePointer<UInt8>, windowMask: Int,
+        windowPosition: inout Int, historySize: inout Int, produced: inout UInt64
+    ) -> Int {
+        while let pipeline = blockPipeline, capacity > 0, !rawFinished, failure == nil {
+            guard let tokens = pipeline.tokens(at: activeBlockOffset) else {
+                blockPipeline = nil
+                break
+            }
+            let count = applyTokens(
+                into: output, capacity: capacity, tokens: tokens, stopAtFilter: stopAtFilter,
+                window: window, windowMask: windowMask, windowPosition: &windowPosition,
+                historySize: &historySize, produced: &produced
+            )
+            if count > 0 || rawFinished || failure != nil { return count }
+            if stopAtFilter, nextFilterIndex < scheduledFilters.count,
+               scheduledFilters[nextFilterIndex].start == produced { return 0 }
+        }
+        return decodeRawSerial(
+            into: output, capacity: capacity, stopAtFilter: stopAtFilter,
+            window: window, windowMask: windowMask, windowPosition: &windowPosition,
+            historySize: &historySize, produced: &produced
+        )
+    }
+
+    private func decodeRawSerial(
         into output: UnsafeMutablePointer<UInt8>,
         capacity requestedCapacity: Int,
         stopAtFilter: Bool,
@@ -881,6 +1104,214 @@ final class RAR5Decoder: Decompressor {
         return written
     }
 
+    private func applyTokens(
+        into output: UnsafeMutablePointer<UInt8>,
+        capacity requestedCapacity: Int,
+        tokens: TokenBlock,
+        stopAtFilter: Bool,
+        window: UnsafeMutablePointer<UInt8>,
+        windowMask: Int,
+        windowPosition: inout Int,
+        historySize: inout Int,
+        produced: inout UInt64
+    ) -> Int {
+        guard requestedCapacity > 0, !rawFinished, failure == nil else { return 0 }
+        let windowSize = windowMask &+ 1
+        let capacity = min(requestedCapacity, windowSize)
+        var written = 0
+        var failure: DecodeFailure?
+        var pendingLength = self.pendingLength
+        var pendingDistance = self.pendingDistance
+        var rawFinished = self.rawFinished
+        var oldDistance0 = solidState.oldDistance0
+        var oldDistance1 = solidState.oldDistance1
+        var oldDistance2 = solidState.oldDistance2
+        var oldDistance3 = solidState.oldDistance3
+        var lastLength = solidState.lastLength
+        var position = windowPosition
+        var history = historySize
+        var remainingOutput: UInt64 = expectedSize.map { $0 &- min(produced, $0) }
+            ?? (UInt64.max &- produced)
+        let distanceLimit = matchDistanceLimit
+        let filterStart: UInt64?
+        if stopAtFilter, nextFilterIndex < scheduledFilters.count {
+            filterStart = scheduledFilters[nextFilterIndex].start
+        } else { filterStart = nil }
+
+        symbols: while written < capacity, !rawFinished {
+            var available = capacity &- written
+            if let filterStart {
+                guard filterStart >= produced else {
+                    failure = .filterBoundaryPassed
+                    break
+                }
+                if filterStart == produced { break }
+                available = min(available, Int(min(filterStart &- produced, UInt64(Int.max))))
+            }
+
+            if pendingLength > 0 {
+                let amount = min(pendingLength, available)
+                Self.copyMatch(
+                    window: window, windowMask: windowMask, position: &position,
+                    historySize: history, distance: pendingDistance, count: amount
+                )
+                history = min(windowSize, history &+ amount)
+                produced &+= UInt64(amount)
+                remainingOutput &-= UInt64(amount)
+                pendingLength &-= amount
+                written &+= amount
+                continue
+            }
+
+            if literalRemaining > 0 {
+                guard remainingOutput >= 1 else {
+                    failure = .outputSizeExceeded
+                    break
+                }
+                let count = min(literalRemaining, available, Int(min(remainingOutput, UInt64(Int.max))))
+                let first = min(count, windowSize - position)
+                let source = tokens.bytes.advanced(by: literalOffset).assumingMemoryBound(to: UInt8.self)
+                window.advanced(by: position).update(from: source, count: first)
+                if first < count { window.update(from: source.advanced(by: first), count: count - first) }
+                position = (position + count) & windowMask
+                history = min(windowSize, history + count)
+                produced += UInt64(count)
+                remainingOutput -= UInt64(count)
+                written += count
+                literalOffset += count
+                literalRemaining -= count
+                continue
+            }
+            if tokenOffset == tokens.used {
+                if currentBlockIsLast {
+                    if let expectedSize, produced != expectedSize { failure = .truncated }
+                    else { rawFinished = true }
+                } else {
+                    do { try readNextBlock() }
+                    catch let error as KaitoError { boundaryError = error; failure = .boundary }
+                    catch { failure = .blockTransitionFailed }
+                }
+                break
+            }
+            let token = tokens.bytes.load(fromByteOffset: tokenOffset, as: UInt64.self)
+            tokenOffset += 8
+            let tag = Int(token >> 56)
+            if tag == 0 {
+                literalRemaining = Int(token & 0xffff_ffff)
+                literalOffset = tokenOffset
+                tokenOffset += (literalRemaining + 7) & ~7
+                continue
+            }
+            let symbol = tag == 1 ? 262 : (tag == 2 ? 258 + Int(token & 3) : 257)
+
+            let distance: Int
+            let length: Int
+            switch symbol {
+            case 257:
+                guard lastLength > 0,
+                      Self.isValidMatch(
+                        distance: oldDistance0, length: lastLength, distanceLimit: distanceLimit,
+                        historySize: history, remainingOutput: remainingOutput
+                      ) else {
+                    failure = .invalidLastMatch
+                    break symbols
+                }
+                distance = oldDistance0
+                length = lastLength
+
+            case 258...261:
+                let repeated: Int
+                switch symbol &- 258 {
+                case 0:
+                    repeated = oldDistance0
+                case 1:
+                    repeated = oldDistance1
+                    oldDistance1 = oldDistance0
+                case 2:
+                    repeated = oldDistance2
+                    oldDistance2 = oldDistance1
+                    oldDistance1 = oldDistance0
+                default:
+                    repeated = oldDistance3
+                    oldDistance3 = oldDistance2
+                    oldDistance2 = oldDistance1
+                    oldDistance1 = oldDistance0
+                }
+                oldDistance0 = repeated
+                let repeatedLength = Int((token >> 32) & 0xffff)
+                guard Self.isValidMatch(
+                    distance: repeated, length: repeatedLength, distanceLimit: distanceLimit,
+                    historySize: history, remainingOutput: remainingOutput
+                ) else {
+                    failure = .invalidRepeatMatch
+                    break symbols
+                }
+                lastLength = repeatedLength
+                distance = repeated
+                length = repeatedLength
+
+            case 262..<Self.mainSymbolCount:
+                let matchLength = Int((token >> 32) & 0xffff)
+                let matchDistance = Int(token & 0xffff_ffff)
+                guard Self.isValidMatch(
+                    distance: matchDistance, length: matchLength, distanceLimit: distanceLimit,
+                    historySize: history, remainingOutput: remainingOutput
+                ) else {
+                    failedMatch = (produced, matchDistance, matchLength)
+                    failure = .invalidMatch
+                    break symbols
+                }
+                oldDistance3 = oldDistance2
+                oldDistance2 = oldDistance1
+                oldDistance1 = oldDistance0
+                oldDistance0 = matchDistance
+                lastLength = matchLength
+                distance = matchDistance
+                length = matchLength
+
+            default:
+                failure = .invalidMainSymbol
+                break symbols
+            }
+
+            let amount = min(length, available)
+            Self.copyMatch(
+                window: window, windowMask: windowMask, position: &position,
+                historySize: history, distance: distance, count: amount
+            )
+            history = min(windowSize, history &+ amount)
+            produced &+= UInt64(amount)
+            remainingOutput &-= UInt64(amount)
+            written &+= amount
+            if amount < length {
+                pendingLength = length &- amount
+                pendingDistance = distance
+            }
+        }
+
+        self.failure = failure
+        self.pendingLength = pendingLength
+        self.pendingDistance = pendingDistance
+        self.rawFinished = rawFinished
+        solidState.oldDistance0 = oldDistance0
+        solidState.oldDistance1 = oldDistance1
+        solidState.oldDistance2 = oldDistance2
+        solidState.oldDistance3 = oldDistance3
+        solidState.lastLength = lastLength
+        windowPosition = position
+        historySize = history
+
+        if written > 0 {
+            let start = (position &- written) & windowMask
+            let first = min(written, windowSize &- start)
+            output.update(from: window.advanced(by: start), count: first)
+            if first < written {
+                output.advanced(by: first).update(from: window, count: written &- first)
+            }
+        }
+        return written
+    }
+
     private func readFilter(
         from bits: inout RAR5RawBitReader,
         produced: UInt64,
@@ -1010,6 +1441,9 @@ final class RAR5Decoder: Decompressor {
     private func readNextBlock() throws {
         guard nextBlockOffset < inputCount else { throw KaitoError.truncated }
         let start = nextBlockOffset
+        activeBlockOffset = start
+        tokenOffset = 0
+        literalRemaining = 0
         guard inputCount - start >= 3 else { throw KaitoError.truncated }
         let flags = input[start]
         let recordedChecksum = input[start + 1]
@@ -1049,7 +1483,7 @@ final class RAR5Decoder: Decompressor {
         currentBlockIsLast = flags & 0x40 != 0
         nextBlockOffset = end
         if flags & 0x80 != 0 {
-            try readTables(from: &reader)
+            try Self.readTables(from: &reader, state: solidState)
             solidState.tablesWereRead = true
         } else if !solidState.tablesWereRead {
             throw KaitoError.malformed("RAR5 first compressed block has no Huffman tables")
@@ -1057,7 +1491,10 @@ final class RAR5Decoder: Decompressor {
         bits = reader
     }
 
-    private func readTables(from bits: inout RAR5RawBitReader) throws {
+    private static func readTables(from bits: inout RAR5RawBitReader, state: SolidState) throws {
+        let bitLengthTable = state.bitLengthTable
+        let bitCodeLengths = state.bitCodeLengths
+        let codeLengths = state.codeLengths
         // RAR5 table descriptions are self-contained. A block without the
         // table flag reuses the last tables, but a present description does
         // not delta its lengths against the preceding block.
@@ -1131,7 +1568,7 @@ final class RAR5Decoder: Decompressor {
             }
         }
 
-        try solidState.mainTable.build(
+        try state.mainTable.build(
             lengths: UnsafePointer(codeLengths),
             count: Self.mainSymbolCount,
             // RAR emits a table-only final block for a valid method-5 empty
@@ -1139,19 +1576,19 @@ final class RAR5Decoder: Decompressor {
             // attempted symbol decode still fails closed in `decodeRaw`.
             requireSymbol: false
         )
-        try solidState.distanceTable.build(
+        try state.distanceTable.build(
             lengths: UnsafePointer(codeLengths.advanced(by: Self.mainSymbolCount)),
             count: Self.distanceSymbolCount,
             requireSymbol: false
         )
-        try solidState.lowDistanceTable.build(
+        try state.lowDistanceTable.build(
             lengths: UnsafePointer(codeLengths.advanced(
                 by: Self.mainSymbolCount + Self.distanceSymbolCount
             )),
             count: Self.lowDistanceSymbolCount,
             requireSymbol: false
         )
-        try solidState.repeatLengthTable.build(
+        try state.repeatLengthTable.build(
             lengths: UnsafePointer(codeLengths.advanced(
                 by: Self.mainSymbolCount
                     + Self.distanceSymbolCount

@@ -1,0 +1,260 @@
+[
+  {
+    "archive": "archives/r0-rgb.rar",
+    "label": "before",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-before",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-rgb.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t49206\t64db9031805ea13fcbde277b614aedb5b00036b18931fb47c9fb40b76a737dae\tpage.bmp\ntotal\t1\t17407acf57809b7f2df90daf3326ddf2846dcf69677dd0f0fdd1f2104aef83cb\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-rgb.rar",
+    "label": "after",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-after",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-rgb.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t49206\t64db9031805ea13fcbde277b614aedb5b00036b18931fb47c9fb40b76a737dae\tpage.bmp\ntotal\t1\t17407acf57809b7f2df90daf3326ddf2846dcf69677dd0f0fdd1f2104aef83cb\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-rgb.rar",
+    "label": "unrar",
+    "entry": "page.bmp",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-rgb.rar",
+      "page.bmp"
+    ],
+    "exit": 0,
+    "bytes": 49206,
+    "sha256": "64db9031805ea13fcbde277b614aedb5b00036b18931fb47c9fb40b76a737dae",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-delta.rar",
+    "label": "before",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-before",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-delta.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t32812\t1115d620efe1f5c70a7b8f7640147e658ae67c3ef49112b58846907de7405da1\tstereo.wav\ntotal\t1\t1d7bbcb6a42d58200343871e41ab058b6672ba97c68d48498ef98c3092c93e0e\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-delta.rar",
+    "label": "after",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-after",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-delta.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t32812\t1115d620efe1f5c70a7b8f7640147e658ae67c3ef49112b58846907de7405da1\tstereo.wav\ntotal\t1\t1d7bbcb6a42d58200343871e41ab058b6672ba97c68d48498ef98c3092c93e0e\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-delta.rar",
+    "label": "unrar",
+    "entry": "stereo.wav",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-delta.rar",
+      "stereo.wav"
+    ],
+    "exit": 0,
+    "bytes": 32812,
+    "sha256": "1115d620efe1f5c70a7b8f7640147e658ae67c3ef49112b58846907de7405da1",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-e8.rar",
+    "label": "before",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-before",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-e8.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t49152\t03468e356f076c2868cf9028666995e1552656f05455ee8448d6670fb61681a9\tcode.bin\ntotal\t1\teb34385ef2745f7ee0b7c64e7a3e663d5e78a10d7411e2421ec99f13daa4dd5a\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-e8.rar",
+    "label": "after",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-after",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-e8.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t49152\t03468e356f076c2868cf9028666995e1552656f05455ee8448d6670fb61681a9\tcode.bin\ntotal\t1\teb34385ef2745f7ee0b7c64e7a3e663d5e78a10d7411e2421ec99f13daa4dd5a\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-e8.rar",
+    "label": "unrar",
+    "entry": "code.bin",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-e8.rar",
+      "code.bin"
+    ],
+    "exit": 0,
+    "bytes": 49152,
+    "sha256": "03468e356f076c2868cf9028666995e1552656f05455ee8448d6670fb61681a9",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-audio.rar",
+    "label": "before",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-before",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-audio.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t32812\t1115d620efe1f5c70a7b8f7640147e658ae67c3ef49112b58846907de7405da1\tstereo.wav\ntotal\t1\t1d7bbcb6a42d58200343871e41ab058b6672ba97c68d48498ef98c3092c93e0e\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-audio.rar",
+    "label": "after",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-after",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-audio.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t32812\t1115d620efe1f5c70a7b8f7640147e658ae67c3ef49112b58846907de7405da1\tstereo.wav\ntotal\t1\t1d7bbcb6a42d58200343871e41ab058b6672ba97c68d48498ef98c3092c93e0e\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-audio.rar",
+    "label": "unrar",
+    "entry": "stereo.wav",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-audio.rar",
+      "stereo.wav"
+    ],
+    "exit": 0,
+    "bytes": 32812,
+    "sha256": "1115d620efe1f5c70a7b8f7640147e658ae67c3ef49112b58846907de7405da1",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-ppmd-solid.rar",
+    "label": "before",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-before",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-ppmd-solid.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t23064\tf44e627bb8aab1a8135127cbf8b1285bb82a607c246acc3650d71018adc06129\ttext-0.txt\n1\t23064\tcd3a4942a7a55b4e1684c0396bfb590e47a8a554aff139b0acb3ee801e4903d6\ttext-1.txt\ntotal\t2\t0b643262685aa3acef916d191c9315a28b78ac8b018bd4f0cd30bf4a1f984cdb\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-ppmd-solid.rar",
+    "label": "after",
+    "command": [
+      "/tmp/kaitokit-r3/kaito-after",
+      "sha",
+      "--threads",
+      "1",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-ppmd-solid.rar"
+    ],
+    "exit": 0,
+    "stdout": "0\t23064\tf44e627bb8aab1a8135127cbf8b1285bb82a607c246acc3650d71018adc06129\ttext-0.txt\n1\t23064\tcd3a4942a7a55b4e1684c0396bfb590e47a8a554aff139b0acb3ee801e4903d6\ttext-1.txt\ntotal\t2\t0b643262685aa3acef916d191c9315a28b78ac8b018bd4f0cd30bf4a1f984cdb\t\n",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-ppmd-solid.rar",
+    "label": "unrar",
+    "entry": "text-0.txt",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-ppmd-solid.rar",
+      "text-0.txt"
+    ],
+    "exit": 0,
+    "bytes": 23064,
+    "sha256": "f44e627bb8aab1a8135127cbf8b1285bb82a607c246acc3650d71018adc06129",
+    "stderr": "",
+    "matched": true
+  },
+  {
+    "archive": "archives/r0-ppmd-solid.rar",
+    "label": "unrar",
+    "entry": "text-1.txt",
+    "command": [
+      "/opt/homebrew/bin/unrar",
+      "p",
+      "-inul",
+      "-p-",
+      "/tmp/kaitokit-r3/fixtures/archives/r0-ppmd-solid.rar",
+      "text-1.txt"
+    ],
+    "exit": 0,
+    "bytes": 23064,
+    "sha256": "cd3a4942a7a55b4e1684c0396bfb590e47a8a554aff139b0acb3ee801e4903d6",
+    "stderr": "",
+    "matched": true
+  }
+]

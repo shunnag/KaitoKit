@@ -1,0 +1,1591 @@
+// Frozen KaitoKit HEAD 078ca2bf093aa0a1878d4ee236f49580dc585516.
+// Only names/imports and the shared filter-program type alias differ; mutation oracle for R3.
+import Darwin
+import Foundation
+@testable import KaitoKit
+
+// Provenance:
+// - RAR 1.5-4.x unofficial format notes, especially sections 18-20:
+//   https://github.com/bitplane/rar-research/blob/master/doc/RAR15_40_FORMAT_SPECIFICATION.md
+// - libarchive's BSD-2-licensed archive_read_support_format_rar.c was consulted
+//   for behaviour (block/table transitions, match state, and validation), not
+//   for code or structure:
+//   https://github.com/libarchive/libarchive/blob/master/libarchive/archive_read_support_format_rar.c
+// - Buffer reuse, retained windows and partial Huffman initialization follow
+//   KaitoKit's own RAR5 decoder patterns.
+// - Prefetch memory accounting follows the allocations in this decoder and
+//   KaitoKit's own RAR5 independent-member scheduler.
+// - Prefetch-only PPMd rejection follows this decoder's block transitions and
+//   model allocation boundary; the serial PPMd path remains enabled by default.
+// No 7-Zip Rar29, unrar source, XADMaster, or The Unarchiver source was used.
+
+/// RAR 2.9/3.x LZ decoder.
+///
+/// This implementation accepts `UNP_VER == 29` streams. LZ and PPMd-H blocks,
+/// their in-stream transitions, native standard RARVM filters, PPMd's embedded
+/// LZ matches, and reader-coordinated solid continuation are supported. Custom
+/// VM programs are rejected at the exact feature that introduces them, so
+/// unsupported data can never be confused with successfully decoded output.
+///
+/// `R3BaselineRAR29` names the unpack version (`UNP_VER == 29`) shared by RAR 2.9, 3.x
+/// and 4.x archives, which `RAR4Reader` and the error messages call RAR4.
+/// Messages prefixed `RAR3` concern the RARVM filter subsystem introduced in
+/// RAR 3.0.
+///
+/// A failure is latched: after `read(into:)` throws, every later read into a
+/// non-empty buffer throws the same error and `isFinished` stays false.
+///
+/// Performance invariants:
+/// - compressed input, the power-of-two window, and Huffman lookup tables are
+///   once-allocated raw buffers;
+/// - the compressed input has eight zero sentinel bytes, so a bounded 40-bit
+///   peek cannot physically overread even when logical input is truncated;
+/// - the per-symbol loop keeps bit position, window position, repeat distances,
+///   and pending-match state in local variables, writing them back once;
+/// - logical input exhaustion is checked on every symbol-loop iteration, while
+///   match bounds are checked at token boundaries; failures are thrown after
+///   leaving the hot loop;
+/// - matches stage one period in caller output before doubling repetitions
+///   and mirroring into the ring; only very short matches use byte copying.
+final class R3BaselineRAR29Decoder: Decompressor {
+    /// Internal control flow for speculative decoding, never a serial error.
+    enum PrefetchError: Error, Equatable {
+        case ppmdNotAllowed
+    }
+
+    // Test hook: observed immediately before a PPMd model is constructed.
+    @TaskLocal static var testingPPMdModelConstruction: (@Sendable () -> Void)?
+
+    private static let mainSymbolCount = 299
+    private static let distanceSymbolCount = 60
+    private static let lowDistanceSymbolCount = 17
+    private static let lengthSymbolCount = 28
+    private static let combinedLengthCount = 404
+    static let sentinelByteCount = 8
+    /// Four retained Huffman tables, the level table, and their code lengths.
+    static let huffmanTableBytes = 5 * R3BaselineRAR29HuffmanTable.storageBytes + combinedLengthCount + 20
+    /// PPMd-H block headers store the model size in MiB, biased by one.
+    private static let ppmdMemoryUnit: UInt64 = 1_024 * 1_024
+
+    private static let lengthBases = R3BaselineRAR29IntegerTable([
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20,
+        24, 28, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224,
+    ])
+    private static let lengthBits = R3BaselineRAR29IntegerTable([
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2,
+        2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5,
+    ])
+    private static let distanceBases = R3BaselineRAR29IntegerTable([
+        0, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48,
+        64, 96, 128, 192, 256, 384, 512, 768, 1_024, 1_536,
+        2_048, 3_072, 4_096, 6_144, 8_192, 12_288, 16_384, 24_576,
+        32_768, 49_152, 65_536, 98_304, 131_072, 196_608,
+        262_144, 327_680, 393_216, 458_752, 524_288, 589_824,
+        655_360, 720_896, 786_432, 851_968, 917_504, 983_040,
+        1_048_576, 1_310_720, 1_572_864, 1_835_008, 2_097_152, 2_359_296,
+        2_621_440, 2_883_584, 3_145_728, 3_407_872, 3_670_016, 3_932_160,
+    ])
+    private static let distanceBits = R3BaselineRAR29IntegerTable([
+        0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4,
+        5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10,
+        11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16,
+        16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+        18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18,
+    ])
+    private static let shortBases = R3BaselineRAR29IntegerTable([0, 4, 8, 16, 32, 64, 128, 192])
+    private static let shortBits = R3BaselineRAR29IntegerTable([2, 2, 3, 4, 5, 6, 6, 6])
+
+    private enum DecodeFailure {
+        case truncated
+        case malformed(String)
+        case unsupported(String)
+        case limitExceeded(String)
+        case ppmdNotAllowed
+    }
+
+    private enum BlockMode {
+        case lz
+        case ppmd
+    }
+
+    private enum PPMdToken {
+        case literal(UInt8)
+        case match(distance: Int, length: Int)
+        case filter(ScheduledFilter)
+        case endBlock
+        case endFile
+    }
+
+    /// One entry of the solid RARVM program table (see `RAR3FilterToken`).
+    typealias StoredFilterProgram = RAR29Decoder.StoredFilterProgram
+
+    private struct ScheduledFilter {
+        let start: UInt64
+        let length: Int
+        let kind: RARStandardFilterKind
+        let registers: [UInt32]
+
+        var end: UInt64 { start + UInt64(length) }
+    }
+
+    /// Compression state carried between members of one RAR3 solid group.
+    /// Packed bytes, range/bit cursors, output counters, pending matches and
+    /// scheduled filter ranges remain owned by each file decoder.  A reader
+    /// coordinator hands this object to only one live decoder at a time.
+    final class SolidState {
+        let window: UnsafeMutablePointer<UInt8>
+        let windowSize: Int
+        let windowMask: Int
+
+        fileprivate let mainTable = R3BaselineRAR29HuffmanTable()
+        fileprivate let distanceTable = R3BaselineRAR29HuffmanTable()
+        fileprivate let lowDistanceTable = R3BaselineRAR29HuffmanTable()
+        fileprivate let lengthTable = R3BaselineRAR29HuffmanTable()
+        fileprivate var previousLengths = [UInt8](
+            repeating: 0,
+            count: R3BaselineRAR29Decoder.combinedLengthCount
+        )
+
+        fileprivate var windowPosition = 0
+        fileprivate var historySize = 0
+        fileprivate var oldOffset0 = 0
+        fileprivate var oldOffset1 = 0
+        fileprivate var oldOffset2 = 0
+        fileprivate var oldOffset3 = 0
+        fileprivate var lastOffset = 0
+        fileprivate var lastLength = 0
+        fileprivate var lastLowOffset = 0
+        fileprivate var lowOffsetRepeatCount = 0
+        fileprivate var filterPrograms: [StoredFilterProgram] = []
+        fileprivate var lastFilterProgram = 0
+        fileprivate var ppmdModel: PPMd7Model?
+        fileprivate var ppmdEscape: UInt8 = 2
+        fileprivate var tablesWereRead = false
+        fileprivate var nextFileRequiresTables = true
+        fileprivate var continuationReady = false
+
+        init(dictionarySize: UInt64) throws {
+            let size = try Checked.toInt(dictionarySize)
+            guard size > 0, size.nonzeroBitCount == 1 else {
+                throw KaitoError.malformed("RAR4 dictionary is not a power of two")
+            }
+            guard let raw = malloc(size) else {
+                throw KaitoError.limitExceeded("unable to allocate RAR4 dictionary")
+            }
+            window = raw.bindMemory(to: UInt8.self, capacity: size)
+            windowSize = size
+            windowMask = size - 1
+            // historySize starts at zero. Both LZ and PPMd matches require
+            // distance <= historySize before reading; literals and completed
+            // matches initialize exactly the history they add. Solid members
+            // retain that history and never resize this ring. Filters read
+            // separately captured bytes, not unused dictionary storage. The
+            // bounded match copier never reads past a period or ring end, so
+            // the window needs neither a zero fill nor a sentinel tail.
+        }
+
+        deinit {
+            free(UnsafeMutableRawPointer(window))
+        }
+    }
+
+    private let input: UnsafeMutablePointer<UInt8>
+    private let inputCount: Int
+    private let solidState: SolidState
+    private let expectedSize: UInt64
+    private let declaredDictionarySize: Int
+    private let maximumFilterCount: Int
+    private let maximumPPMdMemorySize: UInt64
+    private let allowsPPMd: Bool
+
+    private let levelTable = R3BaselineRAR29HuffmanTable()
+
+    private var bitOffset = 0
+    private var produced: UInt64 = 0
+    private var emitted: UInt64 = 0
+    private var pendingDistance = 0
+    private var pendingLength = 0
+    private var scheduledFilters: [ScheduledFilter] = []
+    private var nextFilterIndex = 0
+    private var filterInput: UnsafeMutablePointer<UInt8>?
+    private var filterOutput: UnsafeMutablePointer<UInt8>?
+    private var filterFillCount = 0
+    private var filterCaptureStart: UInt64?
+    private var filteredOutputCount = 0
+    private var filteredOutputIndex = 0
+    private var blockMode: BlockMode = .lz
+    private var ppmdRangeDecoder: R3BaselineRARPPMdRangeDecoder?
+    private var needsInitialTables: Bool
+    private var finished = false
+    private var terminalFailure: DecodeFailure?
+
+    var isFinished: Bool { finished && terminalFailure == nil }
+
+    init(
+        source: any ByteSource,
+        offset: UInt64,
+        compressedSize: UInt64,
+        expectedSize: UInt64,
+        unpackVersion: UInt8,
+        method: UInt8,
+        dictionarySize: UInt64,
+        isSolid: Bool,
+        limits: ReadLimits,
+        solidState suppliedSolidState: SolidState? = nil,
+        allowsPPMd: Bool = true
+    ) throws {
+        let end = try Checked.add(offset, compressedSize)
+        guard end <= source.length else { throw KaitoError.truncated }
+        try Checked.size(expectedSize, limit: limits.maxEntrySize)
+        // The decoder retains the complete packed stream in one raw buffer.
+        // Bound that attacker-controlled allocation independently of the much
+        // smaller declared output before converting it to `Int` or calling
+        // malloc, matching the RAR5 decoder's packed-input policy.
+        try Checked.size(compressedSize, limit: limits.maxEntrySize)
+        try Checked.size(dictionarySize, limit: limits.maxDictionarySize)
+        guard (0x31...0x35).contains(method) else {
+            throw KaitoError.unsupportedMethod(
+                String(format: "RAR4 method 0x%02x", method)
+            )
+        }
+        guard unpackVersion == 29 else {
+            throw KaitoError.unsupportedMethod(
+                "RAR4 unpack version \(unpackVersion)"
+            )
+        }
+        let compressedCount = try Checked.toInt(compressedSize)
+        guard compressedCount <= Int.max - Self.sentinelByteCount,
+              compressedCount <= Int.max / 8 else {
+            throw KaitoError.limitExceeded("RAR4 compressed input size")
+        }
+        let dictionaryCount = try Checked.toInt(dictionarySize)
+        guard dictionaryCount > 0,
+              dictionaryCount & (dictionaryCount - 1) == 0 else {
+            throw KaitoError.malformed("RAR4 dictionary is not a power of two")
+        }
+
+        let inputAllocationCount = compressedCount + Self.sentinelByteCount
+        guard let inputRaw = malloc(inputAllocationCount) else {
+            throw KaitoError.limitExceeded("unable to allocate RAR4 compressed input")
+        }
+
+        let state: SolidState
+        do {
+            if let suppliedSolidState {
+                guard suppliedSolidState.windowSize == dictionaryCount else {
+                    throw KaitoError.malformed(
+                        "RAR4 solid dictionary size changes within a group"
+                    )
+                }
+                if isSolid {
+                    guard suppliedSolidState.continuationReady else {
+                        throw KaitoError.malformed(
+                            "RAR4 solid continuation has no completed predecessor"
+                        )
+                    }
+                }
+                state = suppliedSolidState
+            } else {
+                guard !isSolid else {
+                    throw KaitoError.unsupportedMethod(
+                        "RAR4 solid continuation requires shared state"
+                    )
+                }
+                state = try SolidState(dictionarySize: UInt64(Self.retainedWindowSize(
+                    expectedSize: expectedSize, dictionarySize: dictionaryCount
+                )))
+            }
+        } catch {
+            free(inputRaw)
+            throw error
+        }
+
+        self.inputCount = compressedCount
+        self.expectedSize = expectedSize
+        self.declaredDictionarySize = dictionaryCount
+        self.solidState = state
+        self.maximumFilterCount = limits.maxMetadataRecordCount
+        self.maximumPPMdMemorySize = limits.maxDictionarySize
+        self.allowsPPMd = allowsPPMd
+        self.input = inputRaw.bindMemory(to: UInt8.self, capacity: inputAllocationCount)
+        self.needsInitialTables = !isSolid || state.nextFileRequiresTables
+        if isSolid { state.continuationReady = false }
+        // All packed bytes are filled before any decoder can read them.
+        // Only the bounded 40-bit peek's eight-byte sentinel needs zeroing;
+        // compressedCount + sentinelByteCount was checked above.
+        self.input.advanced(by: compressedCount).initialize(
+            repeating: 0, count: Self.sentinelByteCount
+        )
+
+        do {
+            var filled = 0
+            while filled < compressedCount {
+                let destination = UnsafeMutableRawBufferPointer(
+                    start: input.advanced(by: filled),
+                    count: compressedCount - filled
+                )
+                let count = try source.read(
+                    into: destination,
+                    at: try Checked.add(offset, UInt64(filled))
+                )
+                guard count > 0, count <= compressedCount - filled else {
+                    throw KaitoError.truncated
+                }
+                filled += count
+            }
+        } catch {
+            // Stored properties are fully initialized before this read loop,
+            // so Swift invokes `deinit` when the initializer throws.  Cleanup
+            // here as well would release the packed buffer twice.
+            throw error
+        }
+    }
+
+    deinit {
+        free(UnsafeMutableRawPointer(input))
+        if let filterInput { free(UnsafeMutableRawPointer(filterInput)) }
+        if let filterOutput { free(UnsafeMutableRawPointer(filterOutput)) }
+    }
+
+    /// Only an independent member can shrink: its complete known output fits
+    /// in this power-of-two ring. Supplied solid states retain the full group
+    /// dictionary. Starting at one also supports small synthetic dictionaries.
+    static func retainedWindowSize(expectedSize: UInt64, dictionarySize: Int) -> Int {
+        guard expectedSize < UInt64(dictionarySize) else { return dictionarySize }
+        var size = 1
+        // dictionarySize is a positive power of two representable by Int;
+        // each doubling is at most dictionarySize and cannot overflow.
+        while UInt64(size) < expectedSize { size *= 2 }
+        return size
+    }
+
+    func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+        guard !buffer.isEmpty else { return 0 }
+        if let terminalFailure {
+            throw error(for: terminalFailure)
+        }
+        guard !finished else { return 0 }
+        guard let destination = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+            return 0
+        }
+
+        var bits = R3BaselineRAR29RawBitCursor(
+            bytes: UnsafePointer(input),
+            byteCount: inputCount,
+            bitOffset: bitOffset
+        )
+        if needsInitialTables {
+            do {
+                try readTables(bits: &bits)
+                needsInitialTables = false
+            } catch let kaito as KaitoError {
+                bitOffset = bits.bitOffset
+                terminalFailure = decodeFailure(from: kaito)
+                throw kaito
+            } catch PrefetchError.ppmdNotAllowed {
+                bitOffset = bits.bitOffset
+                terminalFailure = .ppmdNotAllowed
+                throw PrefetchError.ppmdNotAllowed
+            } catch {
+                bitOffset = bits.bitOffset
+                let failure = DecodeFailure.malformed("RAR4 table build failed")
+                terminalFailure = failure
+                throw self.error(for: failure)
+            }
+        } else if blockMode == .lz && !solidState.tablesWereRead {
+            let failure = DecodeFailure.malformed(
+                "RAR4 solid continuation has no reusable Huffman tables"
+            )
+            terminalFailure = failure
+            throw error(for: failure)
+        }
+
+        // All frequently touched decoder state is local for the symbol loop.
+        let window = solidState.window
+        let windowMask = solidState.windowMask
+        let windowSize = solidState.windowSize
+        var windowPosition = solidState.windowPosition
+        var historySize = solidState.historySize
+        defer {
+            solidState.windowPosition = windowPosition
+            solidState.historySize = historySize
+        }
+        var localEmitted = emitted
+        defer { emitted = localEmitted }
+        let mainTable = solidState.mainTable
+        let distanceTable = solidState.distanceTable
+        let lowDistanceTable = solidState.lowDistanceTable
+        let lengthTable = solidState.lengthTable
+        let lengthBases = Self.lengthBases.values
+        let lengthBits = Self.lengthBits.values
+        let distanceBases = Self.distanceBases.values
+        let distanceBits = Self.distanceBits.values
+        let shortBases = Self.shortBases.values
+        let shortBits = Self.shortBits.values
+        var outputCount = 0
+        var outputPosition = produced
+        var repeat0 = solidState.oldOffset0
+        var repeat1 = solidState.oldOffset1
+        var repeat2 = solidState.oldOffset2
+        var repeat3 = solidState.oldOffset3
+        var recentOffset = solidState.lastOffset
+        var recentLength = solidState.lastLength
+        var lowOffset = solidState.lastLowOffset
+        var lowRepeats = solidState.lowOffsetRepeatCount
+        var matchDistance = pendingDistance
+        var matchRemaining = pendingLength
+        var reachedEnd = false
+        var nextFileRequiresTables = true
+        var failure: DecodeFailure?
+
+        while outputCount < buffer.count, !reachedEnd, failure == nil {
+            // Every token iteration must observe logical input exhaustion.
+            // In particular, symbol 258 is a no-op before the first match and
+            // can otherwise keep decoding zero sentinel bits indefinitely.
+            if bits.overrun {
+                failure = .truncated
+                break
+            }
+            if filteredOutputIndex < filteredOutputCount {
+                let count = min(
+                    filteredOutputCount - filteredOutputIndex,
+                    buffer.count - outputCount
+                )
+                // The ready range was fully captured/transformed. Both
+                // offsets plus count stay within that range and caller output.
+                destination.advanced(by: outputCount).update(
+                    from: filterInput!.advanced(by: filteredOutputIndex), count: count
+                )
+                filteredOutputIndex += count
+                outputCount += count
+                localEmitted += UInt64(count)
+                if filteredOutputIndex == filteredOutputCount {
+                    filteredOutputCount = 0
+                    filteredOutputIndex = 0
+                }
+                continue
+            }
+
+            if let captureStart = filterCaptureStart,
+               nextFilterIndex < scheduledFilters.count {
+                let filter = scheduledFilters[nextFilterIndex]
+                guard filter.start == captureStart,
+                      filterFillCount <= filter.length else {
+                    failure = .malformed("RAR3 filter capture state is inconsistent")
+                    break
+                }
+                if filterFillCount == filter.length {
+                    do {
+                        try prepareCapturedFilters(start: captureStart)
+                    } catch let kaito as KaitoError {
+                        failure = decodeFailure(from: kaito)
+                    } catch {
+                        failure = .malformed("RAR3 standard filter failed")
+                    }
+                    continue
+                }
+            }
+
+            if filterCaptureStart == nil,
+               nextFilterIndex < scheduledFilters.count {
+                let filter = scheduledFilters[nextFilterIndex]
+                guard outputPosition <= filter.start else {
+                    failure = .malformed("RAR3 filter starts behind raw output")
+                    break
+                }
+                if outputPosition == filter.start {
+                    guard localEmitted == filter.start else {
+                        failure = .malformed("RAR3 raw and emitted positions diverged")
+                        break
+                    }
+                    do {
+                        try ensureFilterBuffers()
+                    } catch {
+                        failure = .limitExceeded("unable to allocate RAR4 filter buffers")
+                        break
+                    }
+                    filterCaptureStart = filter.start
+                    filterFillCount = 0
+                    continue
+                }
+            }
+
+            if matchRemaining > 0 {
+                if let captureStart = filterCaptureStart {
+                    let filter = scheduledFilters[nextFilterIndex]
+                    guard filter.start == captureStart else {
+                        failure = .malformed("RAR3 filter capture lost its descriptor")
+                        break
+                    }
+                    let previousPosition = outputPosition
+                    copyMatchToFilter(
+                        window: window,
+                        windowMask: windowMask,
+                        windowPosition: &windowPosition,
+                        distance: matchDistance,
+                        remaining: &matchRemaining,
+                        maximumCount: filter.length - filterFillCount,
+                        outputPosition: &outputPosition
+                    )
+                    historySize += min(windowSize - historySize, Int(outputPosition - previousPosition))
+                } else {
+                    var outputCapacity = buffer.count
+                    if nextFilterIndex < scheduledFilters.count {
+                        let filterStart = scheduledFilters[nextFilterIndex].start
+                        let distanceToFilter = filterStart - outputPosition
+                        outputCapacity = min(
+                            outputCapacity,
+                            outputCount + Int(min(distanceToFilter, UInt64(Int.max)))
+                        )
+                    }
+                    let previousCount = outputCount
+                    copyMatchChunk(
+                        window: window,
+                        windowMask: windowMask,
+                        windowPosition: &windowPosition,
+                        distance: matchDistance,
+                        remaining: &matchRemaining,
+                        output: destination,
+                        outputCount: &outputCount,
+                        outputCapacity: outputCapacity,
+                        outputPosition: &outputPosition
+                    )
+                    historySize += min(windowSize - historySize, outputCount - previousCount)
+                    localEmitted += UInt64(outputCount - previousCount)
+                }
+                continue
+            }
+
+            if blockMode == .ppmd {
+                do {
+                    switch try nextPPMdToken(outputPosition: outputPosition) {
+                    case let .literal(byte):
+                        guard outputPosition < expectedSize else {
+                            failure = .malformed("RAR4 PPMd output exceeds its declared size")
+                            continue
+                        }
+                        window[windowPosition] = byte
+                        windowPosition = (windowPosition + 1) & windowMask
+                        historySize = min(windowSize, historySize + 1)
+                        if filterCaptureStart != nil {
+                            // Capture is checked for completion before each
+                            // token; length <= the allocated work area.
+                            filterInput![filterFillCount] = byte
+                            filterFillCount += 1
+                        } else {
+                            destination[outputCount] = byte
+                            outputCount += 1
+                            localEmitted += 1
+                        }
+                        outputPosition += 1
+
+                    case let .match(distance, length):
+                        guard distance > 0,
+                              distance <= windowSize,
+                              distance <= historySize else {
+                            failure = .malformed("RAR4 PPMd match distance is outside the window")
+                            continue
+                        }
+                        guard length > 0,
+                              outputPosition <= expectedSize,
+                              UInt64(length) <= expectedSize - outputPosition else {
+                            failure = .malformed("RAR4 PPMd match exceeds the declared output size")
+                            continue
+                        }
+                        // PPMd escape matches feed the shared LZ window but do
+                        // not alter OldDist or the LZ last-match cache.
+                        matchDistance = distance
+                        matchRemaining = length
+
+                    case let .filter(filter):
+                        try schedule(filter: filter)
+
+                    case .endBlock:
+                        guard let rangeDecoder = ppmdRangeDecoder else {
+                            throw KaitoError.malformed("RAR4 PPMd range state is missing")
+                        }
+                        bits.bitOffset = try Self.bitOffset(forByteOffset: rangeDecoder.byteOffset)
+                        ppmdRangeDecoder = nil
+                        try readTables(bits: &bits)
+                        lowOffset = 0
+                        lowRepeats = 0
+
+                    case .endFile:
+                        reachedEnd = true
+                    }
+                } catch let kaito as KaitoError {
+                    failure = decodeFailure(from: kaito)
+                } catch PrefetchError.ppmdNotAllowed {
+                    failure = .ppmdNotAllowed
+                } catch {
+                    failure = .malformed("RAR4 PPMd token is invalid")
+                }
+                continue
+            }
+
+            let symbol = mainTable.decode(bits: &bits)
+            if symbol < 0 {
+                failure = .malformed("invalid RAR4 main Huffman code")
+                break
+            }
+            if symbol < 256 {
+                guard outputPosition < expectedSize else {
+                    failure = .malformed("RAR4 output exceeds its declared size")
+                    break
+                }
+                let byte = UInt8(truncatingIfNeeded: symbol)
+                window[windowPosition] = byte
+                windowPosition = (windowPosition + 1) & windowMask
+                historySize = min(windowSize, historySize + 1)
+                if filterCaptureStart != nil {
+                    // As above, the active capture has at least one free byte.
+                    filterInput![filterFillCount] = byte
+                    filterFillCount += 1
+                } else {
+                    destination[outputCount] = byte
+                    outputCount += 1
+                    localEmitted += 1
+                }
+                outputPosition += 1
+                continue
+            }
+
+            var distance = 0
+            var length = 0
+            switch symbol {
+            case 256:
+                if bits.read(1) == 0 {
+                    nextFileRequiresTables = bits.read(1) != 0
+                    reachedEnd = true
+                } else {
+                    do {
+                        try readTables(bits: &bits)
+                        // readTables starts a new low-distance code run.  The
+                        // hot-loop copies of this state must be reset as well;
+                        // otherwise a table switch can reuse a low nibble from
+                        // the preceding block.
+                        lowOffset = 0
+                        lowRepeats = 0
+                    } catch let kaito as KaitoError {
+                        failure = decodeFailure(from: kaito)
+                    } catch PrefetchError.ppmdNotAllowed {
+                        failure = .ppmdNotAllowed
+                    } catch {
+                        failure = .malformed("RAR4 table rebuild failed")
+                    }
+                }
+                continue
+
+            case 257:
+                do {
+                    let filter = try readFilter(
+                        bits: &bits,
+                        outputPosition: outputPosition
+                    )
+                    try schedule(filter: filter)
+                } catch let kaito as KaitoError {
+                    failure = decodeFailure(from: kaito)
+                } catch {
+                    failure = .malformed("RAR3 filter descriptor is invalid")
+                }
+                continue
+
+            case 258:
+                guard recentLength > 0 else { continue }
+                distance = recentOffset
+                length = recentLength
+
+            case 259...262:
+                let selected = symbol - 259
+                switch selected {
+                case 0:
+                    distance = repeat0
+                case 1:
+                    distance = repeat1
+                    (repeat0, repeat1) = (repeat1, repeat0)
+                case 2:
+                    distance = repeat2
+                    (repeat0, repeat1, repeat2) = (repeat2, repeat0, repeat1)
+                default:
+                    distance = repeat3
+                    (repeat0, repeat1, repeat2, repeat3) = (
+                        repeat3, repeat0, repeat1, repeat2
+                    )
+                }
+                let lengthSlot = lengthTable.decode(bits: &bits)
+                guard (0..<Self.lengthSymbolCount).contains(lengthSlot) else {
+                    failure = .malformed("invalid RAR4 repeat length slot")
+                    continue
+                }
+                length = lengthBases[lengthSlot] + 2
+                length += Int(bits.read(lengthBits[lengthSlot]))
+
+            case 263...270:
+                let shortSlot = symbol - 263
+                distance = shortBases[shortSlot] + 1
+                distance += Int(bits.read(shortBits[shortSlot]))
+                length = 2
+                repeat3 = repeat2
+                repeat2 = repeat1
+                repeat1 = repeat0
+                repeat0 = distance
+
+            default:
+                let lengthSlot = symbol - 271
+                guard (0..<Self.lengthSymbolCount).contains(lengthSlot) else {
+                    failure = .malformed("invalid RAR4 match length slot")
+                    continue
+                }
+                length = lengthBases[lengthSlot] + 3
+                length += Int(bits.read(lengthBits[lengthSlot]))
+
+                let distanceSlot = distanceTable.decode(bits: &bits)
+                guard (0..<Self.distanceSymbolCount).contains(distanceSlot) else {
+                    failure = .malformed("invalid RAR4 distance slot")
+                    continue
+                }
+                distance = distanceBases[distanceSlot] + 1
+                let extraBits = distanceBits[distanceSlot]
+                if extraBits > 0 {
+                    if distanceSlot > 9 {
+                        distance += Int(bits.read(extraBits - 4)) << 4
+                        if lowRepeats > 0 {
+                            lowRepeats -= 1
+                            distance += lowOffset
+                        } else {
+                            let lowSymbol = lowDistanceTable.decode(bits: &bits)
+                            guard (0...16).contains(lowSymbol) else {
+                                failure = .malformed("invalid RAR4 low-distance slot")
+                                continue
+                            }
+                            if lowSymbol == 16 {
+                                lowRepeats = 15
+                                distance += lowOffset
+                            } else {
+                                lowOffset = lowSymbol
+                                distance += lowSymbol
+                            }
+                        }
+                    } else {
+                        distance += Int(bits.read(extraBits))
+                    }
+                }
+                if distance >= 0x2_000 { length += 1 }
+                if distance >= 0x4_0000 { length += 1 }
+                repeat3 = repeat2
+                repeat2 = repeat1
+                repeat1 = repeat0
+                repeat0 = distance
+            }
+
+            guard failure == nil else { continue }
+            guard distance > 0,
+                  distance <= windowSize,
+                  distance <= historySize else {
+                failure = .malformed("RAR4 match distance is outside the window")
+                continue
+            }
+            guard length > 0,
+                  outputPosition <= expectedSize,
+                  UInt64(length) <= expectedSize - outputPosition else {
+                failure = .malformed("RAR4 match exceeds the declared output size")
+                continue
+            }
+            recentOffset = distance
+            recentLength = length
+            matchDistance = distance
+            matchRemaining = length
+        }
+
+        if let rangeDecoder = ppmdRangeDecoder {
+            do {
+                bits.bitOffset = try Self.bitOffset(forByteOffset: rangeDecoder.byteOffset)
+            } catch let kaito as KaitoError {
+                failure = decodeFailure(from: kaito)
+            } catch {
+                failure = .malformed("RAR4 PPMd cursor overflow")
+            }
+        }
+        bitOffset = bits.bitOffset
+        produced = outputPosition
+        solidState.oldOffset0 = repeat0
+        solidState.oldOffset1 = repeat1
+        solidState.oldOffset2 = repeat2
+        solidState.oldOffset3 = repeat3
+        solidState.lastOffset = recentOffset
+        solidState.lastLength = recentLength
+        solidState.lastLowOffset = lowOffset
+        solidState.lowOffsetRepeatCount = lowRepeats
+        pendingDistance = matchDistance
+        pendingLength = matchRemaining
+
+        if bits.overrun, failure == nil {
+            failure = .truncated
+        }
+        if reachedEnd {
+            guard outputPosition == expectedSize,
+                  localEmitted == expectedSize,
+                  matchRemaining == 0,
+                  filterCaptureStart == nil,
+                  filteredOutputCount == 0,
+                  nextFilterIndex == scheduledFilters.count else {
+                failure = .truncated
+                terminalFailure = failure
+                throw KaitoError.truncated
+            }
+            solidState.nextFileRequiresTables = nextFileRequiresTables
+            solidState.continuationReady = true
+            finished = true
+        }
+        if let failure {
+            terminalFailure = failure
+            throw error(for: failure)
+        }
+        return outputCount
+    }
+
+    private func nextPPMdToken(outputPosition: UInt64) throws -> PPMdToken {
+        let byte = try decodePPMdByte()
+        guard byte == solidState.ppmdEscape else { return .literal(byte) }
+
+        let action = try decodePPMdByte()
+        switch action {
+        case 0:
+            return .endBlock
+        case 1:
+            return .literal(solidState.ppmdEscape)
+        case 2:
+            return .endFile
+        case 3:
+            return .filter(try readPPMdFilter(outputPosition: outputPosition))
+        case 4:
+            // RAR stores a big-endian 24-bit value biased by two, followed by
+            // a one-byte match length biased by 32.
+            var storedDistance = 0
+            for _ in 0..<3 {
+                storedDistance = (storedDistance << 8) | Int(try decodePPMdByte())
+            }
+            let length = Int(try decodePPMdByte()) + 32
+            return .match(distance: storedDistance + 2, length: length)
+        case 5:
+            return .match(distance: 1, length: Int(try decodePPMdByte()) + 4)
+        default:
+            return .literal(solidState.ppmdEscape)
+        }
+    }
+
+    private func decodePPMdByte() throws -> UInt8 {
+        guard let model = solidState.ppmdModel,
+              let rangeDecoder = ppmdRangeDecoder else {
+            throw KaitoError.malformed("RAR4 PPMd model state is missing")
+        }
+        return try model.decodeByte(using: rangeDecoder)
+    }
+
+    private func readPPMdFilter(outputPosition: UInt64) throws -> ScheduledFilter {
+        guard scheduledFilters.count < maximumFilterCount else {
+            throw KaitoError.limitExceeded("RAR3 filter count")
+        }
+
+        let flags = try decodePPMdByte()
+        var payloadLength = Int(flags & 0x07) + 1
+        if payloadLength == 7 {
+            payloadLength = Int(try decodePPMdByte()) + 7
+        } else if payloadLength == 8 {
+            payloadLength = Int(try decodePPMdByte()) << 8
+            payloadLength |= Int(try decodePPMdByte())
+        }
+        guard payloadLength > 0 else {
+            throw KaitoError.malformed("RAR3 PPMd filter payload is empty")
+        }
+
+        var payload = [UInt8]()
+        payload.reserveCapacity(payloadLength)
+        for _ in 0..<payloadLength {
+            payload.append(try decodePPMdByte())
+        }
+        return try parseFilterPayload(
+            payload,
+            flags: flags,
+            outputPosition: outputPosition
+        )
+    }
+
+    private func beginPPMdBlock(bits: inout R3BaselineRAR29RawBitCursor) throws {
+        // Every initial block and later LZ table switch reaches this boundary.
+        // Speculation stops before reading model parameters or allocating an
+        // arena whose stream-selected size is outside the prefetch budget.
+        guard allowsPPMd else { throw PrefetchError.ppmdNotAllowed }
+        guard bits.bitOffset >= 0, bits.bitOffset.isMultiple(of: 8) else {
+            throw KaitoError.malformed("RAR4 PPMd block is not byte aligned")
+        }
+        var byteOffset = bits.bitOffset >> 3
+        let header = try readPackedByte(at: &byteOffset)
+        guard header & 0x80 != 0 else {
+            throw KaitoError.malformed("RAR4 PPMd block lacks its mode flag")
+        }
+
+        let resetsModel = header & 0x20 != 0
+        var replacementModel: PPMd7Model?
+        if resetsModel {
+            let storedMemory = try readPackedByte(at: &byteOffset)
+            let memorySize = UInt64(Int(storedMemory) + 1) * Self.ppmdMemoryUnit
+            try Checked.size(memorySize, limit: maximumPPMdMemorySize)
+
+            let storedOrder = Int(header & 0x1f) + 1
+            let order = storedOrder > 16
+                ? 16 + (storedOrder - 16) * 3
+                : storedOrder
+            guard (2...64).contains(order) else {
+                throw KaitoError.malformed("RAR4 PPMd order is outside 2...64")
+            }
+            Self.testingPPMdModelConstruction?()
+            replacementModel = try PPMd7Model(
+                maximumOrder: order,
+                memorySize: memorySize
+            )
+        } else {
+            guard solidState.ppmdModel != nil else {
+                throw KaitoError.malformed("RAR4 PPMd continuation has no model")
+            }
+        }
+
+        if header & 0x40 != 0 {
+            solidState.ppmdEscape = try readPackedByte(at: &byteOffset)
+        }
+        guard byteOffset <= inputCount, inputCount - byteOffset >= 4 else {
+            throw KaitoError.truncated
+        }
+
+        let rangeDecoder = try R3BaselineRARPPMdRangeDecoder(
+            bytes: UnsafePointer(input),
+            byteCount: inputCount,
+            byteOffset: byteOffset
+        )
+        if let replacementModel {
+            solidState.ppmdModel = replacementModel
+        }
+        ppmdRangeDecoder = rangeDecoder
+        blockMode = .ppmd
+        bits.bitOffset = try Self.bitOffset(forByteOffset: rangeDecoder.byteOffset)
+    }
+
+    private func readPackedByte(at byteOffset: inout Int) throws -> UInt8 {
+        guard byteOffset >= 0, byteOffset < inputCount else {
+            throw KaitoError.truncated
+        }
+        let result = input[byteOffset]
+        byteOffset += 1
+        return result
+    }
+
+    private static func bitOffset(forByteOffset byteOffset: Int) throws -> Int {
+        guard byteOffset >= 0, byteOffset <= Int.max / 8 else {
+            throw KaitoError.limitExceeded("RAR4 PPMd input position")
+        }
+        return byteOffset * 8
+    }
+
+    private func readFilter(
+        bits: inout R3BaselineRAR29RawBitCursor,
+        outputPosition: UInt64
+    ) throws -> ScheduledFilter {
+        guard scheduledFilters.count < maximumFilterCount else {
+            throw KaitoError.limitExceeded("RAR3 filter count")
+        }
+
+        let flags = UInt8(truncatingIfNeeded: bits.read(8))
+        guard !bits.overrun else { throw KaitoError.truncated }
+        var payloadLength = Int(flags & 0x07) + 1
+        if payloadLength == 7 {
+            payloadLength = Int(bits.read(8)) + 7
+        } else if payloadLength == 8 {
+            payloadLength = Int(bits.read(8)) << 8
+            payloadLength |= Int(bits.read(8))
+        }
+        guard !bits.overrun else { throw KaitoError.truncated }
+        guard payloadLength > 0 else {
+            throw KaitoError.malformed("RAR3 filter payload is empty")
+        }
+
+        var payload = [UInt8]()
+        payload.reserveCapacity(payloadLength)
+        for _ in 0..<payloadLength {
+            payload.append(UInt8(truncatingIfNeeded: bits.read(8)))
+        }
+        guard !bits.overrun else { throw KaitoError.truncated }
+        return try parseFilterPayload(
+            payload,
+            flags: flags,
+            outputPosition: outputPosition
+        )
+    }
+
+    private func parseFilterPayload(
+        _ payload: [UInt8],
+        flags: UInt8,
+        outputPosition: UInt64
+    ) throws -> ScheduledFilter {
+        let token = try RAR3FilterToken.parse(
+            payload,
+            flags: flags,
+            context: RAR3FilterToken.Context(
+                outputPosition: outputPosition,
+                expectedSize: expectedSize,
+                // Filter grammar is bounded by the declared dictionary, even
+                // when this independent member retains a smaller history ring.
+                windowSize: declaredDictionarySize,
+                programs: solidState.filterPrograms,
+                lastProgram: solidState.lastFilterProgram,
+                maximumProgramCount: maximumFilterCount,
+                canResetPrograms: filterCaptureStart == nil && filteredOutputCount == 0
+            )
+        )
+        return resolveFilter(token)
+    }
+
+    /// Applies a fully validated descriptor to the solid program table and
+    /// the pending filter schedule. Nothing here can fail: a descriptor that
+    /// throws while parsing leaves this state untouched, and every such error
+    /// is terminal for the decoder (a solid coordinator then drops the state).
+    private func resolveFilter(_ token: RAR3FilterToken) -> ScheduledFilter {
+        if token.resetsPrograms {
+            solidState.filterPrograms.removeAll(keepingCapacity: true)
+            if nextFilterIndex < scheduledFilters.count {
+                scheduledFilters.removeSubrange(nextFilterIndex...)
+            }
+        }
+        solidState.lastFilterProgram = token.programIndex
+        if token.isNewProgram {
+            solidState.filterPrograms.append(StoredFilterProgram(
+                kind: token.kind,
+                previousLength: token.blockLength,
+                usageCount: token.usageCount
+            ))
+        } else {
+            solidState.filterPrograms[token.programIndex].previousLength = token.blockLength
+            solidState.filterPrograms[token.programIndex].usageCount = token.usageCount
+        }
+        return ScheduledFilter(
+            start: token.start,
+            length: token.blockLength,
+            kind: token.kind,
+            registers: token.registers
+        )
+    }
+    private func schedule(filter: ScheduledFilter) throws {
+        if let previous = scheduledFilters.last {
+            if filter.start == previous.start {
+                guard filter.length == previous.length else {
+                    throw KaitoError.malformed("stacked RAR3 filters have unequal ranges")
+                }
+            } else {
+                guard filter.start >= previous.end else {
+                    throw KaitoError.malformed("RAR3 filter ranges overlap or are out of order")
+                }
+            }
+        }
+        scheduledFilters.append(filter)
+    }
+
+    private func ensureFilterBuffers() throws {
+        guard filterInput == nil else { return }
+        // The descriptor parser bounds every capture by rar3WorkAreaSize,
+        // independently of the retained ring. Allocate once per member and
+        // ping-pong for stacked transforms without copying between Arrays.
+        let capacity = RARStandardFilters.rar3WorkAreaSize
+        guard let inputRaw = malloc(capacity) else {
+            throw KaitoError.limitExceeded("unable to allocate RAR4 filter buffers")
+        }
+        guard let outputRaw = malloc(capacity) else {
+            free(inputRaw)
+            throw KaitoError.limitExceeded("unable to allocate RAR4 filter buffers")
+        }
+        filterInput = inputRaw.bindMemory(to: UInt8.self, capacity: capacity)
+        filterOutput = outputRaw.bindMemory(to: UInt8.self, capacity: capacity)
+    }
+
+    private func prepareCapturedFilters(start: UInt64) throws {
+        guard filteredOutputCount == 0,
+              filterCaptureStart == start,
+              nextFilterIndex < scheduledFilters.count,
+              var input = filterInput, var output = filterOutput else {
+            throw KaitoError.malformed("RAR3 filter output state is inconsistent")
+        }
+        var index = nextFilterIndex
+        repeat {
+            let filter = scheduledFilters[index]
+            guard filter.start == start, filter.length == filterFillCount else {
+                throw KaitoError.malformed("RAR3 stacked filter range is inconsistent")
+            }
+            // Both allocations hold a full work area. Capture initialized this
+            // entire validated range; each transform initializes its complete
+            // output before it becomes the next stacked filter's input.
+            let source = UnsafeMutableRawBufferPointer(start: input, count: filter.length)
+            let destination = UnsafeMutableRawBufferPointer(start: output, count: filter.length)
+            switch filter.kind {
+            case .delta:
+                try RARStandardFilters.decodeDelta(
+                    input: UnsafeRawBufferPointer(source), output: destination,
+                    channels: Int(filter.registers[0])
+                )
+                swap(&input, &output)
+            case .rgb:
+                try RARStandardFilters.decodeRGB(
+                    input: UnsafeRawBufferPointer(source), output: destination,
+                    width: Int(filter.registers[0]), positionR: Int(filter.registers[1])
+                )
+                swap(&input, &output)
+            case .audio:
+                try RARStandardFilters.decodeAudio(
+                    input: UnsafeRawBufferPointer(source), output: destination,
+                    channels: Int(filter.registers[0])
+                )
+                swap(&input, &output)
+            case .e8, .e8e9:
+                try RARStandardFilters.e8(
+                    source, fileOffset: start, includeE9: filter.kind == .e8e9,
+                    addressMode: .rar3
+                )
+            case .itanium:
+                try RARStandardFilters.itanium(source, fileOffset: start)
+            case .arm:
+                try RARStandardFilters.arm(source, fileOffset: start)
+            }
+            index += 1
+        } while index < scheduledFilters.count
+            && scheduledFilters[index].start == start
+
+        filterInput = input
+        filterOutput = output
+        filteredOutputCount = filterFillCount
+        filteredOutputIndex = 0
+        filterFillCount = 0
+        filterCaptureStart = nil
+        nextFilterIndex = index
+    }
+
+    private func copyMatchToFilter(
+        window: UnsafeMutablePointer<UInt8>,
+        windowMask: Int,
+        windowPosition: inout Int,
+        distance: Int,
+        remaining: inout Int,
+        maximumCount: Int,
+        outputPosition: inout UInt64
+    ) {
+        // The token loop validated distance <= historySize and the complete
+        // match against expectedSize. The capture limit is within the work
+        // allocation. copyMatchChunk stages only initialized history, handles
+        // forward overlap, and copies at most one ring turn per invocation.
+        var fill = filterFillCount
+        copyMatchChunk(
+            window: window, windowMask: windowMask, windowPosition: &windowPosition,
+            distance: distance, remaining: &remaining, output: filterInput!,
+            outputCount: &fill, outputCapacity: fill + maximumCount,
+            outputPosition: &outputPosition
+        )
+        filterFillCount = fill
+    }
+
+    private func readTables(bits: inout R3BaselineRAR29RawBitCursor) throws {
+        bits.alignToByte()
+        if bits.peek(1) != 0 {
+            try beginPPMdBlock(bits: &bits)
+            return
+        }
+        blockMode = .lz
+        _ = bits.read(1)
+        solidState.lastLowOffset = 0
+        solidState.lowOffsetRepeatCount = 0
+        let keepPrevious = bits.read(1) != 0
+        if !keepPrevious {
+            _ = solidState.previousLengths.withUnsafeMutableBytes { raw in
+                raw.initializeMemory(as: UInt8.self, repeating: 0)
+            }
+        }
+
+        var levelLengths = [UInt8](repeating: 0, count: 20)
+        var levelIndex = 0
+        while levelIndex < levelLengths.count {
+            let value = UInt8(truncatingIfNeeded: bits.read(4))
+            if value == 15 {
+                let zeroCount = Int(bits.read(4))
+                if zeroCount != 0 {
+                    let run = zeroCount + 2
+                    guard run <= levelLengths.count - levelIndex else {
+                        throw KaitoError.malformed(
+                            "RAR4 level-table run exceeds its bounds"
+                        )
+                    }
+                    levelIndex += run
+                    continue
+                }
+            }
+            levelLengths[levelIndex] = value
+            levelIndex += 1
+        }
+        guard !bits.overrun else { throw KaitoError.truncated }
+
+        try levelTable.build(levelLengths[...])
+        var index = 0
+        while index < solidState.previousLengths.count {
+            let symbol = levelTable.decode(bits: &bits)
+            guard symbol >= 0 else {
+                throw bits.overrun
+                    ? KaitoError.truncated
+                    : KaitoError.malformed("invalid RAR4 level Huffman code")
+            }
+            switch symbol {
+            case 0...15:
+                solidState.previousLengths[index] = UInt8(
+                    (Int(solidState.previousLengths[index]) + symbol) & 0x0f
+                )
+                index += 1
+            case 16, 17:
+                guard index > 0 else {
+                    throw KaitoError.malformed(
+                        "RAR4 length repeat appears before the first value"
+                    )
+                }
+                let run = symbol == 16
+                    ? Int(bits.read(3)) + 3
+                    : Int(bits.read(7)) + 11
+                guard run <= solidState.previousLengths.count - index else {
+                    throw KaitoError.malformed(
+                        "RAR4 length repeat exceeds the table"
+                    )
+                }
+                let repeated = solidState.previousLengths[index - 1]
+                for destination in index..<(index + run) {
+                    solidState.previousLengths[destination] = repeated
+                }
+                index += run
+            case 18, 19:
+                let run = symbol == 18
+                    ? Int(bits.read(3)) + 3
+                    : Int(bits.read(7)) + 11
+                guard run <= solidState.previousLengths.count - index else {
+                    throw KaitoError.malformed(
+                        "RAR4 zero run exceeds the length table"
+                    )
+                }
+                solidState.previousLengths.withUnsafeMutableBufferPointer { lengths in
+                    lengths.baseAddress?.advanced(by: index).update(
+                        repeating: 0,
+                        count: run
+                    )
+                }
+                index += run
+            default:
+                throw KaitoError.malformed("invalid RAR4 level symbol")
+            }
+        }
+        guard !bits.overrun else { throw KaitoError.truncated }
+
+        let mainEnd = Self.mainSymbolCount
+        let distanceEnd = mainEnd + Self.distanceSymbolCount
+        let lowEnd = distanceEnd + Self.lowDistanceSymbolCount
+        try solidState.mainTable.build(solidState.previousLengths[0..<mainEnd])
+        // A block can omit any subordinate alphabet it never references. Keep
+        // such a table empty; attempting to decode it still yields an invalid
+        // code at the exact token that would require it.
+        try solidState.distanceTable.build(
+            solidState.previousLengths[mainEnd..<distanceEnd],
+            requireSymbol: false
+        )
+        try solidState.lowDistanceTable.build(
+            solidState.previousLengths[distanceEnd..<lowEnd],
+            requireSymbol: false
+        )
+        try solidState.lengthTable.build(
+            solidState.previousLengths[lowEnd..<Self.combinedLengthCount],
+            requireSymbol: false
+        )
+        solidState.tablesWereRead = true
+    }
+
+    @inline(__always)
+    private func copyMatchChunk(
+        window: UnsafeMutablePointer<UInt8>,
+        windowMask: Int,
+        windowPosition: inout Int,
+        distance: Int,
+        remaining: inout Int,
+        output: UnsafeMutablePointer<UInt8>,
+        outputCount: inout Int,
+        outputCapacity: Int,
+        outputPosition: inout UInt64
+    ) {
+        let count = min(remaining, min(outputCapacity - outputCount, windowMask + 1))
+        guard count > 0 else { return }
+        if count <= 8 {
+            // Tiny matches avoid two library calls. Forward order preserves
+            // overlap, including a source or destination crossing the ring end.
+            for index in 0..<count {
+                let byte = window[(windowPosition - distance) & windowMask]
+                window[windowPosition] = byte
+                windowPosition = (windowPosition + 1) & windowMask
+                output[outputCount + index] = byte
+            }
+            outputCount += count
+            remaining -= count
+        } else {
+            // The shared bounded LZ primitive stages one period, doubles it in
+            // caller output, then mirrors at most one ring turn in two copies.
+            // Distance one uses memset. Distance/output bounds are validated
+            // by the token loop, including filter boundaries and pending reads.
+            copyLZMatchThroughWindow(
+                window: window,
+                windowMask: windowMask,
+                windowPosition: &windowPosition,
+                distance: distance,
+                remaining: &remaining,
+                output: output,
+                outputPosition: &outputCount,
+                outputLimit: outputCapacity
+            )
+        }
+        outputPosition += UInt64(count)
+    }
+
+    private func decodeFailure(from error: KaitoError) -> DecodeFailure {
+        switch error {
+        case .truncated:
+            .truncated
+        case let .unsupportedMethod(reason):
+            .unsupported(reason)
+        case let .malformed(reason):
+            .malformed(reason)
+        case let .limitExceeded(reason):
+            .limitExceeded(reason)
+        default:
+            .malformed("RAR4 table rebuild failed")
+        }
+    }
+
+    private func error(for failure: DecodeFailure) -> any Error {
+        switch failure {
+        case .truncated:
+            KaitoError.truncated
+        case let .malformed(reason):
+            KaitoError.malformed(reason)
+        case let .unsupported(reason):
+            KaitoError.unsupportedMethod(reason)
+        case let .limitExceeded(reason):
+            KaitoError.limitExceeded(reason)
+        case .ppmdNotAllowed:
+            PrefetchError.ppmdNotAllowed
+        }
+    }
+}
+
+/// Sentinel-backed, MSB-first cursor. `peek` never marks a logical overread,
+/// because a short Huffman code can be valid even when fewer than 15 real bits
+/// remain; only consuming beyond the physical bit count sets `overrun`.
+private struct R3BaselineRAR29RawBitCursor {
+    let bytes: UnsafePointer<UInt8>
+    let byteCount: Int
+    var bitOffset: Int
+    var overrun = false
+
+    mutating func alignToByte() {
+        let remainder = bitOffset & 7
+        if remainder != 0 {
+            consume(8 - remainder)
+        }
+    }
+
+    @inline(__always)
+    func peek(_ count: Int) -> UInt32 {
+        guard count > 0 else { return 0 }
+        let boundedOffset = min(bitOffset, byteCount * 8)
+        let byteOffset = boundedOffset >> 3
+        let intraByte = boundedOffset & 7
+        // The allocation includes eight zero sentinel bytes. Even a peek at
+        // logical EOF has a full, physically readable unaligned word.
+        let word = UInt64(bigEndian: UnsafeRawPointer(bytes + byteOffset)
+            .loadUnaligned(as: UInt64.self))
+        return UInt32(truncatingIfNeeded: (word << intraByte) >> (64 - count))
+    }
+
+    @inline(__always)
+    mutating func read(_ count: Int) -> UInt32 {
+        let value = peek(count)
+        consume(count)
+        return value
+    }
+
+    @inline(__always)
+    mutating func consume(_ count: Int) {
+        // Widths come only from validated Huffman lengths and fixed grammar
+        // tables (0...32). Offsets are nonnegative. Check remaining real bits
+        // before adding, so malformed input cannot overflow or advance through
+        // the sentinel; the symbol loop observes the sticky failure flag.
+        if bitOffset > byteCount * 8 - count {
+            overrun = true
+            bitOffset = byteCount * 8
+        } else {
+            bitOffset += count
+        }
+    }
+}
+
+/// Ten-bit primary lookup with a fallback using at most 15 bits. A record stores
+/// `(bitCount, symbol + 1)`;
+/// zero therefore remains an invalid-prefix sentinel for incomplete trees.
+final class R3BaselineRAR29HuffmanTable {
+    private static let primaryBits = 10
+    private static let primaryCount = 1 << primaryBits
+    private static let maximumBits = 15
+    private static let lookupCount = 1 << maximumBits
+    static let storageBytes = (lookupCount + primaryCount) * MemoryLayout<UInt32>.stride
+        + (maximumBits + 1) * 2 * MemoryLayout<Int>.stride
+    private let lookup: UnsafeMutablePointer<UInt32>
+    private let primary: UnsafeMutablePointer<UInt32>
+    private let scratch: UnsafeMutablePointer<Int>
+    private let counts: UnsafeMutablePointer<Int>
+    private let nextCode: UnsafeMutablePointer<Int>
+    private var lookupBits = 0
+
+    init() {
+        primary = .allocate(capacity: Self.primaryCount)
+        primary.initialize(repeating: 0, count: Self.primaryCount)
+        lookup = .allocate(capacity: Self.lookupCount)
+        // Two disjoint 16-slot scratch regions; validated lengths 0...15
+        // bound every count/next-code subscript during builds.
+        scratch = .allocate(capacity: (Self.maximumBits + 1) * 2)
+        counts = scratch
+        nextCode = scratch.advanced(by: Self.maximumBits + 1)
+    }
+
+    deinit {
+        primary.deinitialize(count: Self.primaryCount)
+        primary.deallocate()
+        lookup.deallocate()
+        scratch.deallocate()
+    }
+
+    func build(
+        _ lengths: ArraySlice<UInt8>,
+        requireSymbol: Bool = true
+    ) throws {
+        lookupBits = 0
+        counts.update(repeating: 0, count: Self.maximumBits + 1)
+        var symbolCount = 0
+        var longest = 0
+        for length in lengths {
+            guard Int(length) <= Self.maximumBits else {
+                throw KaitoError.malformed("RAR4 Huffman length exceeds 15")
+            }
+            if length != 0 {
+                counts[Int(length)] += 1
+                symbolCount += 1
+                longest = max(longest, Int(length))
+            }
+        }
+        guard symbolCount > 0 || !requireSymbol else {
+            throw KaitoError.malformed("RAR4 Huffman table is empty")
+        }
+
+        var available = 1
+        for bitCount in 1...Self.maximumBits {
+            available = available * 2 - counts[bitCount]
+            guard available >= 0 else {
+                throw KaitoError.malformed("oversubscribed RAR4 Huffman table")
+            }
+        }
+
+        // Every nextCode slot read below is overwritten here; counts and
+        // nextCode are fixed raw scratch, reused across builds.
+        var code = 0
+        for bitCount in 1...Self.maximumBits {
+            code = (code + counts[bitCount - 1]) << 1
+            nextCode[bitCount] = code
+        }
+
+        var primaryFilled = 0
+        var lookupFilled = 0
+        for (relativeSymbol, rawLength) in lengths.enumerated() {
+            let bitCount = Int(rawLength)
+            guard bitCount > 0 else { continue }
+            let canonicalCode = nextCode[bitCount]
+            nextCode[bitCount] += 1
+            guard canonicalCode < 1 << bitCount else {
+                throw KaitoError.malformed("invalid RAR4 canonical Huffman code")
+            }
+            let record = UInt32(bitCount) << 16 | UInt32(relativeSymbol + 1)
+            if bitCount > Self.primaryBits {
+                // canonicalCode < 2^bitCount, so this whole expanded range
+                // lies inside 2^longest <= the allocated 2^15 entries.
+                let first = canonicalCode << (longest - bitCount)
+                let repetitions = 1 << (longest - bitCount)
+                lookup.advanced(by: first).update(repeating: record, count: repetitions)
+                lookupFilled = max(lookupFilled, first + repetitions)
+            }
+            if bitCount <= Self.primaryBits {
+                let primaryFirst = canonicalCode << (Self.primaryBits - bitCount)
+                let primaryRepetitions = 1 << (Self.primaryBits - bitCount)
+                // The same canonical-code bound keeps this short-code
+                // expansion within the allocated 2^10 primary entries.
+                primary.advanced(by: primaryFirst).update(
+                    repeating: record, count: primaryRepetitions
+                )
+                primaryFilled = max(primaryFilled, primaryFirst + primaryRepetitions)
+            }
+        }
+        // Canonical short codes fill a contiguous prefix. Only its uncovered
+        // suffix needs zeroing, including all slots of an empty optional tree.
+        primary.advanced(by: primaryFilled).update(
+            repeating: 0, count: Self.primaryCount - primaryFilled
+        )
+        if longest > Self.primaryBits {
+            // Fallback is read only for primary-zero prefixes: short-code
+            // prefixes need no fallback writes. Long codes fill the following
+            // contiguous range; clear only the invalid suffix at this build's
+            // actual bit width, so stale slots from older trees are invisible.
+            lookup.advanced(by: lookupFilled).update(
+                repeating: 0, count: (1 << longest) - lookupFilled
+            )
+            lookupBits = longest
+        }
+    }
+
+    @inline(__always)
+    fileprivate func decode(bits: inout R3BaselineRAR29RawBitCursor) -> Int {
+        // Common short codes touch a 4 KiB table rather than the 128 KiB
+        // fallback. Zero covers both longer codes and invalid prefixes.
+        var record = primary[Int(bits.peek(Self.primaryBits))]
+        if record == 0, lookupBits > Self.primaryBits {
+            record = lookup[Int(bits.peek(lookupBits))]
+        }
+        guard record != 0 else { return -1 }
+        let bitCount = Int(record >> 16)
+        bits.consume(bitCount)
+        return Int(record & 0xffff) - 1
+    }
+}
+
+/// Immutable format constants copied once into raw storage. The token loop
+/// validates slot indices against the fixed alphabet sizes before indexing.
+private final class R3BaselineRAR29IntegerTable: @unchecked Sendable {
+    let values: UnsafePointer<Int>
+    private let storage: UnsafeMutablePointer<Int>
+    private let count: Int
+
+    init(_ values: [Int]) {
+        let count = values.count
+        let storage = UnsafeMutablePointer<Int>.allocate(capacity: count)
+        values.withUnsafeBufferPointer {
+            storage.initialize(from: $0.baseAddress!, count: count)
+        }
+        self.count = count
+        self.storage = storage
+        self.values = UnsafePointer(storage)
+    }
+
+    deinit {
+        storage.deinitialize(count: count)
+        storage.deallocate()
+    }
+}

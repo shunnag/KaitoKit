@@ -1,0 +1,29 @@
+profile-tiff-rgb-before-final.tsv total samples 682
+   259  38.0% KaitoKit.RAR29Decoder.read(into: Swift.UnsafeMutableRawBufferPointer) throws -> Swift.Int
+   243  35.6% function signature specialization <Arg[4] = Dead> of static KaitoKit.RARStandardFilters.decodeRGB(input: Swift.UnsafeRawBufferPointer, output: Swift.UnsafeMutableRawBufferPointer, width: Swift.Int, positionR: Swift.Int) throws -> ()
+   115  16.9% /usr/lib/system/libsystem_kernel.dylib
+    46   6.7% /usr/lib/system/libsystem_platform.dylib
+     8   1.2% KaitoKit.RAR29HuffmanTable.build(_: Swift.ArraySlice<Swift.UInt8>, requireSymbol: Swift.Bool) throws -> ()
+     3   0.4% KaitoKit.RAR29Decoder.(copyMatchToFilter in _C05B9549D1CF4D6A356AC14D7836CAD9)(window: Swift.UnsafeMutablePointer<Swift.UInt8>, windowMask: Swift.Int, windowPosition: inout Swift.Int, distance: Swift.Int, remaining: inout Swift.Int, maximumCount: Swift.Int, outputPosition: inout Swift.UInt64) -> ()
+     3   0.4% KaitoKit.RAR29Decoder.(readTables in _C05B9549D1CF4D6A356AC14D7836CAD9)(bits: inout KaitoKit.(RAR29RawBitCursor in _C05B9549D1CF4D6A356AC14D7836CAD9)) throws -> ()
+     2   0.3% merged outlined destroy of ((extension in Foundation):Swift.String.Encoding?, (extension in Foundation):Swift.String.Encoding?)
+     2   0.3% /usr/lib/swift/libswiftCore.dylib
+     1   0.1% /usr/lib/libz.1.dylib
+profile-text-ppmd-before-final.tsv total samples 1622
+   403  24.8% KaitoKit.RAR29Decoder.read(into: Swift.UnsafeMutableRawBufferPointer) throws -> Swift.Int
+   382  23.6% /usr/lib/swift/libswiftCore.dylib
+   215  13.3% generic specialization <KaitoKit.RARPPMdRangeDecoder> of KaitoKit.PPMd7Model.decodeByte<A where A: KaitoKit.PPMd7RangeDecoding>(using: A) throws -> Swift.UInt8
+   204  12.6% generic specialization <KaitoKit.RARPPMdRangeDecoder> of KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).decodeBinarySymbol<A where A: KaitoKit.PPMd7RangeDecoding, A: ~Swift.Copyable>(in: Swift.UInt32, using: inout A) throws -> ()
+   119   7.3% generic specialization <KaitoKit.RARPPMdRangeDecoder> of KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).decodeSymbol1<A where A: KaitoKit.PPMd7RangeDecoding, A: ~Swift.Copyable>(in: Swift.UInt32, using: inout A) throws -> ()
+    77   4.7% merged outlined destroy of ((extension in Foundation):Swift.String.Encoding?, (extension in Foundation):Swift.String.Encoding?)
+    68   4.2% KaitoKit.RAR29Decoder.(nextPPMdToken in _C05B9549D1CF4D6A356AC14D7836CAD9)(outputPosition: Swift.UInt64) throws -> KaitoKit.RAR29Decoder.(PPMdToken in _C05B9549D1CF4D6A356AC14D7836CAD9)
+    49   3.0% KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).update1(context: Swift.UInt32, state: Swift.UInt32, frequency: Swift.Int, scale: Swift.Int) throws -> ()
+    34   2.1% KaitoKit.RARPPMdRangeDecoder.threshold(total: Swift.Int) throws -> Swift.Int
+    32   2.0% KaitoKit.RARPPMdRangeDecoder.decodeBinary(probability: Swift.Int) throws -> Swift.Bool
+    16   1.0% KaitoKit.RARPPMdRangeDecoder.remove(start: Swift.Int, size: Swift.Int) throws -> ()
+     9   0.6% /usr/lib/system/libsystem_kernel.dylib
+     9   0.6% KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).rescale(Swift.UInt32) throws -> ()
+     2   0.1% KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).validate(Swift.UInt32) throws -> ()
+     1   0.1% KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).appendState(_: KaitoKit.(PPMd7ModelCursor in _DC741395BA86A9305DF88AADD59C811E).StateValue, summaryFrequency: Swift.Int, to: Swift.UInt32) throws -> Swift.UInt32
+     1   0.1% /usr/lib/system/libsystem_malloc.dylib
+     1   0.1% /usr/lib/libz.1.dylib

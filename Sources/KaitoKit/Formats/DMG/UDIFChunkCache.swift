@@ -68,8 +68,8 @@ final class UDIFChunkCache: @unchecked Sendable {
         var hasResult: Bool { condition.withLock { result != nil } }
         func setTicket(_ ticket: LeafDecodePool.Ticket) { condition.withLock { if !cancelled { self.ticket = ticket } } }
         func discardIfUnstarted(pool: LeafDecodePool) -> Bool {
-            let ticket = condition.withLock { ticket }
-            guard let ticket, pool.discard(ticket) else { return false }
+            let queued = condition.withLock { self.ticket }
+            guard let queued, pool.discard(queued) else { return false }
             cancel()
             return true
         }

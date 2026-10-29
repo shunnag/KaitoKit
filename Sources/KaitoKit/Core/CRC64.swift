@@ -1,7 +1,8 @@
+private import CBzip2
 import Foundation
 
 /// XZ の block check が使う CRC-64（ECMA-182 の多項式を反転した形、初期値と最終 XOR は全 bit 1）。
-/// 参照仕様: xz-file-format.txt §3.4 と ECMA-182。8 byte ずつ 8 枚の表を引く slice-by-8。
+/// 参照仕様: xz-file-format.txt §3.4 と ECMA-182。PMULL folding と portable slice-by-8。
 struct CRC64: Sendable {
     private static let polynomial: UInt64 = 0xC96C_5795_D787_0F42
 
@@ -24,6 +25,8 @@ struct CRC64: Sendable {
         return tables
     }()
 
+    static let foldingAvailable = kk_crc64_has_folding() != 0
+
     private var state: UInt64 = ~0
 
     init() {}
@@ -42,12 +45,23 @@ struct CRC64: Sendable {
     }
 
     mutating func update(_ bytes: UnsafeRawBufferPointer) {
-        guard let base = bytes.baseAddress, !bytes.isEmpty else { return }
-        var crc = state
+        state = Self.update(bytes, initial: state, folding: Self.foldingAvailable)
+    }
+
+    // Raw (uncomplemented) state entry point also exercises arbitrary seeds
+    // and the original slice-by-eight fallback without global dispatch changes.
+    static func update(_ bytes: UnsafeRawBufferPointer, initial: UInt64,
+                       folding: Bool) -> UInt64 {
+        guard let base = bytes.baseAddress, !bytes.isEmpty else { return initial }
+        var crc = initial
         Self.tables.withUnsafeBufferPointer { tablesBuffer in
             let table = tablesBuffer.baseAddress!
             var position = 0
             let count = bytes.count
+            if count >= 64 && folding && Self.foldingAvailable {
+                position = count & ~15
+                crc = kk_crc64_fold_blocks(base.assumingMemoryBound(to: UInt8.self), position, crc, table)
+            }
             // 8 byte 境界まで 1 byte ずつ進めると load が整列し、残りは末尾で処理する。
             while position < count, (Int(bitPattern: base) &+ position) & 7 != 0 {
                 let byte = base.load(fromByteOffset: position, as: UInt8.self)
@@ -74,6 +88,6 @@ struct CRC64: Sendable {
                 position &+= 1
             }
         }
-        state = crc
+        return crc
     }
 }

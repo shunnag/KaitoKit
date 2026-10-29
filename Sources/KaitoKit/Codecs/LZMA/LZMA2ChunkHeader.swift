@@ -62,7 +62,8 @@ enum LZMA2ChunkHeader {
         control: UInt8,
         controlOffset: UInt64,
         reader: inout ByteReader,
-        resets: inout LZMA2ResetTracker
+        resets: inout LZMA2ResetTracker,
+        batchHeaderReads: Bool = false
     ) throws {
         if control == Self.endControl {
             self = .end
@@ -75,6 +76,7 @@ enum LZMA2ChunkHeader {
             }
             let resetsDictionary = control == Self.rawDictionaryResetControl
             try resets.recordDictionary(reset: resetsDictionary)
+            if batchHeaderReads { try reader.prefetch(2) }
             let size = UInt64(try reader.readUInt16BE()) + 1
             guard size <= Self.maximumRawChunkSize else {
                 throw KaitoError.malformed("invalid LZMA2 uncompressed chunk size")
@@ -83,6 +85,9 @@ enum LZMA2ChunkHeader {
             return
         }
 
+        // 二つの size はそれぞれ 16 bit + 1 で必ず上限内。dictionary の検査や
+        // property byte の読み取りより前に、この 4 byte だけをまとめて読める。
+        if batchHeaderReads { try reader.prefetch(4) }
         let low = UInt64(try reader.readUInt16BE())
         let high = UInt64(control & Self.unpackedSizeHighBitsMask) << 16
         let unpackedSize = try Checked.add(try Checked.add(high, low), 1)

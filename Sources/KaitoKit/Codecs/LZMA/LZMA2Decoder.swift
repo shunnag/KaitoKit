@@ -308,12 +308,14 @@ public final class LZMA2Decoder: Decompressor {
         var reader = try ByteReader(
             source: BoundedByteSource(source: source, baseOffset: 0, length: endOffset),
             offset: offset,
-            bufferCapacity: 1
+            bufferCapacity: 4,
+            readAheadLimit: 1
         )
         var outputOffset: UInt64 = 0
         var resets = LZMA2ResetTracker()
         var currentLZMAProperties: UInt8?
         var result: [LZMA2ResetPoint] = []
+        let timedSource = source as? LZMA2TimedScanSource
 
         while true {
             if checksCancellation { try Task.checkCancellation() }
@@ -322,6 +324,7 @@ public final class LZMA2Decoder: Decompressor {
                 return nil
             }
             let controlOffset = reader.offset
+            timedSource?.beginHeader()
             let control = try reader.readUInt8()
             // raw dictionary reset の点の上限は size より先に確かめる。上限超過（呼出元は先頭からの
             // 再開へ退避する）を、続く size の切断より先に報告する。
@@ -333,8 +336,11 @@ public final class LZMA2Decoder: Decompressor {
                 control: control,
                 controlOffset: controlOffset,
                 reader: &reader,
-                resets: &resets
+                resets: &resets,
+                batchHeaderReads: true
             )
+            // 完了 header の I/O 合計を、reset 観測や payload への seek より先に判定する。
+            try timedSource?.finishHeader(header)
 
             switch header {
             case .end:

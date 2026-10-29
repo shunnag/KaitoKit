@@ -264,6 +264,33 @@ final class StuffItXCryptoTests: XCTestCase {
         XCTAssertEqual(try readByteRange(source: source, offset: 16_377, count: plain.count - 16_377), Array(plain.dropFirst(16_377)))
     }
 
+    func testCommonCryptoCFBRandomReadsAndBoundedBackwardSeek() throws {
+        let plain = (0..<65_555).map { UInt8(truncatingIfNeeded: $0 * 29 + 7) }
+        for (cipher, keySize): (UInt64, UInt64) in [(0, 16), (0, 24), (0, 32), (2, 8),
+                                                   (1, 5), (1, 6), (1, 7), (1, 8), (1, 56)] {
+            let crypto = try StuffItXCrypto(password: "password", algorithms: Self.records([(cipher, keySize)]))
+            let layer = try XCTUnwrap(crypto.layers.first)
+            let iv = (0..<layer.prefixSize).map { UInt8($0 * 11) }
+            let ciphertext = try CryptoPerformanceTests.cfbEncrypt(plain, layer: layer, iv: iv)
+            let input = CountingCiphertextSource(Data(crypto.verifier + iv + ciphertext))
+            let source = try crypto.decrypt(input)
+            XCTAssertEqual(try Self.collect(source, chunk: 113), plain)
+            input.bytesRead.withLock { $0 = 0 }
+            XCTAssertEqual(try readByteRange(source: source, offset: 60_001, count: 1_003), Array(plain[60_001..<61_004]))
+            // 直前の暗号 block と要求範囲だけを読み、先頭から 60,001 byte 再生しない。
+            XCTAssertLessThan(input.bytesRead.withLock { $0 }, 1_100)
+            var random: UInt64 = 0x1234_5678
+            let offsets = [0, 1, 7, 8, 15, 16, 17, 32_767, 16_383, plain.count - 1]
+            for index in 0..<80 {
+                random = random &* 6_364_136_223_846_793_005 &+ 1
+                let offset = index < offsets.count ? offsets[index] : Int(random % UInt64(plain.count))
+                let count = min(1 + Int((random >> 32) % 2_003), plain.count - offset)
+                XCTAssertEqual(try readByteRange(source: source, offset: UInt64(offset), count: count),
+                               Array(plain[offset..<offset + count]), "cipher=\(cipher), offset=\(offset)")
+            }
+        }
+    }
+
     func testExternalEncryptedStreamsAndDESCompressedCounterparts() throws {
         guard let path = ProcessInfo.processInfo.environment["STUFFIT_SLICE6_CORPUS"] else { throw XCTSkip("外部コーパス未指定") }
         let directory = URL(fileURLWithPath: path).appendingPathComponent("cc0")
@@ -309,5 +336,17 @@ final class StuffItXCryptoTests: XCTestCase {
         XCTAssertEqual(verified, 38); XCTAssertEqual(catalogs, 1); XCTAssertEqual(jpeg, 1)
         XCTAssertGreaterThan(encryptedMethod5, 0)
         print("暗号実コーパス: 10 書庫、最終 CRC 一致 \(verified)、catalog 圧縮入力一致 \(catalogs)、JPEG 圧縮入力一致 \(jpeg)")
+    }
+}
+
+private final class CountingCiphertextSource: ByteSource {
+    private let source: DataByteSource
+    let bytesRead = Mutex(0)
+    var length: UInt64 { source.length }
+    init(_ data: Data) { source = DataByteSource(data) }
+    func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
+        let count = try source.read(into: buffer, at: offset)
+        bytesRead.withLock { $0 += count }
+        return count
     }
 }

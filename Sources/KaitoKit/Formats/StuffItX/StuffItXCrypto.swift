@@ -1,4 +1,4 @@
-// 指定資料 Ch.13 の continuing-MD5 と層状暗号。ブロック暗号化だけを CommonCrypto に委ねる。
+// 指定資料 Ch.13 の continuing-MD5 と層状暗号。ブロック暗号と CFB は CommonCrypto に委ねる。
 private import CommonCrypto
 import Foundation
 import Synchronization
@@ -162,47 +162,104 @@ final class StuffItXCrypto {
     }
 }
 
-// 復号中は固定量の先読みだけを保持する。任意位置読みは保持済み鍵からの再生で満たす。
+// CFB は直前の暗号 block を IV にして任意位置へ移る。RC4 の巻戻しだけは先頭から再生する。
 private final class StuffItXCipherSource: ByteSource {
-    private struct Cursor: @unchecked Sendable {
-        // input・RC4 の可変状態はこの cursor が所有し、全アクセスを Mutex に限定する。
-        let input: StuffItPackedInput
-        let rc4: StuffItRC4?
-        var feedback: [UInt8]
-        var keystream: [UInt8] = []
-        var used: Int
-        var position: UInt64 = 0
+    private final class Cursor: @unchecked Sendable {
+        // source・cryptor・RC4 の可変状態はこの cursor が所有し、全アクセスを Mutex に限定する。
+        private let source: any ByteSource
+        private let layer: StuffItXCrypto.Layer
+        private let prefix: [UInt8]
+        private var rc4: StuffItRC4?
+        private var cryptor: CCCryptorRef?
+        private var resetSupported = true
+        private var scratch: [UInt8] = []
+        private(set) var position: UInt64 = 0
 
         init(source: any ByteSource, layer: StuffItXCrypto.Layer, prefix: [UInt8]) throws {
-            input = try StuffItPackedInput(source: source, offset: UInt64(prefix.count), size: source.length - UInt64(prefix.count))
-            rc4 = layer.cipher == 3 ? try StuffItRC4(key: layer.key + prefix) : nil
-            feedback = prefix; used = prefix.count
+            self.source = source; self.layer = layer; self.prefix = prefix
+            if layer.cipher == 3 { rc4 = try StuffItRC4(key: layer.key + prefix) }
+            else { cryptor = try Self.makeCFB(layer: layer, iv: prefix) }
+        }
+        deinit { if let cryptor { CCCryptorRelease(cryptor) } }
+
+        private static func makeCFB(layer: StuffItXCrypto.Layer, iv: [UInt8]) throws -> CCCryptorRef {
+            let algorithm: CCAlgorithm
+            switch layer.cipher {
+            case 0: algorithm = CCAlgorithm(kCCAlgorithmAES)
+            case 1: algorithm = CCAlgorithm(kCCAlgorithmBlowfish)
+            case 2: algorithm = CCAlgorithm(kCCAlgorithmDES)
+            default: throw KaitoError.unsupportedMethod("StuffIt X block cipher \(layer.cipher)")
+            }
+            // 5〜7 byte の Blowfish 鍵は ECB 経路と同じく周期を変えず 2 回並べる。
+            let key = layer.cipher == 1 && layer.key.count < kCCKeySizeMinBlowfish ? layer.key + layer.key : layer.key
+            var created: CCCryptorRef?
+            let status = key.withUnsafeBytes { k in iv.withUnsafeBytes { v in
+                CCCryptorCreateWithMode(CCOperation(kCCDecrypt), CCMode(kCCModeCFB), algorithm,
+                    CCPadding(ccNoPadding), v.baseAddress, k.baseAddress, key.count, nil, 0, 0, CCModeOptions(0), &created)
+            } }
+            guard status == kCCSuccess, let created else {
+                if let created { CCCryptorRelease(created) }
+                throw KaitoError.malformed("CommonCrypto StuffIt X failure (\(status))")
+            }
+            return created
         }
 
-        mutating func byte(layer: StuffItXCrypto.Layer) throws -> UInt8 {
-            let ciphertext = try input.byte()
-            let plaintext: UInt8
-            if let rc4 { plaintext = rc4.transform(ciphertext) }
-            else {
-                if used == feedback.count {
-                    keystream = try StuffItXCrypto.encryptBlock(feedback, layer: layer); used = 0
+        func seek(to offset: UInt64) throws {
+            if let cryptor {
+                let blockOffset = offset - offset % UInt64(prefix.count)
+                // prefix 自身が最初の IV。以後の直前 block の物理 offset は blockOffset と一致する。
+                let iv = blockOffset == 0 ? prefix
+                    : try readByteRange(source: source, offset: blockOffset, count: prefix.count)
+                let status = resetSupported ? iv.withUnsafeBytes { CCCryptorReset(cryptor, $0.baseAddress) }
+                    : CCCryptorStatus(kCCUnimplemented)
+                if status == kCCUnimplemented {
+                    // Apple の公開 API は CFB reset を実装していない OS がある。同じ IV で作り直す。
+                    resetSupported = false
+                    let replacement = try Self.makeCFB(layer: layer, iv: iv)
+                    CCCryptorRelease(cryptor)
+                    self.cryptor = replacement
+                } else if status != kCCSuccess {
+                    throw KaitoError.malformed("CommonCrypto StuffIt X failure (\(status))")
                 }
-                plaintext = ciphertext ^ keystream[used]
-                feedback[used] = ciphertext; used += 1
+                position = blockOffset
+            } else if offset < position {
+                rc4 = try StuffItRC4(key: layer.key + prefix)
+                position = 0
             }
-            position += 1
-            return plaintext
+            if position < offset {
+                let capacity = Int(min(65_536, offset - position))
+                if scratch.count < capacity { scratch = [UInt8](repeating: 0, count: capacity) }
+                while position < offset {
+                    let count = Int(min(UInt64(scratch.count), offset - position))
+                    // scratch の借用中に self の別 property を変更できるよう領域だけを切り出す。
+                    try scratch.withUnsafeMutableBytes { bytes in
+                        _ = try read(into: UnsafeMutableRawBufferPointer(rebasing: bytes[..<count]))
+                    }
+                }
+            }
+        }
+
+        func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+            let count = try source.read(into: buffer, at: UInt64(prefix.count) + position)
+            guard count > 0, count <= buffer.count else { throw KaitoError.truncated }
+            if let rc4 {
+                for index in 0..<count { buffer[index] = rc4.transform(buffer[index]) }
+            } else if let cryptor {
+                var moved = 0
+                let status = CCCryptorUpdate(cryptor, buffer.baseAddress, count, buffer.baseAddress, count, &moved)
+                guard status == kCCSuccess, moved == count else {
+                    throw KaitoError.malformed("CommonCrypto StuffIt X failure (\(status))")
+                }
+            }
+            position += UInt64(count)
+            return count
         }
     }
     let length: UInt64
-    private let source: any ByteSource
-    private let layer: StuffItXCrypto.Layer
-    private let prefix: [UInt8]
     private let cursor: Mutex<Cursor>
 
     init(source: any ByteSource, layer: StuffItXCrypto.Layer) throws {
-        self.source = source; self.layer = layer
-        prefix = try readByteRange(source: source, offset: 0, count: layer.prefixSize)
+        let prefix = try readByteRange(source: source, offset: 0, count: layer.prefixSize)
         length = source.length - UInt64(prefix.count)
         cursor = Mutex(try Cursor(source: source, layer: layer, prefix: prefix))
     }
@@ -211,10 +268,8 @@ private final class StuffItXCipherSource: ByteSource {
         guard !buffer.isEmpty, offset < length else { return 0 }
         let count = Int(min(UInt64(buffer.count), length - offset))
         return try cursor.withLock { state in
-            if offset < state.position { state = try Cursor(source: source, layer: layer, prefix: prefix) }
-            while state.position < offset { _ = try state.byte(layer: layer) }
-            for i in 0..<count { buffer[i] = try state.byte(layer: layer) }
-            return count
+            if offset != state.position { try state.seek(to: offset) }
+            return try state.read(into: UnsafeMutableRawBufferPointer(rebasing: buffer[..<count]))
         }
     }
 }

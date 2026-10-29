@@ -72,9 +72,12 @@ final class SevenZipLZMA2ResetIndexTests: XCTestCase {
             let factory = try factory(raw: raw, source: source, property: property)
             XCTAssertNil(try factory.parallelUnits())
             let reads = source.reads
-            XCTAssertEqual(reads.count, (boundChunks + 1) * 3)
-            XCTAssertTrue(reads.allSatisfy { $0.count == 1 && $0.offset % RawSource.chunkSize < 3 })
-            XCTAssertEqual(reads.last?.offset, UInt64(boundChunks) * RawSource.chunkSize + 2)
+            XCTAssertEqual(reads.count, (boundChunks + 1) * 2)
+            XCTAssertTrue(reads.allSatisfy {
+                ($0.count == 1 && $0.offset % RawSource.chunkSize == 0)
+                    || ($0.count == 2 && $0.offset % RawSource.chunkSize == 1)
+            })
+            XCTAssertEqual(reads.last?.offset, UInt64(boundChunks) * RawSource.chunkSize + 1)
             XCTAssertNil(try factory.parallelUnits())
             XCTAssertNil(try factory.makeDictionaryResetIndex())
             XCTAssertEqual(source.reads, reads)
@@ -88,11 +91,11 @@ final class SevenZipLZMA2ResetIndexTests: XCTestCase {
             let index = try factory.makeDictionaryResetIndex(forParallelDecode: true)
             if secondReset <= 1_024 {
                 XCTAssertEqual(index?.map(\.uncompressedOffset), [0, UInt64(secondReset) * 65_536])
-                XCTAssertEqual(source.reads.count, raw.chunks * 3 + 1)
+                XCTAssertEqual(source.reads.count, raw.chunks * 2 + 1)
                 XCTAssertEqual(source.reads.last?.offset, raw.length - 1)
             } else {
                 XCTAssertNil(index)
-                XCTAssertEqual(source.reads.count, 1_025 * 3)
+                XCTAssertEqual(source.reads.count, 1_025 * 2)
             }
             let reads = source.reads
             XCTAssertEqual(try factory.makeDictionaryResetIndex(), index)
@@ -105,30 +108,84 @@ final class SevenZipLZMA2ResetIndexTests: XCTestCase {
         let source = RecordingSource(DataByteSource(fixture.packed))
         let factory = try fixture.factory(workers: 16, source: source)
         let index = try XCTUnwrap(factory.makeDictionaryResetIndex())
-        let expectedOffsets = index.flatMap { point in
-            (0..<6).map { point.compressedOffset + UInt64($0) }
-        } + [UInt64(fixture.packed.count - 1)]
-        XCTAssertEqual(source.reads, expectedOffsets.map { Read(offset: $0, count: 1) })
+        let expectedReads = index.flatMap { point in
+            [Read(offset: point.compressedOffset, count: 1),
+             Read(offset: point.compressedOffset + 1, count: 4),
+             Read(offset: point.compressedOffset + 5, count: 1)]
+        } + [Read(offset: UInt64(fixture.packed.count - 1), count: 1)]
+        XCTAssertEqual(source.reads, expectedReads)
         XCTAssertEqual(try factory.parallelUnits()?.count, 3)
         XCTAssertEqual(try factory.makeDictionaryResetIndex(), index)
-        XCTAssertEqual(source.reads.count, expectedOffsets.count)
+        XCTAssertEqual(source.reads.count, expectedReads.count)
+    }
+
+    private struct ShortSource: ByteSource {
+        let source: DataByteSource
+        var length: UInt64 { source.length }
+        func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
+            try source.read(into: UnsafeMutableRawBufferPointer(rebasing: buffer.prefix(1)), at: offset)
+        }
+    }
+
+    func testContinuedCompressedHeadersUseTwoReadsPerChunk() throws {
+        let first = try Hex.data("e00011000800003099abddc0cb070000").dropLast()
+        var continued = Data(first)
+        continued[0] = 0xA0; continued.remove(at: 5)
+        var packed = Data(first), expectedReads = [Read(offset: 0, count: 1),
+            Read(offset: 1, count: 4), Read(offset: 5, count: 1)]
+        for _ in 0..<680 {
+            let offset = UInt64(packed.count)
+            expectedReads += [Read(offset: offset, count: 1), Read(offset: offset + 1, count: 4)]
+            packed.append(continued)
+        }
+        expectedReads.append(Read(offset: UInt64(packed.count), count: 1))
+        packed.append(0)
+        let source = RecordingSource(DataByteSource(packed))
+        XCTAssertEqual(try LZMA2Decoder.makeDictionaryResetIndex(source: source, offset: 0,
+            compressedSize: UInt64(packed.count), expectedSize: 681 * 18).count, 1)
+        XCTAssertEqual(source.reads, expectedReads)
+        XCTAssertEqual(source.reads.count, 1_364) // 変更前は 3,407 回、payload byte 数は共に零。
+        let decoder = try LZMA2Decoder(source: DataByteSource(packed), offset: 0,
+            compressedSize: UInt64(packed.count), properties: [0], expectedSize: 681 * 18,
+            dictionarySizeLimit: 4_096)
+        XCTAssertEqual(try drain(decoder, bufferSize: 4_099),
+                       Data(String(repeating: "abcabcabcabcabcabc", count: 681).utf8))
+    }
+
+    func testBatchedHeadersKeepShortReadsAndValidationOrder() throws {
+        let fixture = try SevenZipParallelTestSupport.compressed()
+        let source = RecordingSource(ShortSource(source: DataByteSource(fixture.packed)))
+        XCTAssertEqual(try fixture.factory(workers: 16, source: source).makeDictionaryResetIndex()?.count, 3)
+        XCTAssertEqual(source.reads.count, 19)
+        XCTAssertTrue(source.reads.allSatisfy { $0.count == 1 })
+        // raw の dictionary 検査は size 読み取りより先、LZMA の dictionary 検査は
+        // 二つの size より後、property より先。切れた後続 field を先に報告しない。
+        for bytes in [Data([2]), Data([0xC0, 0, 0, 0, 0])] {
+            let source = RecordingSource(DataByteSource(bytes))
+            XCTAssertThrowsError(try LZMA2Decoder.makeDictionaryResetIndex(source: source,
+                offset: 0, compressedSize: UInt64(bytes.count), expectedSize: nil)) {
+                XCTAssertEqual($0 as? KaitoError, .malformed("LZMA2 stream starts without a dictionary reset"))
+            }
+            XCTAssertEqual(source.reads, bytes.count == 1
+                ? [Read(offset: 0, count: 1)] : [Read(offset: 0, count: 1), Read(offset: 1, count: 4)])
+        }
     }
 
     func testSeekIndexRemainsUnboundedAndParallelReusesIt() throws {
         let raw = RawSource(chunks: 1_536, resetChunks: [0])
         let source = RecordingSource(raw), factory = try factory(raw: raw, source: source)
         XCTAssertEqual(try factory.makeDictionaryResetIndex()?.count, 1)
-        XCTAssertEqual(source.reads.count, raw.chunks * 3 + 1)
+        XCTAssertEqual(source.reads.count, raw.chunks * 2 + 1)
         XCTAssertEqual(source.reads.last?.offset, raw.length - 1)
         let reads = source.reads
         XCTAssertNil(try factory.parallelUnits())
         XCTAssertEqual(source.reads, reads)
     }
 
-    // size の先頭 byte は index だけが 1 byte で読む。worker の再開時に読む
+    // size の 2 byte は index だけがまとめて読む。worker の再開時に読む
     // control byte や、live decoder の通常の先読みとは区別して数える。
     private func scanCount(_ source: RecordingSource) -> Int {
-        source.reads.filter { $0 == Read(offset: 33, count: 1) }.count
+        source.reads.filter { $0.offset == 33 && [2, 4].contains($0.count) }.count
     }
 
     private func read(_ reader: SevenZipReader, _ index: Int) throws -> Data {
@@ -212,7 +269,7 @@ final class SevenZipLZMA2ResetIndexTests: XCTestCase {
             XCTAssertTrue(Task.isCancelled)
             let earlier = try coordinator.stream(offset: UInt64(payloads[0].count), length: 1)
             XCTAssertEqual(try withUnsafeMutableBytes(of: &byte) { try earlier.read(into: $0) }, 1)
-            XCTAssertFalse(source.reads.contains { $0.offset == 1 && $0.count == 1 })
+            XCTAssertFalse(source.reads.contains { $0.offset == 1 && $0.count == 2 })
             XCTAssertEqual(coordinator.lastBackwardRestart, .observed)
             return byte
         }.value

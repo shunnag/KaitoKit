@@ -414,7 +414,7 @@ final class SevenZipFolderDecoderFactory {
                    let units = try parallelUnitsIfAvailable(),
                    let parallel = ParallelIndependentDecompressor(
                     units: units, limits: limits, workers: workers,
-                    diagnostics: parallelDiagnostics, coalescingReads: true
+                    diagnostics: parallelDiagnostics, coalescingReads: true, streamsFirstUnit: true
                    ) {
                     return .stream(parallel)
                 }
@@ -476,6 +476,13 @@ final class SevenZipFolderDecoderFactory {
                     throw KaitoError.malformed("7z BZip2 has unexpected properties")
                 }
                 let input = try byteInput(coder.firstInput)
+                // Filter / AES chains keep their existing serial materialization and verification order.
+                if folder.coders.count == 1, workers > 1, !avoidsHeaderScans {
+                    let range = try BoundedByteSource(source: input.source, baseOffset: input.offset, length: input.length)
+                    return .stream(try ParallelBzip2Decompressor(
+                        source: range, limits: limits, workers: workers, concatenatedStreams: false,
+                        maximumOutputSize: Int(clamping: expectedSize)))
+                }
                 return .stream(try Bzip2Decompressor(
                     source: input.source,
                     offset: input.offset,

@@ -3,6 +3,28 @@ internal import Foundation
 internal import XCTest
 
 final class ParallelXZDecompressorTests: XCTestCase {
+    func testAdaptiveDefaultParallelizesSmallStreamsWithinBudget() throws {
+        try ParallelXZTestSupport.requireXZ()
+        let body = ParallelXZTestSupport.random(8 * 1_048_576)
+        let bytes = try ParallelXZTestSupport.compress(body, blockSize: 1_048_576)
+        let layout = try ParallelXZTestSupport.layout(bytes)
+        let largestJob = try XCTUnwrap(layout.streams.first?.blocks.map {
+            Int($0.outputSize + $0.compressedRange.upperBound - $0.compressedRange.lowerBound)
+        }.max())
+        for (threads, budget, serial) in [(1, 64 << 20, true), (3, 64 << 20, false),
+                                          (16, 0, true), (16, 3 * largestJob, true),
+                                          (16, 4 * largestJob, false)] {
+            let diagnostics = ParallelXZDecompressor.Diagnostics()
+            let decoder = try ParallelXZDecompressor(source: DataByteSource(bytes),
+                limits: ReadLimits(parallelDecodeMemory: UInt64(budget)), workers: threads, diagnostics: diagnostics)
+            XCTAssertEqual(try drain(decoder, bufferSize: 131_071), body)
+            XCTAssertEqual(diagnostics.fellBackToSerial, serial)
+            XCTAssertLessThanOrEqual(diagnostics.peakWorkers, threads)
+            XCTAssertLessThanOrEqual(diagnostics.peakHeldBytes, budget)
+            if !serial { XCTAssertGreaterThan(diagnostics.peakWorkers, 0) }
+        }
+    }
+
     func testGeneratedTextAndRandomMultiBlockStreamsMatchSerial() throws {
         try ParallelXZTestSupport.requireXZ()
         for size in [130_001, 600_007, 1_100_003] {

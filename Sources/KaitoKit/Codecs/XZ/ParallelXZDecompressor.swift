@@ -195,13 +195,13 @@ final class ParallelXZDecompressor: Decompressor {
 
     /// - Parameters:
     ///   - workers: reader が open 時に解決した要求並列数。
-    ///   - targetJobOutput: job をまとめる出力目標。本番の呼出元は渡さない。
+    ///   - targetJobOutput: job をまとめる出力目標。nil は配置と要求 worker 数から解決する。
     ///   - diagnostics: 観測値の記録先。本番の呼出元は渡さない。
     ///   - useNativeDecoder: false なら全経路を Apple Compression で復号する。比較試験が使う。
     init(source: any ByteSource, limits: ReadLimits, recorder: CompressedTarMapRecorder? = nil,
          workers: Int = ReaderOptions.automaticDecodeThreads(),
          expectedSize: UInt64? = nil,
-         targetJobOutput: Int = ParallelXZDecompressor.defaultTargetJobOutput,
+         targetJobOutput: Int? = nil,
          diagnostics: Diagnostics? = nil, useNativeDecoder: Bool = true) throws {
         self.source = source; self.limits = limits; self.recorder = recorder
         let memoryBudget = limits.resolvedParallelDecodeMemory()
@@ -227,7 +227,18 @@ final class ParallelXZDecompressor: Decompressor {
         self.native = native
         if native { diagnostics?.useNative() }
         if layout.streams.count == 1, let stream = layout.streams.first, stream.blocks.count >= 2 {
-            let planned = try Self.plan(stream.blocks, target: UInt64(max(1, targetJobOutput)))
+            // 二巡分の job を用意し、小さい multi-block stream でも worker を使えるようにする。
+            // 一 block は分割しない。保持 byte に基づく下の worker 上限は従来どおり適用する。
+            let target: UInt64
+            if let targetJobOutput {
+                target = UInt64(max(1, targetJobOutput))
+            } else {
+                let requested = min(max(1, workers), LeafDecodePool.shared.capacity, stream.blocks.count)
+                let largest = stream.blocks.map(\.outputSize).max() ?? 0
+                target = max(largest, 1_048_576,
+                             min(UInt64(Self.defaultTargetJobOutput), decodedSizeHint / (2 * UInt64(requested))))
+            }
+            let planned = try Self.plan(stream.blocks, target: target)
             let perJobBytes = planned.map(\.heldBytes).max()!
             let count = max(1, min(max(1, workers), planned.count, memoryBudget / perJobBytes - Self.spareJobCount))
             if count >= 2 {

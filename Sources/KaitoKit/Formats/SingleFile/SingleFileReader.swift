@@ -8,6 +8,7 @@ final class SingleFileReader: FormatReader {
 
     private let source: any ByteSource
     private let decodeThreads: Int
+    private(set) var stagingSizeHint: UInt64?
     private var gzipHeaderLength: UInt64?
 
     var tarSpliceGzipHeaderLength: UInt64? { gzipHeaderLength }
@@ -133,8 +134,15 @@ final class SingleFileReader: FormatReader {
 
     func stagingStream(limits: ReadLimits, recorder: CompressedTarMapRecorder?) throws -> EntryStream {
         if let gzipHeaderLength { recorder?.prepareGzip(headerLength: gzipHeaderLength) }
+        let decompressor = try makeStreamDecompressor(limits: limits, recorder: recorder)
+        if format == .gzip, source.length >= 4,
+           let trailer = try? readByteRange(source: source, offset: source.length - 4, count: 4) {
+            // ISIZE is modulo 2^32 and covers only the last member. Reserve only;
+            // it must never select disk staging or constrain the decoded length.
+            stagingSizeHint = min(UInt64(LittleEndian.uint32(trailer, at: 0)), limits.inMemorySingleFileLimit)
+        }
         return try EntryStream(
-            decompressor: makeStreamDecompressor(limits: limits, recorder: recorder),
+            decompressor: decompressor,
             length: entries[0].uncompressedSize, expectedCRC32: nil, entryIndex: 0, limits: limits)
     }
 
@@ -142,7 +150,9 @@ final class SingleFileReader: FormatReader {
         if format == .bzip2 {
             return try ParallelBzip2Decompressor(source: source, limits: limits, recorder: recorder, workers: decodeThreads)
         } else if format == .xz {
-            return try ParallelXZDecompressor(source: source, limits: limits, recorder: recorder, workers: decodeThreads)
+            let decoder = try ParallelXZDecompressor(source: source, limits: limits, recorder: recorder, workers: decodeThreads)
+            stagingSizeHint = decoder.decodedSizeHint
+            return decoder
         } else if format == .zstd {
             return try ZstdDecompressor.parallel(source: source, limits: limits, workers: decodeThreads)
         } else if format == .lzip {

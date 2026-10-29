@@ -160,6 +160,7 @@ final class ParallelBzip2Decompressor: Decompressor {
     }
 
     private let source: any ByteSource
+    private let concatenatedStreams: Bool
     private let recorder: CompressedTarMapRecorder?
     private let workerCount: Int
     private let workers: Workers
@@ -178,6 +179,8 @@ final class ParallelBzip2Decompressor: Decompressor {
     private var current: Decoded?
     private var currentOffset = 0
     private var finished = false
+    /// Output capacity per worker, bounded independently of the compressed scanner.
+    var outputBufferLimit: Int { workers.outputLimit }
 
     /// - Parameters:
     ///   - limits: 並列復号の保持 byte 予算。
@@ -187,12 +190,15 @@ final class ParallelBzip2Decompressor: Decompressor {
     ///   - diagnostics: Test hook: 観測値の記録先。本番の呼出元は渡さない。
     init(source: any ByteSource, limits: ReadLimits = ReadLimits(), recorder: CompressedTarMapRecorder? = nil,
          workers: Int = ReaderOptions.automaticDecodeThreads(),
+         concatenatedStreams: Bool = true,
          maximumCompressedSize: Int = ParallelBzip2Decompressor.maximumIntervalSize,
          maximumOutputSize: Int = ParallelBzip2Decompressor.maximumIntervalOutputSize,
          injectedCandidates: [UInt64] = [], injectedBitCandidates: [UInt64] = [], diagnostics: Diagnostics? = nil) throws {
         self.source = source; self.recorder = recorder
+        self.concatenatedStreams = concatenatedStreams
         let compressedLimit = max(Bzip2StreamLayout.headerLength, min(Self.maximumIntervalSize, maximumCompressedSize))
-        let outputLimit = max(1, min(Self.maximumIntervalOutputSize, maximumOutputSize))
+        let outputLimit = max(1, min(Self.maximumIntervalOutputSize, maximumOutputSize,
+                                     Int(clamping: limits.maxEntrySize)))
         let scannerBytes = 4 * compressedLimit + Bzip2BlockScanner.readSize + Bzip2StreamLayout.headerLength
         let perJobBytes = compressedLimit + outputLimit
         let budget = limits.resolvedParallelDecodeMemory()
@@ -204,7 +210,7 @@ final class ParallelBzip2Decompressor: Decompressor {
         self.scannerReservation = Reservation(scannerBytes, diagnostics: diagnostics)
         self.scanner = try Bzip2BlockScanner(source: source, compressedLimit: compressedLimit, outputLimit: outputLimit,
                                             recordsChecksum: recorder != nil, injectedCandidates: injectedCandidates,
-                                            injectedBitCandidates: injectedBitCandidates)
+                                            injectedBitCandidates: injectedBitCandidates, concatenatedStreams: concatenatedStreams)
     }
     deinit { workers.abandon() }
     var isFinished: Bool { serial?.isFinished ?? finished }
@@ -261,7 +267,7 @@ final class ParallelBzip2Decompressor: Decompressor {
         jobs = []; scanner = nil; scannerReservation = nil; current = nil; scanningError = nil
         serialSkip = outputStreamStart == offset ? streamOutput : 0
         serial = try Bzip2Decompressor(source: source, offset: offset, compressedSize: Checked.sub(source.length, offset),
-                                      concatenatedStreams: true, recorder: recorder)
+                                      concatenatedStreams: concatenatedStreams, recorder: recorder)
     }
 
     private func discardSerialPrefix(_ serial: Bzip2Decompressor) throws {

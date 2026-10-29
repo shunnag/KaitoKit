@@ -161,6 +161,89 @@ final class UDIFParallelTests: XCTestCase {
         }
     }
 
+    func testByteSizedCacheRetainsMoreThanFourSmallChunks() throws {
+        let image = try Self.image((0..<32).map { try Self.chunk(0x8000_0005, seed: $0) })
+        let diagnostics = UDIFChunkCache.Diagnostics()
+        let disk = try Self.disk(image, threads: 1,
+                                 limits: ReadLimits(parallelDecodeMemory: UInt64(image.body.count)), diagnostics: diagnostics)
+        for index in Array(0..<32) + Array((0..<32).reversed()) {
+            let offset = index * Self.chunkSize
+            XCTAssertEqual(Data(try readByteRange(source: disk, offset: UInt64(offset), count: 512)),
+                           image.body.subdata(in: offset..<(offset + 512)))
+        }
+        for index in 0..<32 { XCTAssertEqual(diagnostics.decodeCount(index), 1) }
+        XCTAssertLessThanOrEqual(diagnostics.peakHeldBytes, image.body.count)
+    }
+
+    func testCompletedReadAheadSurvivesSeek() throws {
+        let image = try Self.image((0..<24).map { try Self.chunk(0x8000_0005, seed: $0) })
+        let diagnostics = UDIFChunkCache.Diagnostics()
+        let disk = try Self.disk(image, threads: 4, diagnostics: diagnostics)
+        _ = try readByteRange(source: disk, offset: 0, count: 1)
+        XCTAssertTrue(Self.eventually { diagnostics.decodeCount(3) == 1 && diagnostics.liveWorkers == 0 })
+        _ = try readByteRange(source: disk, offset: UInt64(20 * Self.chunkSize), count: 1)
+        for index in 1...3 {
+            XCTAssertEqual(try readByteRange(source: disk, offset: UInt64(index * Self.chunkSize), count: 1),
+                           [image.body[index * Self.chunkSize]])
+            XCTAssertEqual(diagnostics.decodeCount(index), 1)
+        }
+        XCTAssertLessThanOrEqual(diagnostics.peakWorkers, 4)
+    }
+
+    func testULMOMutationsPreserveCompressionErrors() throws {
+        let valid = try Self.chunk(0x8000_0008, seed: 7)
+        var mutations = [valid.packed]
+        for offset in stride(from: 0, to: valid.packed.count, by: max(1, valid.packed.count / 32)) {
+            var bytes = valid.packed; bytes[offset] ^= 0x80; mutations.append(bytes)
+        }
+        for removed in [1, 12, valid.packed.count / 2] { mutations.append(Data(valid.packed.dropLast(removed))) }
+        for bytes in mutations {
+            let legacy = Result {
+                try drain(XZDecompressor(source: DataByteSource(bytes), limits: ReadLimits()), bufferSize: 1 << 20)
+            }
+            let image = try Self.image([Chunk(type: valid.type, body: valid.body, packed: bytes)])
+            for threads in [1, 4] {
+                let disk = try Self.disk(image, threads: threads)
+                for _ in 0..<2 {
+                    switch legacy {
+                    case .success(let body):
+                        XCTAssertEqual(Data(try readByteRange(source: disk, offset: 0, count: body.count)), body)
+                    case .failure(let error):
+                        XCTAssertThrowsError(try readByteRange(source: disk, offset: 0, count: 1)) {
+                            XCTAssertEqual($0 as? KaitoError, error as? KaitoError)
+                        }
+                    }
+                }
+            }
+        }
+        for size in [Self.chunkSize - 512, Self.chunkSize + 512] {
+            let image = try Self.image([Chunk(type: valid.type, body: Data(count: size), packed: valid.packed)])
+            let expected: KaitoError = size < Self.chunkSize
+                ? .malformed("udif chunk output exceeds its declared size")
+                : .malformed("udif chunk expanded to \(Self.chunkSize) bytes")
+            XCTAssertThrowsError(try readByteRange(source: Self.disk(image, threads: 4), offset: 0, count: 1)) {
+                XCTAssertEqual($0 as? KaitoError, expected)
+            }
+        }
+    }
+
+    func testSeekKeepsRunningSpeculationButDiscardsQueuedSpeculation() throws {
+        let image = try Self.image((0..<24).map { try Self.chunk(0x8000_0005, seed: $0) })
+        let diagnostics = UDIFChunkCache.Diagnostics(), pool = LeafDecodePool(capacity: 1)
+        let gate = GateSource(image.data, range: image.packedRanges[1])
+        let disk = try Self.disk(image, threads: 4, source: gate, pool: pool, diagnostics: diagnostics)
+        _ = try readByteRange(source: disk, offset: 0, count: 1)
+        XCTAssertEqual(gate.started.wait(timeout: .now() + 5), .success)
+        defer { gate.release.signal() }
+        // The demanded leaf can run inline while the speculative leaf is gated.
+        _ = try readByteRange(source: disk, offset: UInt64(20 * Self.chunkSize), count: 1)
+        XCTAssertEqual(diagnostics.decodeCount(2), 0)
+        gate.release.signal()
+        XCTAssertEqual(try readByteRange(source: disk, offset: UInt64(Self.chunkSize), count: 1),
+                       [image.body[Self.chunkSize]])
+        XCTAssertEqual(diagnostics.decodeCount(1), 1)
+    }
+
     func testConcurrentConsumersShareInflightDecodeWithoutHoldingCacheLock() throws {
         let image = try Self.image((0..<8).map { try Self.chunk(0x8000_0005, seed: $0) })
         let gate = GateSource(image.data, range: image.packedRanges[0])

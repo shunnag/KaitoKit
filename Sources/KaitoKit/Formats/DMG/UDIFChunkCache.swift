@@ -65,7 +65,14 @@ final class UDIFChunkCache: @unchecked Sendable {
         var demanded: Bool
         init(reservation: Reservation?, demanded: Bool) { self.reservation = reservation; self.demanded = demanded }
         var isCancelled: Bool { condition.withLock { cancelled } }
+        var hasResult: Bool { condition.withLock { result != nil } }
         func setTicket(_ ticket: LeafDecodePool.Ticket) { condition.withLock { if !cancelled { self.ticket = ticket } } }
+        func discardIfUnstarted(pool: LeafDecodePool) -> Bool {
+            let ticket = condition.withLock { ticket }
+            guard let ticket, pool.discard(ticket) else { return false }
+            cancel()
+            return true
+        }
         func cancel() {
             condition.lock(); cancelled = true; result = nil; ticket = nil; condition.broadcast(); condition.unlock()
         }
@@ -74,6 +81,12 @@ final class UDIFChunkCache: @unchecked Sendable {
             diagnostics?.worker(1, index: index)
             defer { diagnostics?.worker(-1, index: index) }
             var outcome: Result<[UInt8], any Error>? = Result { try decode(chunk, { self.isCancelled }) }
+            // inline / 直列実行した Task の取消しは共有の復号エラーではない。
+            // この Work だけを放棄し、取消されていない consumer は新しい葉で再試行する。
+            if let outcome, case .failure(let error) = outcome, error is CancellationError {
+                cancel()
+                return
+            }
             condition.lock()
             if !cancelled { result = outcome }
             outcome = nil
@@ -111,6 +124,7 @@ final class UDIFChunkCache: @unchecked Sendable {
     private let diagnostics: Diagnostics?
     private let reservationSize: Int
     private let cacheLimit: Int
+    private let workerLimit: Int
     let readAheadCount: Int
     private var pending: [Int: Work] = [:]
     private var cache: [Int: Entry] = [:]
@@ -121,6 +135,7 @@ final class UDIFChunkCache: @unchecked Sendable {
     init(chunks: [UDIFChunk], budget: Int, decodeThreads: Int, pool: LeafDecodePool, diagnostics: Diagnostics?) {
         self.chunks = chunks; self.pool = pool; self.diagnostics = diagnostics
         self.budget = Budget(budget, diagnostics: diagnostics)
+        workerLimit = max(1, decodeThreads)
         // 過大 chunk の拒否は read 時に行う。LZFSE の一括入力も出力と同時に予約する。
         let maximum = chunks.filter { Self.needsDecode($0) }.map { chunk -> UInt64 in
             let output = min(chunk.byteCount, UDIFDiskByteSource.maximumChunkBytes)
@@ -131,7 +146,10 @@ final class UDIFChunkCache: @unchecked Sendable {
             return output
         }.max() ?? 1
         reservationSize = max(1, Int(clamping: maximum))
-        cacheLimit = min(budget, reservationSize > Int.max / 4 ? Int.max : reservationSize * 4)
+        // HFS+ の entry 順は disk 上の配置順とは限らない。小さい chunk でも working set を
+        // 保持できる byte floor を設け、先読みと同じ予算から確保する（LZFSE は入力も含む）。
+        let fourChunks = reservationSize > Int.max / 4 ? Int.max : reservationSize * 4
+        cacheLimit = min(budget, max(fourChunks, 64 * 1_048_576))
         // consumer の現在 chunk にも一枠残す。明示した 1 は pool を使わず直列で読む。
         readAheadCount = decodeThreads > 1 ? min(decodeThreads, chunks.count, max(0, budget / reservationSize - 1)) : 0
     }
@@ -142,9 +160,10 @@ final class UDIFChunkCache: @unchecked Sendable {
 
     func beginRead(at offset: UInt64, count: Int) -> Bool {
         lock.lock()
+        collectCompletedSpeculation()
         let sequential = offset == lastReadEnd || (lastReadEnd == nil && offset == 0)
         lastReadEnd = offset + UInt64(count)
-        if !sequential { cancelPending(onlySpeculative: true) }
+        if !sequential { discardQueuedSpeculation { _ in true } }
         lock.unlock()
         return sequential
     }
@@ -153,6 +172,9 @@ final class UDIFChunkCache: @unchecked Sendable {
         while true {
             try Task.checkCancellation()
             lock.lock()
+            collectCompletedSpeculation()
+            // 要求された葉を無関係な先読みの完了待ちにしない。保持領域は従来の
+            // Budget / 直列 fallback で制限し、inline 実行はこの要求の葉だけを対象にする。
             let work: Work
             let serial: Bool
             if let entry = cache[index] {
@@ -179,6 +201,9 @@ final class UDIFChunkCache: @unchecked Sendable {
                 return Decoded(bytes: try result.get(), reservation: work.reservation)
             } catch is Abandoned {
                 // 他 consumer のキャンセルによる放棄なら、新しい仕事でこの read を続ける。
+                lock.withLock {
+                    if pending[index] === work { pending.removeValue(forKey: index) }
+                }
                 continue
             }
         }
@@ -208,13 +233,13 @@ final class UDIFChunkCache: @unchecked Sendable {
     }
 
     private func fill(after index: Int, decode: @escaping Decode) {
+        collectCompletedSpeculation()
         guard readAheadCount > 0, index + 1 < chunks.count else { return }
-        // 窓から外れた先読みは解放する。要求中の chunk と通常 cache は保持する。
+        // 窓から外れた未開始の葉だけを捨てる。実行済みの復号を seek ごとに繰り返さない。
         let end = index + 1 + min(readAheadCount, chunks.count - index - 1)
-        for (id, work) in pending where !work.demanded && (id <= index || id >= end) {
-            pending.removeValue(forKey: id); work.cancel(); pool.cancel(group: work.group)
-        }
+        discardQueuedSpeculation { $0 <= index || $0 >= end }
         for id in (index + 1)..<end where Self.needsDecode(chunks[id]) && pending[id] == nil && cache[id] == nil {
+            guard pending.count < workerLimit else { break }
             guard let reservation = reserve() else { break }
             let work = Work(reservation: reservation, demanded: false)
             pending[id] = work
@@ -235,9 +260,29 @@ final class UDIFChunkCache: @unchecked Sendable {
         }
     }
 
+    // 完了した先読みは成功・失敗とも要求時と同じ LRU に移す。失敗は要求時まで返さない。
+    // callback から cache lock を取らず、consumer の操作時に回収する。実行中の葉も同じ
+    // Budget の予約を持ち続けるので、窓の変更で保持量が無制限に増えることはない。
+    private func collectCompletedSpeculation() {
+        for (index, work) in pending {
+            if work.isCancelled {
+                pending.removeValue(forKey: index)
+            } else if !work.demanded && work.hasResult {
+                pending.removeValue(forKey: index)
+                insert(work, at: index)
+            }
+        }
+    }
+
+    private func discardQueuedSpeculation(where outside: (Int) -> Bool) {
+        for (index, work) in pending where !work.demanded && outside(index) {
+            if work.discardIfUnstarted(pool: pool) { pending.removeValue(forKey: index) }
+        }
+    }
+
     // byte 上限付き LRU。hit・昇格・追放はいずれも辞書と隣接 index だけを触る。
     private func insert(_ work: Work, at index: Int) {
-        guard let reservation = work.reservation, reservation.size <= cacheLimit else { return }
+        guard !work.isCancelled, let reservation = work.reservation, reservation.size <= cacheLimit else { return }
         while cachedBytes > cacheLimit - reservation.size, let oldest { remove(oldest) }
         cache[index] = Entry(work: work, previous: newest, next: nil)
         if let newest { cache[newest]?.next = index } else { oldest = index }

@@ -270,7 +270,11 @@ final class UDIFDiskByteSource: ByteSource, @unchecked Sendable {
         case .bzip2:
             output = try Self.drain(Bzip2Decompressor(source: file, offset: chunk.dataOffset, compressedSize: chunk.dataLength), expected: expected, cancelled: cancelled)
         case .xz:
-            output = try Self.drain(XZDecompressor(source: file, offset: chunk.dataOffset, compressedSize: chunk.dataLength, limits: limits), expected: expected, cancelled: cancelled)
+            // UDIF の葉の内側では並列化しない。適格な LZMA2 chain は KaitoKit で復号し、
+            // native 失敗時は既存の Compression replay を使う。宣言長と終端の検査は共通。
+            let source = try BoundedByteSource(source: file, baseOffset: chunk.dataOffset, length: chunk.dataLength)
+            output = try Self.drain(ParallelXZDecompressor(source: source, limits: limits, workers: 1,
+                                                         expectedSize: chunk.byteCount), expected: expected, cancelled: cancelled)
         case .lzfse:
             let input = try readByteRange(source: file, offset: chunk.dataOffset, count: Int(chunk.dataLength))
             var result = [UInt8](repeating: 0, count: expected)

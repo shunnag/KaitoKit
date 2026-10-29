@@ -415,6 +415,7 @@ final class WinZipAESByteSource: ByteSource {
         var ctr: WinZipAESCTR
         var hmac: WinZipAESStreamingHMAC
         var computedAuthenticationCode: Data?
+        var scratch: [UInt8] = []
     }
 
     private let source: any ByteSource
@@ -469,7 +470,8 @@ final class WinZipAESByteSource: ByteSource {
                   offset == state.offset else {
                 return try readAuthenticatedRange(
                     into: UnsafeMutableRawBufferPointer(rebasing: buffer[..<requested]),
-                    at: offset
+                    at: offset,
+                    scratch: &state.scratch
                 )
             }
             let destination = UnsafeMutableRawBufferPointer(rebasing: buffer[..<requested])
@@ -495,7 +497,8 @@ final class WinZipAESByteSource: ByteSource {
     // 従って上流を読み直す TOCTOU 窓はなく、作業メモリは固定上限に留まる。
     private func readAuthenticatedRange(
         into destination: UnsafeMutableRawBufferPointer,
-        at offset: UInt64
+        at offset: UInt64,
+        scratch: inout [UInt8]
     ) throws -> Int {
         guard !destination.isEmpty else { return 0 }
         let rangeEnd = try Checked.add(offset, UInt64(destination.count))
@@ -504,7 +507,8 @@ final class WinZipAESByteSource: ByteSource {
         }
 
         var hmac = WinZipAESStreamingHMAC(key: authenticationKey)
-        var scratch = [UInt8](repeating: 0, count: Self.completionChunkSize)
+        let capacity = Int(min(UInt64(Self.completionChunkSize), length))
+        if scratch.count < capacity { scratch = [UInt8](repeating: 0, count: capacity) }
         var scanOffset: UInt64 = 0
         var copied = 0
 
@@ -585,14 +589,16 @@ final class WinZipAESByteSource: ByteSource {
             }
 
             // Decoder が入力を先読みしなかった残りも、宣言された暗号文範囲として認証する。
-            var scratch = [UInt8](repeating: 0, count: Self.completionChunkSize)
+            // 完読済みなら作業領域を作らない。未読分・任意位置の認証走査では同じ領域を再利用する。
+            let capacity = Int(min(UInt64(Self.completionChunkSize), length - state.offset))
+            if state.scratch.count < capacity { state.scratch = [UInt8](repeating: 0, count: capacity) }
             while state.offset < length {
                 let remaining = try Checked.sub(length, state.offset)
                 let requested = try Checked.toInt(
                     min(UInt64(Self.completionChunkSize), remaining)
                 )
                 let absoluteOffset = try Checked.add(ciphertextOffset, state.offset)
-                let actual = try scratch.withUnsafeMutableBytes { storage in
+                let actual = try state.scratch.withUnsafeMutableBytes { storage in
                     try source.read(
                         into: UnsafeMutableRawBufferPointer(
                             rebasing: storage[..<requested]
@@ -604,7 +610,7 @@ final class WinZipAESByteSource: ByteSource {
                     throw KaitoError.malformed("ByteSource returned an invalid byte count")
                 }
                 guard actual > 0 else { throw KaitoError.truncated }
-                scratch.withUnsafeBytes { storage in
+                state.scratch.withUnsafeBytes { storage in
                     state.hmac.update(
                         UnsafeRawBufferPointer(rebasing: storage[..<actual])
                     )
@@ -631,11 +637,7 @@ private struct WinZipAESStreamingHMAC {
 
     init(key: Data) {
         var context = CCHmacContext()
-        var keyStorage = [UInt8](key)
-        if keyStorage.isEmpty {
-            keyStorage.append(0)
-        }
-        keyStorage.withUnsafeBytes { keyBuffer in
+        key.withUnsafeBytes { keyBuffer in
             CCHmacInit(
                 &context,
                 CCHmacAlgorithm(kCCHmacAlgSHA1),
@@ -654,12 +656,12 @@ private struct WinZipAESStreamingHMAC {
 
     mutating func finalize() -> Data {
         precondition(!isFinalized)
-        var digest = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
+        var digest = Data(count: Int(CC_SHA1_DIGEST_LENGTH))
         digest.withUnsafeMutableBytes { buffer in
             CCHmacFinal(&context, buffer.baseAddress)
         }
         isFinalized = true
-        return Data(digest)
+        return digest
     }
 }
 
@@ -672,6 +674,7 @@ struct WinZipAESCTR: Sendable {
     private var counterLow: UInt64 = 0
     private var counterHigh: UInt64 = 0
     private var keyStream: [UInt8] = []
+    private var keyStreamCount = 0
     private var pendingOffset = 0
 
     init(encryptionKey: Data, streamOffset: UInt64 = 0) throws {
@@ -707,8 +710,8 @@ struct WinZipAESCTR: Sendable {
     mutating func transformInPlace(_ output: UnsafeMutableRawBufferPointer) throws {
         guard !output.isEmpty else { return }
         var outputOffset = 0
-        if pendingOffset < keyStream.count {
-            let count = min(keyStream.count - pendingOffset, output.count)
+        if pendingOffset < keyStreamCount {
+            let count = min(keyStreamCount - pendingOffset, output.count)
             keyStream.withUnsafeBytes {
                 xorBytes(UnsafeMutableRawBufferPointer(rebasing: output[..<count]),
                          with: UnsafeRawBufferPointer(rebasing: $0[pendingOffset..<(pendingOffset + count)]))
@@ -721,7 +724,7 @@ struct WinZipAESCTR: Sendable {
             let requestedBlocks = remaining / Self.blockSize
                 + (remaining.isMultiple(of: Self.blockSize) ? 0 : 1)
             try makeKeyStream(blockCount: min(requestedBlocks, Self.maximumBlocksPerCall))
-            let count = min(remaining, keyStream.count)
+            let count = min(remaining, keyStreamCount)
             keyStream.withUnsafeBytes {
                 xorBytes(UnsafeMutableRawBufferPointer(rebasing: output[outputOffset..<(outputOffset + count)]), with: $0)
             }
@@ -735,19 +738,19 @@ struct WinZipAESCTR: Sendable {
             throw KaitoError.malformed("invalid AES-CTR block count")
         }
         let count = blockCount * Self.blockSize
-        if keyStream.count > count { keyStream.removeLast(keyStream.count - count) }
-        if keyStream.count < count { keyStream.append(contentsOf: repeatElement(0, count: count - keyStream.count)) }
-        try keyStream.withUnsafeMutableBytes { blocks in
+        var lowCounter = counterLow, highCounter = counterHigh
+        let encryptor = encryptor
+        let generate = { (blocks: UnsafeMutableRawBufferPointer) throws in
             for block in 0..<blockCount {
-                let (low, carry) = counterLow.addingReportingOverflow(1)
-                counterLow = low
+                let (low, carry) = lowCounter.addingReportingOverflow(1)
+                lowCounter = low
                 if carry {
-                    let (high, exhausted) = counterHigh.addingReportingOverflow(1)
-                    counterHigh = high
+                    let (high, exhausted) = highCounter.addingReportingOverflow(1)
+                    highCounter = high
                     guard !exhausted else { throw KaitoError.limitExceeded("WinZip AES-CTR counter exhausted") }
                 }
-                blocks.storeBytes(of: counterLow.littleEndian, toByteOffset: block * Self.blockSize, as: UInt64.self)
-                blocks.storeBytes(of: counterHigh.littleEndian, toByteOffset: block * Self.blockSize + 8, as: UInt64.self)
+                blocks.storeBytes(of: lowCounter.littleEndian, toByteOffset: block * Self.blockSize, as: UInt64.self)
+                blocks.storeBytes(of: highCounter.littleEndian, toByteOffset: block * Self.blockSize + 8, as: UInt64.self)
             }
             do {
                 try encryptor.encryptInPlace(blocks)
@@ -755,6 +758,18 @@ struct WinZipAESCTR: Sendable {
                 throw KaitoError.malformed("CommonCrypto AES-ECB failed (\(error.status), \(error.outputLength) bytes)")
             }
         }
+        // 全 byte を counter で上書きするのでゼロ詰めしない。縮小後も最大領域を保持する。
+        if keyStream.count < count {
+            keyStream = try [UInt8](unsafeUninitializedCapacity: count) { storage, initialized in
+                try generate(UnsafeMutableRawBufferPointer(storage))
+                initialized = count
+            }
+        } else {
+            try keyStream.withUnsafeMutableBytes { try generate(UnsafeMutableRawBufferPointer(rebasing: $0[..<count])) }
+        }
+        counterLow = lowCounter
+        counterHigh = highCounter
+        keyStreamCount = count
         pendingOffset = 0
     }
 }

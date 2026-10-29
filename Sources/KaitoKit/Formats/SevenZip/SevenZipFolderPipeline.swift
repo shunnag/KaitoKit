@@ -414,7 +414,7 @@ final class SevenZipFolderDecoderFactory {
                    let units = try parallelUnitsIfAvailable(),
                    let parallel = ParallelIndependentDecompressor(
                     units: units, limits: limits, workers: workers,
-                    diagnostics: parallelDiagnostics, coalescingReads: true
+                    diagnostics: parallelDiagnostics, coalescingReads: true, streamsFirstUnit: true
                    ) {
                     return .stream(parallel)
                 }

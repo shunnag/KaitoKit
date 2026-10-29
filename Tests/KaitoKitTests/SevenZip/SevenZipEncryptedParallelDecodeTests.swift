@@ -70,7 +70,7 @@ final class SevenZipEncryptedParallelDecodeTests: XCTestCase {
                         let result = outcome(fixture.archive(), threads: threads, chunk: 65_537)
                         XCTAssertNil(result.error); XCTAssertEqual(result.bytes, fixture.output)
                     }
-                    XCTAssertEqual(submissions.withLock { $0 }, threads == 1 ? 0 : fixture.payloads.count)
+                    XCTAssertEqual(submissions.withLock { $0 }, threads == 1 ? 0 : fixture.payloads.count - 1)
                 }
             }
         }

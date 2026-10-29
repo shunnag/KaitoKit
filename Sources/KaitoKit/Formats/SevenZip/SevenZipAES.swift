@@ -137,26 +137,23 @@ final class SevenZipAESKeyCache {
         while counter < rounds {
             try Task.checkCancellation()
             let count = try Checked.toInt(min(UInt64(recordsPerChunk), rounds - counter))
-            for record in 0..<count {
-                let base = record * recordSize
-                if !salt.isEmpty {
+            // 最初の cancellation 検査後に固定部分を一度だけ置き、以後は LE64 counter だけを更新する。
+            if counter == 0 {
+                for record in 0..<count {
+                    let base = record * recordSize
                     chunk.replaceSubrange(base..<(base + salt.count), with: salt)
-                }
-                let passwordStart = base + salt.count
-                if !password.isEmpty {
-                    chunk.replaceSubrange(
-                        passwordStart..<(passwordStart + password.count),
-                        with: password
-                    )
-                }
-                var value = counter + UInt64(record)
-                let counterStart = passwordStart + password.count
-                for index in 0..<8 {
-                    chunk[counterStart + index] = UInt8(truncatingIfNeeded: value)
-                    value >>= 8
+                    let passwordStart = base + salt.count
+                    chunk.replaceSubrange(passwordStart..<(passwordStart + password.count), with: password)
                 }
             }
-            sha.update(data: Data(chunk.prefix(count * recordSize)))
+            chunk.withUnsafeMutableBytes { bytes in
+                for record in 0..<count {
+                    let counterStart = record * recordSize + salt.count + password.count
+                    bytes.storeBytes(of: (counter + UInt64(record)).littleEndian,
+                                     toByteOffset: counterStart, as: UInt64.self)
+                }
+            }
+            chunk.withUnsafeBytes { sha.update(bufferPointer: UnsafeRawBufferPointer(rebasing: $0[..<(count * recordSize)])) }
             counter = try Checked.add(counter, UInt64(count))
         }
         return Data(sha.finalize())

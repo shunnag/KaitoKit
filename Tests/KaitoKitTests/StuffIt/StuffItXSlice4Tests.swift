@@ -156,6 +156,7 @@ final class StuffItXSlice4Tests: XCTestCase {
         try data.write(to: list)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.standardInput = FileHandle.nullDevice
         process.arguments = ["python3", root.appendingPathComponent("Scripts/fixtures/make-stuffit-english-dictionary.py").path, "--input", list.path, "--check"]
         try process.run(); process.waitUntilExit(); XCTAssertEqual(process.terminationStatus, 0)
     }

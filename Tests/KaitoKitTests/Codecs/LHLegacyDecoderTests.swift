@@ -219,16 +219,11 @@ final class LHLegacyDecoderTests: XCTestCase {
         name: String
     ) throws -> Data {
         let process = Process()
-        let output = Pipe()
-        let errors = Pipe()
         process.executableURL = executable
         process.arguments = ["-pq", archive.path, name]
-        process.standardOutput = output
-        process.standardError = errors
-        try process.run()
-        let decoded = output.fileHandleForReading.readDataToEndOfFile()
-        let diagnostic = errors.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        let captured = try ZipTestSupport.capture(process)
+        let decoded = captured.standardOutput
+        let diagnostic = captured.standardError
         guard process.terminationReason == Process.TerminationReason.exit,
               process.terminationStatus == 0 else {
             throw KaitoError.malformed(

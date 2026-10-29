@@ -589,8 +589,6 @@ final class KaitoArchiveCompatTests: XCTestCase {
         output: URL
     ) throws {
         let process = Process()
-        let standardOutput = Pipe()
-        let standardError = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         let runner = [
             Bundle.main.executableURL,
@@ -627,17 +625,14 @@ final class KaitoArchiveCompatTests: XCTestCase {
             environment["KAITO_CHILD_" + name] = environment[name]
         }
         process.environment = environment
-        process.standardOutput = standardOutput
-        process.standardError = standardError
-        try process.run()
-        process.waitUntilExit()
+        let captured = try captureCommand(process)
 
         let outputText = String(
-            decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(),
+            decoding: captured.standardOutput,
             as: UTF8.self
         )
         let errorText = String(
-            decoding: standardError.fileHandleForReading.readDataToEndOfFile(),
+            decoding: captured.standardError,
             as: UTF8.self
         )
         guard process.terminationReason == .exit, process.terminationStatus == 0 else {
@@ -675,20 +670,43 @@ final class KaitoArchiveCompatTests: XCTestCase {
         currentDirectory: URL? = nil
     ) throws {
         let process = Process()
-        let errors = Pipe()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         process.currentDirectoryURL = currentDirectory
-        process.standardError = errors
-        try process.run()
-        process.waitUntilExit()
+        let captured = try captureCommand(process)
         let message = String(
-            decoding: errors.fileHandleForReading.readDataToEndOfFile(),
+            decoding: captured.standardError,
             as: UTF8.self
         )
         guard process.terminationReason == .exit, process.terminationStatus == 0 else {
             throw CompatTestError.commandFailed(message)
         }
+    }
+
+    private func captureCommand(
+        _ process: Process
+    ) throws -> (standardOutput: Data, standardError: Data) {
+        let directory = try CompatFixtures.makeTemporaryDirectory(label: "command-output")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outputURL = directory.appendingPathComponent("stdout")
+        let errorURL = directory.appendingPathComponent("stderr")
+        try Data().write(to: outputURL)
+        try Data().write(to: errorURL)
+        let outputHandle = try FileHandle(forWritingTo: outputURL)
+        defer { try? outputHandle.close() }
+        let errorHandle = try FileHandle(forWritingTo: errorURL)
+        defer { try? errorHandle.close() }
+
+        // Files cannot fill up like pipes while the parent waits for exit.
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outputHandle
+        process.standardError = errorHandle
+        try process.run()
+        process.waitUntilExit()
+        return (
+            standardOutput: try Data(contentsOf: outputURL),
+            standardError: try Data(contentsOf: errorURL)
+        )
     }
 
     private func sevenZipExecutable() -> String? {

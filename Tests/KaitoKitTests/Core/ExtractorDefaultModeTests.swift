@@ -321,8 +321,6 @@ final class ExtractorDefaultModeTests: XCTestCase {
         output: URL
     ) throws {
         let process = Process()
-        let standardOutput = Pipe()
-        let standardError = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-c",
@@ -334,13 +332,9 @@ final class ExtractorDefaultModeTests: XCTestCase {
             "-o",
             output.path,
         ]
-        process.standardOutput = standardOutput
-        process.standardError = standardError
-        try process.run()
-        process.waitUntilExit()
+        let captured = try ZipTestSupport.capture(process)
 
-        let errors = standardError.fileHandleForReading.readDataToEndOfFile()
-        _ = standardOutput.fileHandleForReading.readDataToEndOfFile()
+        let errors = captured.standardError
         guard process.terminationReason == .exit, process.terminationStatus == 0 else {
             throw ZipTestSupportError.commandFailed(
                 String(decoding: errors, as: UTF8.self)

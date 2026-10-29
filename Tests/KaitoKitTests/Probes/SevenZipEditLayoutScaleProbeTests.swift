@@ -63,7 +63,7 @@ final class SevenZipEditLayoutScaleProbeTests: XCTestCase {
     }
 
     private func child(name: String, recording: Bool) throws -> Sample {
-        let process = Process(), pipe = Pipe()
+        let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
         process.arguments = ["xctest", "-XCTest",
             "KaitoKitTests.SevenZipEditLayoutScaleProbeTests/testOpenTimeAndResidentMemory",
@@ -72,12 +72,8 @@ final class SevenZipEditLayoutScaleProbeTests: XCTestCase {
         environment["KAITOKIT_7Z_SCALE_CHILD"] = name
         environment["KAITOKIT_7Z_SCALE_RECORDING"] = recording ? "1" : "0"
         process.environment = environment
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        let output = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        let text = String(decoding: output, as: UTF8.self)
+        let captured = try ZipTestSupport.capture(process)
+        let text = captured.diagnostics
         XCTAssertEqual(process.terminationStatus, 0, text)
         let prefix = "7Z-LAYOUT-SAMPLE "
         let line = try XCTUnwrap(text.split(separator: "\n").first { $0.hasPrefix(prefix) }, text)

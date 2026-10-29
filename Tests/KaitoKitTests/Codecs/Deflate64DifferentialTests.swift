@@ -67,6 +67,45 @@ final class Deflate64DifferentialTests: XCTestCase {
         }
     }
 
+    func testRandomStreamsAcrossInputAndOutputBoundariesMatchHEAD() throws {
+        var random = Generator(state: 0x2026_1029_d64)
+        let fixed = Deflate64DecompressorTests.fixedCodes()
+        for index in 0..<32 {
+            let count = random.int(8_193)
+            let payload = (0..<count).map { _ in UInt8(random.int(256)) }
+            var writer = Deflate64TestBitWriter()
+            writer.writeLSB(1, count: 1)
+            if index % 2 == 0 {
+                writer.writeLSB(0, count: 2)
+                writer.alignToByte()
+                writer.writeUInt16LE(UInt16(count))
+                writer.writeUInt16LE(~UInt16(count))
+                writer.writeAlignedBytes(payload)
+            } else {
+                writer.writeLSB(1, count: 2)
+                for byte in payload { writer.writeHuffman(Int(byte), codes: fixed) }
+                writer.writeHuffman(256, codes: fixed)
+            }
+            for input in [1, 7, 4_096, 65_537, 262_144] {
+                for output in [1, 7, 4_096, 65_537, 262_144, 300_000] {
+                    try compare(writer.data, expected: UInt64(count), chunk: output, sourceChunk: input, valid: true)
+                }
+            }
+            for input in [1, 7, 4_096] {
+                for output in [1, 7, 4_096, 262_144] {
+                    let truncated = Data(writer.data.prefix(random.int(writer.data.count)))
+                    try compare(truncated, expected: UInt64(count), chunk: output, sourceChunk: input)
+                    try compare(writer.data, expected: UInt64(count / 2), chunk: output, sourceChunk: input)
+                }
+            }
+        }
+        for _ in 0..<1_024 {
+            let bytes = Data((0..<random.int(128)).map { _ in UInt8(random.int(256)) })
+            try compare(bytes, expected: 65_536, chunk: [1, 7, 4_096][random.int(3)],
+                        sourceChunk: [1, 7, 4_096][random.int(3)])
+        }
+    }
+
     // Opt-in, release-only micro-measurement; fixtures are generated in a temporary
     // directory by the available 7zz binary, without depending on its source code.
     func testDeflate64ThroughputMeasurement() throws {
@@ -121,7 +160,10 @@ final class Deflate64DifferentialTests: XCTestCase {
         let source = ShortSource(bytes: bytes, maximum: sourceChunk)
         let old = try Deflate64ReferenceDecoder(source: source, offset: 0, compressedSize: source.length, expectedSize: expected)
         let new = try Deflate64Decompressor(source: source, offset: 0, compressedSize: source.length, expectedSize: expected)
-        let reference = try outcome(old, chunk: chunk)
+        let head = try Deflate64HEADDecoder(source: source, offset: 0, compressedSize: source.length, expectedSize: expected)
+        let reference = try outcome(head, chunk: chunk)
+        // Retain the earlier tree-decoder oracle as well as the frozen HEAD table decoder.
+        XCTAssertEqual(try outcome(old, chunk: chunk), reference, file: file, line: line)
         let actual = try outcome(new, chunk: chunk)
         if valid {
             XCTAssertNil(reference.error, file: file, line: line)

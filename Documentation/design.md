@@ -744,6 +744,16 @@ end markerを拒否するため、それらはCLI互換実績には含めない�
 受理する。legacyにはchecksum/declared sizeがなく、末尾block全体の脱落を検出できない。
 [legacy追補](verification/2026-09-18-lz4-legacy.md)に境界・資源上限と検証範囲を記録する。
 
+2026-10-29 の Deflate64 / LZ4 性能変更は 2026-10-10/11 の差分・境界証明・ASan の規律で行う。
+Deflate64 は同じ RFC 1951 / APPNOTE に基づき、局所 64-bit reservoir・静的固定表・未初期化の
+入力/履歴・検証済み bulk copy を用いる。LZ4 は既存の Block / Frame 仕様と Apple の
+`compression.h` の buffer/scratch 契約だけを追加資料とし、checksum 付き独立 modern block を
+構造検証後に `COMPRESSION_LZ4_RAW` で復号する。短い match が多い block は 32 sequence の probe で
+Swift に戻す。dependent / checksum なし modern / legacy block は Swift のまま（legacy は必須 token walk
+の費用が text で改善を打ち消した）。第三者の実装 source は参照しない。開始時 HEAD の test-only decoder、
+破損入力の error/出力位置の同一性、境界証明・計測・全 test は
+[wave 2 検証記録](verification/2026-10-29-wave2-codecs.md)に記録する。
+
 Swap2/Swap4の実装入力は公式 `Methods.txt` のID、既存 `Decompressor` 契約、
 7zz 26.03の `SwapN + Copy` 出力だけである。
 [2026-09-18 の検証記録](verification/2026-09-18-sevenzip-swap.md)に由来・境界・統合検証を記した。

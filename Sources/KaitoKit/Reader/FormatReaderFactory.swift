@@ -234,7 +234,8 @@ enum FormatReaderFactory {
         let stream = try single.stagingStream(limits: options.limits, recorder: mapRecorder)
         let staged = try SingleFileMaterializer.materialize(
             stream,
-            limits: options.limits
+            limits: options.limits,
+            sizeHint: single.stagingSizeHint
         )
         switch container {
         case .tar:

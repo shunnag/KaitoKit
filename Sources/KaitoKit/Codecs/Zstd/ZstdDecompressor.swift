@@ -73,13 +73,16 @@ final class ZstdDecompressor: Decompressor {
         }
     }
 
-    static func parallel(source: any ByteSource, limits: ReadLimits, workers: Int) throws -> any Decompressor {
+    static func parallel(source: any ByteSource, limits: ReadLimits, workers: Int,
+                         expectedSize: UInt64? = nil) throws -> any Decompressor {
+        if let expectedSize { try Checked.size(expectedSize, limit: limits.maxEntrySize) }
         if workers > 1, let units = try? parallelUnits(source: source, limits: limits),
+           expectedSize == nil || units.reduce(UInt64(0), { $0 + UInt64($1.outputSize) }) == expectedSize,
            let decoder = ParallelIndependentDecompressor(units: units, limits: limits, workers: workers) {
             return decoder
         }
         // 構造走査の失敗も元の read の位置で報告する。未知 content size と単一 frame は直列。
-        return try ZstdDecompressor(source: source, limits: limits)
+        return try ZstdDecompressor(source: source, expectedSize: expectedSize, limits: limits)
     }
 
     static func parallelUnits(source: any ByteSource, limits: ReadLimits) throws -> [ParallelIndependentDecompressor.Unit]? {

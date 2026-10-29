@@ -176,6 +176,8 @@ final class ParallelXZDecompressor: Decompressor {
     }
 
     private let source: any ByteSource
+    /// A storage hint from the validated layout, never an additional output-size assertion.
+    let decodedSizeHint: UInt64?
     private let limits: ReadLimits
     private let recorder: CompressedTarMapRecorder?
     private var serial: (any Decompressor)?
@@ -198,11 +200,28 @@ final class ParallelXZDecompressor: Decompressor {
     ///   - useNativeDecoder: false なら全経路を Apple Compression で復号する。比較試験が使う。
     init(source: any ByteSource, limits: ReadLimits, recorder: CompressedTarMapRecorder? = nil,
          workers: Int = ReaderOptions.automaticDecodeThreads(),
+         expectedSize: UInt64? = nil,
          targetJobOutput: Int = ParallelXZDecompressor.defaultTargetJobOutput,
          diagnostics: Diagnostics? = nil, useNativeDecoder: Bool = true) throws {
         self.source = source; self.limits = limits; self.recorder = recorder
         let memoryBudget = limits.resolvedParallelDecodeMemory()
         let layout = try XZResourceValidator.validate(source: source, dictionaryLimit: limits.maxDictionarySize)
+        let decodedSize = try? layout.streams.reduce(UInt64(0)) { total, stream in
+            try stream.blocks.reduce(total) { try Checked.add($0, $1.outputSize) }
+        }
+        if let decodedSize, (try? Checked.size(decodedSize, limit: limits.maxEntrySize)) != nil {
+            decodedSizeHint = decodedSize
+        } else {
+            decodedSizeHint = nil
+        }
+        // Index sizes must fit the entry limit and, in a container, agree with
+        // its declaration before job planning or output-sized allocations. Keep
+        // the original streaming decoder's error and partial-output behavior.
+        guard let decodedSizeHint, expectedSize == nil || expectedSize == decodedSizeHint else {
+            diagnostics?.fallBack()
+            serial = try XZDecompressor(source: source, limits: limits, recorder: recorder)
+            return
+        }
         // LZMA2 だけの chain と既知の check 種別なら、KaitoKit 自身の LZMA2 decoder で復号する。
         let native = useNativeDecoder && XZNativeDecompressor.isEligible(layout)
         self.native = native

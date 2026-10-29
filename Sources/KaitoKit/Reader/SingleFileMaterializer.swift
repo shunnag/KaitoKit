@@ -6,6 +6,7 @@ import Foundation
 /// to an already-unlinked temporary file whose descriptor owns its lifetime.
 enum SingleFileMaterializer {
     private static let bufferSize = 256 * 1_024
+    private static let writeBufferSize = 4 * 1_024 * 1_024
     private static let spaceCheckInterval = 256 * 1_024 * 1_024
 
     // A task-local dependency keeps deterministic volume tests isolated from
@@ -21,62 +22,103 @@ enum SingleFileMaterializer {
     static func materialize(
         _ stream: EntryStream,
         limits: ReadLimits,
-        inMemoryLimit: UInt64? = nil
+        inMemoryLimit: UInt64? = nil,
+        sizeHint: UInt64? = nil
     ) throws -> any ByteSource {
         let memoryLimit = min(inMemoryLimit ?? limits.inMemorySingleFileLimit, limits.inMemorySingleFileLimit)
+        // Declared sizes and the validated XZ layout select storage, but the stream
+        // remains responsible for validating the actual output and its checksums.
+        let boundedHint = sizeHint.flatMap { $0 <= limits.maxEntrySize ? $0 : nil }
+        let knownSize = stream.remaining == UInt64.max ? boundedHint : stream.remaining
+        let startsOnDisk = knownSize.map { $0 > memoryLimit } ?? false
         var memory = Data()
-        let reserve = min(
-            memoryLimit,
-            UInt64(Self.bufferSize)
-        )
+        let reserve = startsOnDisk ? 0 : min(memoryLimit, knownSize ?? UInt64(Self.bufferSize), limits.maxEntrySize)
         memory.reserveCapacity(try Checked.toInt(reserve))
 
         var descriptor: Int32 = -1
         var bytesSinceSpaceCheck = 0
         var decodedSize: UInt64 = 0
-        var buffer = [UInt8](repeating: 0, count: bufferSize)
+        var deferredWriteError: (any Error)?
+        // Keep each decode call at its original size, but coalesce short output
+        // chunks directly in a bounded buffer instead of writing each one.
+        let capacity = startsOnDisk ? Int(min(knownSize!, UInt64(writeBufferSize))) : bufferSize
+        var buffer = [UInt8](repeating: 0, count: capacity)
+        var pendingCount = 0
+        func flushPending() throws {
+            let count = pendingCount
+            pendingCount = 0 // A failed / partial write must never be retried by the outer catch.
+            try buffer.withUnsafeBytes {
+                try writeStaged(UnsafeRawBufferPointer(rebasing: $0[..<count]), to: descriptor,
+                                limits: limits, bytesSinceSpaceCheck: &bytesSinceSpaceCheck)
+            }
+        }
         defer {
             if descriptor >= 0 {
                 _ = Darwin.close(descriptor)
             }
         }
 
-        while true {
-            try Task.checkCancellation()
-            let count = try buffer.withUnsafeMutableBytes { storage in
-                try stream.read(into: storage)
-            }
-            guard count >= 0, count <= buffer.count else {
-                throw KaitoError.malformed("single-file stream returned an invalid byte count")
-            }
-            guard count > 0 else { break }
-
-            decodedSize = try Checked.add(decodedSize, UInt64(count))
-            if descriptor < 0,
-               decodedSize <= memoryLimit {
-                memory.append(contentsOf: buffer[..<count])
-                continue
-            }
-
-            if descriptor < 0 {
-                try checkTemporarySpace(limits: limits)
-                descriptor = try openUnlinkedTemporaryFile()
-                try memory.withUnsafeBytes { bytes in
-                    try writeStaged(bytes, to: descriptor, limits: limits,
-                                    bytesSinceSpaceCheck: &bytesSinceSpaceCheck)
+        do {
+            while true {
+                try Task.checkCancellation()
+                let requested = min(bufferSize, buffer.count - pendingCount)
+                let count = try buffer.withUnsafeMutableBytes { storage in
+                    try stream.read(into: UnsafeMutableRawBufferPointer(
+                        rebasing: storage[pendingCount..<(pendingCount + requested)]))
                 }
-                memory.removeAll(keepingCapacity: false)
+                guard count >= 0, count <= requested else {
+                    throw KaitoError.malformed("single-file stream returned an invalid byte count")
+                }
+                guard count > 0 else { break }
+
+                let previousSize = decodedSize
+                decodedSize = try Checked.add(decodedSize, UInt64(count))
+                // A spooling failure must not mask a decode error in the prefix
+                // that previously stayed in memory. Keep its historical spill point.
+                if let deferredWriteError {
+                    if decodedSize > memoryLimit { throw deferredWriteError }
+                    continue
+                }
+                if descriptor < 0, !startsOnDisk, decodedSize <= memoryLimit {
+                    memory.append(contentsOf: buffer[..<count])
+                    continue
+                }
+
+                do {
+                    if descriptor < 0 {
+                        try checkTemporarySpace(limits: limits)
+                        descriptor = try openUnlinkedTemporaryFile()
+                        try memory.withUnsafeBytes { bytes in
+                            try writeStaged(bytes, to: descriptor, limits: limits,
+                                            bytesSinceSpaceCheck: &bytesSinceSpaceCheck)
+                        }
+                        memory.removeAll(keepingCapacity: false)
+                    }
+                    pendingCount += count
+                    if !startsOnDisk || pendingCount == buffer.count
+                        || (previousSize <= memoryLimit && decodedSize > memoryLimit) {
+                        try flushPending()
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    pendingCount = 0
+                    guard startsOnDisk, decodedSize <= memoryLimit else { throw error }
+                    deferredWriteError = error
+                }
             }
-            try buffer.withUnsafeBytes { bytes in
-                try writeStaged(
-                    UnsafeRawBufferPointer(rebasing: bytes[..<count]),
-                    to: descriptor,
-                    limits: limits,
-                    bytesSinceSpaceCheck: &bytesSinceSpaceCheck
-                )
+        } catch {
+            // After the old spill point, earlier acknowledged output was written
+            // before the next decode / cancellation check. Flush that prefix first
+            // so an I/O failure keeps the same precedence over a later read error.
+            if decodedSize > memoryLimit, deferredWriteError == nil, pendingCount > 0 {
+                try flushPending()
             }
+            throw error
         }
 
+        if let deferredWriteError { throw deferredWriteError }
+        try flushPending()
         guard descriptor >= 0 else {
             return DataByteSource(data: memory)
         }

@@ -1,3 +1,4 @@
+private import CBzip2
 import Foundation
 import Synchronization
 
@@ -19,6 +20,8 @@ struct ZipCryptoKeys: Sendable {
             return crc
         }
     }()
+
+    static let hardwareCRCAvailable = kk_zipcrypto_has_crc32() != 0
 
     private var key0 = Self.initialKey0
     private var key1 = Self.initialKey1
@@ -61,6 +64,17 @@ struct ZipCryptoKeys: Sendable {
 
     // 呼出側が所有する暗号文バッファを復号し、次の byte 用の鍵状態へ進める。
     mutating func decryptInPlace(_ ciphertext: UnsafeMutableRawBufferPointer) {
+        decryptInPlace(ciphertext, hardwareCRC: Self.hardwareCRCAvailable)
+    }
+
+    // Tests can force the table path and compare streaming key state through
+    // subsequent decryptions; production dispatch is cached once per process.
+    mutating func decryptInPlace(_ ciphertext: UnsafeMutableRawBufferPointer, hardwareCRC: Bool) {
+        if hardwareCRC && Self.hardwareCRCAvailable, let base = ciphertext.baseAddress {
+            kk_zipcrypto_decrypt(base.assumingMemoryBound(to: UInt8.self), ciphertext.count,
+                                 &key0, &key1, &key2)
+            return
+        }
         for index in 0..<ciphertext.count {
             let decoded = ciphertext[index] ^ keyStreamByte()
             ciphertext[index] = decoded

@@ -79,9 +79,8 @@ enum RAR5KeyDerivation {
 
         try passwordStorage.withUnsafeBytes { passwordBytes in
             try Task.checkCancellation()
-            hmacSHA256(
-                key: passwordBytes,
-                keyCount: passwordUTF8.count,
+            let hmac = HMACSHA256(key: passwordBytes, keyCount: passwordUTF8.count)
+            hmac.authenticate(
                 message: firstMessage,
                 output: &current
             )
@@ -93,9 +92,7 @@ enum RAR5KeyDerivation {
             if finalIteration >= 2 {
                 for iteration in 2...finalIteration {
                     if (iteration - 1).isMultiple(of: 4_096) { try Task.checkCancellation() }
-                    hmacSHA256(
-                        key: passwordBytes,
-                        keyCount: passwordUTF8.count,
+                    hmac.authenticate(
                         message: current,
                         output: &next
                     )
@@ -130,22 +127,46 @@ enum RAR5KeyDerivation {
         )
     }
 
-    private static func hmacSHA256(
-        key: UnsafeRawBufferPointer,
-        keyCount: Int,
-        message: [UInt8],
-        output: inout [UInt8]
-    ) {
-        message.withUnsafeBytes { messageBytes in
-            output.withUnsafeMutableBytes { outputBytes in
-                CCHmac(
-                    CCHmacAlgorithm(kCCHmacAlgSHA256),
-                    key.baseAddress,
-                    keyCount,
-                    messageBytes.baseAddress,
-                    message.count,
-                    outputBytes.baseAddress
-                )
+    // CommonCrypto の SHA context は値として複製できる。ipad / opad の block は一度だけ吸収する。
+    private struct HMACSHA256 {
+        private let inner: CC_SHA256_CTX
+        private let outer: CC_SHA256_CTX
+
+        init(key: UnsafeRawBufferPointer, keyCount: Int) {
+            var block = [UInt8](repeating: 0, count: 64)
+            if keyCount > block.count {
+                var sha = CC_SHA256_CTX()
+                CC_SHA256_Init(&sha)
+                var offset = 0
+                while offset < keyCount {
+                    let count = min(keyCount - offset, Int(UInt32.max))
+                    CC_SHA256_Update(&sha, key.baseAddress!.advanced(by: offset), CC_LONG(count))
+                    offset += count
+                }
+                block.withUnsafeMutableBufferPointer { _ = CC_SHA256_Final($0.baseAddress, &sha) }
+            } else {
+                block.withUnsafeMutableBytes { destination in
+                    destination.copyMemory(from: UnsafeRawBufferPointer(rebasing: key[..<keyCount]))
+                }
+            }
+            var inner = CC_SHA256_CTX(), outer = CC_SHA256_CTX()
+            CC_SHA256_Init(&inner)
+            CC_SHA256_Init(&outer)
+            for index in block.indices { block[index] ^= 0x36 }
+            block.withUnsafeBytes { _ = CC_SHA256_Update(&inner, $0.baseAddress, CC_LONG($0.count)) }
+            for index in block.indices { block[index] ^= 0x36 ^ 0x5C }
+            block.withUnsafeBytes { _ = CC_SHA256_Update(&outer, $0.baseAddress, CC_LONG($0.count)) }
+            self.inner = inner
+            self.outer = outer
+        }
+
+        func authenticate(message: [UInt8], output: inout [UInt8]) {
+            var inner = inner, outer = outer
+            message.withUnsafeBytes { _ = CC_SHA256_Update(&inner, $0.baseAddress, CC_LONG($0.count)) }
+            output.withUnsafeMutableBufferPointer { digest in
+                CC_SHA256_Final(digest.baseAddress, &inner)
+                CC_SHA256_Update(&outer, digest.baseAddress, CC_LONG(digest.count))
+                CC_SHA256_Final(digest.baseAddress, &outer)
             }
         }
     }

@@ -200,17 +200,44 @@ final class ParallelXZDecompressorTests: XCTestCase {
     func testCancellationAbandonsWorkersWithinTwoSeconds() async throws {
         let bytes = try TestFixtures.base64(ParallelXZTestSupport.fixture)
         let diagnostics = ParallelXZDecompressor.Diagnostics()
+        // Optimized jobs can finish between the observer's polls. Hold worker
+        // reads until cancellation is requested, so this tests cancellation of
+        // live work rather than the relative speed of two threads.
+        final class WorkerGate: ByteSource, @unchecked Sendable {
+            let source: DataByteSource
+            let diagnostics: ParallelXZDecompressor.Diagnostics
+            private let condition = NSCondition()
+            private var released = false
+            init(_ bytes: Data, diagnostics: ParallelXZDecompressor.Diagnostics) {
+                source = DataByteSource(bytes); self.diagnostics = diagnostics
+            }
+            var length: UInt64 { source.length }
+            func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
+                if diagnostics.liveWorkers > 0 {
+                    condition.lock()
+                    while !released { condition.wait() }
+                    condition.unlock()
+                }
+                return try source.read(into: buffer, at: offset)
+            }
+            func release() {
+                condition.lock(); released = true; condition.broadcast(); condition.unlock()
+            }
+        }
+        let source = WorkerGate(bytes, diagnostics: diagnostics)
         let task = Task.detached {
-            let decoder = try ParallelXZDecompressor(source: DataByteSource(bytes), limits: ReadLimits(), workers: 8,
+            let decoder = try ParallelXZDecompressor(source: source, limits: ReadLimits(), workers: 8,
                                                      targetJobOutput: 65_536, diagnostics: diagnostics)
             let stream = try EntryStream(decompressor: decoder, length: nil, expectedCRC32: nil, entryIndex: 0, limits: ReadLimits())
             return try SingleFileMaterializer.materialize(stream, limits: ReadLimits()).length
         }
+        defer { task.cancel(); source.release() }
         let startedDeadline = Date(timeIntervalSinceNow: 2)
         while diagnostics.liveWorkers == 0 && Date() < startedDeadline { try await Task.sleep(for: .milliseconds(1)) }
         XCTAssertGreaterThan(diagnostics.liveWorkers, 0)
         let start = Date()
         task.cancel()
+        source.release()
         do { _ = try await task.value; XCTFail("expected cancellation") }
         catch { XCTAssertTrue(error is CancellationError, "\(error)") }
         while diagnostics.liveWorkers > 0 && Date().timeIntervalSince(start) < 2 { try await Task.sleep(for: .milliseconds(5)) }

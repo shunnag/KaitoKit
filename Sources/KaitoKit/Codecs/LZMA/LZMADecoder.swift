@@ -527,7 +527,8 @@ public final class LZMADecoder: Decompressor {
                 failure = .truncatedInput
                 break decodeLoop
             }
-            let positionState = Int(window.processedPosition & positionStateMask)
+            // pb <= 4 なので mask 後の値は 0...15。
+            let positionState = Int(truncatingIfNeeded: window.processedPosition & positionStateMask)
             let statePositionIndex = coder.state &* Self.maximumPositionStates &+ positionState
             let matchLength = decodeLZMARepeatedMatchSymbol(
                 probabilities: probabilityBase,
@@ -943,15 +944,31 @@ private struct LZMAHotRangeState {
 
     let inputBase: UnsafeMutablePointer<UInt8>
     let inputCount: Int
-    var inputPosition: Int
+    private var input: UnsafeMutablePointer<UInt8>
     var range: UInt32
     var code: UInt32
+
+    init(inputBase: UnsafeMutablePointer<UInt8>, inputCount: Int,
+         inputPosition: Int, range: UInt32, code: UInt32) {
+        self.inputBase = inputBase
+        self.inputCount = inputCount
+        // inputPosition は refill 済みの valid 範囲内。最大の new match は head 2 +
+        // length 10 + slot 6 + direct 26 + align 4 = 48 bit。各 bit は高々 1 byte
+        // normalize するので、末尾の 64 byte sentinel 内で symbol を終えて overrun を検査できる。
+        self.input = inputBase.advanced(by: inputPosition)
+        self.range = range
+        self.code = code
+    }
+
+    @inline(__always)
+    var inputPosition: Int { inputBase.distance(to: input) }
 
     @inline(__always)
     var remainingInput: Int { inputCount &- inputPosition }
 
     @inline(__always)
-    var overrun: Bool { inputPosition > inputCount }
+    // inputCount は valid 領域の長さで、末尾は同じ allocation の sentinel の直前。
+    var overrun: Bool { input > inputBase.advanced(by: inputCount) }
 
     // この本体を三項演算子や mask 形へ書き換えず、bit tree の最終段も先読みしない。
     // code < bound は LLVM が既に csel 化するため手書き branchless は効かない
@@ -1009,8 +1026,9 @@ private struct LZMAHotRangeState {
 
     @inline(__always)
     private mutating func nextByte() -> UInt8 {
-        let byte = inputBase[inputPosition]
-        inputPosition &+= 1
+        // refill 境界と symbol ごとの overrun 検査により、上記 sentinel の末尾を越えない。
+        let byte = input.pointee
+        input = input.advanced(by: 1)
         return byte
     }
 }
@@ -1130,7 +1148,10 @@ private func decodeLZMANewMatchRun(
     var failure: UInt32 = 0
 
     while count < LZMADecoder.matchRunCapacity, generated < outputBudget {
-        let positionState = Int((modelBase &+ UInt64(generated)) & positionStateMask)
+        // generated は高々 matchRunCapacity * 273、mask 後は pb <= 4 により 0...15。
+        let positionState = Int(truncatingIfNeeded:
+            (modelBase &+ UInt64(truncatingIfNeeded: generated)) & positionStateMask
+        )
         let statePositionIndex = localState
             &* LZMADecoder.maximumPositionStates
             &+ positionState
@@ -1253,22 +1274,67 @@ private func applyLZMAMatchGroup(
     capacity: Int,
     window: inout LZMAWindowCursor
 ) {
-    var localWindow = window
+    // UInt8 の辞書 pointer が inout window と alias し得る形のままでは、compiler は
+    // match ごとに cursor を load/store する。直接 copy の間は address を渡さない
+    // scalar に保ち、ring / output 境界の slow path の前後だけ window と受け渡す。
+    var dictionaryPosition = window.dictionaryPosition
+    var available = window.dictionaryBytesAvailable
+    var produced = window.produced
+    var processedPosition = window.processedPosition
+    var outputPosition = window.outputPosition
     var index = 0
     while index < count {
+        // count <= matchGroupLimit <= matchGroupCapacity。各要素は run が検証後に書いたもの。
         let packedMatch = group[index]
         index &+= 1
-        emitLZMAMatch(
-            length: Int(UInt32(truncatingIfNeeded: packedMatch)),
-            distance: UInt32(truncatingIfNeeded: packedMatch >> 32),
+        let length = Int(UInt32(truncatingIfNeeded: packedMatch))
+        let distance = UInt32(truncatingIfNeeded: packedMatch >> 32)
+        let byteDistance = Int(distance) &+ 1
+        let sourcePosition = dictionaryPosition >= byteDistance
+            ? dictionaryPosition &- byteDistance
+            : dictionaryCount &- (byteDistance &- dictionaryPosition)
+        if length < dictionaryCount &- dictionaryPosition,
+           length <= capacity &- produced,
+           length <= dictionaryCount &- sourcePosition,
+           byteDistance >= LZMAMatchCopy.chunkSize || byteDistance >= length,
+           dictionaryPosition >= byteDistance
+               || sourcePosition &- dictionaryPosition >= length {
+            // run が distance <= available <= dictionaryCount を確認済み。上の条件は
+            // 両 span が ring 内、出力が capacity 内であることと direct copy の重複条件。
+            copyLZMAMatchDirect(destination: dictionary.advanced(by: dictionaryPosition),
+                                source: dictionary.advanced(by: sourcePosition), amount: length)
+            dictionaryPosition &+= length
+            available = length >= dictionaryCount &- available ? dictionaryCount : available &+ length
+            produced &+= length
+            processedPosition &+= UInt64(length)
+            outputPosition &+= UInt64(length)
+            continue
+        }
+        window.dictionaryPosition = dictionaryPosition
+        window.dictionaryBytesAvailable = available
+        window.produced = produced
+        window.processedPosition = processedPosition
+        window.outputPosition = outputPosition
+        window.pendingMatchLength = length
+        copyPendingLZMAMatch(
             dictionary: dictionary,
             dictionaryCount: dictionaryCount,
             destination: destination,
             capacity: capacity,
-            window: &localWindow
+            distance: distance,
+            window: &window
         )
+        dictionaryPosition = window.dictionaryPosition
+        available = window.dictionaryBytesAvailable
+        produced = window.produced
+        processedPosition = window.processedPosition
+        outputPosition = window.outputPosition
     }
-    window = localWindow
+    window.dictionaryPosition = dictionaryPosition
+    window.dictionaryBytesAvailable = available
+    window.produced = produced
+    window.processedPosition = processedPosition
+    window.outputPosition = outputPosition
 }
 
 private enum LZMAMatchRunFailure {
@@ -1403,6 +1469,7 @@ private func decodeLZMALiteralRun(
     var localState = coder.state
     var produced = 0
     var stop = LZMALiteralStop.full
+    let literalProbabilities = probabilities.advanced(by: LZMAProbabilityOffset.literals)
     // 直前 byte は ring の直前位置にある。dictionary reset 直後（履歴なし）は 0。
     var localPreviousByte: UInt8 = 0
     if localDictionaryBytesAvailable > 0 {
@@ -1415,10 +1482,15 @@ private func decodeLZMALiteralRun(
 
     while produced < maximumCount {
         let positionPart = localProcessedPosition & literalPositionMask
-        let previousPart = UInt64(localPreviousByte >> literalPreviousShift)
-        let context = (positionPart << literalContextShift) | previousPart
-        let literalBase = LZMAProbabilityOffset.literals
-            &+ Int(truncatingIfNeeded: context) &* LZMAProperties.literalCoderSize
+        // lc は 0...8、previous shift は 0...8。UInt64 上の wrapping shift は
+        // 常に 64 未満で、lc=0 の 8 bit shift も零になり、毎 byte の範囲分岐を省ける。
+        let previousPart = UInt64(localPreviousByte) &>> UInt64(literalPreviousShift)
+        let context = (positionPart &<< literalContextShift) | previousPart
+        // context < 2^(lc+lp) で、allocation 時に全 context 分を検証済み。
+        // model 内の添字は plain tree が 1...255、matched tree も最大 767 < 0x300。
+        let literalModel = literalProbabilities.advanced(
+            by: Int(truncatingIfNeeded: context) &* LZMAProperties.literalCoderSize
+        )
 
         var symbol = 1
         if localState >= LZMAState.literalStateCount {
@@ -1435,18 +1507,17 @@ private func decodeLZMALiteralRun(
             while symbol < 0x100 {
                 let matchBit = Int((matchByte >> 7) & 1)
                 matchByte <<= 1
-                let index = literalBase
-                    &+ ((1 &+ matchBit) << 8)
+                let index = ((1 &+ matchBit) << 8)
                     &+ symbol
                 let bit = Int(
-                    localDecoder.decodeBit(probabilities.advanced(by: index))
+                    localDecoder.decodeBit(literalModel.advanced(by: index))
                 )
                 symbol = (symbol << 1) | bit
                 if matchBit != bit {
                     while symbol < 0x100 {
                         let plainBit = Int(
                             localDecoder.decodeBit(
-                                probabilities.advanced(by: literalBase &+ symbol)
+                                literalModel.advanced(by: symbol)
                             )
                         )
                         symbol = (symbol << 1) | plainBit
@@ -1456,8 +1527,7 @@ private func decodeLZMALiteralRun(
             }
         } else {
             symbol = decodeLZMAPlainLiteral(
-                probabilities: probabilities,
-                base: literalBase,
+                node: literalModel,
                 decoder: &localDecoder
             )
         }
@@ -1492,7 +1562,8 @@ private func decodeLZMALiteralRun(
             stop = LZMALiteralStop.refill
             break
         }
-        let positionState = Int(localProcessedPosition & positionStateMask)
+        // mask は検証済みの pb（0...4）から作るので、結果は 0...15。
+        let positionState = Int(truncatingIfNeeded: localProcessedPosition & positionStateMask)
         let statePositionIndex = localState
             &* LZMADecoder.maximumPositionStates
             &+ positionState
@@ -1653,12 +1724,10 @@ private func decodeLZMARepeatedMatchSymbol(
 // 測定: design.md §11「LZMA / LZMA2 bit tree 先読み」)。
 @inline(__always)
 private func decodeLZMAPlainLiteral(
-    probabilities: UnsafeMutablePointer<UInt16>,
-    base: Int,
+    node: UnsafeMutablePointer<UInt16>,
     decoder: inout LZMAHotRangeState
 ) -> Int {
     // 最終段だけは子を持たないので先読みしない。
-    let node = probabilities.advanced(by: base)
     var symbol = 1
     var probability = UInt32(node[1])
     for _ in 0..<7 {
@@ -1938,7 +2007,7 @@ private enum LZMAMatchCopy {
 // source と先頭の destination が後方から重なる場合は末尾揃えの chunk が壊れる）。
 // 末尾は終端に揃えた chunk を重ねて書き、長さ分を超えて書かない。超えて書くと、
 // ring 一周前の最古の履歴（距離 dictionaryCount 付近の正当な参照先）を壊す。
-// chunk 未満の長さは frame を太らせないよう別関数に置く。LZMAMatchCopyTests が
+// chunk 未満の長さも caller の local state のまま写す。LZMAMatchCopyTests が
 // byte loop と総当たりで比較するため internal。
 @inline(__always)
 func copyLZMAMatchDirect(
@@ -1971,7 +2040,7 @@ func copyLZMAMatchDirect(
 
 // chunk 未満（1...15 byte）の match を、先頭と終端に揃えた二枚の load/store で写す。
 // 前提は copyLZMAMatchDirect と同じ。長さ 1（short rep や分割後の残り）は 1 byte。
-@inline(never)
+@inline(__always)
 func copyLZMAShortMatch(
     destination: UnsafeMutablePointer<UInt8>,
     source: UnsafeMutablePointer<UInt8>,

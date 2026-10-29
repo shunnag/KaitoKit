@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-30
+
+展開と一覧の高速化をまとめた release。RAR5 solid の block 並列 Huffman 復号(solid JPEG 4.0 倍)、DMG(UDIF)の chunk の byte 数 LRU・先読みの再利用・ULMO の自前 LZMA2(LZMA 圧縮の DMG 16 倍、zlib 18 倍)、WinZip AES の鍵導出(1 回 695 → 183 µs)、tar の高遅延 header 走査と名前の符号化判定の高速化などを含む。各変更は敵対的レビューと全 test を経ている。出力と error は変わらない。ビルド要件(Xcode 27 / Swift 6.4 以上)と実行環境(macOS 26 以上・Apple Silicon と Intel)は 0.17.0 と同じ。
+
 ### 追加
 
 - RAR4 decode 計測の R0 基盤。RAR 6.x による solid / 非 solid / PPMd と、noise を含む color BMP・stereo PCM・x86 風 code の filter on/off corpus、標準 filter 4 種と solid PPMd の小型 fixture・SHA / token 検査・fuzz seed を追加した。decoder の動作は変更しない。
@@ -38,6 +42,10 @@
 - 7z AES の鍵導出(SHA-256 の反復)の作業領域を使い回し、7.3 → 3.7 ms。
 - WinZip AES の小さな entry で、復号と認証の buffer を使い回す(1 entry あたり 2.3 → 0.9 µs)。entry ごとの PBKDF2 は変わらないので、小ファイル多数の書庫全体ではほぼ PBKDF2 の時間になる。
 - PPMd var.H(7z・RAR4 の model)と var.I(ZIP)の復号を速くする。model の状態を局所変数に保ち、arena への raw pointer の読み書きを境界の証明付きで行い、状態列の走査・SEE・二値 context の経路を詰める。M4 Max の release(1 thread)で 7z の text 254 → 235 ms、色 7,296 → 6,553 ms、JPEG 1,431 → 1,073 ms、ZIP の text 304 → 293 ms、色 7,112 → 5,721 ms、JPEG 1,539 → 928 ms。出力と破損入力の error・部分出力は HEAD と同じ(643 件の比較と ASan)。
+
+### 修正
+
+- Xcode 26 系のコンパイラで `UDIFChunkCache` の 1 行が型推論できず、build できなかった(クロージャの中の名前が宣言中の同名の局所定数を指していた)。局所定数の名前を変えた。挙動は変わらない。
 
 ## [0.17.0] - 2026-10-27
 

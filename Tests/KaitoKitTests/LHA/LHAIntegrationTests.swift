@@ -875,14 +875,9 @@ final class LHAIntegrationTests: XCTestCase {
         }
         process.executableURL = executable
         process.arguments = ["-pq", archive.path, name]
-        let output = Pipe()
-        let errors = Pipe()
-        process.standardOutput = output
-        process.standardError = errors
-        try process.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        let diagnostic = errors.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        let captured = try ZipTestSupport.capture(process)
+        let data = captured.standardOutput
+        let diagnostic = captured.standardError
         guard process.terminationStatus == 0 else {
             XCTFail(
                 "lhasa rejected \(archive.lastPathComponent):\(name): "

@@ -58,20 +58,15 @@ enum KaitoCLI {
     @discardableResult
     static func run(_ arguments: [String], currentDirectory: URL? = nil) throws -> String {
         let process = Process()
-        let standardOutput = Pipe()
-        let standardError = Pipe()
         process.executableURL = try executableURL()
         process.arguments = arguments
         if let currentDirectory {
             process.currentDirectoryURL = currentDirectory
         }
-        process.standardOutput = standardOutput
-        process.standardError = standardError
-        try process.run()
-        process.waitUntilExit()
+        let captured = try ZipTestSupport.capture(process)
 
-        let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
-        let errors = standardError.fileHandleForReading.readDataToEndOfFile()
+        let output = captured.standardOutput
+        let errors = captured.standardError
         guard process.terminationReason == .exit, process.terminationStatus == 0 else {
             throw ZipTestSupportError.commandFailed(
                 String(decoding: errors, as: UTF8.self)

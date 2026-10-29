@@ -201,16 +201,11 @@ final class LHAMethodCorpusTests: XCTestCase {
 
     private func lhasaMember(executable: String, archive: URL) throws -> Data {
         let process = Process()
-        let output = Pipe()
-        let errors = Pipe()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = ["-pq", archive.path]
-        process.standardOutput = output
-        process.standardError = errors
-        try process.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        let diagnostic = errors.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        let captured = try ZipTestSupport.capture(process)
+        let data = captured.standardOutput
+        let diagnostic = captured.standardError
         guard process.terminationStatus == 0 else {
             XCTFail(String(decoding: diagnostic, as: UTF8.self))
             return Data()

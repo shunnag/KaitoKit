@@ -7,6 +7,38 @@ import XCTest
 /// kaito CLI（detect-encoding・detect・list・sha・extract・bench）の出力と終了コードを、build した実行ファイル（Support/KaitoCLI）
 /// と checked-in の fixture で検査する。
 final class CLISmokeTests: XCTestCase {
+    func testCommandCaptureExceedingPipeCapacityCompletesWithinDeadline() throws {
+        let size = 1_048_576
+        for input: Data? in [nil, Data(repeating: 0x69, count: size)] {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: ZipTestSupport.pythonPath)
+            process.arguments = ["-c", """
+            import sys
+            size = 1048576
+            sys.stdout.buffer.write(b'o' * size)
+            sys.stderr.buffer.write(b'e' * size)
+            assert sys.stdin.buffer.read() == b'i' * int(sys.argv[1])
+            """, String(input?.count ?? 0)]
+
+            // Kill the producer if capture regresses, so this test fails instead
+            // of leaving swift test stuck in waitUntilExit().
+            let deadline = DispatchWorkItem {
+                if process.isRunning { process.terminate() }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: deadline)
+            defer { deadline.cancel() }
+            let clock = ContinuousClock()
+            let start = clock.now
+            let captured = try ZipTestSupport.capture(process, standardInput: input)
+
+            XCTAssertLessThan(start.duration(to: clock.now), .seconds(10))
+            XCTAssertEqual(process.terminationReason, .exit)
+            XCTAssertEqual(captured.terminationStatus, 0)
+            XCTAssertEqual(captured.standardOutput, Data(repeating: 0x6F, count: size))
+            XCTAssertEqual(captured.standardError, Data(repeating: 0x65, count: size))
+        }
+    }
+
     func testUsageIncludesPasswordStdinForAllCommands() throws {
         let result = try ZipTestSupport.run(try KaitoCLI.executableURL().path, arguments: [])
         XCTAssertEqual(result.terminationStatus, 2)
@@ -331,14 +363,10 @@ final class CLISmokeTests: XCTestCase {
                     try FileManager.default.createDirectory(at: output.appendingPathComponent("hard.txt"), withIntermediateDirectories: true)
                 }
                 let process = Process()
-                let stderr = Pipe()
                 process.executableURL = executable
                 process.arguments = ["extract", archive.path, "-o", output.path]
-                process.standardOutput = FileHandle.nullDevice
-                process.standardError = stderr
-                try process.run()
-                process.waitUntilExit()
-                let errors = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                let captured = try ZipTestSupport.capture(process)
+                let errors = String(decoding: captured.standardError, as: UTF8.self)
                 XCTAssertEqual(process.terminationReason, .exit)
                 if failedTarget {
                     XCTAssertEqual(process.terminationStatus, 1)
@@ -932,16 +960,11 @@ final class CLISmokeTests: XCTestCase {
         let output = temporary.appendingPathComponent("output")
         for arguments in [["sha", archive.path], ["sha", "--sink", archive.path], ["extract", archive.path, "-o", output.path]] {
             let process = Process()
-            let stdout = Pipe()
-            let stderr = Pipe()
             process.executableURL = try KaitoCLI.executableURL()
             process.arguments = arguments
-            process.standardOutput = stdout
-            process.standardError = stderr
-            try process.run()
-            process.waitUntilExit()
-            let text = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            let errors = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            let captured = try ZipTestSupport.capture(process)
+            let text = String(decoding: captured.standardOutput, as: UTF8.self)
+            let errors = String(decoding: captured.standardError, as: UTF8.self)
             XCTAssertEqual(process.terminationReason, .exit)
             XCTAssertEqual(process.terminationStatus, 1)
             XCTAssertTrue(errors.contains("entry 0 (unreadable)"))
@@ -982,16 +1005,11 @@ final class CLISmokeTests: XCTestCase {
         try Data(bytes).write(to: archive)
         for arguments in [["sha", archive.path], ["extract", archive.path, "-o", temporary.appendingPathComponent("out").path]] {
             let process = Process()
-            let stdout = Pipe()
-            let stderr = Pipe()
             process.executableURL = try KaitoCLI.executableURL()
             process.arguments = arguments
-            process.standardOutput = stdout
-            process.standardError = stderr
-            try process.run()
-            process.waitUntilExit()
-            let output = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            let errors = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            let captured = try ZipTestSupport.capture(process)
+            let output = String(decoding: captured.standardOutput, as: UTF8.self)
+            let errors = String(decoding: captured.standardError, as: UTF8.self)
             XCTAssertEqual(process.terminationStatus, 1)
             XCTAssertTrue(errors.contains("error: failed entry 1 ("), errors)
             XCTAssertTrue(errors.contains("Checksum mismatch (source member 0)"), errors)

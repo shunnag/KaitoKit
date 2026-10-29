@@ -621,18 +621,13 @@ final class ZipEncryptionPrimitiveTests: XCTestCase {
         currentDirectory: URL
     ) throws {
         let process = Process()
-        let standardOutput = Pipe()
-        let standardError = Pipe()
         process.executableURL = executable
         process.arguments = arguments
         process.currentDirectoryURL = currentDirectory
-        process.standardOutput = standardOutput
-        process.standardError = standardError
-        try process.run()
-        process.waitUntilExit()
+        let captured = try ZipTestSupport.capture(process)
 
         guard process.terminationStatus == 0 else {
-            let diagnostics = standardError.fileHandleForReading.readDataToEndOfFile()
+            let diagnostics = captured.standardError
             throw KaitoError.malformed(
                 "fixture command failed: \(String(decoding: diagnostics, as: UTF8.self))"
             )

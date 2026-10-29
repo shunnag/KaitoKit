@@ -15,6 +15,28 @@ import Foundation
 /// `PPMdVarIRangeDecoder` (ZIP method 98, `low` plus `scale`); the full list is at
 /// the top of Core/BitReader.swift.
 final class RARPPMdRangeDecoder: PPMd7RangeDecoding {
+    private var cursor: RARPPMdRangeCursor
+    var byteOffset: Int { cursor.byteOffset }
+
+    init(bytes: UnsafePointer<UInt8>, byteCount: Int, byteOffset: Int) throws {
+        cursor = try RARPPMdRangeCursor(bytes: bytes, byteCount: byteCount, byteOffset: byteOffset)
+        try cursor.initialize()
+    }
+
+    // One nonescaping exclusive borrow spans a literal run. On success and
+    // throw the partially advanced coder stays in its owner, just as it did
+    // after every decodeByte before batching. The input allocation outlives us.
+    func withCursor<Result>(_ body: (inout RARPPMdRangeCursor) throws -> Result) rethrows -> Result {
+        try body(&cursor)
+    }
+
+    func threshold(total: Int) throws -> Int { try cursor.threshold(total: total) }
+    func remove(start: Int, size: Int) throws { try cursor.remove(start: start, size: size) }
+    func decodeBinary(probability: Int) throws -> Bool { try cursor.decodeBinary(probability: probability) }
+    func normalize() throws { try cursor.normalize() }
+}
+
+struct RARPPMdRangeCursor: PPMd7RangeDecoding, ~Copyable {
     private static let topValue: UInt32 = 1 << 24
     private static let bottomValue: UInt32 = 1 << 15
     private static let binaryScale: UInt32 = 1 << 14
@@ -38,7 +60,9 @@ final class RARPPMdRangeDecoder: PPMd7RangeDecoding {
         self.bytes = bytes
         self.byteCount = byteCount
         self.byteOffset = byteOffset
+    }
 
+    mutating func initialize() throws {
         // RAR initializes Code from exactly four big-endian bytes.  It does
         // not carry the zero marker used by the 7z PPMd7z range stream.
         for _ in 0..<4 {
@@ -46,7 +70,8 @@ final class RARPPMdRangeDecoder: PPMd7RangeDecoding {
         }
     }
 
-    func threshold(total: Int) throws -> Int {
+    @inline(__always)
+    mutating func threshold(total: Int) throws -> Int {
         guard total > 0, total <= Int(UInt16.max) else {
             throw KaitoError.malformed("invalid RAR PPMd frequency total")
         }
@@ -61,7 +86,8 @@ final class RARPPMdRangeDecoder: PPMd7RangeDecoding {
         return Int(value)
     }
 
-    func remove(start: Int, size: Int) throws {
+    @inline(__always)
+    mutating func remove(start: Int, size: Int) throws {
         guard start >= 0, size > 0 else {
             throw KaitoError.malformed("invalid RAR PPMd subrange")
         }
@@ -77,7 +103,8 @@ final class RARPPMdRangeDecoder: PPMd7RangeDecoding {
     }
 
     // Returns true for the escape branch and false for the binary symbol.
-    func decodeBinary(probability: Int) throws -> Bool {
+    @inline(__always)
+    mutating func decodeBinary(probability: Int) throws -> Bool {
         guard probability > 0, probability < Int(Self.binaryScale) else {
             throw KaitoError.malformed("invalid RAR PPMd binary probability")
         }
@@ -102,7 +129,8 @@ final class RARPPMdRangeDecoder: PPMd7RangeDecoding {
         return true
     }
 
-    func normalize() throws {
+    @inline(__always)
+    mutating func normalize() throws {
         while true {
             if (low ^ (low &+ range)) >= Self.topValue {
                 if range >= Self.bottomValue {
@@ -119,7 +147,7 @@ final class RARPPMdRangeDecoder: PPMd7RangeDecoding {
         }
     }
 
-    private func readByte() throws -> UInt8 {
+    private mutating func readByte() throws -> UInt8 {
         guard byteOffset < byteCount else { throw KaitoError.truncated }
         let result = bytes[byteOffset]
         byteOffset += 1

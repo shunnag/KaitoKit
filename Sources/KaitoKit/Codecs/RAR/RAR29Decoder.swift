@@ -42,8 +42,8 @@ import Foundation
 /// - logical input exhaustion is checked on every symbol-loop iteration, while
 ///   match bounds are checked at token boundaries; failures are thrown after
 ///   leaving the hot loop;
-/// - matches stage one period in caller output before doubling repetitions
-///   and mirroring into the ring; only very short matches use byte copying.
+/// - LZ runs write only into a bounded contiguous ring span, then emit that
+///   span in bulk; filter and block controls execute between runs.
 final class RAR29Decoder: Decompressor {
     /// Internal control flow for speculative decoding, never a serial error.
     enum PrefetchError: Error, Equatable {
@@ -423,6 +423,7 @@ final class RAR29Decoder: Decompressor {
         let distanceBits = Self.distanceBits.values
         let shortBases = Self.shortBases.values
         let shortBits = Self.shortBits.values
+        let expectedSize = self.expectedSize
         var outputCount = 0
         var outputPosition = produced
         var repeat0 = solidState.oldOffset0
@@ -511,291 +512,333 @@ final class RAR29Decoder: Decompressor {
                 }
             }
 
-            if matchRemaining > 0 {
-                if let captureStart = filterCaptureStart {
-                    let filter = scheduledFilters[nextFilterIndex]
-                    guard filter.start == captureStart else {
-                        failure = .malformed("RAR3 filter capture lost its descriptor")
-                        break
-                    }
-                    let previousPosition = outputPosition
-                    copyMatchToFilter(
-                        window: window,
-                        windowMask: windowMask,
-                        windowPosition: &windowPosition,
-                        distance: matchDistance,
-                        remaining: &matchRemaining,
-                        maximumCount: filter.length - filterFillCount,
-                        outputPosition: &outputPosition
-                    )
-                    historySize += min(windowSize - historySize, Int(outputPosition - previousPosition))
-                } else {
-                    var outputCapacity = buffer.count
-                    if nextFilterIndex < scheduledFilters.count {
-                        let filterStart = scheduledFilters[nextFilterIndex].start
-                        let distanceToFilter = filterStart - outputPosition
-                        outputCapacity = min(
-                            outputCapacity,
-                            outputCount + Int(min(distanceToFilter, UInt64(Int.max)))
-                        )
-                    }
-                    let previousCount = outputCount
-                    copyMatchChunk(
-                        window: window,
-                        windowMask: windowMask,
-                        windowPosition: &windowPosition,
-                        distance: matchDistance,
-                        remaining: &matchRemaining,
-                        output: destination,
-                        outputCount: &outputCount,
-                        outputCapacity: outputCapacity,
-                        outputPosition: &outputPosition
-                    )
-                    historySize += min(windowSize - historySize, outputCount - previousCount)
-                    localEmitted += UInt64(outputCount - previousCount)
-                }
-                continue
+            // A run may fill only one contiguous ring span and one current
+            // output/capture range. It cannot overwrite unflushed bytes. The
+            // outer loop alone reads filter Arrays or decoder properties.
+            let capturing = filterCaptureStart != nil
+            var runCapacity = capturing
+                ? scheduledFilters[nextFilterIndex].length - filterFillCount
+                : buffer.count - outputCount
+            if !capturing, nextFilterIndex < scheduledFilters.count {
+                runCapacity = min(runCapacity, Int(min(
+                    scheduledFilters[nextFilterIndex].start - outputPosition, UInt64(Int.max)
+                )))
             }
-
-            if blockMode == .ppmd {
+            let runStart = windowPosition
+            let runEnd = runStart + min(runCapacity, windowSize - runStart)
+            var controlSymbol: Int?
+            var ppmdEscapeReached = false
+            if blockMode == .ppmd && matchRemaining == 0 {
                 do {
-                    switch try nextPPMdToken(outputPosition: outputPosition) {
-                    case let .literal(byte):
-                        guard outputPosition < expectedSize else {
-                            failure = .malformed("RAR4 PPMd output exceeds its declared size")
-                            continue
+                    guard let model = solidState.ppmdModel, let range = ppmdRangeDecoder else {
+                        throw KaitoError.malformed("RAR4 PPMd model state is missing")
+                    }
+                    let escape = solidState.ppmdEscape
+                    try model.withRARCursor(using: range) { model, range in
+                        // Only ordinary literals enter the ring. The first
+                        // escape is consumed, then the borrow ends before its
+                        // action, payload, match or block transition is read.
+                        while windowPosition < runEnd {
+                            let byte = try model.decodeByte(using: &range)
+                            if byte == escape {
+                                ppmdEscapeReached = true
+                                break
+                            }
+                            guard outputPosition < expectedSize else {
+                                throw KaitoError.malformed("RAR4 PPMd output exceeds its declared size")
+                            }
+                            window[windowPosition] = byte
+                            windowPosition += 1
+                            historySize = min(windowSize, historySize + 1)
+                            outputPosition += 1
                         }
-                        window[windowPosition] = byte
-                        windowPosition = (windowPosition + 1) & windowMask
-                        historySize = min(windowSize, historySize + 1)
-                        if filterCaptureStart != nil {
-                            // Capture is checked for completion before each
-                            // token; length <= the allocated work area.
-                            filterInput![filterFillCount] = byte
-                            filterFillCount += 1
-                        } else {
-                            destination[outputCount] = byte
-                            outputCount += 1
-                            localEmitted += 1
-                        }
-                        outputPosition += 1
-
-                    case let .match(distance, length):
-                        guard distance > 0,
-                              distance <= windowSize,
-                              distance <= historySize else {
-                            failure = .malformed("RAR4 PPMd match distance is outside the window")
-                            continue
-                        }
-                        guard length > 0,
-                              outputPosition <= expectedSize,
-                              UInt64(length) <= expectedSize - outputPosition else {
-                            failure = .malformed("RAR4 PPMd match exceeds the declared output size")
-                            continue
-                        }
-                        // PPMd escape matches feed the shared LZ window but do
-                        // not alter OldDist or the LZ last-match cache.
-                        matchDistance = distance
-                        matchRemaining = length
-
-                    case let .filter(filter):
-                        try schedule(filter: filter)
-
-                    case .endBlock:
-                        guard let rangeDecoder = ppmdRangeDecoder else {
-                            throw KaitoError.malformed("RAR4 PPMd range state is missing")
-                        }
-                        bits.bitOffset = try Self.bitOffset(forByteOffset: rangeDecoder.byteOffset)
-                        ppmdRangeDecoder = nil
-                        try readTables(bits: &bits)
-                        lowOffset = 0
-                        lowRepeats = 0
-
-                    case .endFile:
-                        reachedEnd = true
                     }
                 } catch let kaito as KaitoError {
                     failure = decodeFailure(from: kaito)
-                } catch PrefetchError.ppmdNotAllowed {
-                    failure = .ppmdNotAllowed
                 } catch {
                     failure = .malformed("RAR4 PPMd token is invalid")
                 }
-                continue
-            }
-
-            let symbol = mainTable.decode(bits: &bits)
-            if symbol < 0 {
-                failure = .malformed("invalid RAR4 main Huffman code")
-                break
-            }
-            if symbol < 256 {
-                guard outputPosition < expectedSize else {
-                    failure = .malformed("RAR4 output exceeds its declared size")
-                    break
-                }
-                let byte = UInt8(truncatingIfNeeded: symbol)
-                window[windowPosition] = byte
-                windowPosition = (windowPosition + 1) & windowMask
-                historySize = min(windowSize, historySize + 1)
-                if filterCaptureStart != nil {
-                    // As above, the active capture has at least one free byte.
-                    filterInput![filterFillCount] = byte
-                    filterFillCount += 1
-                } else {
-                    destination[outputCount] = byte
-                    outputCount += 1
-                    localEmitted += 1
-                }
-                outputPosition += 1
-                continue
-            }
-
-            var distance = 0
-            var length = 0
-            switch symbol {
-            case 256:
-                if bits.read(1) == 0 {
-                    nextFileRequiresTables = bits.read(1) != 0
-                    reachedEnd = true
-                } else {
-                    do {
-                        try readTables(bits: &bits)
-                        // readTables starts a new low-distance code run.  The
-                        // hot-loop copies of this state must be reset as well;
-                        // otherwise a table switch can reuse a low nibble from
-                        // the preceding block.
-                        lowOffset = 0
-                        lowRepeats = 0
-                    } catch let kaito as KaitoError {
-                        failure = decodeFailure(from: kaito)
-                    } catch PrefetchError.ppmdNotAllowed {
-                        failure = .ppmdNotAllowed
-                    } catch {
-                        failure = .malformed("RAR4 table rebuild failed")
+            } else {
+                // Table storage is retained for the whole read. A control
+                // ends this borrow before readTables can rebuild its contents.
+                let mainCodes = mainTable.cursor
+                let distanceCodes = distanceTable.cursor
+                let lowDistanceCodes = lowDistanceTable.cursor
+                let lengthCodes = lengthTable.cursor
+                let isLZ = blockMode == .lz
+                lzRun: while windowPosition < runEnd, failure == nil {
+                    if bits.overrun { failure = .truncated; break }
+                    if matchRemaining > 0 {
+                        let count = min(matchRemaining, runEnd - windowPosition)
+                        Self.copyMatchIntoRing(
+                            window: window, mask: windowMask, position: windowPosition,
+                            distance: matchDistance, count: count
+                        )
+                        windowPosition += count
+                        historySize += min(windowSize - historySize, count)
+                        outputPosition += UInt64(count)
+                        matchRemaining -= count
+                        continue
                     }
-                }
-                continue
+                    // Pending PPMd matches share the ring copier, but their
+                    // next model byte must go through the scoped borrow above.
+                    if !isLZ { break }
+                    let symbol = mainCodes.decode(bits: &bits)
+                    if symbol < 0 {
+                        failure = .malformed("invalid RAR4 main Huffman code")
+                        break
+                    }
+                    if symbol < 256 {
+                        guard outputPosition < expectedSize else {
+                            failure = .malformed("RAR4 output exceeds its declared size")
+                            break
+                        }
+                        let byte = UInt8(truncatingIfNeeded: symbol)
+                        window[windowPosition] = byte
+                        windowPosition += 1
+                        historySize = min(windowSize, historySize + 1)
+                        outputPosition += 1
+                        continue
+                    }
 
-            case 257:
-                do {
-                    let filter = try readFilter(
-                        bits: &bits,
-                        outputPosition: outputPosition
-                    )
-                    try schedule(filter: filter)
-                } catch let kaito as KaitoError {
-                    failure = decodeFailure(from: kaito)
-                } catch {
-                    failure = .malformed("RAR3 filter descriptor is invalid")
-                }
-                continue
+                    var distance = 0
+                    var length = 0
+                    switch symbol {
+                    case 256, 257:
+                        controlSymbol = symbol
+                        break lzRun
 
-            case 258:
-                guard recentLength > 0 else { continue }
-                distance = recentOffset
-                length = recentLength
+                    case 258:
+                        guard recentLength > 0 else { continue }
+                        distance = recentOffset
+                        length = recentLength
 
-            case 259...262:
-                let selected = symbol - 259
-                switch selected {
-                case 0:
-                    distance = repeat0
-                case 1:
-                    distance = repeat1
-                    (repeat0, repeat1) = (repeat1, repeat0)
-                case 2:
-                    distance = repeat2
-                    (repeat0, repeat1, repeat2) = (repeat2, repeat0, repeat1)
-                default:
-                    distance = repeat3
-                    (repeat0, repeat1, repeat2, repeat3) = (
-                        repeat3, repeat0, repeat1, repeat2
-                    )
-                }
-                let lengthSlot = lengthTable.decode(bits: &bits)
-                guard (0..<Self.lengthSymbolCount).contains(lengthSlot) else {
-                    failure = .malformed("invalid RAR4 repeat length slot")
-                    continue
-                }
-                length = lengthBases[lengthSlot] + 2
-                length += Int(bits.read(lengthBits[lengthSlot]))
+                    case 259...262:
+                        let selected = symbol - 259
+                        switch selected {
+                        case 0:
+                            distance = repeat0
+                        case 1:
+                            distance = repeat1
+                            (repeat0, repeat1) = (repeat1, repeat0)
+                        case 2:
+                            distance = repeat2
+                            (repeat0, repeat1, repeat2) = (repeat2, repeat0, repeat1)
+                        default:
+                            distance = repeat3
+                            (repeat0, repeat1, repeat2, repeat3) = (
+                                repeat3, repeat0, repeat1, repeat2
+                            )
+                        }
+                        let lengthSlot = lengthCodes.decode(bits: &bits)
+                        guard (0..<Self.lengthSymbolCount).contains(lengthSlot) else {
+                            failure = .malformed("invalid RAR4 repeat length slot")
+                            continue
+                        }
+                        length = lengthBases[lengthSlot] + 2
+                        length += Int(bits.read(lengthBits[lengthSlot]))
 
-            case 263...270:
-                let shortSlot = symbol - 263
-                distance = shortBases[shortSlot] + 1
-                distance += Int(bits.read(shortBits[shortSlot]))
-                length = 2
-                repeat3 = repeat2
-                repeat2 = repeat1
-                repeat1 = repeat0
-                repeat0 = distance
+                    case 263...270:
+                        let shortSlot = symbol - 263
+                        distance = shortBases[shortSlot] + 1
+                        distance += Int(bits.read(shortBits[shortSlot]))
+                        length = 2
+                        repeat3 = repeat2
+                        repeat2 = repeat1
+                        repeat1 = repeat0
+                        repeat0 = distance
 
-            default:
-                let lengthSlot = symbol - 271
-                guard (0..<Self.lengthSymbolCount).contains(lengthSlot) else {
-                    failure = .malformed("invalid RAR4 match length slot")
-                    continue
-                }
-                length = lengthBases[lengthSlot] + 3
-                length += Int(bits.read(lengthBits[lengthSlot]))
+                    default:
+                        let lengthSlot = symbol - 271
+                        guard (0..<Self.lengthSymbolCount).contains(lengthSlot) else {
+                            failure = .malformed("invalid RAR4 match length slot")
+                            continue
+                        }
+                        length = lengthBases[lengthSlot] + 3
+                        length += Int(bits.read(lengthBits[lengthSlot]))
 
-                let distanceSlot = distanceTable.decode(bits: &bits)
-                guard (0..<Self.distanceSymbolCount).contains(distanceSlot) else {
-                    failure = .malformed("invalid RAR4 distance slot")
-                    continue
-                }
-                distance = distanceBases[distanceSlot] + 1
-                let extraBits = distanceBits[distanceSlot]
-                if extraBits > 0 {
-                    if distanceSlot > 9 {
-                        distance += Int(bits.read(extraBits - 4)) << 4
-                        if lowRepeats > 0 {
-                            lowRepeats -= 1
-                            distance += lowOffset
-                        } else {
-                            let lowSymbol = lowDistanceTable.decode(bits: &bits)
-                            guard (0...16).contains(lowSymbol) else {
-                                failure = .malformed("invalid RAR4 low-distance slot")
-                                continue
-                            }
-                            if lowSymbol == 16 {
-                                lowRepeats = 15
-                                distance += lowOffset
+                        let distanceSlot = distanceCodes.decode(bits: &bits)
+                        guard (0..<Self.distanceSymbolCount).contains(distanceSlot) else {
+                            failure = .malformed("invalid RAR4 distance slot")
+                            continue
+                        }
+                        distance = distanceBases[distanceSlot] + 1
+                        let extraBits = distanceBits[distanceSlot]
+                        if extraBits > 0 {
+                            if distanceSlot > 9 {
+                                distance += Int(bits.read(extraBits - 4)) << 4
+                                if lowRepeats > 0 {
+                                    lowRepeats -= 1
+                                    distance += lowOffset
+                                } else {
+                                    let lowSymbol = lowDistanceCodes.decode(bits: &bits)
+                                    guard (0...16).contains(lowSymbol) else {
+                                        failure = .malformed("invalid RAR4 low-distance slot")
+                                        continue
+                                    }
+                                    if lowSymbol == 16 {
+                                        lowRepeats = 15
+                                        distance += lowOffset
+                                    } else {
+                                        lowOffset = lowSymbol
+                                        distance += lowSymbol
+                                    }
+                                }
                             } else {
-                                lowOffset = lowSymbol
-                                distance += lowSymbol
+                                distance += Int(bits.read(extraBits))
                             }
                         }
-                    } else {
-                        distance += Int(bits.read(extraBits))
+                        if distance >= 0x2_000 { length += 1 }
+                        if distance >= 0x4_0000 { length += 1 }
+                        repeat3 = repeat2
+                        repeat2 = repeat1
+                        repeat1 = repeat0
+                        repeat0 = distance
                     }
+
+                    guard failure == nil else { continue }
+                    guard distance > 0,
+                          distance <= windowSize,
+                          distance <= historySize else {
+                        failure = .malformed("RAR4 match distance is outside the window")
+                        continue
+                    }
+                    guard length > 0,
+                          outputPosition <= expectedSize,
+                          UInt64(length) <= expectedSize - outputPosition else {
+                        failure = .malformed("RAR4 match exceeds the declared output size")
+                        continue
+                    }
+                    recentOffset = distance
+                    recentLength = length
+                    matchDistance = distance
+                    matchRemaining = length
                 }
-                if distance >= 0x2_000 { length += 1 }
-                if distance >= 0x4_0000 { length += 1 }
-                repeat3 = repeat2
-                repeat2 = repeat1
-                repeat1 = repeat0
-                repeat0 = distance
             }
 
-            guard failure == nil else { continue }
-            guard distance > 0,
-                  distance <= windowSize,
-                  distance <= historySize else {
-                failure = .malformed("RAR4 match distance is outside the window")
+            // runStart <= windowPosition <= runEnd <= windowSize. Every byte
+            // in this interval was initialized by a literal or validated match;
+            // its length is <= the caller/capture capacity chosen above.
+            let runCount = windowPosition - runStart
+            if capturing {
+                filterInput!.advanced(by: filterFillCount).update(
+                    from: window.advanced(by: runStart), count: runCount
+                )
+                filterFillCount += runCount
+            } else {
+                destination.advanced(by: outputCount).update(
+                    from: window.advanced(by: runStart), count: runCount
+                )
+                outputCount += runCount
+                localEmitted += UInt64(runCount)
+            }
+            windowPosition &= windowMask
+            if failure != nil { continue }
+            if let symbol = controlSymbol {
+                switch symbol {
+                case 256:
+                    if bits.read(1) == 0 {
+                        nextFileRequiresTables = bits.read(1) != 0
+                        reachedEnd = true
+                    } else {
+                        do {
+                            try readTables(bits: &bits)
+                            // readTables starts a new low-distance code run.  The
+                            // hot-loop copies of this state must be reset as well;
+                            // otherwise a table switch can reuse a low nibble from
+                            // the preceding block.
+                            lowOffset = 0
+                            lowRepeats = 0
+                        } catch let kaito as KaitoError {
+                            failure = decodeFailure(from: kaito)
+                        } catch PrefetchError.ppmdNotAllowed {
+                            failure = .ppmdNotAllowed
+                        } catch {
+                            failure = .malformed("RAR4 table rebuild failed")
+                        }
+                    }
+
+                case 257:
+                    do {
+                        let filter = try readFilter(
+                            bits: &bits,
+                            outputPosition: outputPosition
+                        )
+                        try schedule(filter: filter)
+                    } catch let kaito as KaitoError {
+                        failure = decodeFailure(from: kaito)
+                    } catch {
+                        failure = .malformed("RAR3 filter descriptor is invalid")
+                    }
+
+                default: break
+                }
                 continue
             }
-            guard length > 0,
-                  outputPosition <= expectedSize,
-                  UInt64(length) <= expectedSize - outputPosition else {
-                failure = .malformed("RAR4 match exceeds the declared output size")
-                continue
+            if !ppmdEscapeReached { continue }
+            do {
+                switch try nextPPMdEscapeToken(outputPosition: outputPosition) {
+                case let .literal(byte):
+                    guard outputPosition < expectedSize else {
+                        failure = .malformed("RAR4 PPMd output exceeds its declared size")
+                        continue
+                    }
+                    window[windowPosition] = byte
+                    windowPosition = (windowPosition + 1) & windowMask
+                    historySize = min(windowSize, historySize + 1)
+                    if filterCaptureStart != nil {
+                        // Capture is checked for completion before each
+                        // token; length <= the allocated work area.
+                        filterInput![filterFillCount] = byte
+                        filterFillCount += 1
+                    } else {
+                        destination[outputCount] = byte
+                        outputCount += 1
+                        localEmitted += 1
+                    }
+                    outputPosition += 1
+
+                case let .match(distance, length):
+                    guard distance > 0,
+                          distance <= windowSize,
+                          distance <= historySize else {
+                        failure = .malformed("RAR4 PPMd match distance is outside the window")
+                        continue
+                    }
+                    guard length > 0,
+                          outputPosition <= expectedSize,
+                          UInt64(length) <= expectedSize - outputPosition else {
+                        failure = .malformed("RAR4 PPMd match exceeds the declared output size")
+                        continue
+                    }
+                    // PPMd escape matches feed the shared LZ window but do
+                    // not alter OldDist or the LZ last-match cache.
+                    matchDistance = distance
+                    matchRemaining = length
+
+                case let .filter(filter):
+                    try schedule(filter: filter)
+
+                case .endBlock:
+                    guard let rangeDecoder = ppmdRangeDecoder else {
+                        throw KaitoError.malformed("RAR4 PPMd range state is missing")
+                    }
+                    bits.bitOffset = try Self.bitOffset(forByteOffset: rangeDecoder.byteOffset)
+                    ppmdRangeDecoder = nil
+                    try readTables(bits: &bits)
+                    lowOffset = 0
+                    lowRepeats = 0
+
+                case .endFile:
+                    reachedEnd = true
+                }
+            } catch let kaito as KaitoError {
+                failure = decodeFailure(from: kaito)
+            } catch PrefetchError.ppmdNotAllowed {
+                failure = .ppmdNotAllowed
+            } catch {
+                failure = .malformed("RAR4 PPMd token is invalid")
             }
-            recentOffset = distance
-            recentLength = length
-            matchDistance = distance
-            matchRemaining = length
         }
 
         if let rangeDecoder = ppmdRangeDecoder {
@@ -845,10 +888,7 @@ final class RAR29Decoder: Decompressor {
         return outputCount
     }
 
-    private func nextPPMdToken(outputPosition: UInt64) throws -> PPMdToken {
-        let byte = try decodePPMdByte()
-        guard byte == solidState.ppmdEscape else { return .literal(byte) }
-
+    private func nextPPMdEscapeToken(outputPosition: UInt64) throws -> PPMdToken {
         let action = try decodePPMdByte()
         switch action {
         case 0:
@@ -1166,29 +1206,6 @@ final class RAR29Decoder: Decompressor {
         nextFilterIndex = index
     }
 
-    private func copyMatchToFilter(
-        window: UnsafeMutablePointer<UInt8>,
-        windowMask: Int,
-        windowPosition: inout Int,
-        distance: Int,
-        remaining: inout Int,
-        maximumCount: Int,
-        outputPosition: inout UInt64
-    ) {
-        // The token loop validated distance <= historySize and the complete
-        // match against expectedSize. The capture limit is within the work
-        // allocation. copyMatchChunk stages only initialized history, handles
-        // forward overlap, and copies at most one ring turn per invocation.
-        var fill = filterFillCount
-        copyMatchChunk(
-            window: window, windowMask: windowMask, windowPosition: &windowPosition,
-            distance: distance, remaining: &remaining, output: filterInput!,
-            outputCount: &fill, outputCapacity: fill + maximumCount,
-            outputPosition: &outputPosition
-        )
-        filterFillCount = fill
-    }
-
     private func readTables(bits: inout RAR29RawBitCursor) throws {
         bits.alignToByte()
         if bits.peek(1) != 0 {
@@ -1306,48 +1323,39 @@ final class RAR29Decoder: Decompressor {
         solidState.tablesWereRead = true
     }
 
+    /// Caller proved 0 < distance <= initialized history <= mask + 1 and
+    /// 0 < count <= windowSize - position. The destination never wraps.
+    /// Stage one old-history period into the ring, then double initialized
+    /// destination spans. The first source may wrap: its second span ends at
+    /// position, before any destination write, so the first memmove cannot
+    /// destroy it. memmove permits physical overlap or a self-copy at full
+    /// dictionary distance. Doubling uses nonoverlapping, initialized spans.
     @inline(__always)
-    private func copyMatchChunk(
-        window: UnsafeMutablePointer<UInt8>,
-        windowMask: Int,
-        windowPosition: inout Int,
-        distance: Int,
-        remaining: inout Int,
-        output: UnsafeMutablePointer<UInt8>,
-        outputCount: inout Int,
-        outputCapacity: Int,
-        outputPosition: inout UInt64
+    static func copyMatchIntoRing(
+        window: UnsafeMutablePointer<UInt8>, mask: Int, position: Int,
+        distance: Int, count: Int
     ) {
-        let count = min(remaining, min(outputCapacity - outputCount, windowMask + 1))
-        guard count > 0 else { return }
-        if count <= 8 {
-            // Tiny matches avoid two library calls. Forward order preserves
-            // overlap, including a source or destination crossing the ring end.
+        if distance == 1 {
+            memset(window + position, Int32(window[(position - 1) & mask]), count)
+        } else if count <= 8 {
             for index in 0..<count {
-                let byte = window[(windowPosition - distance) & windowMask]
-                window[windowPosition] = byte
-                windowPosition = (windowPosition + 1) & windowMask
-                output[outputCount + index] = byte
+                window[position + index] = window[(position + index - distance) & mask]
             }
-            outputCount += count
-            remaining -= count
         } else {
-            // The shared bounded LZ primitive stages one period, doubles it in
-            // caller output, then mirrors at most one ring turn in two copies.
-            // Distance one uses memset. Distance/output bounds are validated
-            // by the token loop, including filter boundaries and pending reads.
-            copyLZMatchThroughWindow(
-                window: window,
-                windowMask: windowMask,
-                windowPosition: &windowPosition,
-                distance: distance,
-                remaining: &remaining,
-                output: output,
-                outputPosition: &outputCount,
-                outputLimit: outputCapacity
-            )
+            let source = (position - distance) & mask
+            let period = min(distance, count)
+            let first = min(period, mask + 1 - source)
+            memmove(window + position, window + source, first)
+            if first < period {
+                memmove(window + position + first, window, period - first)
+            }
+            var written = period
+            while written < count {
+                let batch = min(written, count - written)
+                (window + position + written).update(from: window + position, count: batch)
+                written += batch
+            }
         }
-        outputPosition += UInt64(count)
     }
 
     private func decodeFailure(from error: KaitoError) -> DecodeFailure {
@@ -1552,17 +1560,29 @@ final class RAR29HuffmanTable {
         }
     }
 
+    fileprivate var cursor: RAR29HuffmanCursor {
+        RAR29HuffmanCursor(primary: UnsafePointer(primary), lookup: UnsafePointer(lookup), lookupBits: lookupBits)
+    }
+
     @inline(__always)
     fileprivate func decode(bits: inout RAR29RawBitCursor) -> Int {
-        // Common short codes touch a 4 KiB table rather than the 128 KiB
-        // fallback. Zero covers both longer codes and invalid prefixes.
-        var record = primary[Int(bits.peek(Self.primaryBits))]
-        if record == 0, lookupBits > Self.primaryBits {
+        cursor.decode(bits: &bits)
+    }
+}
+
+private struct RAR29HuffmanCursor {
+    let primary: UnsafePointer<UInt32>
+    let lookup: UnsafePointer<UInt32>
+    let lookupBits: Int
+
+    @inline(__always)
+    func decode(bits: inout RAR29RawBitCursor) -> Int {
+        var record = primary[Int(bits.peek(10))]
+        if record == 0, lookupBits > 10 {
             record = lookup[Int(bits.peek(lookupBits))]
         }
         guard record != 0 else { return -1 }
-        let bitCount = Int(record >> 16)
-        bits.consume(bitCount)
+        bits.consume(Int(record >> 16))
         return Int(record & 0xffff) - 1
     }
 }

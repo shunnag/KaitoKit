@@ -1,0 +1,206 @@
+{
+  "rar_version": "6.24",
+  "dimensions": [
+    1024,
+    1024
+  ],
+  "text_seed": 2026102903,
+  "generator": "KaitoKit R0 image/PCM/x86; MT19937 word text; sips image conversion",
+  "archives": [
+    {
+      "path": "archives/tiff-rgb.rar",
+      "switches": [
+        "-ma4",
+        "-m3",
+        "-cfg-",
+        "-idq",
+        "-mt1",
+        "-tsc-",
+        "-tsa-",
+        "-s-",
+        "-mc-",
+        "-mcC+"
+      ],
+      "bytes": 2228304,
+      "sha256": "33979a7c15d1d78c8a4ec2cc2a3a74e873634157db92cde29820dac94793e61a",
+      "entries": [
+        {
+          "path": "page-0.tiff",
+          "bytes": 3149360,
+          "sha256": "fceb146d89ea20b8ceb5defa0d99229ef85d1890352fea5f63c2d3fee8810863"
+        },
+        {
+          "path": "page-1.tiff",
+          "bytes": 3149360,
+          "sha256": "3ece65d555500583b7d30a986bd001a7009e878ad376038f55463b4e403e835b"
+        },
+        {
+          "path": "page-2.tiff",
+          "bytes": 3149360,
+          "sha256": "9a8062ca3a43a798c6aa4b9ee8f9471f090cbba3cecae517edcedc924f4acc56"
+        }
+      ]
+    },
+    {
+      "path": "archives/jpeg.rar",
+      "switches": [
+        "-ma4",
+        "-m3",
+        "-cfg-",
+        "-idq",
+        "-mt1",
+        "-tsc-",
+        "-tsa-",
+        "-s-",
+        "-mc-"
+      ],
+      "bytes": 960134,
+      "sha256": "316b07b8d9e4e72562eb2dfd1139fcc5d2d5baaaa472b8dad39d6c28b9bc5dce",
+      "entries": [
+        {
+          "path": "page-0.jpg",
+          "bytes": 324485,
+          "sha256": "19bb742457ac457b62bb04b4b0e8540c3b68d4e8a067b704c0149e15e6be41ab"
+        },
+        {
+          "path": "page-1.jpg",
+          "bytes": 324535,
+          "sha256": "284610510c2aabbcd14378dbb6dadb3669706f4dad89385ba908c5f462af2763"
+        },
+        {
+          "path": "page-2.jpg",
+          "bytes": 324313,
+          "sha256": "2a2898c3689e32ef2790da79787090df324f02100bf1cc20ee440080435aa955"
+        }
+      ]
+    },
+    {
+      "path": "archives/text-lz.rar",
+      "switches": [
+        "-ma4",
+        "-m3",
+        "-cfg-",
+        "-idq",
+        "-mt1",
+        "-tsc-",
+        "-tsa-",
+        "-s-",
+        "-mc-"
+      ],
+      "bytes": 2367096,
+      "sha256": "7ba219abff3626caacbad5f394dc825ef6088a52ab5c3be1937055f82ca69042",
+      "entries": [
+        {
+          "path": "text.txt",
+          "bytes": 16777216,
+          "sha256": "35b6b85eff0d016c2119281779b8fc0a0b19b464c48e91e213271b01ebfd8e55"
+        }
+      ]
+    },
+    {
+      "path": "archives/text-ppmd.rar",
+      "switches": [
+        "-ma4",
+        "-m3",
+        "-cfg-",
+        "-idq",
+        "-mt1",
+        "-tsc-",
+        "-tsa-",
+        "-s-",
+        "-mc-",
+        "-mct+"
+      ],
+      "bytes": 1362409,
+      "sha256": "86f25c5dd67b2a0e05930e7e924f67a90a9591cfdbfbf8aa37a1d2e71743fe97",
+      "entries": [
+        {
+          "path": "text.txt",
+          "bytes": 16777216,
+          "sha256": "35b6b85eff0d016c2119281779b8fc0a0b19b464c48e91e213271b01ebfd8e55"
+        }
+      ]
+    },
+    {
+      "path": "archives/solid-png.rar",
+      "switches": [
+        "-ma4",
+        "-m3",
+        "-cfg-",
+        "-idq",
+        "-mt1",
+        "-tsc-",
+        "-tsa-",
+        "-s",
+        "-mc-"
+      ],
+      "bytes": 3801053,
+      "sha256": "62420ddf6a6960d716006d8da6548fa5b00b2b17e80114a63c5e92b31cfa21d6",
+      "entries": [
+        {
+          "path": "page-0.png",
+          "bytes": 1264761,
+          "sha256": "622b9e540acd76e31b3b237b2aa4393536a37af4e5e3bc599e7bbcaa916f1cb8"
+        },
+        {
+          "path": "page-1.png",
+          "bytes": 1263302,
+          "sha256": "bf3fbc540992aff9e3b0978c0f92642d152078322da2d8cd95f08f339bca942e"
+        },
+        {
+          "path": "page-2.png",
+          "bytes": 1262313,
+          "sha256": "beb205889c30de8a52f5a899cda69fb7209b60d2d88f1abd575135a4e1dadef7"
+        }
+      ]
+    },
+    {
+      "path": "archives/x86-e8.rar",
+      "switches": [
+        "-ma4",
+        "-m3",
+        "-cfg-",
+        "-idq",
+        "-mt1",
+        "-tsc-",
+        "-tsa-",
+        "-s-",
+        "-mc-",
+        "-mcE+"
+      ],
+      "bytes": 2196190,
+      "sha256": "3bb1e3911dd2da02f307a26815c50897f5f36ab0310d3315558d18f4809b906c",
+      "entries": [
+        {
+          "path": "x86-code.bin",
+          "bytes": 12582912,
+          "sha256": "7884bc1727f02fb8955d978f240ea1bf62ad3b2cffa3369ce1b1a6bcb5272492"
+        }
+      ]
+    },
+    {
+      "path": "archives/wav-audio.rar",
+      "switches": [
+        "-ma4",
+        "-m3",
+        "-cfg-",
+        "-idq",
+        "-mt1",
+        "-tsc-",
+        "-tsa-",
+        "-s-",
+        "-mc-",
+        "-mc4A+"
+      ],
+      "bytes": 4869172,
+      "sha256": "65f9958e520fea25567c30c71d30160fcb8240b9810a48a732945a30c76efb31",
+      "entries": [
+        {
+          "path": "stereo.wav",
+          "bytes": 8388652,
+          "sha256": "74cad6a8f7300a8c452b53458b5843d7a72329e106f071cf323feaef06594195"
+        }
+      ]
+    }
+  ]
+}

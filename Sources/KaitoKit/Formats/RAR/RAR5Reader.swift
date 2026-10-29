@@ -268,7 +268,8 @@ final class RAR5Reader: FormatReader {
                     dictionarySize: record.compression.dictionarySize,
                     limits: limits,
                     scratchPool: scratchPool,
-                    mismatchIsWrongPassword: prepared.mismatchIsWrongPassword
+                    mismatchIsWrongPassword: prepared.mismatchIsWrongPassword,
+                    decodeThreads: options.resolvedDecodeThreads
                 )
             } catch KaitoError.truncated {
                 guard options.recoverDamagedArchives, entry.isIncomplete else {
@@ -492,7 +493,8 @@ final class RAR5Reader: FormatReader {
                 dictionarySize: record.compression.dictionarySize,
                 limits: limits,
                 solidState: state,
-                mismatchIsWrongPassword: prepared.mismatchIsWrongPassword
+                mismatchIsWrongPassword: prepared.mismatchIsWrongPassword,
+                decodeThreads: options.resolvedDecodeThreads
             )
         }
         return try makeVerifiedEntryStream(
@@ -816,7 +818,8 @@ final class RAR5Reader: FormatReader {
         solidState: RAR5Decoder.SolidState? = nil,
         scratchPool: RAR5Decoder.ScratchPool? = nil,
         independentState: RAR5Decoder.SolidState? = nil,
-        mismatchIsWrongPassword: Bool
+        mismatchIsWrongPassword: Bool,
+        decodeThreads: Int = 1
     ) throws -> any Decompressor {
         do {
             let decoder = try RAR5Decoder(
@@ -828,7 +831,8 @@ final class RAR5Reader: FormatReader {
                 limits: limits,
                 solidState: solidState,
                 scratchPool: scratchPool,
-                independentState: independentState
+                independentState: independentState,
+                decodeThreads: decodeThreads
             )
             guard mismatchIsWrongPassword else { return decoder }
             return RARPasswordAmbiguousDecompressor(

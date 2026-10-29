@@ -1,0 +1,41 @@
+{
+  "asan": {
+    "command": "CLANG_MODULE_CACHE_PATH=W/cache swift test --disable-sandbox --scratch-path W/asan --sanitize=address --filter PPMd",
+    "exit": 0,
+    "failures": 0,
+    "findings": 0,
+    "runtime_linkage": "libclang_rt.asan_osx_dynamic.dylib",
+    "seconds": 566.831,
+    "skipped": 1,
+    "tests": 40
+  },
+  "benchmark": {
+    "all_exit_zero": true,
+    "processes": 90,
+    "rounds": 5
+  },
+  "full": {
+    "command": "CLANG_MODULE_CACHE_PATH=W/cache swift test --disable-sandbox --scratch-path W/tests-final",
+    "compatibility_seconds": 2.138,
+    "compatibility_tests": 34,
+    "exit": 0,
+    "failures": 0,
+    "main_seconds": 1239.898,
+    "main_skipped": 56,
+    "main_tests": 1915
+  },
+  "identity": {
+    "cmp_exit": 0,
+    "rows": 643
+  },
+  "release": {
+    "command": "CLANG_MODULE_CACHE_PATH=W/cache swift build --disable-sandbox -c release --product kaito -debug-info-format none",
+    "exit": 0,
+    "seconds": 73.33
+  },
+  "scope": {
+    "changelog_changed": false,
+    "forbidden_sources_opened": false,
+    "rar_call_site_changed": false
+  }
+}

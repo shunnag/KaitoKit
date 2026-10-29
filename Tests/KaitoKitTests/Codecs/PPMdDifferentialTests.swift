@@ -49,6 +49,33 @@ final class PPMdDifferentialTests: XCTestCase {
         }
     }
 
+    func testCorruptionPreservesReturnedPrefixAcrossBatchSizes() throws {
+        let h = Stream(bytes: hex(
+            "00620279778de882efeeaedc2f74e42e003a0d19919ed570d672bc71e6c3ce82ee"),
+            size: UInt64("banana bandana banana bandana\n".utf8.count * 20))
+        let encoded = try Data(contentsOf: TestFixtures.url("zip-ppmd/binary-o6-mem4m.zip.b64"))
+        let archive = try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters))
+        for (name, stream) in [("H", h), ("I", try zipStream(archive))] {
+            var variants = [stream]
+            for fraction in [1, 2, 3] {
+                var truncated = stream
+                truncated.bytes = Data(stream.bytes.prefix(stream.bytes.count * fraction / 4))
+                variants.append(truncated)
+                var flipped = stream
+                flipped.bytes[stream.bytes.count * fraction / 4] ^= 0x80
+                variants.append(flipped)
+            }
+            for (index, variant) in variants.enumerated() {
+                // A failing batch may have written bytes that read() never
+                // returned. Compare the public prefix and the exact error at
+                // each caller size, including the decoder's 256 KiB cap.
+                for size in [1, 37, 4096, 262145] {
+                    try compare(variant, chunkSize: size, label: "batch \(name)/\(index)/\(size)")
+                }
+            }
+        }
+    }
+
     func testGeneratedOrdersMemoryAndStructuredInputsMatchFrozenDecoder() throws {
         try SevenZipTestSupport.requireSevenZip()
         let directory = try SevenZipTestSupport.temporaryDirectory(label: "ppmd-differential")

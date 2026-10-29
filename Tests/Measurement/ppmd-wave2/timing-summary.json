@@ -1,0 +1,56 @@
+[
+  {
+    "archive": "text.7z",
+    "final_ms": 235.1227500475943,
+    "final_over_sevenzip": 1.0858967389237004,
+    "head_ms": 254.43125003948808,
+    "paired_final_over_head": 0.9292715957173954,
+    "saved_percent": 7.588886973945641,
+    "sevenzip_ms": 216.52404102496803
+  },
+  {
+    "archive": "text.zip",
+    "final_ms": 293.11333294026554,
+    "final_over_sevenzip": 1.1750486194414151,
+    "head_ms": 304.191958042793,
+    "paired_final_over_head": 0.963580151251175,
+    "saved_percent": 3.641984874882498,
+    "sevenzip_ms": 249.44783397950232
+  },
+  {
+    "archive": "color.7z",
+    "final_ms": 6553.165249992162,
+    "final_over_sevenzip": 1.771865058264417,
+    "head_ms": 7295.810124953277,
+    "paired_final_over_head": 0.8991945925761745,
+    "saved_percent": 10.179059792429445,
+    "sevenzip_ms": 3698.4561659628525
+  },
+  {
+    "archive": "color.zip",
+    "final_ms": 5721.241625025868,
+    "final_over_sevenzip": 1.5474306791229118,
+    "head_ms": 7111.721792025492,
+    "paired_final_over_head": 0.8099948872440296,
+    "saved_percent": 19.551948285699183,
+    "sevenzip_ms": 3697.252291953191
+  },
+  {
+    "archive": "jpeg.7z",
+    "final_ms": 1073.4039170201868,
+    "final_over_sevenzip": 1.3496213616778907,
+    "head_ms": 1430.871499935165,
+    "paired_final_over_head": 0.778270940507732,
+    "saved_percent": 24.982507718629922,
+    "sevenzip_ms": 795.3370830509812
+  },
+  {
+    "archive": "jpeg.zip",
+    "final_ms": 927.8120830422267,
+    "final_over_sevenzip": 1.1994046788013577,
+    "head_ms": 1539.483292028308,
+    "paired_final_over_head": 0.5998628492843745,
+    "saved_percent": 39.73224082089186,
+    "sevenzip_ms": 773.5605000052601
+  }
+]

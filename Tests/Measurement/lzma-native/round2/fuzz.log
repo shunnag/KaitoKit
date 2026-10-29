@@ -1,0 +1,493 @@
+warning: /Users/nagash/Library/org.swift.swiftpm/configuration is not accessible or not writable, disabling user-level cache features.
+warning: /Users/nagash/Library/org.swift.swiftpm/security is not accessible or not writable, disabling user-level cache features.
+warning: /Users/nagash/Library/Caches/org.swift.swiftpm is not accessible or not writable, disabling user-level cache features.
+warning: 'kaitokit-wt-lzasm': failed storing manifest for 'kaitokit-wt-lzasm' in cache: attempt to write a readonly database
+Building for debugging...
+[0/11] Write sources
+[1/11] Write kaito-entitlement.plist
+[1/11] Write sources
+[4/11] Write swift-version--58304C5D6DBC2206.txt
+[5/11] Compiling CLZMAChunk LZMAChunk.c
+[7/308] Emitting module KaitoKit
+[8/327] Compiling KaitoKit EntryAttributes.swift
+[9/327] Compiling KaitoKit EntryKind.swift
+[10/327] Compiling KaitoKit LHARawLayout.swift
+[11/327] Compiling KaitoKit RawEntryRecord.swift
+[12/327] Compiling KaitoKit SevenZipEditingSnapshot.swift
+[13/327] Compiling KaitoKit TarEditingSnapshot.swift
+[14/327] Compiling KaitoKit ZipAESKeyMaterial.swift
+[15/327] Compiling KaitoKit ZipRawRecordLayout.swift
+[16/327] Compiling KaitoKit ArchiveOutputBudget.swift
+[17/327] Compiling KaitoKit ArchiveReader.swift
+[18/327] Compiling KaitoKit ArchiveVolumeSet.swift
+[19/327] Compiling KaitoKit EntryStream.swift
+[20/327] Compiling KaitoKit ExtractionDirectoryAccess.swift
+[21/327] Compiling KaitoKit ExtractionOptions.swift
+[22/327] Compiling KaitoKit Extractor.swift
+[23/327] Compiling KaitoKit FormatReaderFactory.swift
+[24/327] Compiling KaitoKit HashingDecompressor.swift
+[25/327] Compiling KaitoKit OpenedArchiveInput.swift
+[26/327] Compiling KaitoKit ReaderOptions.swift
+[27/327] Compiling KaitoKit StuffItXBrimstoneModel.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[28/327] Compiling KaitoKit StuffItXCodec.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[29/327] Compiling KaitoKit StuffItXCyanide.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[30/327] Compiling KaitoKit StuffItXDarkhorse.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[31/327] Compiling KaitoKit StuffItXDeflate.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[32/327] Compiling KaitoKit StuffItXEnglish.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[33/327] Compiling KaitoKit StuffItXEnglishDictionary.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[34/327] Compiling KaitoKit StuffItXIron.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[35/327] Compiling KaitoKit StuffItXJPEGTables.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[36/327] Compiling KaitoKit StuffItXRC4Stored.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[37/327] Compiling KaitoKit StuffItXRangeDecoder.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[38/327] Compiling KaitoKit StuffItXX86.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[39/327] Compiling KaitoKit ParallelXZDecompressor.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[40/327] Compiling KaitoKit XZDecompressor.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[41/327] Compiling KaitoKit XZNativeDecompressor.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[42/327] Compiling KaitoKit XZResourceValidator.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[43/327] Compiling KaitoKit XZStreamLayout.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[44/327] Compiling KaitoKit XZSyntheticStream.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[45/327] Compiling KaitoKit XpressHuffmanDecoder.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[46/327] Compiling KaitoKit ZipLegacyDecompressors.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[47/327] Compiling KaitoKit SevenZipHeaderParser.swift
+[48/327] Compiling KaitoKit SevenZipMethod.swift
+[49/327] Compiling KaitoKit SevenZipReader.swift
+[50/327] Compiling KaitoKit SevenZipStreamsParser.swift
+[51/327] Compiling KaitoKit SevenZipStructures.swift
+[52/327] Compiling KaitoKit CompressedNaming.swift
+[53/327] Compiling KaitoKit SingleFileReader.swift
+[54/327] Compiling KaitoKit StuffIt5Parser.swift
+[55/327] Compiling KaitoKit StuffItCrypto.swift
+[56/327] Compiling KaitoKit StuffItParser.swift
+[57/327] Compiling KaitoKit StuffItReader.swift
+[58/327] Compiling KaitoKit StuffItResourceMap.swift
+[59/327] Compiling KaitoKit StuffItSFX.swift
+[60/327] Compiling KaitoKit StuffItSplitSet.swift
+[61/327] Compiling KaitoKit StuffItXBitReader.swift
+[62/327] Compiling KaitoKit StuffItXCatalog.swift
+[63/327] Compiling KaitoKit StuffItXCrypto.swift
+[64/327] Compiling KaitoKit StuffItXElementParser.swift
+[65/327] Compiling KaitoKit StuffItXReader.swift
+[66/327] Compiling KaitoKit BrotliDecompressor.swift
+[67/327] Compiling KaitoKit ByteRunDecompressor.swift
+[68/327] Compiling KaitoKit Bzip2BlockScanner.swift
+[69/327] Compiling KaitoKit Bzip2Decompressor.swift
+[70/327] Compiling KaitoKit Bzip2StreamLayout.swift
+[71/327] Compiling KaitoKit ParallelBzip2Decompressor.swift
+[72/327] Compiling KaitoKit CopyDecompressor.swift
+[73/327] Compiling KaitoKit Decompressor.swift
+[74/327] Compiling KaitoKit Deflate64Decompressor.swift
+[75/327] Compiling KaitoKit DeflateDecompressor.swift
+[76/327] Compiling KaitoKit GzipDecompressor.swift
+[77/327] Compiling KaitoKit LArcDecoder.swift
+[78/327] Compiling KaitoKit LHAPackedInputStorage.swift
+[79/327] Compiling KaitoKit LHAStaticBitCursor.swift
+[80/327] Compiling KaitoKit LHAStaticHuffmanDecoder.swift
+[81/327] Compiling KaitoKit LHAStaticHuffmanTable.swift
+[82/327] Compiling KaitoKit LZHUFDecoder.swift
+[83/327] Compiling KaitoKit LZ4AppleBlockDecoder.swift
+[84/327] Compiling KaitoKit LZ4BlockDecoder.swift
+[85/327] Compiling KaitoKit LZ4FrameDecompressor.swift
+[86/327] Compiling KaitoKit StuffItXStreamCoordinator.swift
+[87/327] Compiling KaitoKit TarEditingLayoutRestorer.swift
+[88/327] Compiling KaitoKit TarEntryPublisher.swift
+[89/327] Compiling KaitoKit TarHeaderBlock.swift
+[90/327] Compiling KaitoKit TarLayoutStorage.swift
+[91/327] Compiling KaitoKit TarPAXRecords.swift
+[92/327] Compiling KaitoKit TarParser.swift
+[93/327] Compiling KaitoKit TarReader.swift
+[94/327] Compiling KaitoKit TarSparse.swift
+[95/327] Compiling KaitoKit TarStructures.swift
+[96/327] Compiling KaitoKit UDFFileEntry.swift
+[97/327] Compiling KaitoKit UDFFileSystem.swift
+[98/327] Compiling KaitoKit UDFReader.swift
+[99/327] Compiling KaitoKit UDFStructures.swift
+[100/327] Compiling KaitoKit UDFVolume.swift
+[101/327] Compiling KaitoKit WIMReader.swift
+[102/327] Compiling KaitoKit WIMStructures.swift
+[103/327] Compiling KaitoKit XarHeader.swift
+[104/327] Compiling KaitoKit XarReader.swift
+[105/327] Compiling KaitoKit ISOStructures.swift
+[106/327] Compiling KaitoKit ISOZisofsDecompressor.swift
+[107/327] Compiling KaitoKit RawSectorImage.swift
+[108/327] Compiling KaitoKit LHAEntryPublisher.swift
+[109/327] Compiling KaitoKit LHAExtendedHeader.swift
+[110/327] Compiling KaitoKit LHAHeaderParser.swift
+[111/327] Compiling KaitoKit LHAReader.swift
+[112/327] Compiling KaitoKit LHASignatureScanner.swift
+[113/327] Compiling KaitoKit LHAStructures.swift
+[114/327] Compiling KaitoKit MacBinaryDataForkDecompressor.swift
+[115/327] Compiling KaitoKit MacBinaryHeader.swift
+[116/327] Compiling KaitoKit MacEnvelope.swift
+[117/327] Compiling KaitoKit MacWrapperReader.swift
+[118/327] Compiling KaitoKit IndependentEntryPrefetcher.swift
+[119/327] Compiling KaitoKit RAR3Crypto.swift
+[120/327] Compiling KaitoKit RAR4EntryPublisher.swift
+[121/327] Compiling KaitoKit RAR4Reader.swift
+[122/327] Compiling KaitoKit RAR4Structures.swift
+[123/327] Compiling KaitoKit RAR4VolumeParser.swift
+[124/327] Compiling KaitoKit RAR5Crypto.swift
+[125/327] Compiling KaitoKit LeafDecodePool.swift
+[126/327] Compiling KaitoKit MD5Transform.swift
+[127/327] Compiling KaitoKit MetadataBudget.swift
+[128/327] Compiling KaitoKit ParallelIndependentDecompressor.swift
+[129/327] Compiling KaitoKit ReadLimits.swift
+[130/327] Compiling KaitoKit Timestamps.swift
+[131/327] Compiling KaitoKit VolumeLocalityHinting.swift
+[132/327] Compiling KaitoKit WriteAll.swift
+[133/327] Compiling KaitoKit XXH32.swift
+[134/327] Compiling KaitoKit XXH64.swift
+[135/327] Compiling KaitoKit ARJReader.swift
+[136/327] Compiling KaitoKit ARJStructures.swift
+[137/327] Compiling KaitoKit AppleDoubleReader.swift
+[138/327] Compiling KaitoKit ArHeader.swift
+[139/327] Compiling KaitoKit ArReader.swift
+[140/327] Compiling KaitoKit ArchiveNameResolver.swift
+[141/327] Compiling KaitoKit CFBReader.swift
+[142/327] Compiling KaitoKit CFBStructures.swift
+[143/327] Compiling KaitoKit CHMReader.swift
+[144/327] Compiling KaitoKit CHMStructures.swift
+[145/327] Compiling KaitoKit XarTOC.swift
+[146/327] Compiling KaitoKit XarXMLParser.swift
+[147/327] Compiling KaitoKit WinZipAES.swift
+[148/327] Compiling KaitoKit ZipAESKeyLookAhead.swift
+[149/327] Compiling KaitoKit ZipByteCursor.swift
+[150/327] Compiling KaitoKit ZipCentralDirectoryLocator.swift
+[151/327] Compiling KaitoKit ZipCentralDirectoryParser.swift
+[152/327] Compiling KaitoKit ZipConstants.swift
+[153/327] Compiling KaitoKit ZipCrypto.swift
+[154/327] Compiling KaitoKit ZipDirectoryLocationResolver.swift
+[155/327] Compiling KaitoKit ZipEndRecordRecovery.swift
+[156/327] Compiling KaitoKit ZipEndRecords.swift
+[157/327] Compiling KaitoKit ZipExtraFields.swift
+[158/327] Compiling KaitoKit ZipLocalHeaderRecovery.swift
+[159/327] Compiling KaitoKit ZipLocalReadAhead.swift
+[160/327] Compiling KaitoKit ZipReader.swift
+[161/327] Compiling KaitoKit ArchiveEntry.swift
+[162/327] Compiling KaitoKit ArchiveFormat.swift
+[163/327] Compiling KaitoKit CompressedTarSplice.swift
+[164/327] Compiling KaitoKit LZMA2ChunkHeader.swift
+[165/327] Compiling KaitoKit LZMA2Decoder.swift
+[166/327] Compiling KaitoKit LZMA2TimedScanSource.swift
+[167/327] Compiling KaitoKit LZMAAloneHeader.swift
+[168/327] Compiling KaitoKit LZMADecoder.swift
+[169/327] Compiling KaitoKit LZMAProperties.swift
+[170/327] Compiling KaitoKit LZWDecoder.swift
+[171/327] Compiling KaitoKit LZWindowCopy.swift
+[172/327] Compiling KaitoKit LZXBitReader.swift
+[173/327] Compiling KaitoKit LZXDecoder.swift
+[174/327] Compiling KaitoKit LZXHuffmanTable.swift
+[175/327] Compiling KaitoKit LzipDecompressor.swift
+[176/327] Compiling KaitoKit OkumuraLZSSSeeds.swift
+[177/327] Compiling KaitoKit PPMdStateScan.swift
+[178/327] Compiling KaitoKit PPMd7Decoder.swift
+[179/327] Compiling KaitoKit PPMd7Model.swift
+[180/327] Compiling KaitoKit PPMd7RangeDecoding.swift
+[181/327] Compiling KaitoKit PPMd7Suballocator.swift
+[182/327] Compiling KaitoKit RARPPMdRangeDecoder.swift
+[183/327] Compiling KaitoKit SevenZipPPMdRangeDecoder.swift
+[184/327] Compiling KaitoKit CRC16.swift
+[185/327] Compiling KaitoKit CRC16XModem.swift
+[186/327] Compiling KaitoKit CRC32.swift
+[187/327] Compiling KaitoKit CRC64.swift
+[188/327] Compiling KaitoKit Cancellation.swift
+[189/327] Compiling KaitoKit Checked.swift
+[190/327] Compiling KaitoKit ChunkedSourceInput.swift
+[191/327] Compiling KaitoKit CommonCryptoBlockCryptor.swift
+[192/327] Compiling KaitoKit CommonCryptoPrimitives.swift
+[193/327] Compiling KaitoKit ConcatenatedByteSource.swift
+[194/327] Compiling KaitoKit ConstantTime.swift
+[195/327] Compiling KaitoKit DOSTimestamp.swift
+[196/327] Compiling KaitoKit DataByteSource.swift
+[197/327] Compiling KaitoKit DecodePowerPolicy.swift
+[198/327] Compiling KaitoKit FileAccessPolicy.swift
+[199/327] Compiling KaitoKit FileByteSource.swift
+[200/327] Compiling KaitoKit HeaderWindowByteSource.swift
+[201/327] Compiling KaitoKit InputLatency.swift
+[202/327] Compiling KaitoKit KDFWorkBudget.swift
+[203/327] Compiling KaitoKit KaitoError.swift
+[204/327] Compiling KaitoKit CabFolderDecoder.swift
+[205/327] Compiling KaitoKit CabReader.swift
+[206/327] Compiling KaitoKit CabStructures.swift
+[207/327] Compiling KaitoKit LZXFolderDecompressor.swift
+[208/327] Compiling KaitoKit MSZIPDecompressor.swift
+[209/327] Compiling KaitoKit CpioHeader.swift
+[210/327] Compiling KaitoKit CpioReader.swift
+[211/327] Compiling KaitoKit CpioSumDecompressor.swift
+[212/327] Compiling KaitoKit DMGReader.swift
+[213/327] Compiling KaitoKit UDIFChunkCache.swift
+[214/327] Compiling KaitoKit UDIFImage.swift
+[215/327] Compiling KaitoKit FormatDetector.swift
+[216/327] Compiling KaitoKit FormatReader.swift
+[217/327] Compiling KaitoKit DecmpfsDecompressor.swift
+[218/327] Compiling KaitoKit HFSPlusVolume.swift
+[219/327] Compiling KaitoKit HFSVolumeListing.swift
+[220/327] Compiling KaitoKit CueSheet.swift
+[221/327] Compiling KaitoKit ISOReader.swift
+[222/327] Compiling KaitoKit ISORockRidge.swift
+[223/327] Compiling KaitoKit ISOSectionDecompressor.swift
+[224/327] Compiling KaitoKit StuffItLZW.swift
+[225/327] Compiling KaitoKit StuffItMW.swift
+[226/327] Compiling KaitoKit StuffItMethod13.swift
+[227/327] Compiling KaitoKit StuffItMethod6.swift
+[228/327] Compiling KaitoKit StuffItPackedInput.swift
+[229/327] Compiling KaitoKit StuffItRLE90.swift
+[230/327] Compiling KaitoKit StuffItTables.swift
+[231/327] Compiling KaitoKit StuffItXJPEGBaseline.swift
+[232/327] Compiling KaitoKit StuffItXJPEGBlocks.swift
+[233/327] Compiling KaitoKit StuffItXJPEGDecoder.swift
+[234/327] Compiling KaitoKit StuffItXJPEGEnvelope.swift
+[235/327] Compiling KaitoKit StuffItXJPEGMode1.swift
+[236/327] Compiling KaitoKit StuffItXJPEGModels.swift
+[237/327] Compiling KaitoKit StuffItXJPEGProgressive.swift
+[238/327] Compiling KaitoKit StuffItXJPEGRange.swift
+[239/327] Compiling KaitoKit StuffItXJPEGSupport.swift
+[240/327] Compiling KaitoKit StuffItXJPEGSyntax.swift
+[241/327] Compiling KaitoKit StuffItXBlend.swift
+[242/327] Compiling KaitoKit StuffItXBrimstoneAllocator.swift
+[243/327] Compiling KaitoKit StuffItXBrimstoneDecoder.swift
+[244/327] Compiling KaitoKit RAR5EntryPublisher.swift
+[245/327] Compiling KaitoKit RAR5Integrity.swift
+[246/327] Compiling KaitoKit RAR5QuickOpen.swift
+[247/327] Compiling KaitoKit RAR5Reader.swift
+[248/327] Compiling KaitoKit RAR5Structures.swift
+[249/327] Compiling KaitoKit RAR5VolumeParser.swift
+[250/327] Compiling KaitoKit RARAESCBCByteSource.swift
+[251/327] Compiling KaitoKit RARSignatureScanner.swift
+[252/327] Compiling KaitoKit RARSolidCoordinator.swift
+[253/327] Compiling KaitoKit RARVerifiedPackedParts.swift
+[254/327] Compiling KaitoKit RARVolumeLocator.swift
+[255/327] Compiling KaitoKit RpmHeader.swift
+[256/327] Compiling KaitoKit RpmReader.swift
+[257/327] Compiling KaitoKit RpmStrippedPayload.swift
+[258/327] Compiling KaitoKit SevenZipAES.swift
+[259/327] Compiling KaitoKit SevenZipEditState.swift
+[260/327] Compiling KaitoKit SevenZipFolderCoordinator.swift
+[261/327] Compiling KaitoKit SevenZipFolderPipeline.swift
+[262/327] Compiling KaitoKit SevenZipFolderPrefetcher.swift
+[263/327] Compiling KaitoKit SevenZipHeaderDecoder.swift
+[264/327] Compiling KaitoKit ZstdBitReader.swift
+[265/327] Compiling KaitoKit ZstdDecompressor.swift
+[266/327] Compiling KaitoKit ZstdFSE.swift
+[267/327] Compiling KaitoKit ZstdFrameDecoder.swift
+[268/327] Compiling KaitoKit ZstdHuffman.swift
+[269/327] Compiling KaitoKit ZstdInput.swift
+[270/327] Compiling KaitoKit ZstdSequenceTable.swift
+[271/327] Compiling KaitoKit ZstdTuning.swift
+[272/327] Compiling KaitoKit AESCBCRandomAccess.swift
+[273/327] Compiling KaitoKit ASCIIDigits.swift
+[274/327] Compiling KaitoKit ArchivePath.swift
+[275/327] Compiling KaitoKit BitReader.swift
+[276/327] Compiling KaitoKit Blake2.swift
+[277/327] Compiling KaitoKit ByteFields.swift
+[278/327] Compiling KaitoKit ByteRange.swift
+[279/327] Compiling KaitoKit ByteReader.swift
+[280/327] Compiling KaitoKit ByteSource.swift
+[281/327] Compiling KaitoKit ByteSourceFileIdentity.swift
+[282/327] Compiling KaitoKit ByteSourceViews.swift
+[283/327] Compiling KaitoKit CPUTopology.swift
+[284/327] Compiling KaitoKit PPMdVarIDecoder.swift
+[285/327] Compiling KaitoKit PPMdVarIModel.swift
+[286/327] Compiling KaitoKit PPMdVarIRangeDecoder.swift
+[287/327] Compiling KaitoKit PPMdVarISuballocator.swift
+[288/327] Compiling KaitoKit PbzxDecompressor.swift
+[289/327] Compiling KaitoKit RAR29Decoder.swift
+[290/327] Compiling KaitoKit RAR3FilterToken.swift
+[291/327] Compiling KaitoKit RAR5Decoder.swift
+[292/327] Compiling KaitoKit RARStandardFilters.swift
+[293/327] Compiling KaitoKit RecoveryDecompressor.swift
+[294/327] Compiling KaitoKit BCJ2Decompressor.swift
+[295/327] Compiling KaitoKit BCJFilterDecompressor.swift
+[296/327] Compiling KaitoKit DeltaFilterDecompressor.swift
+[297/327] Compiling KaitoKit SwapFilterDecompressor.swift
+[298/327] Compiling KaitoKit StuffItArsenic.swift
+[299/327] Compiling KaitoKit StuffItArsenicArithmetic.swift
+[300/327] Compiling KaitoKit StuffItCodec.swift
+[301/327] Compiling KaitoKit StuffItHuffman.swift
+[302/327] Compiling KaitoKit StuffItInstaller.swift
+[303/327] Compiling KaitoKit StuffItLZAH.swift
+[304/327] Compiling KaitoKit SingleFileMaterializer.swift
+[305/327] Compiling KaitoKit SplitVolumeSet.swift
+[306/327] Compiling KaitoKit CompressedTarMapRecorder.swift
+[307/327] Compiling KaitoKit CompressedTarSpliceVerifier.swift
+[308/327] Compiling KaitoKit SplicedTarImage.swift
+[309/327] Compiling KaitoKit TarSpliceGzipDecoder.swift
+[310/327] Compiling KaitoKit TarSpliceGzipMapBuilder.swift
+[311/327] Compiling KaitoKit ZipSplitVolumeSet.swift
+[312/327] Compiling KaitoKit EncodingDetector+Measurement.swift
+[313/327] Compiling KaitoKit EncodingDetector.swift
+[314/327] Compiling KaitoKit EncodingPolicy.swift
+[315/327] Compiling KaitoKit JapaneseNameEncodingResolver.swift
+[316/327] Compiling KaitoKit LanguageExemplars.swift
+[317/327] Compiling KaitoKit NameEncodingCandidates.swift
+[318/327] Compiling KaitoKit NameEncodingScorer+LetterRules.swift
+[319/327] Compiling KaitoKit NameEncodingScorer+NameOrthography.swift
+[320/327] Compiling KaitoKit NameEncodingScorer.swift
+[321/327] Compiling KaitoKit PathComponentSplitter.swift
+[322/327] Compiling KaitoKit RawName.swift
+[323/340] Emitting module kaito
+[324/340] Compiling kaito ArgumentCursor.swift
+[325/340] Compiling kaito Detect.swift
+[326/340] Compiling KaitoKitCompat KaitoArchiveHardLinkExtractor.swift
+[327/340] Compiling KaitoKitCompat KaitoArchiveFileRelocator.swift
+[328/340] Compiling kaito Extract.swift
+[329/340] Compiling kaito List.swift
+[330/340] Compiling kaito main.swift
+[331/340] Compiling kaito SHA.swift
+[332/340] Compiling kaito Bench.swift
+[333/340] Compiling kaito DetectEncoding.swift
+[333/340] Write Objects.LinkFileList
+[335/340] Compiling KaitoKitCompat KaitoArchive.swift
+[336/340] Emitting module KaitoKitCompat
+[336/340] Write Objects.LinkFileList
+[337/340] Linking kaito
+[338/340] Applying kaito
+[339/340] Linking libKaitoKitDynamic.dylib
+Build complete! (16.76s)
+warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+warning: /Users/nagash/Library/org.swift.swiftpm/configuration is not accessible or not writable, disabling user-level cache features.
+warning: /Users/nagash/Library/org.swift.swiftpm/security is not accessible or not writable, disabling user-level cache features.
+warning: /Users/nagash/Library/Caches/org.swift.swiftpm is not accessible or not writable, disabling user-level cache features.
+warning: 'kaitokit-wt-lzasm': failed storing manifest for 'kaitokit-wt-lzasm' in cache: attempt to write a readonly database
+warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+generated 600 mutants from 13 seed(s)
+mutants: 600, crashes: 0, hangs: 0, sanitizer findings: 0

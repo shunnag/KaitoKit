@@ -1,0 +1,22 @@
+(kernel) Failed to query kext info (MAC policy error 0x1).
+Failed to read loaded kext info from kernel - (libkern/kext) internal error.
+[-[SimServiceContext sendRequest:]:2053] ERROR : Unable to deliver request ({
+    "developer_dir" = "/Applications/Xcode.app/Contents/Developer";
+    request = "set_developer_dir";
+}) because we are not connected to CoreSimulatorService.
+[-[SimServiceContext initWithDeveloperDir:connectionType:error:]:499] WARN  : Unable to discover any Simulator runtimes. Developer Directory is /Applications/Xcode.app/Contents/Developer.
+[-[SimDiskImageManager init]:226] ERROR : Could not kickstart simdiskimaged; SimDiskImageManager services will not be available: Error Domain=NSPOSIXErrorDomain Code=53 "Software caused connection abort" UserInfo={NSLocalizedDescription=Error returned in reply from CoreSimulatorService: Connection invalid}
+[-[SimDiskImageManager _onQueue_checkConnection:]:290] ERROR : simdiskimaged returned error (invalid), marking disconnected.
+[-[SimDiskImageManager _onQueue_checkConnection:]:290] ERROR : simdiskimaged returned error (invalid), marking disconnected.
+[-[SimServiceContext initWithDeveloperDir:connectionType:error:]_block_invoke:556] ERROR : Could not get list of trusted mount directories: Error Domain=com.apple.CoreSimulator.SimError Code=410 "The service used to manage runtime disk images (simdiskimaged) crashed or is not responding" UserInfo={NSLocalizedDescription=The service used to manage runtime disk images (simdiskimaged) crashed or is not responding}
+[-[SimServiceContext sendRequest:reply:error:]:2074] ERROR : Unable to deliver request ({
+    request = "notification_subscription";
+    "set_path" = "/Users/nagash/Library/Developer/CoreSimulator/Devices";
+}) because we are not connected to CoreSimulatorService.
+Starting recording with the CPU Counters template. Launching process: swift. Time limit: 2.0 s
+Ctrl-C to stop the recording
+Run issues were detected (trace is still ready to be viewed):
+* [Error] Error connecting to DTServiceHub. Check Console for detailed error.
+
+Recording failed with errors. Saving output file...
+Output file saved as: kaito.trace

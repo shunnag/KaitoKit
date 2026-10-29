@@ -1,0 +1,48 @@
+{
+  "jpeg_pages": 136,
+  "seed": 20261030,
+  "cases": [
+    {
+      "path": "jpeg.7z",
+      "bytes": 67231113,
+      "sha256": "0c9de10b3d83b8af3c7c348f7aac5c5d3d010be49f956370764d8257de25acd5",
+      "archive_bytes": 66369180,
+      "archive_sha256": "ff78cc56c07e9f97f7164ea7f56fb65c6ed53ef74efa8eaf040089a214558ea8"
+    },
+    {
+      "path": "jpeg-lzma.7z",
+      "bytes": 67231113,
+      "sha256": "0c9de10b3d83b8af3c7c348f7aac5c5d3d010be49f956370764d8257de25acd5",
+      "archive_bytes": 66358912,
+      "archive_sha256": "6c8077ae1993ae368c30299a91aeb4a60d765a307c1be6483ae53b07bf9b1c66"
+    },
+    {
+      "path": "jpeg.xz",
+      "bytes": 67231113,
+      "sha256": "0c9de10b3d83b8af3c7c348f7aac5c5d3d010be49f956370764d8257de25acd5",
+      "archive_bytes": 66369152,
+      "archive_sha256": "331e8fbcb350737c4406e2381b4cfb74f0d48f440ff80fcacc77d368c286f232"
+    },
+    {
+      "path": "text.7z",
+      "bytes": 67108864,
+      "sha256": "bcb0015756074b2831d73a85541ad8c74462daa7f05ff029ba55b35311c76e9e",
+      "archive_bytes": 7405764,
+      "archive_sha256": "0089baa457226242d8743e5137171f66a98cefb03f90e4a1b3da06b3deed836e"
+    },
+    {
+      "path": "text-lzma.7z",
+      "bytes": 67108864,
+      "sha256": "bcb0015756074b2831d73a85541ad8c74462daa7f05ff029ba55b35311c76e9e",
+      "archive_bytes": 7404631,
+      "archive_sha256": "e3fd2384176f39aea4774eb0b194ee9398869c3f63e5b36976ad94fa5cc670d1"
+    },
+    {
+      "path": "text.xz",
+      "bytes": 67108864,
+      "sha256": "bcb0015756074b2831d73a85541ad8c74462daa7f05ff029ba55b35311c76e9e",
+      "archive_bytes": 7405736,
+      "archive_sha256": "b9c7cf884b2bf6a24b08565a9c630b88655a40740a2b6f1c23e402d09886400e"
+    }
+  ]
+}

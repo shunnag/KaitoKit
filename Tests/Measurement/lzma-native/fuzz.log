@@ -1,0 +1,21 @@
+warning: /Users/nagash/Library/org.swift.swiftpm/configuration is not accessible or not writable, disabling user-level cache features.
+warning: /Users/nagash/Library/org.swift.swiftpm/security is not accessible or not writable, disabling user-level cache features.
+warning: /Users/nagash/Library/Caches/org.swift.swiftpm is not accessible or not writable, disabling user-level cache features.
+warning: 'kaitokit-wt-lzasm': failed storing manifest for 'kaitokit-wt-lzasm' in cache: attempt to write a readonly database
+[0/1] Planning build
+Building for debugging...
+[0/5] Write swift-version--58304C5D6DBC2206.txt
+[1/5] Compiling CLZMAHot LZMAHot.c
+[2/7] Write Objects.LinkFileList
+[4/7] Linking kaito
+[5/7] Linking libKaitoKitDynamic.dylib
+[6/7] Applying kaito
+Build complete! (1.48s)
+warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+warning: /Users/nagash/Library/org.swift.swiftpm/configuration is not accessible or not writable, disabling user-level cache features.
+warning: /Users/nagash/Library/org.swift.swiftpm/security is not accessible or not writable, disabling user-level cache features.
+warning: /Users/nagash/Library/Caches/org.swift.swiftpm is not accessible or not writable, disabling user-level cache features.
+warning: 'kaitokit-wt-lzasm': failed storing manifest for 'kaitokit-wt-lzasm' in cache: attempt to write a readonly database
+warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+generated 400 mutants from 13 seed(s)
+mutants: 400, crashes: 0, hangs: 0, sanitizer findings: 0

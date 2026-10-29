@@ -1,0 +1,1265 @@
+warning: /Users/nagash/Library/org.swift.swiftpm/configuration is not accessible or not writable, disabling user-level cache features.
+warning: /Users/nagash/Library/org.swift.swiftpm/security is not accessible or not writable, disabling user-level cache features.
+warning: /Users/nagash/Library/Caches/org.swift.swiftpm is not accessible or not writable, disabling user-level cache features.
+warning: 'kaitokit-wt-lzasm': failed storing manifest for 'kaitokit-wt-lzasm' in cache: attempt to write a readonly database
+Building for debugging...
+[0/17] /private/tmp/kk-lzasm/tests/arm64-apple-macosx/debug/KaitoKitPackageTests.derived/runner.swift
+[1/17] Write sources
+[1/17] Write kaito-entitlement.plist
+[1/17] Write sources
+[8/17] Write swift-version--58304C5D6DBC2206.txt
+[9/17] Compiling CLZMAChunk LZMAChunk.c
+[11/314] Emitting module KaitoKit
+[12/314] Compiling KaitoKit EntryAttributes.swift
+[13/314] Compiling KaitoKit EntryKind.swift
+[14/314] Compiling KaitoKit LHARawLayout.swift
+[15/314] Compiling KaitoKit RawEntryRecord.swift
+[16/314] Compiling KaitoKit SevenZipEditingSnapshot.swift
+[17/314] Compiling KaitoKit TarEditingSnapshot.swift
+[18/314] Compiling KaitoKit ZipAESKeyMaterial.swift
+[19/314] Compiling KaitoKit ZipRawRecordLayout.swift
+[20/314] Compiling KaitoKit ArchiveOutputBudget.swift
+[21/314] Compiling KaitoKit ArchiveReader.swift
+[22/314] Compiling KaitoKit ArchiveVolumeSet.swift
+[23/314] Compiling KaitoKit EntryStream.swift
+[24/314] Compiling KaitoKit ExtractionDirectoryAccess.swift
+[25/314] Compiling KaitoKit ExtractionOptions.swift
+[26/314] Compiling KaitoKit Extractor.swift
+[27/314] Compiling KaitoKit FormatReaderFactory.swift
+[28/314] Compiling KaitoKit HashingDecompressor.swift
+[29/314] Compiling KaitoKit OpenedArchiveInput.swift
+[30/314] Compiling KaitoKit ReaderOptions.swift
+[31/333] Compiling KaitoKit CRC16.swift
+[32/333] Compiling KaitoKit CRC16XModem.swift
+[33/333] Compiling KaitoKit CRC32.swift
+[34/333] Compiling KaitoKit CRC64.swift
+[35/333] Compiling KaitoKit Cancellation.swift
+[36/333] Compiling KaitoKit Checked.swift
+[37/333] Compiling KaitoKit ChunkedSourceInput.swift
+[38/333] Compiling KaitoKit CommonCryptoBlockCryptor.swift
+[39/333] Compiling KaitoKit CommonCryptoPrimitives.swift
+[40/333] Compiling KaitoKit ConcatenatedByteSource.swift
+[41/333] Compiling KaitoKit ConstantTime.swift
+[42/333] Compiling KaitoKit DOSTimestamp.swift
+[43/333] Compiling KaitoKit DataByteSource.swift
+[44/333] Compiling KaitoKit DecodePowerPolicy.swift
+[45/333] Compiling KaitoKit FileAccessPolicy.swift
+[46/333] Compiling KaitoKit FileByteSource.swift
+[47/333] Compiling KaitoKit HeaderWindowByteSource.swift
+[48/333] Compiling KaitoKit InputLatency.swift
+[49/333] Compiling KaitoKit KDFWorkBudget.swift
+[50/333] Compiling KaitoKit KaitoError.swift
+[51/333] Compiling KaitoKit LeafDecodePool.swift
+[52/333] Compiling KaitoKit MD5Transform.swift
+[53/333] Compiling KaitoKit MetadataBudget.swift
+[54/333] Compiling KaitoKit ParallelIndependentDecompressor.swift
+[55/333] Compiling KaitoKit ReadLimits.swift
+[56/333] Compiling KaitoKit Timestamps.swift
+[57/333] Compiling KaitoKit VolumeLocalityHinting.swift
+[58/333] Compiling KaitoKit WriteAll.swift
+[59/333] Compiling KaitoKit XXH32.swift
+[60/333] Compiling KaitoKit XXH64.swift
+[61/333] Compiling KaitoKit ARJReader.swift
+[62/333] Compiling KaitoKit ARJStructures.swift
+[63/333] Compiling KaitoKit AppleDoubleReader.swift
+[64/333] Compiling KaitoKit ArHeader.swift
+[65/333] Compiling KaitoKit ArReader.swift
+[66/333] Compiling KaitoKit ArchiveNameResolver.swift
+[67/333] Compiling KaitoKit CFBReader.swift
+[68/333] Compiling KaitoKit CFBStructures.swift
+[69/333] Compiling KaitoKit CHMReader.swift
+[70/333] Compiling KaitoKit CHMStructures.swift
+[71/333] Compiling KaitoKit XarTOC.swift
+[72/333] Compiling KaitoKit XarXMLParser.swift
+[73/333] Compiling KaitoKit WinZipAES.swift
+[74/333] Compiling KaitoKit ZipAESKeyLookAhead.swift
+[75/333] Compiling KaitoKit ZipByteCursor.swift
+[76/333] Compiling KaitoKit ZipCentralDirectoryLocator.swift
+[77/333] Compiling KaitoKit ZipCentralDirectoryParser.swift
+[78/333] Compiling KaitoKit ZipConstants.swift
+[79/333] Compiling KaitoKit ZipCrypto.swift
+[80/333] Compiling KaitoKit ZipDirectoryLocationResolver.swift
+[81/333] Compiling KaitoKit ZipEndRecordRecovery.swift
+[82/333] Compiling KaitoKit ZipEndRecords.swift
+[83/333] Compiling KaitoKit ZipExtraFields.swift
+[84/333] Compiling KaitoKit ZipLocalHeaderRecovery.swift
+[85/333] Compiling KaitoKit ZipLocalReadAhead.swift
+[86/333] Compiling KaitoKit ZipReader.swift
+[87/333] Compiling KaitoKit ArchiveEntry.swift
+[88/333] Compiling KaitoKit ArchiveFormat.swift
+[89/333] Compiling KaitoKit CompressedTarSplice.swift
+[90/333] Compiling KaitoKit BrotliDecompressor.swift
+[91/333] Compiling KaitoKit ByteRunDecompressor.swift
+[92/333] Compiling KaitoKit Bzip2BlockScanner.swift
+[93/333] Compiling KaitoKit Bzip2Decompressor.swift
+[94/333] Compiling KaitoKit Bzip2StreamLayout.swift
+[95/333] Compiling KaitoKit ParallelBzip2Decompressor.swift
+[96/333] Compiling KaitoKit CopyDecompressor.swift
+[97/333] Compiling KaitoKit Decompressor.swift
+[98/333] Compiling KaitoKit Deflate64Decompressor.swift
+[99/333] Compiling KaitoKit DeflateDecompressor.swift
+[100/333] Compiling KaitoKit GzipDecompressor.swift
+[101/333] Compiling KaitoKit LArcDecoder.swift
+[102/333] Compiling KaitoKit LHAPackedInputStorage.swift
+[103/333] Compiling KaitoKit LHAStaticBitCursor.swift
+[104/333] Compiling KaitoKit LHAStaticHuffmanDecoder.swift
+[105/333] Compiling KaitoKit LHAStaticHuffmanTable.swift
+[106/333] Compiling KaitoKit LZHUFDecoder.swift
+[107/333] Compiling KaitoKit LZ4AppleBlockDecoder.swift
+[108/333] Compiling KaitoKit LZ4BlockDecoder.swift
+[109/333] Compiling KaitoKit LZ4FrameDecompressor.swift
+[110/333] Compiling KaitoKit ZstdBitReader.swift
+[111/333] Compiling KaitoKit ZstdDecompressor.swift
+[112/333] Compiling KaitoKit ZstdFSE.swift
+[113/333] Compiling KaitoKit ZstdFrameDecoder.swift
+[114/333] Compiling KaitoKit ZstdHuffman.swift
+[115/333] Compiling KaitoKit ZstdInput.swift
+[116/333] Compiling KaitoKit ZstdSequenceTable.swift
+[117/333] Compiling KaitoKit ZstdTuning.swift
+[118/333] Compiling KaitoKit AESCBCRandomAccess.swift
+[119/333] Compiling KaitoKit ASCIIDigits.swift
+[120/333] Compiling KaitoKit ArchivePath.swift
+[121/333] Compiling KaitoKit BitReader.swift
+[122/333] Compiling KaitoKit Blake2.swift
+[123/333] Compiling KaitoKit ByteFields.swift
+[124/333] Compiling KaitoKit ByteRange.swift
+[125/333] Compiling KaitoKit ByteReader.swift
+[126/333] Compiling KaitoKit ByteSource.swift
+[127/333] Compiling KaitoKit ByteSourceFileIdentity.swift
+[128/333] Compiling KaitoKit ByteSourceViews.swift
+[129/333] Compiling KaitoKit CPUTopology.swift
+[130/333] Compiling KaitoKit StuffItLZW.swift
+[131/333] Compiling KaitoKit StuffItMW.swift
+[132/333] Compiling KaitoKit StuffItMethod13.swift
+[133/333] Compiling KaitoKit StuffItMethod6.swift
+[134/333] Compiling KaitoKit StuffItPackedInput.swift
+[135/333] Compiling KaitoKit StuffItRLE90.swift
+[136/333] Compiling KaitoKit StuffItTables.swift
+[137/333] Compiling KaitoKit StuffItXJPEGBaseline.swift
+[138/333] Compiling KaitoKit StuffItXJPEGBlocks.swift
+[139/333] Compiling KaitoKit StuffItXJPEGDecoder.swift
+[140/333] Compiling KaitoKit StuffItXJPEGEnvelope.swift
+[141/333] Compiling KaitoKit StuffItXJPEGMode1.swift
+[142/333] Compiling KaitoKit StuffItXJPEGModels.swift
+[143/333] Compiling KaitoKit StuffItXJPEGProgressive.swift
+[144/333] Compiling KaitoKit StuffItXJPEGRange.swift
+[145/333] Compiling KaitoKit StuffItXJPEGSupport.swift
+[146/333] Compiling KaitoKit StuffItXJPEGSyntax.swift
+[147/333] Compiling KaitoKit StuffItXBlend.swift
+[148/333] Compiling KaitoKit StuffItXBrimstoneAllocator.swift
+[149/333] Compiling KaitoKit StuffItXBrimstoneDecoder.swift
+[150/333] Compiling KaitoKit StuffItXBrimstoneModel.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[151/333] Compiling KaitoKit StuffItXCodec.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[152/333] Compiling KaitoKit StuffItXCyanide.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[153/333] Compiling KaitoKit StuffItXDarkhorse.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[154/333] Compiling KaitoKit StuffItXDeflate.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[155/333] Compiling KaitoKit StuffItXEnglish.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[156/333] Compiling KaitoKit StuffItXEnglishDictionary.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[157/333] Compiling KaitoKit StuffItXIron.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[158/333] Compiling KaitoKit StuffItXJPEGTables.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[159/333] Compiling KaitoKit StuffItXRC4Stored.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[160/333] Compiling KaitoKit StuffItXRangeDecoder.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[161/333] Compiling KaitoKit StuffItXX86.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[162/333] Compiling KaitoKit ParallelXZDecompressor.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[163/333] Compiling KaitoKit XZDecompressor.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[164/333] Compiling KaitoKit XZNativeDecompressor.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[165/333] Compiling KaitoKit XZResourceValidator.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[166/333] Compiling KaitoKit XZStreamLayout.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[167/333] Compiling KaitoKit XZSyntheticStream.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[168/333] Compiling KaitoKit XpressHuffmanDecoder.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[169/333] Compiling KaitoKit ZipLegacyDecompressors.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Sources/KaitoKit/Codecs/XZ/XZSyntheticStream.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 1 | public import Foundation
+   |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+ 2 | 
+ 3 | /// 連続する block をコピーせず、一つの独立した XZ stream として提示する。
+
+[#UnusedImportAccess]: <https://docs.swift.org/compiler/documentation/diagnostics/unused-import-access>
+[170/333] Compiling KaitoKit SevenZipHeaderParser.swift
+[171/333] Compiling KaitoKit SevenZipMethod.swift
+[172/333] Compiling KaitoKit SevenZipReader.swift
+[173/333] Compiling KaitoKit SevenZipStreamsParser.swift
+[174/333] Compiling KaitoKit SevenZipStructures.swift
+[175/333] Compiling KaitoKit CompressedNaming.swift
+[176/333] Compiling KaitoKit SingleFileReader.swift
+[177/333] Compiling KaitoKit StuffIt5Parser.swift
+[178/333] Compiling KaitoKit StuffItCrypto.swift
+[179/333] Compiling KaitoKit StuffItParser.swift
+[180/333] Compiling KaitoKit StuffItReader.swift
+[181/333] Compiling KaitoKit StuffItResourceMap.swift
+[182/333] Compiling KaitoKit StuffItSFX.swift
+[183/333] Compiling KaitoKit StuffItSplitSet.swift
+[184/333] Compiling KaitoKit StuffItXBitReader.swift
+[185/333] Compiling KaitoKit StuffItXCatalog.swift
+[186/333] Compiling KaitoKit StuffItXCrypto.swift
+[187/333] Compiling KaitoKit StuffItXElementParser.swift
+[188/333] Compiling KaitoKit StuffItXReader.swift
+[189/333] Compiling KaitoKit StuffItXStreamCoordinator.swift
+[190/333] Compiling KaitoKit TarEditingLayoutRestorer.swift
+[191/333] Compiling KaitoKit TarEntryPublisher.swift
+[192/333] Compiling KaitoKit TarHeaderBlock.swift
+[193/333] Compiling KaitoKit TarLayoutStorage.swift
+[194/333] Compiling KaitoKit TarPAXRecords.swift
+[195/333] Compiling KaitoKit TarParser.swift
+[196/333] Compiling KaitoKit TarReader.swift
+[197/333] Compiling KaitoKit TarSparse.swift
+[198/333] Compiling KaitoKit TarStructures.swift
+[199/333] Compiling KaitoKit UDFFileEntry.swift
+[200/333] Compiling KaitoKit UDFFileSystem.swift
+[201/333] Compiling KaitoKit UDFReader.swift
+[202/333] Compiling KaitoKit UDFStructures.swift
+[203/333] Compiling KaitoKit UDFVolume.swift
+[204/333] Compiling KaitoKit WIMReader.swift
+[205/333] Compiling KaitoKit WIMStructures.swift
+[206/333] Compiling KaitoKit XarHeader.swift
+[207/333] Compiling KaitoKit XarReader.swift
+[208/333] Compiling KaitoKit RAR5EntryPublisher.swift
+[209/333] Compiling KaitoKit RAR5Integrity.swift
+[210/333] Compiling KaitoKit RAR5QuickOpen.swift
+[211/333] Compiling KaitoKit RAR5Reader.swift
+[212/333] Compiling KaitoKit RAR5Structures.swift
+[213/333] Compiling KaitoKit RAR5VolumeParser.swift
+[214/333] Compiling KaitoKit RARAESCBCByteSource.swift
+[215/333] Compiling KaitoKit RARSignatureScanner.swift
+[216/333] Compiling KaitoKit RARSolidCoordinator.swift
+[217/333] Compiling KaitoKit RARVerifiedPackedParts.swift
+[218/333] Compiling KaitoKit RARVolumeLocator.swift
+[219/333] Compiling KaitoKit RpmHeader.swift
+[220/333] Compiling KaitoKit RpmReader.swift
+[221/333] Compiling KaitoKit RpmStrippedPayload.swift
+[222/333] Compiling KaitoKit SevenZipAES.swift
+[223/333] Compiling KaitoKit SevenZipEditState.swift
+[224/333] Compiling KaitoKit SevenZipFolderCoordinator.swift
+[225/333] Compiling KaitoKit SevenZipFolderPipeline.swift
+[226/333] Compiling KaitoKit SevenZipFolderPrefetcher.swift
+[227/333] Compiling KaitoKit SevenZipHeaderDecoder.swift
+[228/333] Compiling KaitoKit CabFolderDecoder.swift
+[229/333] Compiling KaitoKit CabReader.swift
+[230/333] Compiling KaitoKit CabStructures.swift
+[231/333] Compiling KaitoKit LZXFolderDecompressor.swift
+[232/333] Compiling KaitoKit MSZIPDecompressor.swift
+[233/333] Compiling KaitoKit CpioHeader.swift
+[234/333] Compiling KaitoKit CpioReader.swift
+[235/333] Compiling KaitoKit CpioSumDecompressor.swift
+[236/333] Compiling KaitoKit DMGReader.swift
+[237/333] Compiling KaitoKit UDIFChunkCache.swift
+[238/333] Compiling KaitoKit UDIFImage.swift
+[239/333] Compiling KaitoKit FormatDetector.swift
+[240/333] Compiling KaitoKit FormatReader.swift
+[241/333] Compiling KaitoKit DecmpfsDecompressor.swift
+[242/333] Compiling KaitoKit HFSPlusVolume.swift
+[243/333] Compiling KaitoKit HFSVolumeListing.swift
+[244/333] Compiling KaitoKit CueSheet.swift
+[245/333] Compiling KaitoKit ISOReader.swift
+[246/333] Compiling KaitoKit ISORockRidge.swift
+[247/333] Compiling KaitoKit ISOSectionDecompressor.swift
+[248/333] Compiling KaitoKit LZMA2ChunkHeader.swift
+[249/333] Compiling KaitoKit LZMA2Decoder.swift
+[250/333] Compiling KaitoKit LZMA2TimedScanSource.swift
+[251/333] Compiling KaitoKit LZMAAloneHeader.swift
+[252/333] Compiling KaitoKit LZMADecoder.swift
+[253/333] Compiling KaitoKit LZMAProperties.swift
+[254/333] Compiling KaitoKit LZWDecoder.swift
+[255/333] Compiling KaitoKit LZWindowCopy.swift
+[256/333] Compiling KaitoKit LZXBitReader.swift
+[257/333] Compiling KaitoKit LZXDecoder.swift
+[258/333] Compiling KaitoKit LZXHuffmanTable.swift
+[259/333] Compiling KaitoKit LzipDecompressor.swift
+[260/333] Compiling KaitoKit OkumuraLZSSSeeds.swift
+[261/333] Compiling KaitoKit PPMdStateScan.swift
+[262/333] Compiling KaitoKit PPMd7Decoder.swift
+[263/333] Compiling KaitoKit PPMd7Model.swift
+[264/333] Compiling KaitoKit PPMd7RangeDecoding.swift
+[265/333] Compiling KaitoKit PPMd7Suballocator.swift
+[266/333] Compiling KaitoKit RARPPMdRangeDecoder.swift
+[267/333] Compiling KaitoKit SevenZipPPMdRangeDecoder.swift
+[268/333] Compiling KaitoKit ISOStructures.swift
+[269/333] Compiling KaitoKit ISOZisofsDecompressor.swift
+[270/333] Compiling KaitoKit RawSectorImage.swift
+[271/333] Compiling KaitoKit LHAEntryPublisher.swift
+[272/333] Compiling KaitoKit LHAExtendedHeader.swift
+[273/333] Compiling KaitoKit LHAHeaderParser.swift
+[274/333] Compiling KaitoKit LHAReader.swift
+[275/333] Compiling KaitoKit LHASignatureScanner.swift
+[276/333] Compiling KaitoKit LHAStructures.swift
+[277/333] Compiling KaitoKit MacBinaryDataForkDecompressor.swift
+[278/333] Compiling KaitoKit MacBinaryHeader.swift
+[279/333] Compiling KaitoKit MacEnvelope.swift
+[280/333] Compiling KaitoKit MacWrapperReader.swift
+[281/333] Compiling KaitoKit IndependentEntryPrefetcher.swift
+[282/333] Compiling KaitoKit RAR3Crypto.swift
+[283/333] Compiling KaitoKit RAR4EntryPublisher.swift
+[284/333] Compiling KaitoKit RAR4Reader.swift
+[285/333] Compiling KaitoKit RAR4Structures.swift
+[286/333] Compiling KaitoKit RAR4VolumeParser.swift
+[287/333] Compiling KaitoKit RAR5Crypto.swift
+[288/333] Compiling KaitoKit PPMdVarIDecoder.swift
+[289/333] Compiling KaitoKit PPMdVarIModel.swift
+[290/333] Compiling KaitoKit PPMdVarIRangeDecoder.swift
+[291/333] Compiling KaitoKit PPMdVarISuballocator.swift
+[292/333] Compiling KaitoKit PbzxDecompressor.swift
+[293/333] Compiling KaitoKit RAR29Decoder.swift
+[294/333] Compiling KaitoKit RAR3FilterToken.swift
+[295/333] Compiling KaitoKit RAR5Decoder.swift
+[296/333] Compiling KaitoKit RARStandardFilters.swift
+[297/333] Compiling KaitoKit RecoveryDecompressor.swift
+[298/333] Compiling KaitoKit BCJ2Decompressor.swift
+[299/333] Compiling KaitoKit BCJFilterDecompressor.swift
+[300/333] Compiling KaitoKit DeltaFilterDecompressor.swift
+[301/333] Compiling KaitoKit SwapFilterDecompressor.swift
+[302/333] Compiling KaitoKit StuffItArsenic.swift
+[303/333] Compiling KaitoKit StuffItArsenicArithmetic.swift
+[304/333] Compiling KaitoKit StuffItCodec.swift
+[305/333] Compiling KaitoKit StuffItHuffman.swift
+[306/333] Compiling KaitoKit StuffItInstaller.swift
+[307/333] Compiling KaitoKit StuffItLZAH.swift
+[308/333] Compiling KaitoKit SingleFileMaterializer.swift
+[309/333] Compiling KaitoKit SplitVolumeSet.swift
+[310/333] Compiling KaitoKit CompressedTarMapRecorder.swift
+[311/333] Compiling KaitoKit CompressedTarSpliceVerifier.swift
+[312/333] Compiling KaitoKit SplicedTarImage.swift
+[313/333] Compiling KaitoKit TarSpliceGzipDecoder.swift
+[314/333] Compiling KaitoKit TarSpliceGzipMapBuilder.swift
+[315/333] Compiling KaitoKit ZipSplitVolumeSet.swift
+[316/333] Compiling KaitoKit EncodingDetector+Measurement.swift
+[317/333] Compiling KaitoKit EncodingDetector.swift
+[318/333] Compiling KaitoKit EncodingPolicy.swift
+[319/333] Compiling KaitoKit JapaneseNameEncodingResolver.swift
+[320/333] Compiling KaitoKit LanguageExemplars.swift
+[321/333] Compiling KaitoKit NameEncodingCandidates.swift
+[322/333] Compiling KaitoKit NameEncodingScorer+LetterRules.swift
+[323/333] Compiling KaitoKit NameEncodingScorer+NameOrthography.swift
+[324/333] Compiling KaitoKit NameEncodingScorer.swift
+[325/333] Compiling KaitoKit PathComponentSplitter.swift
+[326/333] Compiling KaitoKit RawName.swift
+[327/346] Compiling kaito main.swift
+[328/346] Compiling kaito Extract.swift
+[329/346] Compiling kaito List.swift
+[330/346] Compiling kaito SHA.swift
+[331/346] Compiling kaito DetectEncoding.swift
+[332/346] Compiling kaito Detect.swift
+[333/346] Compiling kaito ArgumentCursor.swift
+[334/346] Emitting module kaito
+[335/346] Compiling kaito Bench.swift
+[335/346] Write Objects.LinkFileList
+[337/485] Compiling KaitoKitCompat KaitoArchiveHardLinkExtractor.swift
+[338/485] Compiling KaitoKitCompat KaitoArchive.swift
+[339/485] Emitting module KaitoKitCompat
+[340/485] Compiling KaitoKitCompat KaitoArchiveFileRelocator.swift
+[340/530] Write Objects.LinkFileList
+[341/641] Linking kaito
+[342/641] Applying kaito
+[343/641] Linking libKaitoKitDynamic.dylib
+[345/641] Compiling KaitoKitCompatTests KaitoArchiveXarTests.swift
+[346/642] Compiling KaitoKitCompatTests KaitoArchiveDMGTests.swift
+[347/642] Compiling KaitoKitCompatTests KaitoArchiveSingleFileNamesTests.swift
+[348/642] Compiling KaitoKitCompatTests KaitoArchiveWIMTests.swift
+[349/642] Compiling KaitoKitCompatTests KaitoArchiveCabTests.swift
+[350/642] Compiling KaitoKitCompatTests KaitoArchiveUDFTests.swift
+[351/642] Compiling KaitoKitCompatTests CompatFixtures.swift
+[352/642] Compiling KaitoKitCompatTests KaitoArchiveARJTests.swift
+[353/642] Compiling KaitoKitCompatTests KaitoArchiveRpmTests.swift
+[354/642] Compiling KaitoKitCompatTests KaitoArchiveMacWrapperTests.swift
+[355/642] Compiling KaitoKitCompatTests KaitoArchiveZipConfigurationTests.swift
+[356/642] Compiling KaitoKitCompatTests MigrationGuideSnippetCompileTests.swift
+[357/642] Compiling KaitoKitCompatTests KaitoArchiveISOTests.swift
+[358/642] Compiling KaitoKitCompatTests KaitoArchiveCpioTests.swift
+[359/642] Emitting module KaitoKitCompatTests
+[360/642] Compiling KaitoKitCompatTests KaitoArchiveCFBTests.swift
+[361/642] Compiling KaitoKitCompatTests KaitoArchiveCHMTests.swift
+[362/642] Compiling KaitoKitCompatTests KaitoArchiveCompatTests.swift
+[363/642] Compiling KaitoKitCompatTests KaitoArchiveAppleDoubleTests.swift
+[364/642] Compiling KaitoKitCompatTests KaitoArchiveArTests.swift
+[365/642] Compiling KaitoKitTests WIMReaderTests.swift
+[366/642] Compiling KaitoKitTests XarReaderTests.swift
+[367/642] Compiling KaitoKitTests ArchiveVolumeSetTests.swift
+[368/642] Compiling KaitoKitTests BoundedFileAccessTests.swift
+[369/642] Compiling KaitoKitTests ByteSourceBufferTests.swift
+[370/642] Compiling KaitoKitTests CPUTopologyTests.swift
+[371/642] Compiling KaitoKitTests CRC16FoldingTests.swift
+[372/642] Compiling KaitoKitTests CRC16Tests.swift
+[373/642] Compiling KaitoKitTests CoreInfrastructureTests.swift
+[374/642] Compiling KaitoKitTests DOSTimestampTests.swift
+[375/642] Compiling KaitoKitTests DecodeParallelTests.swift
+[376/642] Compiling KaitoKitTests EntryStreamUnknownSizeTests.swift
+[377/642] Compiling KaitoKitTests ExtractorCancellationTests.swift
+[378/642] Compiling KaitoKitTests ExtractorDefaultModeTests.swift
+[379/642] Compiling KaitoKitTests FileByteSourcePermissionTests.swift
+[380/642] Compiling KaitoKitTests FormatDetectorTests.swift
+[381/642] Compiling KaitoKitTests HeaderReadPlannerTests.swift
+[382/642] Compiling KaitoKitTests HeaderWindowByteSourceTests.swift
+[383/642] Compiling KaitoKitTests LeafDecodePoolTests.swift
+[384/660] Compiling KaitoKitTests Deflate64HEADDecoder.swift
+[385/660] Compiling KaitoKitTests Deflate64ReferenceDecoder.swift
+[386/660] Compiling KaitoKitTests Digests.swift
+[387/660] Compiling KaitoKitTests ExternalTools.swift
+[388/660] Compiling KaitoKitTests HexBytes.swift
+[389/660] Compiling KaitoKitTests ISOImageBuilder.swift
+[390/660] Compiling KaitoKitTests KaitoCLI.swift
+[391/660] Compiling KaitoKitTests KaitoErrorAssertions.swift
+[392/660] Compiling KaitoKitTests LHAFrozenFixtures.swift
+[393/660] Compiling KaitoKitTests LHATestSupport.swift
+[394/660] Compiling KaitoKitTests LZ4HEADFrameDecompressor.swift
+[395/660] Compiling KaitoKitTests LittleEndianBytes.swift
+[396/660] Compiling KaitoKitTests NameEncodingScorer+TestSupport.swift
+[397/660] Compiling KaitoKitTests ParallelXZTestSupport.swift
+[398/660] Compiling KaitoKitTests PayloadMutationTestSupport.swift
+[399/660] Compiling KaitoKitTests RAR4TestSupport.swift
+[400/660] Compiling KaitoKitTests RAR5QuickOpenTestSupport.swift
+[401/660] Compiling KaitoKitTests RAR5TestSupport.swift
+[402/660] Compiling KaitoKitTests StuffItXCodecTests.swift
+[403/660] Compiling KaitoKitTests StuffItXContainerTests.swift
+[404/660] Compiling KaitoKitTests StuffItXCorpusTests.swift
+[405/660] Compiling KaitoKitTests StuffItXCryptoTests.swift
+[406/660] Compiling KaitoKitTests StuffItXDeflateTests.swift
+[407/660] Compiling KaitoKitTests StuffItXFixtureTests.swift
+[408/660] Compiling KaitoKitTests StuffItXIronTests.swift
+[409/660] Compiling KaitoKitTests StuffItXJPEGTests.swift
+[410/660] Compiling KaitoKitTests StuffItXKDFWorkTests.swift
+[411/660] Compiling KaitoKitTests StuffItXPreprocessingTests.swift
+[412/660] Compiling KaitoKitTests StuffItXReaderTests.swift
+[413/660] Compiling KaitoKitTests StuffItXSlice4Tests.swift
+[414/660] Compiling KaitoKitTests ArArchiveBuilder.swift
+[415/660] Compiling KaitoKitTests CallCountingByteSource.swift
+[416/660] Compiling KaitoKitTests CompressedTarFramingTestSupport.swift
+[417/660] Compiling KaitoKitTests CountingByteSource.swift
+[418/660] Compiling KaitoKitTests CpioArchiveBuilder.swift
+[419/660] Compiling KaitoKitTests DecompressorDraining.swift
+[420/660] Compiling KaitoKitTests RawRecordArchiveBuilder.swift
+[421/660] Compiling KaitoKitTests ScalarBlake2sp.swift
+[422/660] Compiling KaitoKitTests SevenZipEditTestBytes.swift
+[423/660] Compiling KaitoKitTests SevenZipGoldenCorpus.swift
+[424/660] Compiling KaitoKitTests SevenZipParallelTestSupport.swift
+[425/660] Compiling KaitoKitTests SevenZipTestSupport.swift
+[426/660] Compiling KaitoKitTests StuffItTestSupport.swift
+[427/660] Compiling KaitoKitTests StuffItXJPEGTestAPI.swift
+[428/660] Compiling KaitoKitTests StuffItXTestSupport.swift
+[429/660] Compiling KaitoKitTests TarEditTestSupport.swift
+[430/660] Compiling KaitoKitTests TarGoldenCorpus.swift
+[431/660] Compiling KaitoKitTests TarGoldenInputSupport.swift
+[432/660] Compiling KaitoKitTests TarSpliceTestSupport.swift
+[433/660] Compiling KaitoKitTests TarTestSupport.swift
+[434/660] Compiling KaitoKitTests TestFixtures.swift
+[435/660] Compiling KaitoKitTests ZipDeterministicRandom.swift
+[436/660] Compiling KaitoKitTests ZipDifferentialSnapshot.swift
+[437/660] Compiling KaitoKitTests ZipGoldenCorpus.swift
+[438/660] Compiling KaitoKitTests LHAHardeningTests.swift
+[439/660] Compiling KaitoKitTests LHAHeaderWalkReadTests.swift
+[440/660] Compiling KaitoKitTests LHAIntegrationTests.swift
+[441/660] Compiling KaitoKitTests LHAMacBinaryTests.swift
+[442/660] Compiling KaitoKitTests LHAMethodCorpusTests.swift
+[443/660] Compiling KaitoKitTests LHAPublicValueGoldenTests.swift
+[444/660] Compiling KaitoKitTests LHARawLayoutSPIImportTests.swift
+[445/660] Compiling KaitoKitTests LHARawLayoutTests.swift
+[446/660] Compiling KaitoKitTests LHASFXTests.swift
+[447/660] Compiling KaitoKitTests LHAStaticHuffmanDecoderTests.swift
+[448/660] Compiling KaitoKitTests LHATimestampTests.swift
+[449/660] Compiling KaitoKitTests SevenZipEditLayoutScaleProbeTests.swift
+[450/660] Compiling KaitoKitTests TarEditScaleProbeTests.swift
+[451/660] Compiling KaitoKitTests ZipScaleProbeSPITests.swift
+[452/660] Compiling KaitoKitTests ZipScaleProbeTests.swift
+[453/660] Compiling KaitoKitTests R3BaselineRAR29Decoder.swift
+[454/660] Compiling KaitoKitTests R3BaselineRARPPMdRangeDecoder.swift
+[455/660] Compiling KaitoKitTests RAR29R1Tests.swift
+[456/660] Compiling KaitoKitTests RAR29R3Tests.swift
+[457/660] Compiling KaitoKitTests RAR4CorpusDifferentialTests.swift
+[458/660] Compiling KaitoKitTests RAR4FilterFixtureTests.swift
+[459/660] Compiling KaitoKitTests RAR4HeaderEncryptionTests.swift
+[460/660] Compiling KaitoKitTests RAR4HeaderWalkReadTests.swift
+[461/660] Compiling KaitoKitTests RAR4LegacyVersionTests.swift
+[462/660] Compiling KaitoKitTests RAR4PrefetchTests.swift
+[463/660] Compiling KaitoKitTests RAR4ReaderTests.swift
+[464/660] Compiling KaitoKitTests RAR4SFXTests.swift
+[465/660] Compiling KaitoKitTests RAR4VolumeTests.swift
+[466/660] Compiling KaitoKitTests RAR5CheckedInFixtureTests.swift
+[467/660] Compiling KaitoKitTests RAR5CryptoReuseTests.swift
+[468/660] Compiling KaitoKitTests RAR5DecoderTests.swift
+[469/660] Compiling KaitoKitTests RAR5EntryKDFTests.swift
+[470/660] Compiling KaitoKitTests RAR5FileCopyTests.swift
+[471/660] Compiling KaitoKitTests RAR5FilterResumeTests.swift
+[472/660] Compiling KaitoKitTests RAR5HeaderEncryptionTests.swift
+[473/660] Compiling KaitoKitTests RAR5HeaderWalkReadTests.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[480/660] Compiling KaitoKitTests SevenZipEncryptedParallelDecodeTests.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[481/660] Compiling KaitoKitTests SevenZipEntryKDFTests.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[482/660] Compiling KaitoKitTests SevenZipFilterTests.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[483/660] Compiling KaitoKitTests SevenZipFolderPrefetchTests.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[484/660] Compiling KaitoKitTests SevenZipHardeningTests.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[485/660] Compiling KaitoKitTests SevenZipInputLatencyTests.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[486/660] Compiling KaitoKitTests SevenZipIntegrationTests.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[487/660] Compiling KaitoKitTests SevenZipLZMA2IOTests.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[488/660] Compiling KaitoKitTests SevenZipLZMA2ResetIndexTests.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[489/660] Compiling KaitoKitTests SevenZipParallelDecodeTests.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[490/660] Compiling KaitoKitTests SevenZipPublicValueGoldenTests.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[491/660] Compiling KaitoKitTests SevenZipSFXIntegrationTests.swift
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/SevenZip/SevenZipFolderPrefetchTests.swift:370:17: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+368 |         let holder = Mutex<Task<Void, any Error>?>(nil)
+369 |         let task = Task.detached {
+370 |             try await LeafDecodePool.$testingSubmission.withValue({ holder.withLock { $0?.cancel() } }) {
+    |                 `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+371 |                 let reader = try SevenZipReader(source: DataByteSource(archive), options: ReaderOptions(decodeThreads: 16))
+372 |                 for entry in reader.entries { _ = try reader.stream(for: entry, limits: ReadLimits()).readAll() }
+
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[492/660] Compiling KaitoKitTests RAR5HuffmanTableTests.swift
+[493/660] Compiling KaitoKitTests RAR5PasswordCompatibilityTests.swift
+[494/660] Compiling KaitoKitTests RAR5PrefetchTests.swift
+[495/660] Compiling KaitoKitTests RAR5QuickOpenFuzzTests.swift
+[496/660] Compiling KaitoKitTests RAR5QuickOpenNegativeTests.swift
+[497/660] Compiling KaitoKitTests RAR5QuickOpenTests.swift
+[498/660] Compiling KaitoKitTests RAR5QuickOpenVerificationTests.swift
+[499/660] Compiling KaitoKitTests RAR5ReadAheadTests.swift
+[500/660] Compiling KaitoKitTests RAR5ReaderTests.swift
+[501/660] Compiling KaitoKitTests RAR5RecoveryTests.swift
+[502/660] Compiling KaitoKitTests RAR5SFXTests.swift
+[503/660] Compiling KaitoKitTests RAR5VolumeTests.swift
+[504/660] Compiling KaitoKitTests RARCommonPrimitiveTests.swift
+[505/660] Compiling KaitoKitTests RARIOTests.swift
+[506/660] Compiling KaitoKitTests RARPasswordCompatibilityTests.swift
+[507/660] Compiling KaitoKitTests RARSymlinkTests.swift
+[508/660] Compiling KaitoKitTests RARVerifiedPackedPartsTests.swift
+[509/660] Compiling KaitoKitTests InputLatencyTests.swift
+[510/660] Emitting module KaitoKitTests
+[511/660] Compiling KaitoKitTests MappedReadAheadTests.swift
+[512/660] Compiling KaitoKitTests MetadataParseCancellationTests.swift
+[513/660] Compiling KaitoKitTests NameSafetyRegressionTests.swift
+[514/660] Compiling KaitoKitTests OpenIORegressionTests.swift
+[515/660] Compiling KaitoKitTests ReaderAggregateLimitTests.swift
+[516/660] Compiling KaitoKitTests ReaderOptionsTests.swift
+[517/660] Compiling KaitoKitTests ReopenExecutionOptionsTests.swift
+[518/660] Compiling KaitoKitTests ReopenSharingTests.swift
+[519/660] Compiling KaitoKitTests ResourceForkExtractionTests.swift
+[520/660] Compiling KaitoKitTests SplitVolumeTests.swift
+[521/660] Compiling KaitoKitTests StoredDirectReadTests.swift
+[522/660] Compiling KaitoKitTests SymbolicLinkExtractionTests.swift
+[523/660] Compiling KaitoKitTests VolumeLocalityHintTests.swift
+[524/660] Compiling KaitoKitTests Wave2IntegrityTests.swift
+[525/660] Compiling KaitoKitTests CryptoPerformanceTests.swift
+[526/660] Compiling KaitoKitTests DocumentationConsistencyTests.swift
+[527/660] Compiling KaitoKitTests HotLoopRegressionTests.swift
+[528/660] Compiling KaitoKitTests EmptyLHATests.swift
+[529/660] Compiling KaitoKitTests LHAExternalCorpusTests.swift
+[530/660] Compiling KaitoKitTests SevenZipScanProbeTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[531/660] Compiling KaitoKitTests SevenZipSwapTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[532/660] Compiling KaitoKitTests SevenZipZstdTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[533/660] Compiling KaitoKitTests CompressedNamingTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[534/660] Compiling KaitoKitTests SingleFileArchiveReaderIntegrationTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[535/660] Compiling KaitoKitTests SingleFileFormatTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[536/660] Compiling KaitoKitTests SingleFileParallelDecodeTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[537/660] Compiling KaitoKitTests SingleFileStagingSizeTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[538/660] Compiling KaitoKitTests StuffItCodecTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[539/660] Compiling KaitoKitTests StuffItContainerTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[540/660] Compiling KaitoKitTests StuffItCorpusTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[541/660] Compiling KaitoKitTests StuffItHardeningTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[542/660] Compiling KaitoKitTests StuffItJapaneseNameTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[543/660] Compiling KaitoKitTests StuffItSFXTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[544/660] Compiling KaitoKitTests StuffItSlice2CodecTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[545/660] Compiling KaitoKitTests StuffItSlice2CryptoTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[546/660] Compiling KaitoKitTests StuffItSplitTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[547/660] Compiling KaitoKitTests StuffItWrapperTests.swift
+sandbox-exec: sandbox_apply: Operation not permitted
+sandbox-exec: sandbox_apply: Operation not permitted
+[548/660] Compiling KaitoKitTests TarSparseTests.swift
+[549/660] Compiling KaitoKitTests TarSpliceDifferentialFuzzTests.swift
+[550/660] Compiling KaitoKitTests TarSpliceSPIImportTests.swift
+[551/660] Compiling KaitoKitTests ThirdPartyFixtureMapTests.swift
+[552/660] Compiling KaitoKitTests ArchiveNameEncodingTests.swift
+[553/660] Compiling KaitoKitTests EncodingDetectorCorpusTests.swift
+[554/660] Compiling KaitoKitTests LanguageExemplarsTests.swift
+[555/660] Compiling KaitoKitTests NameEncodingCandidatesTests.swift
+[556/660] Compiling KaitoKitTests NameEncodingLanguageExtensionTests.swift
+[557/660] Compiling KaitoKitTests NameEncodingMultilingualTests.swift
+[558/660] Compiling KaitoKitTests NameEncodingScorerTests.swift
+[559/660] Compiling KaitoKitTests RawEntryRecordTests.swift
+[560/660] Compiling KaitoKitTests ZipAESKeyLookAheadTests.swift
+[561/660] Compiling KaitoKitTests ZipAESKeyMaterialTests.swift
+[562/660] Compiling KaitoKitTests ZipAESReuseTests.swift
+[563/660] Compiling KaitoKitTests ZipCodecAuditRegressionTests.swift
+[564/660] Compiling KaitoKitTests ZipCodecByteSourceBoundaryTests.swift
+[565/660] Compiling KaitoKitTests ZipDifferentialTests.swift
+[566/660] Compiling KaitoKitTests CLISmokeTests.swift
+[567/660] Compiling KaitoKitTests BrotliTests.swift
+[568/660] Compiling KaitoKitTests CabLZXTests.swift
+[569/660] Compiling KaitoKitTests ContainerParallelCodecTests.swift
+[570/660] Compiling KaitoKitTests Deflate64DecompressorTests.swift
+[571/660] Compiling KaitoKitTests Deflate64DifferentialTests.swift
+[572/660] Compiling KaitoKitTests LHLegacyDecoderTests.swift
+[573/660] Compiling KaitoKitTests LZ4DifferentialTests.swift
+[574/660] Compiling KaitoKitTests LZ4FrameTests.swift
+[575/660] Compiling KaitoKitTests LZ4LegacyTests.swift
+[576/660] Compiling KaitoKitTests LZMA2DecoderTests.swift
+[577/660] Compiling KaitoKitTests LZMA2ObservedResetIndexTests.swift
+[578/660] Compiling KaitoKitTests LZMADecoderTests.swift
+[579/660] Compiling KaitoKitTests LZMAMatchCopyTests.swift
+[580/660] Compiling KaitoKitTests LZMARingWrapTests.swift
+[581/660] Compiling KaitoKitTests LZWindowCopyTests.swift
+[582/660] Compiling KaitoKitTests LzipTests.swift
+[583/660] Compiling KaitoKitTests PPMd7DecoderTests.swift
+[584/660] Compiling KaitoKitTests BaselinePPMd7Decoder.swift
+[585/660] Compiling KaitoKitTests BaselinePPMd7Model.swift
+[586/660] Compiling KaitoKitTests BaselinePPMd7RangeDecoding.swift
+[587/660] Compiling KaitoKitTests BaselinePPMd7Suballocator.swift
+[588/660] Compiling KaitoKitTests BaselinePPMdVarIDecoder.swift
+[589/660] Compiling KaitoKitTests BaselinePPMdVarIModel.swift
+[590/660] Compiling KaitoKitTests BaselinePPMdVarIRangeDecoder.swift
+[591/660] Compiling KaitoKitTests BaselinePPMdVarISuballocator.swift
+[592/660] Compiling KaitoKitTests BaselineSevenZipPPMdRangeDecoder.swift
+[593/660] Compiling KaitoKitTests PPMdDifferentialTests.swift
+[594/660] Compiling KaitoKitTests PPMdStateScanTests.swift
+[595/660] Compiling KaitoKitTests PPMdVarIMemoryTests.swift
+[596/660] Compiling KaitoKitTests ParallelBzip2DecompressorTests.swift
+[597/660] Compiling KaitoKitTests ParallelXZDecompressorTests.swift
+[598/660] Compiling KaitoKitTests PbzxTests.swift
+[599/660] Compiling KaitoKitTests StreamingDecompressorTests.swift
+[600/660] Compiling KaitoKitTests XZNativeDecompressorTests.swift
+[601/660] Compiling KaitoKitTests XZResourceLimitTests.swift
+[602/660] Compiling KaitoKitTests ZstdDifferentialTests.swift
+[603/660] Compiling KaitoKitTests ZstdTests.swift
+[604/660] Compiling KaitoKitTests ARJReaderTests.swift
+[605/660] Compiling KaitoKitTests AppleDoubleSidecarTests.swift
+[606/660] Compiling KaitoKitTests ArReaderTests.swift
+[607/660] Compiling KaitoKitTests CFBReaderTests.swift
+[608/660] Compiling KaitoKitTests CHMReaderTests.swift
+[609/660] Compiling KaitoKitTests CabReaderTests.swift
+[610/660] Compiling KaitoKitTests CabSFXTests.swift
+[611/660] Compiling KaitoKitTests CompressedCpioAliasTests.swift
+[612/660] Compiling KaitoKitTests CpioReaderTests.swift
+[613/660] Compiling KaitoKitTests DMGDecmpfsTests.swift
+[614/660] Compiling KaitoKitTests DMGReaderTests.swift
+[615/660] Compiling KaitoKitTests ISOReaderTests.swift
+[616/660] Compiling KaitoKitTests ISOZisofsTests.swift
+[617/660] Compiling KaitoKitTests MacWrapperTests.swift
+[618/660] Compiling KaitoKitTests RawSectorImageTests.swift
+[619/660] Compiling KaitoKitTests RpmReaderTests.swift
+[620/660] Compiling KaitoKitTests UDFReaderTests.swift
+[621/660] Compiling KaitoKitTests UDIFChunkCacheConcurrencyTests.swift
+[622/660] Compiling KaitoKitTests UDIFParallelTests.swift
+[623/660] Compiling KaitoKitTests ZipModernFixtures.swift
+[624/660] Compiling KaitoKitTests ZipRawSnapshot.swift
+[625/660] Compiling KaitoKitTests ZipScaleProbeSource.swift
+[626/660] Compiling KaitoKitTests ZipSplitFixture.swift
+[627/660] Compiling KaitoKitTests ZipTestOutcome.swift
+[628/660] Compiling KaitoKitTests ZipTestSupport.swift
+[629/660] Compiling KaitoKitTests ZstdTestAPI.swift
+[630/660] Compiling KaitoKitTests CompressedTarAliasTests.swift
+[631/660] Compiling KaitoKitTests CompressedTarChunkMapFixtureTests.swift
+[632/660] Compiling KaitoKitTests CompressedTarChunkMapTests.swift
+[633/660] Compiling KaitoKitTests CompressedTarSpliceTests.swift
+[634/660] Compiling KaitoKitTests TarEditDifferentialFuzzTests.swift
+[635/660] Compiling KaitoKitTests TarEditLayoutSPIImportTests.swift
+[636/660] Compiling KaitoKitTests TarEditingSnapshotTests.swift
+[637/660] Compiling KaitoKitTests TarHardeningTests.swift
+[638/660] Compiling KaitoKitTests TarIntegrationTests.swift
+[639/660] Compiling KaitoKitTests TarLayoutTests.swift
+[640/660] Compiling KaitoKitTests TarPublicValueGoldenTests.swift
+[641/660] Compiling KaitoKitTests ZipEncryptionPrimitiveTests.swift
+[642/660] Compiling KaitoKitTests ZipEndRecordHardeningTests.swift
+[643/660] Compiling KaitoKitTests ZipHardeningTests.swift
+[644/660] Compiling KaitoKitTests ZipIntegrationTests.swift
+[645/660] Compiling KaitoKitTests ZipLegacyMethodTests.swift
+[646/660] Compiling KaitoKitTests ZipLocalHeaderReadTests.swift
+[647/660] Compiling KaitoKitTests ZipLocalReadAheadTests.swift
+[648/660] Compiling KaitoKitTests ZipModernMethodTests.swift
+[649/660] Compiling KaitoKitTests ZipPBKDF2SHA1Tests.swift
+[650/660] Compiling KaitoKitTests ZipPPMdTests.swift
+[651/660] Compiling KaitoKitTests ZipParallelSafetyTests.swift
+[652/660] Compiling KaitoKitTests ZipParseSharingTests.swift
+[653/660] Compiling KaitoKitTests ZipPublicValueGoldenTests.swift
+[654/660] Compiling KaitoKitTests ZipRawLayoutDifferentialFuzzTests.swift
+[655/660] Compiling KaitoKitTests ZipRawLayoutSPIImportTests.swift
+[656/660] Compiling KaitoKitTests ZipRawRecordLayoutTests.swift
+[657/660] Compiling KaitoKitTests ZipSplitVolumeTests.swift
+[658/660] Compiling KaitoKitTests ZipStoredPayloadSPITests.swift
+[659/662] Emitting module KaitoKitPackageTests
+[660/662] Compiling KaitoKitPackageTests runner.swift
+[660/662] Write Objects.LinkFileList
+[661/662] Linking KaitoKitPackageTests
+Build complete! (37.66s)
+Test Suite 'Selected tests' started at 2026-10-30 05:23:54.734.
+Test Suite 'KaitoKitPackageTests.xctest' started at 2026-10-30 05:23:54.734.
+Test Suite 'CompressedTarAliasTests' started at 2026-10-30 05:23:54.734.
+Test Case '-[KaitoKitTests.CompressedTarAliasTests testCompressedLZMATarRejectsTruncationAndEnforcesStagingAndDictionaryLimits]' started.
+Test Case '-[KaitoKitTests.CompressedTarAliasTests testCompressedLZMATarRejectsTruncationAndEnforcesStagingAndDictionaryLimits]' passed (0.682 seconds).
+Test Case '-[KaitoKitTests.CompressedTarAliasTests testLZMAAndBzip2TarAliasesListMembersAndReopenAfterUnlink]' started.
+Test Case '-[KaitoKitTests.CompressedTarAliasTests testLZMAAndBzip2TarAliasesListMembersAndReopenAfterUnlink]' passed (0.317 seconds).
+Test Case '-[KaitoKitTests.CompressedTarAliasTests testStandaloneLZMAKeepsItsSingleFileSemantics]' started.
+Test Case '-[KaitoKitTests.CompressedTarAliasTests testStandaloneLZMAKeepsItsSingleFileSemantics]' passed (0.072 seconds).
+Test Suite 'CompressedTarAliasTests' passed at 2026-10-30 05:23:55.806.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 1.071 (1.071) seconds
+Test Suite 'FormatDetectorTests' started at 2026-10-30 05:23:55.806.
+Test Case '-[KaitoKitTests.FormatDetectorTests testLZMAAloneDetectionChecksPropertiesLimitsAndRunsLast]' started.
+Test Case '-[KaitoKitTests.FormatDetectorTests testLZMAAloneDetectionChecksPropertiesLimitsAndRunsLast]' passed (0.019 seconds).
+Test Case '-[KaitoKitTests.FormatDetectorTests testLZMAAloneDetectionRequiresHintAndRejectsNonArchives]' started.
+Test Case '-[KaitoKitTests.FormatDetectorTests testLZMAAloneDetectionRequiresHintAndRejectsNonArchives]' passed (0.073 seconds).
+Test Suite 'FormatDetectorTests' passed at 2026-10-30 05:23:55.898.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.092 (0.092) seconds
+Test Suite 'LZMA2DecoderTests' started at 2026-10-30 05:23:55.898.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testCompressedChunkRequiresTerminalRangeStateAndExactPackedUse]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testCompressedChunkRequiresTerminalRangeStateAndExactPackedUse]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testCompressedChunkWithTinyReads]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testCompressedChunkWithTinyReads]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testDictionaryPropertyLimitIsCheckedBeforeAllocation]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testDictionaryPropertyLimitIsCheckedBeforeAllocation]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testDictionaryResetIndexUsesAbsoluteCompressedOffsets]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testDictionaryResetIndexUsesAbsoluteCompressedOffsets]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testLZMAChunkWithoutPropertiesAfterRawDictionaryResetIsRejected]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testLZMAChunkWithoutPropertiesAfterRawDictionaryResetIsRejected]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testMultipleCompressedChunksRetainModelAndDictionary]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testMultipleCompressedChunksRetainModelAndDictionary]' passed (0.016 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testPropertiesResetAfterUncompressedChunk]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testPropertiesResetAfterUncompressedChunk]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testPropertyResetsGrowAndShrinkTheActiveLiteralModels]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testPropertyResetsGrowAndShrinkTheActiveLiteralModels]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRawChunkWithoutDictionaryResetKeepsCodingStateAndProperties]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRawChunkWithoutDictionaryResetKeepsCodingStateAndProperties]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRejectsInvalidControlStatePropertiesAndTrailingBytes]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRejectsInvalidControlStatePropertiesAndTrailingBytes]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRejectsTruncationAndExpectedSizeMismatch]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRejectsTruncationAndExpectedSizeMismatch]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRestartAtRawDictionaryResetFollowedByPropertiesChunk]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testRestartAtRawDictionaryResetFollowedByPropertiesChunk]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testSevenZipRawChunksCanContinueWithoutStateReset]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.LZMA2DecoderTests testSevenZipRawChunksCanContinueWithoutStateReset] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testSevenZipRawChunksCanContinueWithoutStateReset]' skipped (0.001 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testStateResetPreservesLiteralAndPositionContextPosition]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.LZMA2DecoderTests testStateResetPreservesLiteralAndPositionContextPosition] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testStateResetPreservesLiteralAndPositionContextPosition]' skipped (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testStateResetWithoutDictionaryReset]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testStateResetWithoutDictionaryReset]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testThreeHundredTwentyDeterministicMutantsDoNotHangOrCrash]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testThreeHundredTwentyDeterministicMutantsDoNotHangOrCrash]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testUncompressedChunks]' started.
+Test Case '-[KaitoKitTests.LZMA2DecoderTests testUncompressedChunks]' passed (0.000 seconds).
+Test Suite 'LZMA2DecoderTests' passed at 2026-10-30 05:23:55.920.
+	 Executed 17 tests, with 2 tests skipped and 0 failures (0 unexpected) in 0.022 (0.023) seconds
+Test Suite 'LZMA2ObservedResetIndexTests' started at 2026-10-30 05:23:55.920.
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testInvalidChunkDoesNotRecordPointOrCoverage]' started.
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testInvalidChunkDoesNotRecordPointOrCoverage]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testNonResetChunksDoNotAddObservedPoints]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.LZMA2ObservedResetIndexTests testNonResetChunksDoNotAddObservedPoints] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testNonResetChunksDoNotAddObservedPoints]' skipped (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testObservedIndexEqualsScannedIndex]' started.
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testObservedIndexEqualsScannedIndex]' passed (3.315 seconds).
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testPartialCoverage]' started.
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testPartialCoverage]' passed (0.020 seconds).
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testPointLimitFreezesAtThirdReset]' started.
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testPointLimitFreezesAtThirdReset]' passed (0.019 seconds).
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testRestartExtendsCoverageWithoutDuplicatesOrGaps]' started.
+Test Case '-[KaitoKitTests.LZMA2ObservedResetIndexTests testRestartExtendsCoverageWithoutDuplicatesOrGaps]' passed (0.049 seconds).
+Test Suite 'LZMA2ObservedResetIndexTests' passed at 2026-10-30 05:23:59.324.
+	 Executed 6 tests, with 1 test skipped and 0 failures (0 unexpected) in 3.403 (3.404) seconds
+Test Suite 'LZMADecoderTests' started at 2026-10-30 05:23:59.324.
+Test Case '-[KaitoKitTests.LZMADecoderTests testEndMarkedStreamRejectsTruncation]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testEndMarkedStreamRejectsTruncation]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testEndMarkedStreamWithDictionaryWrapAndTinyReads]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testEndMarkedStreamWithDictionaryWrapAndTinyReads]' passed (0.001 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testEndMarkerBeforeKnownSizeIsMalformed]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testEndMarkerBeforeKnownSizeIsMalformed]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testHugeLogicalCompressedRangeDoesNotTrapDuringRefillSizing]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testHugeLogicalCompressedRangeDoesNotTrapDuringRefillSizing]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testKnownSizeDoesNotRequireEndMarker]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testKnownSizeDoesNotRequireEndMarker]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testLiteralRunTransfersConsumedMatchHeadWithinOneRead]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testLiteralRunTransfersConsumedMatchHeadWithinOneRead]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testRejectsDictionaryBeyondLimitBeforeAllocation]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testRejectsDictionaryBeyondLimitBeforeAllocation]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.LZMADecoderTests testRejectsInvalidPropertiesAndRangeInitialization]' started.
+Test Case '-[KaitoKitTests.LZMADecoderTests testRejectsInvalidPropertiesAndRangeInitialization]' passed (0.000 seconds).
+Test Suite 'LZMADecoderTests' passed at 2026-10-30 05:23:59.327.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'LZMAMatchCopyTests' started at 2026-10-30 05:23:59.327.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testBitFlipsInEdgeStreamNeverHangOrCrash]' started.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testBitFlipsInEdgeStreamNeverHangOrCrash]' passed (0.054 seconds).
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testDirectCopyMatchesByteLoopForEveryLengthAndDistance]' started.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testDirectCopyMatchesByteLoopForEveryLengthAndDistance]' passed (6.566 seconds).
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testEdgeInputRegeneratesExpectedBytes]' started.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testEdgeInputRegeneratesExpectedBytes]' passed (0.001 seconds).
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testLZMA1EdgeMatchesDecodeAtEveryReadSize]' started.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testLZMA1EdgeMatchesDecodeAtEveryReadSize]' passed (0.015 seconds).
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testLZMA1EdgeRejectsTruncationAndWrongSizeWithTypedErrors]' started.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testLZMA1EdgeRejectsTruncationAndWrongSizeWithTypedErrors]' passed (0.001 seconds).
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testLZMA2EdgeMatchesDecodeAtEveryReadSize]' started.
+Test Case '-[KaitoKitTests.LZMAMatchCopyTests testLZMA2EdgeMatchesDecodeAtEveryReadSize]' passed (0.018 seconds).
+Test Suite 'LZMAMatchCopyTests' passed at 2026-10-30 05:24:05.983.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 6.656 (6.656) seconds
+Test Suite 'LZMARingWrapTests' started at 2026-10-30 05:24:05.983.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testLZMAAloneG1]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testLZMAAloneG1]' passed (0.003 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testLZMAAloneG8]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testLZMAAloneG8]' passed (0.003 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA1G1]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA1G1]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA1G8]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA1G8]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG0]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG0]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG1]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG1]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG15]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG15]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG16]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG16]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG32]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG32]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG8]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2PeriodicG8]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG11]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG11]' passed (0.003 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG13]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG13]' passed (0.003 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG14]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG14]' passed (0.003 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG15]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG15]' passed (0.003 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG2]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG2]' passed (0.003 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG3]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG3]' passed (0.003 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG5]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG5]' passed (0.003 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG7]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG7]' passed (0.003 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG9]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testSevenZipLZMA2VariedG9]' passed (0.003 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testZipLZMAG1]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testZipLZMAG1]' passed (0.005 seconds).
+Test Case '-[KaitoKitTests.LZMARingWrapTests testZipLZMAG8]' started.
+Test Case '-[KaitoKitTests.LZMARingWrapTests testZipLZMAG8]' passed (0.002 seconds).
+Test Suite 'LZMARingWrapTests' passed at 2026-10-30 05:24:06.041.
+	 Executed 21 tests, with 0 failures (0 unexpected) in 0.057 (0.058) seconds
+Test Suite 'LzipTests' started at 2026-10-30 05:24:06.041.
+Test Case '-[KaitoKitTests.LzipTests testCompressedTarAliasesRouteLzipToTarAndKeepLZMAAloneForTlz]' started.
+Test Case '-[KaitoKitTests.LzipTests testCompressedTarAliasesRouteLzipToTarAndKeepLZMAAloneForTlz]' passed (0.016 seconds).
+Test Suite 'LzipTests' passed at 2026-10-30 05:24:06.057.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.016 (0.016) seconds
+Test Suite 'SevenZipBranchLargePayloadTests' started at 2026-10-30 05:24:06.057.
+Test Case '-[KaitoKitTests.SevenZipBranchLargePayloadTests testBranchFilterOverLZMA2ArchiveExtractsThroughReader]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SevenZipBranchLargePayloadTests testBranchFilterOverLZMA2ArchiveExtractsThroughReader] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; branch archive skipped
+Test Case '-[KaitoKitTests.SevenZipBranchLargePayloadTests testBranchFilterOverLZMA2ArchiveExtractsThroughReader]' skipped (0.000 seconds).
+Test Suite 'SevenZipBranchLargePayloadTests' passed at 2026-10-30 05:24:06.057.
+	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'SevenZipHardeningTests' started at 2026-10-30 05:24:06.057.
+Test Case '-[KaitoKitTests.SevenZipHardeningTests testFourGiBLZMA2DictionaryFailsViaConfiguredLimit]' started.
+Test Case '-[KaitoKitTests.SevenZipHardeningTests testFourGiBLZMA2DictionaryFailsViaConfiguredLimit]' passed (0.000 seconds).
+Test Suite 'SevenZipHardeningTests' passed at 2026-10-30 05:24:06.058.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'SevenZipInputLatencyTests' started at 2026-10-30 05:24:06.058.
+Test Case '-[KaitoKitTests.SevenZipInputLatencyTests testEncryptedLZMA2AtHighLatencyMatchesLow]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SevenZipInputLatencyTests testEncryptedLZMA2AtHighLatencyMatchesLow] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.SevenZipInputLatencyTests testEncryptedLZMA2AtHighLatencyMatchesLow]' skipped (0.000 seconds).
+Test Suite 'SevenZipInputLatencyTests' passed at 2026-10-30 05:24:06.058.
+	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'SevenZipIntegrationTests' started at 2026-10-30 05:24:06.058.
+Test Case '-[KaitoKitTests.SevenZipIntegrationTests testCopyLZMALZMA2DeflateAndBZip2MatchSevenZipBySHA256]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SevenZipIntegrationTests testCopyLZMALZMA2DeflateAndBZip2MatchSevenZipBySHA256] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.SevenZipIntegrationTests testCopyLZMALZMA2DeflateAndBZip2MatchSevenZipBySHA256]' skipped (0.000 seconds).
+Test Case '-[KaitoKitTests.SevenZipIntegrationTests testManyTinyNonSolidLZMAAndLZMA2Entries]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SevenZipIntegrationTests testManyTinyNonSolidLZMAAndLZMA2Entries] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.SevenZipIntegrationTests testManyTinyNonSolidLZMAAndLZMA2Entries]' skipped (0.000 seconds).
+Test Case '-[KaitoKitTests.SevenZipIntegrationTests testTenMegabyteLZMA2EntryStreamsAndMatchesSevenZipBySHA256]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SevenZipIntegrationTests testTenMegabyteLZMA2EntryStreamsAndMatchesSevenZipBySHA256] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.SevenZipIntegrationTests testTenMegabyteLZMA2EntryStreamsAndMatchesSevenZipBySHA256]' skipped (0.000 seconds).
+Test Suite 'SevenZipIntegrationTests' passed at 2026-10-30 05:24:06.059.
+	 Executed 3 tests, with 3 tests skipped and 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'SevenZipLZMA2IOTests' started at 2026-10-30 05:24:06.059.
+Test Case '-[KaitoKitTests.SevenZipLZMA2IOTests testCompressedPayloadReadOnceInSerialParallelAndBackwardSeek]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SevenZipLZMA2IOTests testCompressedPayloadReadOnceInSerialParallelAndBackwardSeek] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.SevenZipLZMA2IOTests testCompressedPayloadReadOnceInSerialParallelAndBackwardSeek]' skipped (0.000 seconds).
+Test Suite 'SevenZipLZMA2IOTests' passed at 2026-10-30 05:24:06.059.
+	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'SevenZipLZMA2ResetIndexTests' started at 2026-10-30 05:24:06.059.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testBatchedHeadersKeepShortReadsAndValidationOrder]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testBatchedHeadersKeepShortReadsAndValidationOrder]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testCancelledParallelIndexBuildStillStops]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testCancelledParallelIndexBuildStillStops]' passed (0.023 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testCancelledSerialBackwardSeekUsesObservedIndexWithoutScanning]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testCancelledSerialBackwardSeekUsesObservedIndexWithoutScanning]' passed (0.023 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testCompressedIndexReadsOnlyHeadersAndSharesSeekIndex]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testCompressedIndexReadsOnlyHeadersAndSharesSeekIndex]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testContinuedCompressedHeadersUseTwoReadsPerChunk]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testContinuedCompressedHeadersUseTwoReadsPerChunk]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testMalformedIndexCachedAfterReadFailureAndKeepsEarlierEntry]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testMalformedIndexCachedAfterReadFailureAndKeepsEarlierEntry]' passed (0.023 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testNonSolidOpensShareIndexButReopenedReaderBuildsItsOwn]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testNonSolidOpensShareIndexButReopenedReaderBuildsItsOwn]' passed (0.001 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testPositiveIndexBuiltOnceAcrossEntriesAndRestarts]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testPositiveIndexBuiltOnceAcrossEntriesAndRestarts]' passed (0.024 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSecondResetWithinBoundCompletesIndexAndLateResetKeepsSerial]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSecondResetWithinBoundCompletesIndexAndLateResetKeepsSerial]' passed (0.005 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSeekIndexRemainsUnboundedAndParallelReusesIt]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSeekIndexRemainsUnboundedAndParallelReusesIt]' passed (0.002 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSingleResetNegativeIndexCachedAcrossSolidAndNonSolidOpens]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSingleResetNegativeIndexCachedAcrossSolidAndNonSolidOpens]' passed (0.011 seconds).
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSingleResetStopsAtOutputBoundAndCachesSerialDecision]' started.
+Test Case '-[KaitoKitTests.SevenZipLZMA2ResetIndexTests testSingleResetStopsAtOutputBoundAndCachesSerialDecision]' passed (0.004 seconds).
+Test Suite 'SevenZipLZMA2ResetIndexTests' passed at 2026-10-30 05:24:06.177.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.117 (0.118) seconds
+Test Suite 'SingleFileFormatTests' started at 2026-10-30 05:24:06.177.
+Test Case '-[KaitoKitTests.SingleFileFormatTests testLZMAAloneKnownAndUnknownSizes]' started.
+Test Case '-[KaitoKitTests.SingleFileFormatTests testLZMAAloneKnownAndUnknownSizes]' passed (0.016 seconds).
+Test Case '-[KaitoKitTests.SingleFileFormatTests testLZMAAloneLimitsMalformedHeadersAndTruncation]' started.
+Test Case '-[KaitoKitTests.SingleFileFormatTests testLZMAAloneLimitsMalformedHeadersAndTruncation]' passed (0.010 seconds).
+Test Suite 'SingleFileFormatTests' passed at 2026-10-30 05:24:06.202.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.025 (0.026) seconds
+Test Suite 'SplitVolumeTests' started at 2026-10-30 05:24:06.203.
+Test Case '-[KaitoKitTests.SplitVolumeTests testGeneratedLZMA2VolumesMatchOracleAndReopenAfterUnlink]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.SplitVolumeTests testGeneratedLZMA2VolumesMatchOracleAndReopenAfterUnlink] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; 7z integration fixture skipped
+Test Case '-[KaitoKitTests.SplitVolumeTests testGeneratedLZMA2VolumesMatchOracleAndReopenAfterUnlink]' skipped (0.000 seconds).
+Test Case '-[KaitoKitTests.SplitVolumeTests testSingleAndSplitLZMAAloneUseStemForDetectionAndEntryName]' started.
+Test Case '-[KaitoKitTests.SplitVolumeTests testSingleAndSplitLZMAAloneUseStemForDetectionAndEntryName]' passed (0.015 seconds).
+Test Suite 'SplitVolumeTests' passed at 2026-10-30 05:24:06.218.
+	 Executed 2 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.015 (0.015) seconds
+Test Suite 'XZNativeDecompressorTests' started at 2026-10-30 05:24:06.218.
+Test Case '-[KaitoKitTests.XZNativeDecompressorTests testLZMAChunkWithoutPropertiesAfterRawDictionaryResetFailsLikeCompression]' started.
+Test Case '-[KaitoKitTests.XZNativeDecompressorTests testLZMAChunkWithoutPropertiesAfterRawDictionaryResetFailsLikeCompression]' passed (1.754 seconds).
+Test Suite 'XZNativeDecompressorTests' passed at 2026-10-30 05:24:07.972.
+	 Executed 1 test, with 0 failures (0 unexpected) in 1.754 (1.754) seconds
+Test Suite 'ZipCodecAuditRegressionTests' started at 2026-10-30 05:24:07.972.
+Test Case '-[KaitoKitTests.ZipCodecAuditRegressionTests testLZMAEOSFlagAcceptsEndMarkedStream]' started.
+Test Case '-[KaitoKitTests.ZipCodecAuditRegressionTests testLZMAEOSFlagAcceptsEndMarkedStream]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.ZipCodecAuditRegressionTests testLZMAEOSFlagRejectsMarkerlessStream]' started.
+Test Case '-[KaitoKitTests.ZipCodecAuditRegressionTests testLZMAEOSFlagRejectsMarkerlessStream]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.ZipCodecAuditRegressionTests testLZMAEOSOutputMustMatchCentralDirectorySize]' started.
+Test Case '-[KaitoKitTests.ZipCodecAuditRegressionTests testLZMAEOSOutputMustMatchCentralDirectorySize]' passed (0.000 seconds).
+Test Suite 'ZipCodecAuditRegressionTests' passed at 2026-10-30 05:24:07.973.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ZipCodecByteSourceBoundaryTests' started at 2026-10-30 05:24:07.973.
+Test Case '-[KaitoKitTests.ZipCodecByteSourceBoundaryTests testLZMAKeepsBufferedShortReadsInsideCompressedRange]' started.
+Test Case '-[KaitoKitTests.ZipCodecByteSourceBoundaryTests testLZMAKeepsBufferedShortReadsInsideCompressedRange]' passed (0.000 seconds).
+Test Case '-[KaitoKitTests.ZipCodecByteSourceBoundaryTests testLZMARefillsLargeRawStreamAndRejectsTruncatedTail]' started.
+Test Case '-[KaitoKitTests.ZipCodecByteSourceBoundaryTests testLZMARefillsLargeRawStreamAndRejectsTruncatedTail]' passed (0.162 seconds).
+Test Case '-[KaitoKitTests.ZipCodecByteSourceBoundaryTests testSevenZipAESLZMACombinationDecodesAfterHeaderReads]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.ZipCodecByteSourceBoundaryTests testSevenZipAESLZMACombinationDecodesAfterHeaderReads] : Test skipped - 7zz is unavailable; AES + LZMA integration fixture skipped
+Test Case '-[KaitoKitTests.ZipCodecByteSourceBoundaryTests testSevenZipAESLZMACombinationDecodesAfterHeaderReads]' skipped (0.000 seconds).
+Test Suite 'ZipCodecByteSourceBoundaryTests' passed at 2026-10-30 05:24:08.136.
+	 Executed 3 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.163 (0.163) seconds
+Test Suite 'ZipDifferentialTests' started at 2026-10-30 05:24:08.136.
+Test Case '-[KaitoKitTests.ZipDiffewarning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+rentialTests testSevenZipDeflate64LZMABzip2MatchSevenZipBySHA256]' started.
+/Users/nagash/Github/KaitoKit-wt-lzasm/Tests/KaitoKitTests/Support/ExternalTools.swift:78: -[KaitoKitTests.ZipDifferentialTests testSevenZipDeflate64LZMABzip2MatchSevenZipBySHA256] : Test skipped - 7zz is unavailable at /private/tmp/kk-lzasm/no-7zz; method fixture set skipped
+Test Case '-[KaitoKitTests.ZipDifferentialTests testSevenZipDeflate64LZMABzip2MatchSevenZipBySHA256]' skipped (0.000 seconds).
+Test Suite 'ZipDifferentialTests' passed at 2026-10-30 05:24:08.137.
+	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'KaitoKitPackageTests.xctest' passed at 2026-10-30 05:24:08.137.
+	 Executed 95 tests, with 12 tests skipped and 0 failures (0 unexpected) in 13.396 (13.402) seconds
+Test Suite 'Selected tests' passed at 2026-10-30 05:24:08.137.
+	 Executed 95 tests, with 12 tests skipped and 0 failures (0 unexpected) in 13.396 (13.403) seconds

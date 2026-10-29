@@ -1,0 +1,323 @@
+{
+  "baseline_commit": "e350e99b271bac6b40299c978fbe27d9349b89e4",
+  "binary_sha256": "b7d998e6daac670c7eacf71ff223490e0bdb2a6ab108b74d174c746216cda036",
+  "equivalence": {
+    "rows_per_backend": 1239,
+    "sha256": "c17b863cd2823c884b21cf5830c1f49995651f2c830b2ac856f74c7e055a1da1",
+    "buffers": [
+      1,
+      4099,
+      65536
+    ],
+    "mutation_count": 400,
+    "seed": 20260906,
+    "open_errors": 540,
+    "stream_errors": 663,
+    "nonempty_returned_prefixes": 262
+  },
+  "fuzz_asm": {
+    "mutants": 400,
+    "crashes": 0,
+    "hangs": 0,
+    "sanitizer_findings": 0,
+    "c_flags": "-fsanitize=address,undefined",
+    "swift_flags": "-sanitize=address,undefined"
+  },
+  "seeds": [
+    {
+      "source": "Tests/Fixtures/lzma-ringwrap/test-g1.7z.b64",
+      "decoded_name": "test-g1.7z",
+      "sha256": "328b338b4792df0c1853aafc048d1fee567c513a0e51bbce6193db4e12fed10e"
+    },
+    {
+      "source": "Tests/Fixtures/lzma-ringwrap/test-g8.7z.b64",
+      "decoded_name": "test-g8.7z",
+      "sha256": "76face350efb6d91d332e006a5c44d5589cee41490465b88cb4355142fd1d057"
+    },
+    {
+      "source": "Tests/Fixtures/lzma-ringwrap/lzma1-g1.7z.b64",
+      "decoded_name": "lzma1-g1.7z",
+      "sha256": "370ae185ce58c57e339d123eb2f6b4904cddcfd84cba51eb7cbbf3c584bda989"
+    },
+    {
+      "source": "Tests/Fixtures/lzma-ringwrap/lzma1-g8.7z.b64",
+      "decoded_name": "lzma1-g8.7z",
+      "sha256": "3ffecf802ec04fc7387038518d422bd64ccc814f006f3d3e2978df59bdc92d90"
+    },
+    {
+      "source": "Tests/Fixtures/lzma-ringwrap/lzma-g1.zip.b64",
+      "decoded_name": "lzma-g1.zip",
+      "sha256": "93893ffbc30bb470ed8d56956a57122c192a8946e2f3b7c9e5c0caf937be2e69"
+    },
+    {
+      "source": "Tests/Fixtures/lzma-ringwrap/lzma-g8.zip.b64",
+      "decoded_name": "lzma-g8.zip",
+      "sha256": "22df7fa586f86c13c4e89d339870387551428e2140725e40872ed6641e91ccde"
+    },
+    {
+      "source": "Tests/Fixtures/lzma-ringwrap/alone-g1.lzma.b64",
+      "decoded_name": "alone-g1.lzma",
+      "sha256": "d72ea7b537c0369fce482f619e8663552f3621b4eae4727de558439706788ac3"
+    },
+    {
+      "source": "Tests/Fixtures/lzma-ringwrap/alone-g8.lzma.b64",
+      "decoded_name": "alone-g8.lzma",
+      "sha256": "96ea80df5f3315e928c1578a122baa4d6be850416098d8d4fba97a8b851339b0"
+    },
+    {
+      "source": "Tests/Fixtures/singlefile/alone.lzma.b64",
+      "decoded_name": "alone.lzma",
+      "sha256": "ea33af77f4b1543c6b1651c6b4fca7c57b2ea81f99df3dd8df253807dd38c544"
+    },
+    {
+      "source": "Tests/Fixtures/tar-edit/third-xz-crc32.tar.xz.b64",
+      "decoded_name": "third-xz-crc32.tar.xz",
+      "sha256": "11aae687ce44f112112f27b5383eb273cace432196c2b0733e2aa4ba22586958"
+    },
+    {
+      "source": "Tests/Fixtures/tar-edit/third-xz-crc64.tar.xz.b64",
+      "decoded_name": "third-xz-crc64.tar.xz",
+      "sha256": "816ecfa246da6f7646fa56107cb5c3670a42d8e82e8ac2af18ddb113b9672734"
+    },
+    {
+      "source": "Tests/Fixtures/lzip/binary.lz.b64",
+      "decoded_name": "binary.lz",
+      "sha256": "989dc4f9f9a41566dfe27ce18e4139fe43b7ecafe6ad4dac2fbe31e097bf9a40"
+    },
+    {
+      "source": "Tests/Fixtures/lzip/text.lz.b64",
+      "decoded_name": "text.lz",
+      "sha256": "06171362dde91fb6c6a3613362b22d4cfa910b1a036f4b0b3bad5f703a53a50f"
+    }
+  ],
+  "intel": {
+    "release_build": "passed",
+    "rosetta_swift_fallback": "passed",
+    "asm_guard_compile": "passed"
+  },
+  "environment": {
+    "os": "macOS 27.2 (26B118)",
+    "arch": "arm64",
+    "swift": "6.4 (swiftlang-6.4.0.34.1)",
+    "scratch_limit_bytes": 3000000000,
+    "minimum_free_gib": 25
+  },
+  "timings": {
+    "samples": 90,
+    "rounds": 5,
+    "metric": "whole subprocess wall ms; best of five",
+    "best_ms": {
+      "jpeg.7z": {
+        "swift": 1511.904292,
+        "native": 1460.480083,
+        "7zz": 1307.339833
+      },
+      "jpeg-lzma.7z": {
+        "swift": 1502.057375,
+        "native": 1462.064875,
+        "7zz": 1301.74525
+      },
+      "jpeg.xz": {
+        "swift": 1518.86425,
+        "native": 1470.058458,
+        "7zz": 1331.059584
+      },
+      "text.7z": {
+        "swift": 167.010583,
+        "native": 169.562125,
+        "7zz": 145.156042
+      },
+      "text-lzma.7z": {
+        "swift": 169.441042,
+        "native": 170.998875,
+        "7zz": 145.728959
+      },
+      "text.xz": {
+        "swift": 167.257041,
+        "native": 171.264334,
+        "7zz": 165.192625
+      }
+    },
+    "all_ms": {
+      "jpeg.7z": {
+        "swift": [
+          1529.563334,
+          1523.212291,
+          1511.904292,
+          1520.491375,
+          1525.770042
+        ],
+        "native": [
+          1469.811792,
+          1468.114625,
+          1465.279583,
+          1460.480083,
+          1470.767667
+        ],
+        "7zz": [
+          1320.246917,
+          1320.65375,
+          1307.339833,
+          1315.125042,
+          1313.596833
+        ]
+      },
+      "jpeg-lzma.7z": {
+        "swift": [
+          1502.057375,
+          1513.205666,
+          1510.038167,
+          1516.349,
+          1522.999834
+        ],
+        "native": [
+          1462.118417,
+          1463.154917,
+          1468.22875,
+          1462.430583,
+          1462.064875
+        ],
+        "7zz": [
+          1316.496583,
+          1301.74525,
+          1308.677167,
+          1315.047166,
+          1326.291209
+        ]
+      },
+      "jpeg.xz": {
+        "swift": [
+          1530.897208,
+          1533.651709,
+          1525.582416,
+          1518.86425,
+          1523.342292
+        ],
+        "native": [
+          1474.764834,
+          1483.750417,
+          1470.058458,
+          1472.461083,
+          1476.728875
+        ],
+        "7zz": [
+          1339.102167,
+          1331.059584,
+          1338.935333,
+          1341.159667,
+          1336.811
+        ]
+      },
+      "text.7z": {
+        "swift": [
+          174.497666,
+          177.939917,
+          171.614708,
+          167.010583,
+          173.284708
+        ],
+        "native": [
+          169.562125,
+          169.726792,
+          172.091,
+          172.105625,
+          174.680125
+        ],
+        "7zz": [
+          145.156042,
+          147.904792,
+          149.850125,
+          150.27675,
+          149.344166
+        ]
+      },
+      "text-lzma.7z": {
+        "swift": [
+          174.015208,
+          171.461375,
+          177.233291,
+          169.441042,
+          177.2575
+        ],
+        "native": [
+          172.54575,
+          172.529416,
+          171.016166,
+          172.835,
+          170.998875
+        ],
+        "7zz": [
+          149.51775,
+          147.930292,
+          150.681041,
+          145.728959,
+          149.36175
+        ]
+      },
+      "text.xz": {
+        "swift": [
+          174.381125,
+          167.257041,
+          176.631833,
+          178.901167,
+          177.416916
+        ],
+        "native": [
+          173.813416,
+          174.921542,
+          171.512875,
+          171.264334,
+          175.832542
+        ],
+        "7zz": [
+          173.064875,
+          165.192625,
+          169.337208,
+          168.566625,
+          170.320791
+        ]
+      }
+    },
+    "primary_cases": [
+      "jpeg.7z",
+      "jpeg.xz",
+      "text.7z",
+      "text.xz"
+    ],
+    "geometric_native_swift_ratio": 0.9929184732156606,
+    "geometric_reduction_percent": 0.7081526784339376,
+    "decision": "reject: less than 8%; no further tuning"
+  },
+  "swift_test": {
+    "tests": 2080,
+    "skipped": 116,
+    "failures": 2,
+    "seconds": 1231.933,
+    "note": "full suite on the C prototype before the tree_step assembly addition; same Swift bridge and state machine",
+    "unavailable_oracle_tests": [
+      "ZipStoredPayloadSPITests.testModernMethodsReturnCompressedBytesWithoutXZStaging",
+      "ZipStoredPayloadSPITests.testPlainInfoZIPAndSevenZipStoredAndDeflate"
+    ],
+    "error": "required A1 oracle is unavailable: /private/tmp/kk-lzasm/no-7zz",
+    "swift_backend_confirmation": {
+      "tests": 9,
+      "failures": 2,
+      "same_oracle_errors": true
+    }
+  },
+  "final_asm_lzma_test": {
+    "tests": 95,
+    "skipped": 12,
+    "failures": 0,
+    "seconds": 12.832
+  },
+  "scratch": {
+    "observed_peak_du": "1.6 GiB",
+    "lowest_observed_data_free_gib": 62,
+    "deleted": true
+  },
+  "candidate_patch_sha256": "9ffcb211031d4035cef0d9b803f975dd2dfc500e6f7875591ba504712a72a330",
+  "sanitizer_limit": "inline assembly strh is not instrumented; bounded tree indices and surrounding instrumented C loads retain the safety argument",
+  "production_restored": true,
+  "committed": false
+}

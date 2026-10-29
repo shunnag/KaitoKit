@@ -60,6 +60,10 @@ Xcode 26 の system xctest は XCTestCore の interop symbol が不足し、Xcod
 制限 umask の子 process も現在の xctest を再利用し、SIP で消える `DYLD_*` は別名で渡して shell 内で復元する。
 両実行 job は同じ必須 oracle を使い、macOS 26 の製品コードは OS Swift runtime 上で動かす。
 実際の test failure、bundle ごとの実行件数0、LHA golden の二つの marker の欠如は失敗にする。
+PR（同一 repo・fork）は arm64 の全 suite を実行し、Intel の 2 shard は main push・schedule・workflow_dispatch で実行する（tag push は起動しない）。
+Intel の利用者は少数のため、Intel 固有の退行は merge 後の検出を許容する。
+`macos-26-runtime-coverage` は matrix に含めた OS の全件実行を必須にし、PR では Intel の artifact を要求しない。
+PR の検査済み tree と一致する main push でも bundle を新たに build し、Intel の 2 shard と Intel の全件 coverage 検査を実行する。
 
 ## 環境変数（CI と過去の記録が使う名前なので変えない）
 

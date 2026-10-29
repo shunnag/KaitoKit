@@ -4,6 +4,8 @@ name: CI
 # Swift 6.3.3 の -O は TaskLocal<function?> の withValue を誤コンパイルする
 # （valueType metadata が nil、EXC_BAD_ACCESS。GyoshukuKit の 2026-10-08 probe で確認）。
 # macos-26 / macos-26-intel は Xcode 27 で build した test をコンパイルせず実行する。
+# Intel の利用者は少数のため、PR は arm64 だけ検査し、Intel の退行は merge 後の検出を許容する。
+# Intel の 2 shard は main push・schedule・workflow_dispatch で必ず実行する。
 # Xcode 27 job は自前の Apple Silicon へ送る。fork PR だけは hosted runner で実行する。
 # push は main だけにする。PR ブランチへの push でも起動すると
 # pull_request と合わせて同じ commit に job が二重に走る(2026-09-11 PR #5 で確認)。
@@ -57,13 +59,15 @@ permissions:
   pull-requests: read
 
 jobs:
-  # PR で全 CI が通った tree と同じ main の push は heavy job を省く。曖昧なら全部走らせる。
+  # PR 対象の全 CI が通った tree と同じ main の push は重複検査だけ省く。曖昧なら全部走らせる。
+  # PR に無い Intel と、その bundle を作る build-for-macos-26 は検査済み tree でも省かない。
   plan:
     runs-on: ubuntu-latest
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 5
     outputs:
       full: ${{ steps.decide.outputs.full }}
+      runtime-matrix: ${{ steps.decide.outputs.runtime-matrix }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Check CI tooling and paths filter
@@ -117,7 +121,7 @@ jobs:
                 return
               fi
               if [ "$count" -ge 1 ]; then
-                reason="tree $tree は PR #$pr の $url で全 CI 済み。heavy job を省略する。"
+                reason="tree $tree は PR #$pr の $url で PR 対象の CI 済み。重複検査だけ省き、Intel の build と実行・coverage 検査は維持する。"
                 skip=true
                 return
               fi
@@ -132,10 +136,11 @@ jobs:
         id: decide
         if: always()
         env:
+          EVENT: ${{ github.event_name }}
           SKIP: ${{ steps.lookup.outputs.skip }}
           LOOKUP_OUTCOME: ${{ steps.lookup.outcome }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           full=true
           if [ "$LOOKUP_OUTCOME" = success ] && [ "$SKIP" = true ]; then
             full=false
@@ -143,6 +148,13 @@ jobs:
             printf 'gate の確認に失敗したため全 CI\n' >> "$GITHUB_STEP_SUMMARY"
           fi
           printf 'full=%s\n' "$full" >> "$GITHUB_OUTPUT"
+          # PR は arm64、検査済み main は Intel だけ、それ以外は両 arch を実行する。
+          matrix="$(jq -cn --arg full "$full" --arg event "$EVENT" '{include: [
+            ({os: "macos-26", shard: "all", shards: "all", timeout: 75} | select($full == "true")),
+            ({os: "macos-26-intel", shard: "1", shards: "2", timeout: 95},
+             {os: "macos-26-intel", shard: "2", shards: "2", timeout: 95} | select($event != "pull_request"))
+          ]}')"
+          printf 'runtime-matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
 
   build-and-test:
     needs: plan
@@ -196,7 +208,8 @@ jobs:
 
   build-for-macos-26:
     needs: plan
-    if: needs.plan.outputs.full == 'true'
+    # PR の検査済み tree でも、main の Intel 実行に必要な artifact は今回の run で作る。
+    if: needs.plan.outputs.full == 'true' || github.event_name != 'pull_request'
     runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '["xcode-27"]' || '["self-hosted", "shunnag-arm64"]') }}
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 10
@@ -418,14 +431,11 @@ jobs:
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { os: macos-26, shard: all, shards: all, timeout: 75 }
-          - { os: macos-26-intel, shard: '1', shards: '2', timeout: 95 }
-          - { os: macos-26-intel, shard: '2', shards: '2', timeout: 95 }
+      # Intel は PR の matrix に含めず、検査済み main でも必ず含める。
+      matrix: ${{ fromJSON(needs.plan.outputs.runtime-matrix) }}
     runs-on: ${{ matrix.os }}
     needs: [plan, build-for-macos-26]
-    if: needs.plan.outputs.full == 'true'
+    if: needs.plan.outputs.full == 'true' || github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install differential-test oracles
@@ -567,7 +577,7 @@ jobs:
 
   macos-26-runtime-coverage:
     needs: [plan, macos-26-runtime]
-    if: needs.plan.outputs.full == 'true'
+    if: needs.plan.outputs.full == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     # hang は 6 時間待たず、通常の所要時間の約2倍で失敗させる。
     timeout-minutes: 5
@@ -581,8 +591,29 @@ jobs:
         with:
           pattern: macos-26-shard-summary-*
           path: ${{ runner.temp }}/summaries
-      # 全 class が arm64 で1回、x86_64 の shard の合計で1回ずつ走ったことを確かめる。
-      - run: python3 Scripts/ci/test_shards.py coverage --inventory "$RUNNER_TEMP/inventory/test-list.txt" --summaries "$RUNNER_TEMP/summaries"
+      # matrix の OS を必須にする。PR は arm64、検査済み main は Intel、それ以外は両 arch。
+      # artifact の有無では省略せず、予定された shard の欠落・重複は既存の coverage で失敗にする。
+      - env:
+          RUNTIME_MATRIX: ${{ needs.plan.outputs.runtime-matrix }}
+        run: |
+          python3 <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, "Scripts/ci")
+          import test_shards
+
+          expected_os = {row["os"] for row in json.loads(os.environ["RUNTIME_MATRIX"])["include"]}
+          if not expected_os or not expected_os <= test_shards.PLAN.keys():
+              raise ValueError(f"Invalid runtime coverage OS: {expected_os}")
+          test_shards.PLAN = {name: test_shards.PLAN[name] for name in expected_os}
+          temporary = Path(os.environ["RUNNER_TEMP"])
+          test_shards.coverage(
+              test_shards.load_inventory(temporary / "inventory/test-list.txt"), temporary / "summaries"
+          )
+          PYTHON
 
   # 利用側の cooViewer は、このスクリプトが作るフレームワークを組み込む。
   # swift build / swift test が緑でも、ここが壊れると利用側はビルドできない（2026-09 に実際に発生）。
@@ -666,7 +697,7 @@ jobs:
           Scripts/fuzz/run-mutants.sh --count 63 --timeout 5 \
             --password KaitoFuzz --require-payload-ranges "$seed_directory"
 
-  # 全 job が通った PR の tree を記録する。main への push はこれを見て heavy job を省く。
+  # PR 対象の全 job が通った tree を記録する。Intel は含まず、main の重複検査だけ省く。
   record-tested-tree:
     needs: [plan, build-and-test, macos-26-runtime-coverage, framework, compressed-payload-mutants]
     if: github.event_name == 'pull_request' && needs.plan.outputs.full == 'true'

@@ -31,6 +31,10 @@ Swift の build / test は行わず、同梱 runner と framework / dylib で全
 Xcode 26 の system xctest は XCTestCore の interop symbol が不足し、Xcode 27 の test bundle を load できない。
 製品コードは macOS 26 の OS Swift runtime 上で動かし、OS と arch の差を検査する。
 必須 oracle は両実行 job でそろえ、実際の test failure と実行件数0、golden marker の欠如は失敗にする。
+PR（同一 repo・fork）は arm64 の全 suite だけを検査し、Intel の 2 shard は main push・schedule・workflow_dispatch で実行する（tag push は起動しない）。
+Intel の利用者は少数のため、Intel 固有の退行は merge 後に検出する運用とする。
+`macos-26-runtime-coverage` はその run の matrix に含めた OS の全 class が1回ずつ実行されたことを必須にする。
+PR の検査済み tree と一致する main push は PR と重複する検査だけを省き、`build-for-macos-26` と Intel の全 shard・coverage 検査は維持する。
 
 ## 2. cooViewer が実際に使っている XADMaster の面(移行の最小面)
 

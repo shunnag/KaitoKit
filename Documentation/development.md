@@ -83,14 +83,18 @@ macOS 26 の実行 job は hosted のままです。ビルド元の絶対 checko
 7zz / xz / brotli / zstd の外部ツール不足を failure とします。Asia/Tokyo の LHA golden も明示的に実行します。
 Xcode 27 で universal build した test bundle・`kaito`・xctest と依存 framework / dylib を運び、
 `macos-26`（arm64）と `macos-26-intel`（x86_64）でコンパイルせず全 suite と LHA golden を検査します。
+PR（同一 repo・fork）は arm64 だけを検査し、Intel は main push・定時・手動で実行します。
+Intel の利用者は少数のため、Intel 固有の退行は merge 後の検出を許容します。
 ユニバーサル framework と両 Swift module の検査、圧縮 payload を含む 63 mutant の
 ASan/UBSan fuzz smoke（timeout 5 秒、password `KaitoFuzz`）も行います。
 
 文書だけの変更では起動しません（テストが読む文書は除き、一覧は `Scripts/ci/check_paths_filter.py` が検査します）。
 tag の push では起動せず、PR の古い run は新しい push で取り消します。
-x86_64 の macOS 26 は class 単位で 2 shard に分け（予測 37–46 分、timeout 95 分）、最後の shard は補集合と compat・LHA golden を実行し、ubuntu の job が全 class の1回ずつの実行を検査します。
+x86_64 の macOS 26 は class 単位で 2 shard に分け（予測 37–46 分、timeout 95 分）、最後の shard は補集合と compat・LHA golden を実行します。
+ubuntu の `macos-26-runtime-coverage` は、その run の matrix に含めた OS の全 class が1回ずつ実行されたことを検査します。PR では Intel の artifact を要求しません。
 定常時の macOS job は最大 4 個にし、account の同時実行枠 5 個のうち 1 個を KaitoFinder / GyoshukuKit 用に残します。
-PR で全 CI が通った tree と同じ main の push は heavy job を省きます（記録は 7 日）。
+`record-tested-tree` は PR 対象の全 CI が通った tree を記録します（記録は 7 日、Intel は対象外）。
+同じ tree の main push は PR と重複する検査（arm64 runtime を含む）だけを省き、`build-for-macos-26` で新しい artifact を作り、Intel の 2 shard と Intel の全件 coverage 検査を必ず実行します。
 `workflow_dispatch` で全 CI を手動実行できます。
 毎日 15:17 UTC（日本時間 00:17）に全 CI を実行し、schedule の run は取り消しません。
 

@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+### 修正
+
+- SFX prefix のある RAR4 / RAR5 の分割書庫を開けるようにした。先頭巻の署名 offset と原本の identity を検証し、
+  RAR4 の old / new numbering と RAR5 の `.partN.rar` に対応する。Data / 任意 `ByteSource` の multi-volume 拒否と、
+  決定的な兄弟名だけを開く安全境界は維持する。
+
 ## [0.18.0] - 2026-10-30
 
 展開と一覧の高速化をまとめた release。RAR5 solid の block 並列 Huffman 復号(solid JPEG 4.0 倍)、DMG(UDIF)の chunk の byte 数 LRU・先読みの再利用・ULMO の自前 LZMA2(LZMA 圧縮の DMG 16 倍、zlib 18 倍)、WinZip AES の鍵導出(1 回 695 → 183 µs)、tar の高遅延 header 走査と名前の符号化判定の高速化などを含む。各変更は敵対的レビューと全 test を経ている。出力と error は変わらない。ビルド要件(Xcode 27 / Swift 6.4 以上)と実行環境(macOS 26 以上・Apple Silicon と Intel)は 0.17.0 と同じ。

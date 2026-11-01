@@ -52,6 +52,8 @@ final class RARVolumeLocator {
         firstVolumeURL: URL,
         firstVolumeSource: (any ByteSource)? = nil,
         firstVolumeDirectory: FileByteSource.DirectoryAnchor? = nil,
+        firstVolumeSignatureOffset: UInt64 = 0,
+        firstVolumeIdentitySource: (any ByteSource)? = nil,
         naming: RARVolumeNaming,
         maxMetadataSize: UInt64 = 16 * 1_024 * 1_024,
         maxVolumeCount: Int = 128
@@ -93,11 +95,12 @@ final class RARVolumeLocator {
         try Self.validate(
             first,
             naming: naming,
-            maxMetadataSize: maxMetadataSize
+            maxMetadataSize: maxMetadataSize,
+            signatureOffset: firstVolumeSignatureOffset
         )
 
         let directory = firstURL.deletingLastPathComponent().standardizedFileURL
-        guard let descriptorSource = source as? FileByteSource else {
+        guard let descriptorSource = (firstVolumeIdentitySource ?? source) as? FileByteSource else {
             throw KaitoError.malformed("RAR first volume anchor is incomplete")
         }
         guard let handle else {
@@ -194,7 +197,7 @@ final class RARVolumeLocator {
         switch naming {
         case .rar4Old:
             let firstExtension = firstURL.pathExtension.lowercased()
-            guard firstExtension == "rar" else {
+            guard firstExtension == "rar" || firstExtension == "exe" else {
                 throw KaitoError.malformed("RAR4 old-numbered first volume is not .rar")
             }
             let ordinal = volumeNumber - 1
@@ -238,7 +241,9 @@ final class RARVolumeLocator {
 
     private static func partPattern(for url: URL) -> PartPattern? {
         let name = url.lastPathComponent
-        guard name.lowercased().hasSuffix(".rar") else { return nil }
+        let isRAR = name.lowercased().hasSuffix(".rar")
+        let isSFX = name.lowercased().hasSuffix(".exe")
+        guard isRAR || isSFX else { return nil }
         let stem = String(name.dropLast(4))
         guard let marker = stem.range(
             of: ".part",
@@ -256,7 +261,7 @@ final class RARVolumeLocator {
             marker: String(stem[marker]),
             width: digitText.count,
             firstPartNumber: number,
-            archiveExtension: String(name.suffix(4))
+            archiveExtension: isRAR ? String(name.suffix(4)) : ".rar"
         )
     }
 
@@ -270,14 +275,15 @@ final class RARVolumeLocator {
     private static func validate(
         _ volume: RARLocatedVolume,
         naming: RARVolumeNaming,
-        maxMetadataSize: UInt64
+        maxMetadataSize: UInt64,
+        signatureOffset: UInt64 = 0
     ) throws {
         switch naming {
         case .rar4Old, .rar4New:
             let expected = RAR4Reader.signature
             guard try readByteRange(
                 source: volume.source,
-                offset: 0,
+                offset: signatureOffset,
                 count: expected.count
             ) == expected else {
                 throw KaitoError.malformed("RAR4 volume signature mismatch")

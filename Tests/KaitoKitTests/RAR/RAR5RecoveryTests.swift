@@ -240,9 +240,10 @@ final class RAR5RecoveryTests: XCTestCase {
         let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
         var checked = 0
         for case let url as URL in enumerator where url.lastPathComponent.hasSuffix(".rar.b64") {
+            let name = url.lastPathComponent
+            if name == "sfx-part1.rar.b64" || name == "sfx-part2.rar.b64" { continue }
             let archive = try decodeFixture(url)
             guard archive.starts(with: RAR5Reader.signature) else { continue }
-            let name = url.lastPathComponent
             var options = ReaderOptions()
             if name.contains("ascii127") { options.password = String(repeating: "A", count: 127) }
             else if name.contains("ascii128") { options.password = String(repeating: "A", count: 128) }

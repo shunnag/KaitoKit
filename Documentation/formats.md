@@ -279,7 +279,8 @@ MacBinary ではない member はそのまま返します。公開 `uncompressed
 RAR4 / RAR5 の URL-backed multi-volume は、最初の volume と同じ directory の deterministic
 sibling 名だけを、保持した directory descriptor から symlink を追わず regular file として開き、
 既定 128 volume の `ReadLimits.maxVolumeCount` で制限します。RAR4 は old / new numbering、
-RAR5 は `.partN.rar` と暗号化 data / header の継続に対応します。`reopen()` は検証済みの全
+RAR5 は `.partN.rar` と暗号化 data / header の継続に対応します。SFX prefix のある先頭巻も、
+署名 offset と原本の identity を検証して同じ規則で続巻を開きます。`reopen()` は検証済みの全
 volume handle を共有し、path を再解決しません。Data / 任意 `ByteSource` は sibling volume を
 一意に特定できないため、未解決の分割 entry を読むと
 `unsupportedMethod("multi-volume from Data")` を返します。
@@ -290,9 +291,10 @@ volume handle を共有し、path を再解決しません。Data / 任意 `Byte
 > as the first volume. They are opened as regular files from a retained directory descriptor without
 > following symbolic links, and are bounded by `ReadLimits.maxVolumeCount`, which defaults to 128
 > volumes. RAR4 supports old and new numbering; RAR5 supports `.partN.rar` and the continuation of
-> encrypted data and headers. `reopen()` shares all verified volume handles and does not re-resolve
-> paths. `Data` and custom `ByteSource` inputs cannot identify sibling volumes uniquely, so reading
-> an unresolved split entry returns `unsupportedMethod("multi-volume from Data")`.
+> encrypted data and headers. A first volume with an SFX prefix uses the same continuation rules after
+> validating its signature offset and original identity. `reopen()` shares all verified volume handles
+> and does not re-resolve paths. `Data` and custom `ByteSource` inputs cannot identify sibling volumes
+> uniquely, so reading an unresolved split entry returns `unsupportedMethod("multi-volume from Data")`.
 
 ## バイト分割セット
 

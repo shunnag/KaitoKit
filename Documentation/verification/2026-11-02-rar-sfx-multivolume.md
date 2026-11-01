@@ -37,6 +37,7 @@ RAR 以外の実 SFX も確認した。
 
 - `RARMultiVolumeSFXTests`: 3形式とも全 byte、reopen、RAR5 Quick Open、`unrar` も成功。
 - RAR 系全体: **339 tests / 11 skipped / 0 failures**。
+- KaitoKit 全体: **2,048 tests / 53 skipped / 0 failures**。KaitoKitCompat も **34 tests / 0 failures**。
 - `RAR5RecoveryTests`: 12件、失敗 0。単独書庫を前提とする fixture 検査から、分割用の 2 fixture だけを除いた。
 - `RAR5SFXTests`: 5件、失敗 0。
 - `SevenZipSFXIntegrationTests`、`ZipIntegrationTests`: 失敗 0。

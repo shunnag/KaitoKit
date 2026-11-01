@@ -106,10 +106,9 @@ enum FormatReaderFactory {
                 let rar = try RAR5Reader(
                     source: rarSource,
                     options: options,
-                    sourceURL: signature.offset == 0 ? rarSourceURL : nil,
-                    sourceDirectoryAnchor: signature.offset == 0
-                        ? sourceDirectoryAnchor
-                        : nil
+                    sourceURL: rarSourceURL,
+                    sourceDirectoryAnchor: sourceDirectoryAnchor,
+                    firstVolumeIdentitySource: signature.offset > 0 ? source : nil
                 )
                 reader = rar
                 password = rar.resolvedPassword
@@ -117,10 +116,8 @@ enum FormatReaderFactory {
                 let rar = try RAR4Reader(
                     source: source,
                     options: options,
-                    sourceURL: signature.offset == 0 ? rarSourceURL : nil,
-                    sourceDirectoryAnchor: signature.offset == 0
-                        ? sourceDirectoryAnchor
-                        : nil,
+                    sourceURL: rarSourceURL,
+                    sourceDirectoryAnchor: sourceDirectoryAnchor,
                     signatureOffset: signature.offset
                 )
                 reader = rar

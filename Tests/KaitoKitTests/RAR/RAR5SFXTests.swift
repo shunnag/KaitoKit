@@ -63,7 +63,7 @@ final class RAR5SFXTests: XCTestCase {
         ))
     }
 
-    func testMultiVolumeSFXOpensAsSingleVolumeWithoutSiblingLookup() throws {
+    func testMissingSFXContinuationIsDistinguishedFromDataInput() throws {
         let completePayload = Data("complete entry\n".utf8)
         let archive = RAR5TestSupport.archive(
             mainFlags: 0x0001,
@@ -85,19 +85,21 @@ final class RAR5SFXTests: XCTestCase {
         try data.write(to: first)
         XCTAssertFalse(FileManager.default.fileExists(atPath: second.path))
 
-        let readers = [
-            try ArchiveReader.open(url: first),
-            try ArchiveReader.open(data: data, options: ReaderOptions(scanForSFXInData: true)),
-        ]
-        for reader in readers {
-            XCTAssertEqual(reader.format, .rar)
-            XCTAssertEqual(reader.entries.map(\.name), ["complete.txt", "split.bin"])
-            let complete = try XCTUnwrap(reader.entries.first)
-            XCTAssertEqual(try reader.read(complete), completePayload)
-            let split = try XCTUnwrap(reader.entries.last)
-            XCTAssertThrowsError(try reader.read(split)) { error in
-                XCTAssertEqual(error as? KaitoError, .unsupportedMethod("multi-volume from Data"))
-            }
+        XCTAssertThrowsError(try ArchiveReader.open(url: first)) { error in
+            XCTAssertEqual(error as? KaitoError, .truncated)
+        }
+
+        let reader = try ArchiveReader.open(
+            data: data,
+            options: ReaderOptions(scanForSFXInData: true)
+        )
+        XCTAssertEqual(reader.format, .rar)
+        XCTAssertEqual(reader.entries.map(\.name), ["complete.txt", "split.bin"])
+        let complete = try XCTUnwrap(reader.entries.first)
+        XCTAssertEqual(try reader.read(complete), completePayload)
+        let split = try XCTUnwrap(reader.entries.last)
+        XCTAssertThrowsError(try reader.read(split)) { error in
+            XCTAssertEqual(error as? KaitoError, .unsupportedMethod("multi-volume from Data"))
         }
     }
 

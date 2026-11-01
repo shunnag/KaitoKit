@@ -56,7 +56,8 @@ final class RAR5Reader: FormatReader {
         source: any ByteSource,
         options: ReaderOptions,
         sourceURL: URL? = nil,
-        sourceDirectoryAnchor: FileByteSource.DirectoryAnchor? = nil
+        sourceDirectoryAnchor: FileByteSource.DirectoryAnchor? = nil,
+        firstVolumeIdentitySource: (any ByteSource)? = nil
     ) throws {
         self.source = source
         self.sourceURL = sourceURL
@@ -79,6 +80,7 @@ final class RAR5Reader: FormatReader {
             source: source,
             sourceURL: sourceURL,
             sourceDirectoryAnchor: sourceDirectoryAnchor,
+            firstVolumeIdentitySource: firstVolumeIdentitySource,
             options: options,
             passwordSelection: keyCache.passwordSelection
         )

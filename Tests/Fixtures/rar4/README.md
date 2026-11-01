@@ -36,3 +36,10 @@ PPMd solid は `RAR solid archive support unavailable` で拒否した。この�
 RAR 6.24 の `-?` は `mc<par>`、同梱の利用者向け `rar.txt` は A/C/D/E/T を掲載する。
 `-mcI+` は CLI に受理されるが、`-mc- -mcI+` の probe を KaitoKit で復号しても
 filter table は空だったため Itanium fixture は追加していない。
+
+## 分割 SFX fixture
+
+`sfx-new-part*.rar.b64` と `sfx-old-*.b64` は RAR 6.24、`../rar5/sfx-part*.rar.b64` は RAR 7.23 が
+700 byte の `A` / `B` から作った stored 書庫で、巻サイズは 1 KiB。new `.partN.rar`、old `.r00` の両命名を使う。
+`RARMultiVolumeSFXTests` は先頭巻へ PE prefix を付け、続巻との全 byte を KaitoKit と unrar 7.23 で照合する。
+RAR の SFX module や生成ツールは test 実行時には不要。

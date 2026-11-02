@@ -1523,7 +1523,7 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   更新しない規則を守り、peek の末尾 padding と実際に消費した bit を区別する。64 KiB 窓の
   zero-fill は match 開始時に確定する。実装入力と実書庫の照合範囲は
   [検証記録](verification/2026-11-02-rar15-unpack.md)を参照。custom VM、version 15 の旧暗号、
-  solid 内の分割 member は対象外。
+  solid 内の分割 member は当初対象外とした。
 - 2026-11-03 の追補(cooViewer-c1vj.11): RAR 1.3 / 1.4 の `RE~^` container、stored・Unpack15 圧縮、
   16-bit rolling checksum、solid を実装した。実 RAR 1.402 は main header だけで solid を指定し、
   file flag がなくても最初の圧縮 file を group 先頭として状態を共有する。RAR15Decoder は internal
@@ -1533,6 +1533,10 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   2026-11-03 の追補(cooViewer-c1vj.14)では、`RSFX` marker と MZ 画像サイズ、その位置の
   `RE~^` を照合する SFX を追加した。Data では opt-in とし、偶然の署名は信用しない。
   分割は別課題。
+- 2026-11-03 の追補(cooViewer-c1vj.16): ENDARC を省略した RAR4 volume では、末尾 file の
+  `SPLIT_AFTER` から次巻を解決する。結合後の record は `isSplit == false` となり、version 15 の
+  solid 分割も既存の coordinator で辞書と adaptive Huffman 状態を継続する。
+  ENDARC がある場合の `EARC_NEXT_VOLUME` と Data からの継続巻拒否は変えない。
 - M3(784b37a + 第 2 段): RAR 5.x(v0 LZ・フィルタ・solid・AES-256・ヘッダ暗号化・分割・BLAKE2sp)と RAR 2.9/3.x
   (LZ・標準 VM フィルタ 6 種・PPMd var.H・solid・AES-128・ヘッダ暗号化・分割・SFX 前置)。RAR5 corpus と実書庫、
   RAR4 の st1200(19 JPEG)と libarchive の BSD 試験書庫が `rar` オラクル / XADMaster と一致。第 1 段の敵対

@@ -38,7 +38,7 @@
 - 7z は 7-Zip ZS の LZ4 / Brotli / LZ5 / Lizard coder を扱いません。Zstandard coder の properties は 3 byte または 5 byte だけを受理します。7-Zip ZS の FLZMA2 は標準の LZMA2（ID 21）として書かれるため、そのまま読めます。
 - RAR 1.3 / 1.4 は旧暗号・comment・SFX も展開できますが、分割と ASCII 以外の password は扱いません。
 - RAR4 は custom VM、dictionary size が変わる solid 構成を扱いません。
-  unpack version 15 の旧暗号と solid 書庫内の分割 member も扱いません。
+  unpack version 15 の旧暗号は扱いません。solid 書庫内の分割 member は展開できます。
   RAR5 は compression version 0 / 1 を展開できますが、サイズ不明の暗号化 stored entry は扱いません。
   version 1 の非2の累乗辞書は次の2の累乗で確保するため、実確保量が `maxDictionarySize` を超える場合は
   上限の引上げが必要です。5 GiB 辞書は 8 GiB として扱います。
@@ -119,7 +119,7 @@
 > - RAR 1.3 / 1.4 supports legacy encryption, comments and verified SFX stubs, but not split volumes
 >   or non-ASCII passwords.
 > - RAR4 does not handle the custom VM or solid configurations whose dictionary size changes.
->   Legacy encryption and split members within solid groups are unsupported for unpack version 15.
+>   Legacy encryption is unsupported for unpack version 15. Split members within solid groups are supported.
 >   RAR5 decodes compression versions 0 and 1, but not encrypted stored entries
 >   of unknown size. A non-power-of-two version 1 dictionary uses the next power-of-two allocation;
 >   `maxDictionarySize` must cover that allocation (5 GiB becomes 8 GiB).

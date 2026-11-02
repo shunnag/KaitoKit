@@ -614,7 +614,7 @@ XADMaster は UDF を読めません。BIN/CUE などの生 sector image（2352 
   `.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP と `.zip.001` バイト分割は対応。
 - 7z は、7-Zip ZS の LZ4 / Brotli / LZ5 / Lizard coder。
 - RAR 1.3 / 1.4 の分割と ASCII 以外の password。
-- RAR4 の custom VM、dictionary size が変わる solid 構成、unpack version 15 の旧暗号と solid 内の分割 member。
+- RAR4 の custom VM、dictionary size が変わる solid 構成、unpack version 15 の旧暗号。
 - RAR5 のサイズ不明の暗号化 stored entry（file copy の参照は参照先の本文を返す `.file` として公開）。
 - LHA `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-`（一覧はできるが読み取りは `unsupportedMethod`）。
 - CAB の Quantum（一覧のみ）と、複数 cabinet にまたがる file。
@@ -651,7 +651,7 @@ gzip、bzip2、xz、zstd、LZ4、LZMA (`.lzma`)、lzip (`.lz`)、brotli (`.br`)�
 > - 7z: the LZ4 / Brotli / LZ5 / Lizard coders of 7-Zip ZS.
 > - RAR 1.3 / 1.4: split volumes and non-ASCII passwords.
 > - RAR4: the custom VM, solid configurations whose dictionary size changes, and legacy encryption
->   or split members within solid groups for unpack version 15.
+>   for unpack version 15.
 > - RAR5: encrypted stored entries of unknown size (file-copy references are
 >   exposed as `.file` entries that return the target's content).
 > - LHA: `-pm1-`, `-pm2-`, `-lh2-` and `-lh3-` (listed, but reading fails with `unsupportedMethod`).

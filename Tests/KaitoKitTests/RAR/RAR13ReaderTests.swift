@@ -48,8 +48,51 @@ final class RAR13ReaderTests: XCTestCase {
         }
     }
 
-    func testEncryptedSplitAndCommentEntriesAreExplicitlyUnsupported() throws {
-        for flag in [UInt8(0x04), 0x02, 0x08] {
+    func testEncryptedEntriesRequireCorrectPassword() throws {
+        let data = try TestFixtures.base64("rar13/encrypted.rar")
+        let missing = try ArchiveReader.open(data: data)
+        for entry in missing.entries {
+            XCTAssertThrowsError(try missing.read(entry)) { error in
+                XCTAssertEqual(error as? KaitoError, .passwordRequired)
+            }
+        }
+        let reader = try ArchiveReader.open(data: data, options: ReaderOptions(password: "wrong"))
+        for entry in reader.entries {
+            XCTAssertThrowsError(try reader.read(entry)) { error in
+                XCTAssertEqual(error as? KaitoError, .wrongPassword)
+            }
+        }
+        reader.password = "password"
+        let phrase = Data("RAR15!\r\n".utf8)
+        for entry in reader.entries {
+            XCTAssertEqual(try reader.read(entry), entry.name == "compressed.txt" ? phrase + phrase : phrase)
+        }
+    }
+
+    func testEncryptedSolidEntriesSupportBackwardReads() throws {
+        let reader = try ArchiveReader.open(
+            data: TestFixtures.base64("rar13/solid-encrypted.rar"),
+            options: ReaderOptions(password: "password")
+        )
+        let expected = Data("RAR15!\r\n".utf8)
+        for entry in reader.entries {
+            XCTAssertEqual(try reader.read(entry), expected, "forward \(entry.index)")
+        }
+        for index in [1, 0, 1, 0] {
+            XCTAssertEqual(try reader.read(reader.entries[index]), expected, "read \(index)")
+        }
+    }
+
+    func testCommentsAreDecoded() throws {
+        let reader = try ArchiveReader.open(data: TestFixtures.base64("rar13/comments.rar"))
+        let entry = try XCTUnwrap(reader.entries.first)
+        XCTAssertEqual(entry.formatSpecific["archiveComment"], "RAR 1.3 comment.\r\n")
+        XCTAssertEqual(entry.formatSpecific["comment"], "note\r\n")
+        XCTAssertEqual(try reader.read(entry), Data("RAR15!\r\n".utf8))
+    }
+
+    func testSplitEntriesAreExplicitlyUnsupported() throws {
+        for flag in [UInt8(0x01), 0x02] {
             var data = try TestFixtures.base64("rar13/normal.rar")
             data[7 + 17] |= flag
             let reader = try ArchiveReader.open(data: data)
@@ -111,17 +154,77 @@ final class RAR13ReaderTests: XCTestCase {
         }
     }
 
-    func testRAR1402FileCommentIsListedButNotRead() throws {
+    func testRAR1402CommentsAreDecoded() throws {
         guard let path = ProcessInfo.processInfo.environment["KAITOKIT_RAR13_FIXTURES"] else {
             throw XCTSkip("set KAITOKIT_RAR13_FIXTURES")
         }
         let root = URL(fileURLWithPath: path, isDirectory: true)
-        let reader = try ArchiveReader.open(url: root.appendingPathComponent("FCOMM.RAR"))
-        let entry = try XCTUnwrap(reader.entries.first)
-        XCTAssertThrowsError(try reader.read(entry)) { error in
+        let archiveComment = try ArchiveReader.open(url: root.appendingPathComponent("COMMENT.RAR"))
+        let archiveEntry = try XCTUnwrap(archiveComment.entries.first)
+        XCTAssertEqual(archiveEntry.formatSpecific["archiveComment"], "This is the archive comment.\r\n")
+        XCTAssertEqual(try archiveComment.read(archiveEntry), try Data(contentsOf: root.appendingPathComponent("expected/HELLO.TXT")))
+
+        let fileComment = try ArchiveReader.open(url: root.appendingPathComponent("FCOMM.RAR"))
+        let fileEntry = try XCTUnwrap(fileComment.entries.first)
+        XCTAssertEqual(fileEntry.formatSpecific["comment"], "FCOM\r\n")
+        XCTAssertEqual(try fileComment.read(fileEntry), Data("Hello, file comment fixture.\r\n".utf8))
+    }
+
+    func testRAR1402EncryptedEntriesMatchUnrarOutput() throws {
+        guard let path = ProcessInfo.processInfo.environment["KAITOKIT_RAR13_FIXTURES"] else {
+            throw XCTSkip("set KAITOKIT_RAR13_FIXTURES")
+        }
+        let root = URL(fileURLWithPath: path, isDirectory: true)
+        for (archive, expectedName) in [("README_password=password.rar", "README"), ("STOREPWD.RAR", "SECRET.TXT")] {
+            let reader = try ArchiveReader.open(
+                url: root.appendingPathComponent(archive),
+                options: ReaderOptions(password: "password")
+            )
+            let entry = try XCTUnwrap(reader.entries.first)
+            let expected = try Data(contentsOf: root.appendingPathComponent("expected/\(expectedName)"))
+            XCTAssertEqual(try reader.read(entry), expected, archive)
+        }
+    }
+
+    func testPasswordProviderIsResolvedOnceAndReused() throws {
+        let provider = RAR13TestPasswordProvider()
+        let reader = try ArchiveReader.open(
+            data: TestFixtures.base64("rar13/encrypted.rar"),
+            options: ReaderOptions(passwordProvider: provider)
+        )
+        let phrase = Data("RAR15!\r\n".utf8)
+        for entry in reader.entries {
+            XCTAssertEqual(try reader.read(entry), entry.name == "compressed.txt" ? phrase + phrase : phrase)
+        }
+        XCTAssertEqual(provider.requestCount, 1)
+        XCTAssertEqual(reader.password, "password")
+        let nonASCII = try ArchiveReader.open(
+            data: TestFixtures.base64("rar13/encrypted.rar"),
+            options: ReaderOptions(password: "パスワード")
+        )
+        XCTAssertThrowsError(try nonASCII.read(nonASCII.entries[0])) { error in
             guard case KaitoError.unsupportedMethod = error else {
                 return XCTFail("unexpected error: \(error)")
             }
         }
+    }
+}
+
+private final class RAR13TestPasswordProvider: PasswordProvider, @unchecked Sendable {
+    private let lock = NSLock()
+    private var requests = 0
+
+    var requestCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return requests
+    }
+
+    func password(for format: ArchiveFormat) throws -> String? {
+        lock.lock()
+        requests += 1
+        lock.unlock()
+        XCTAssertEqual(format, .rar)
+        return "password"
     }
 }

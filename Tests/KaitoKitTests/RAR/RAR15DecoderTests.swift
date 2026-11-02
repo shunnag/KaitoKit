@@ -32,6 +32,49 @@ final class RAR15DecoderTests: XCTestCase {
         }
     }
 
+    func testGeneratedSolidMultiVolumeArchiveSupportsForwardAndBackwardReads() throws {
+        let directory = try ZipTestSupport.temporaryDirectory(label: "rar15-solid-volumes")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let firstURL = directory.appendingPathComponent("solid-split.rar")
+        for suffix in ["rar", "r00"] {
+            try TestFixtures.base64("rar15/solid-split.\(suffix)").write(
+                to: directory.appendingPathComponent("solid-split.\(suffix)")
+            )
+        }
+        let opened = try FileByteSource.openAnchored(url: firstURL)
+        let parsed = try RAR4EntryPublisher.parse(
+            source: opened.source, sourceURL: firstURL,
+            sourceDirectoryAnchor: opened.directory, options: ReaderOptions(), signatureOffset: 0,
+            headerKeyCache: RAR3KeyCache(),
+            passwordEncodings: RAR4Reader.PasswordEncodingSelection()
+        )
+        XCTAssertEqual(parsed.records.count, 2)
+        XCTAssertEqual(parsed.records[1].packedSegments.count, 2)
+        XCTAssertFalse(parsed.records[1].isSplit)
+
+        let reader = try ArchiveReader.open(url: firstURL)
+        let expected = Data("RAR15!\r\n".utf8)
+        for index in [0, 1, 1, 0, 1] {
+            XCTAssertEqual(try reader.read(reader.entries[index]), expected, "read \(index)")
+        }
+    }
+
+    func testSplitAfterAtEndOfVolumeRequiresURLButNotAnEndMarker() throws {
+        let split = try TestFixtures.base64("rar15/solid-split.rar")
+        let dataReader = try ArchiveReader.open(data: split)
+        let splitEntry = try XCTUnwrap(dataReader.entries.last)
+        XCTAssertThrowsError(try dataReader.read(splitEntry)) { error in
+            XCTAssertEqual(error as? KaitoError, .unsupportedMethod("multi-volume from Data"))
+        }
+
+        let normal = try TestFixtures.base64("rar15/normal.rar")
+        let withoutEndMarker = try ArchiveReader.open(data: normal.dropLast(7))
+        let phrase = Data("RAR15!\r\n".utf8)
+        for entry in withoutEndMarker.entries {
+            XCTAssertEqual(try withoutEndMarker.read(entry), entry.name == "match.txt" ? phrase + phrase : phrase)
+        }
+    }
+
     func testRAR154NormalArchiveMatchesUnrarOutput() throws {
         let root = try fixtureRoot()
         let reader = try ArchiveReader.open(url: root.appendingPathComponent("readme_154_normal.rar"))

@@ -242,7 +242,7 @@ enum RAR4VolumeParser {
             pendingEntries: pendingEntries,
             records: records,
             mainHeader: mainHeader,
-            requestsNextVolume: false
+            requestsNextVolume: (records.last?.lastFlags ?? 0) & RAR4FileFlag.splitAfter != 0
         )
     }
 

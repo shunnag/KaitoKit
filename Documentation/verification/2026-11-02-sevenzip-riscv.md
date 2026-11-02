@@ -119,4 +119,4 @@ plain / filtered で 818 byte が異なる。
   filter の 256 KiB 内部入力境界をまたぐ。
 - `swift test -j 4`: KaitoKit 2,051 tests / 53 skipped / 0 failures、KaitoKitCompat 34 / 0。
   初回は実行ツールの 15 分上限で途中中断されたため、時間制限なしで全件を再実行して完了した。
-- 最終 CI の結果はマージ前に追記する。
+- CI は [KaitoKit PR #82](https://github.com/shunnag/KaitoKit/pull/82) の checks で確認する。

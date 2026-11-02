@@ -8,7 +8,7 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
-| [2026-11-02-sevenzip-riscv.md](2026-11-02-sevenzip-riscv.md) | 2026-11-02 | 7z RISC-V filter の black-box 導出、JAL / AUIPC 対、全 byte 差分と chunk 境界 | 未コミット |
+| [2026-11-02-sevenzip-riscv.md](2026-11-02-sevenzip-riscv.md) | 2026-11-02 | 7z RISC-V filter の black-box 導出、JAL / AUIPC 対、全 byte 差分と chunk 境界 | PR #82 |
 | [2026-10-26-security-audit.md](2026-10-26-security-audit.md) | 2026-10-26 | 外部 AI の監査報告 34 指摘の独立検証（81 agent）、判定と実リスク、監査自体の誤りの記録 | v0.17.0 |
 | [2026-10-26-audit-extract-fixes.md](2026-10-26-audit-extract-fixes.md) | 2026-10-26 | triage S1〜S7: 展開 metadata・stdin password・bidi 表示・7z / tar の無駄な計算・CI oracle version | v0.17.0 |
 | [2026-10-26-audit-kdf-fixes.md](2026-10-26-audit-kdf-fixes.md) | 2026-10-26 | 7z entry / StuffIt X の reader KDF 予算、鍵 cache の保持上限、StuffIt verifier の定時間比較 | v0.17.0 |

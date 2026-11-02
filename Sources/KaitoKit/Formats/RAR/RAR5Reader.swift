@@ -268,6 +268,7 @@ final class RAR5Reader: FormatReader {
                     compressedSize: record.availablePackedSize ?? record.packedSize,
                     unpackedSize: outputLength,
                     dictionarySize: record.compression.dictionarySize,
+                    compressionVersion: record.compression.version,
                     limits: limits,
                     scratchPool: scratchPool,
                     mismatchIsWrongPassword: prepared.mismatchIsWrongPassword,
@@ -493,6 +494,7 @@ final class RAR5Reader: FormatReader {
                 compressedSize: record.packedSize,
                 unpackedSize: record.unpackedSize,
                 dictionarySize: record.compression.dictionarySize,
+                compressionVersion: record.compression.version,
                 limits: limits,
                 solidState: state,
                 mismatchIsWrongPassword: prepared.mismatchIsWrongPassword,
@@ -644,6 +646,7 @@ final class RAR5Reader: FormatReader {
             compressedSize: record.packedSize,
             unpackedSize: unpackedSize,
             dictionarySize: record.compression.dictionarySize,
+            compressionVersion: record.compression.version,
             limits: limits,
             scratchPool: state == nil ? scratchPool : nil,
             independentState: state,
@@ -758,12 +761,6 @@ final class RAR5Reader: FormatReader {
                 "RAR5 compression method \(record.compression.method)"
             )
         }
-        if record.compression.method != 0,
-           record.compression.version != 0 {
-            throw KaitoError.unsupportedMethod(
-                "RAR compression algorithm version 1"
-            )
-        }
         if let encryption = record.encryption {
             guard encryption.version == 0 else {
                 throw KaitoError.unsupportedMethod(
@@ -816,6 +813,7 @@ final class RAR5Reader: FormatReader {
         compressedSize: UInt64,
         unpackedSize: UInt64?,
         dictionarySize: UInt64,
+        compressionVersion: UInt8,
         limits: ReadLimits,
         solidState: RAR5Decoder.SolidState? = nil,
         scratchPool: RAR5Decoder.ScratchPool? = nil,
@@ -834,7 +832,8 @@ final class RAR5Reader: FormatReader {
                 solidState: solidState,
                 scratchPool: scratchPool,
                 independentState: independentState,
-                decodeThreads: decodeThreads
+                decodeThreads: decodeThreads,
+                compressionVersion: compressionVersion
             )
             guard mismatchIsWrongPassword else { return decoder }
             return RARPasswordAmbiguousDecompressor(

@@ -8,6 +8,7 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-11-02-rar5-version1.md](2026-11-02-rar5-version1.md) | 2026-11-02 | RAR5 compression version 1、80 distance symbols・非2の累乗辞書・5 GiB 実書庫 | cooViewer-c1vj.8 |
 | [2026-11-02-xz-riscv.md](2026-11-02-xz-riscv.md) | 2026-11-02 | XZ RISC-V filter、複数 block・連結 stream・check・圧縮 tar の検証 | cooViewer-zu1v |
 | [2026-11-02-sevenzip-riscv.md](2026-11-02-sevenzip-riscv.md) | 2026-11-02 | 7z RISC-V filter の black-box 導出、JAL / AUIPC 対、全 byte 差分と chunk 境界 | PR #82 |
 | [2026-10-26-security-audit.md](2026-10-26-security-audit.md) | 2026-10-26 | 外部 AI の監査報告 34 指摘の独立検証（81 agent）、判定と実リスク、監査自体の誤りの記録 | v0.17.0 |

@@ -12,6 +12,9 @@
   2 byte 整列、縮小命令を含む入力に対応する。
 - XZ の RISC-V filter（ID `0x0B`）も同じ逆変換で展開できるようにした。複数 block、連結 stream、
   `.tar.xz`、各 check 種別に対応し、Apple Compression 非対応の filter は native の直列経路で復号する。
+- RAR5 compression version 1 を展開できるようにした。80 distance symbols と 4 GiB を超える
+  非2の累乗辞書に対応する。辞書は次の2の累乗へ確保し、実確保量を上限へ計上するため、
+  大きな version 1 書庫には `maxEntrySize` / `maxDictionarySize` の引上げが必要。
 
 ### 修正
 

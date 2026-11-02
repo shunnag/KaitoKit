@@ -1327,23 +1327,12 @@ final class RAR5ReaderTests: XCTestCase {
         }
     }
 
-    func testCompressedVersionOneIsExplicitlyUnsupportedEvenWithLegacyAlgorithmBit() throws {
-        let compressionInfo = UInt64(1) | (UInt64(1) << 7) | (UInt64(1) << 20)
-        let archive = RAR5TestSupport.archive(blocks: [
-            RAR5TestSupport.storedFile(
-                name: "version-one.bin",
-                contents: Data([0]),
-                compressionInfo: compressionInfo
-            ),
-        ])
-        let reader = try ArchiveReader.open(data: archive)
-        let entry = try XCTUnwrap(reader.entries.first)
-        XCTAssertThrowsError(try reader.stream(entry)) { error in
-            XCTAssertEqual(
-                error as? KaitoError,
-                .unsupportedMethod("RAR compression algorithm version 1")
-            )
-        }
+    func testVersionOneDictionaryEncodingIncludesFractionalPart() throws {
+        let rawValue = UInt64(1) | (UInt64(1) << 7) | (UInt64(15) << 10) | (UInt64(8) << 15)
+        let info = try RAR5CompressionInfo(rawValue: rawValue)
+        XCTAssertEqual(info.version, 1)
+        XCTAssertEqual(info.method, 1)
+        XCTAssertEqual(info.dictionarySize, 5 * 1_024 * 1_024 * 1_024)
     }
 
     // MARK: - file copy・hard link・symlink の redirection

@@ -1,5 +1,8 @@
 # WIM / XZ / 旧 GNU sparse tar の補完（2026-09-22）
 
+> 2026-11-02 追記: XZ RISC-V filter は [後日の導出](2026-11-02-xz-riscv.md)で対応した。
+> 以下の明示的な拒否は当時の挙動である。
+
 実装・個別検証は一時 worktree で行い、その変更は `release/0.9.0` に統合済み（`cd2e747`）。当時の作業では main repository は変更せず、git コマンド・install・commit・push は実行していない。
 
 ## 環境と入力

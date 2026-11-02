@@ -6,7 +6,7 @@ import Foundation
 /// decompressing payloads) also covers later blocks and concatenated streams;
 /// trusting only the first block or a claimed Index offset would miss them.
 /// Format input: https://tukaani.org/xz/xz-file-format.txt and LZMA2's public
-/// control-byte layout. Apple Compression still verifies the decoded data.
+/// control-byte layout. 各 decoder が出力と block check を検証する。
 enum XZResourceValidator {
     @discardableResult
     static func validate(source: any ByteSource, dictionaryLimit: UInt64,
@@ -58,7 +58,8 @@ enum XZResourceValidator {
                                           payloadSize: compressedSize, unpaddedSize: unpaddedSize,
                                           outputSize: outputSize, dictionarySize: declared.dictionary,
                                           dictionaryProperty: declared.dictionaryProperty,
-                                          filterCount: declared.filterCount))
+                                          filterCount: declared.filterCount,
+                                          usesRISCVFilter: declared.usesRISCVFilter))
             }
             let records = try variableInteger(&reader)
             guard records == blocks else { throw KaitoError.malformed("XZ Index block count mismatch") }
@@ -101,7 +102,8 @@ enum XZResourceValidator {
     }
 
     private static func validateBlockHeader(_ header: Data, dictionaryLimit: UInt64) throws
-        -> (compressed: UInt64?, uncompressed: UInt64?, dictionary: UInt64, dictionaryProperty: UInt8, filterCount: Int) {
+        -> (compressed: UInt64?, uncompressed: UInt64?, dictionary: UInt64, dictionaryProperty: UInt8,
+            filterCount: Int, usesRISCVFilter: Bool) {
         let size = header.count
         guard CRC32.checksum(Data(header.prefix(size - 4))) == littleEndian(header, at: size - 4) else {
             throw KaitoError.malformed("XZ block header checksum mismatch")
@@ -115,6 +117,7 @@ enum XZResourceValidator {
         let count = Int(flags & 3) + 1
         var dictionary: UInt64 = 0
         var dictionaryProperty: UInt8 = 0
+        var usesRISCVFilter = false
         for index in 0..<count {
             let id = try variableInteger(&reader)
             let propertiesSize = try variableInteger(&reader)
@@ -127,8 +130,12 @@ enum XZResourceValidator {
                 dictionary = try LZMA2Decoder.dictionarySize(for: dictionaryProperty)
                 try Checked.size(dictionary, limit: dictionaryLimit)
             } else {
-                // RISC-V は native decoder に渡す前に名前付きで拒否する。
-                if id == 0x0B { throw KaitoError.unsupportedMethod("XZ RISC-V filter") }
+                if id == 0x0B {
+                    guard propertiesSize == 0 else {
+                        throw KaitoError.malformed("XZ RISC-V filter has properties")
+                    }
+                    usesRISCVFilter = true
+                }
                 // 他の未知 filter の判定は native decoder に任せる。
                 guard id != 0x21, id < (UInt64(1) << 62) else {
                     throw KaitoError.malformed("invalid XZ filter chain")
@@ -137,7 +144,7 @@ enum XZResourceValidator {
             }
         }
         try zeros(&reader, count: reader.remaining)
-        return (compressed, uncompressed, dictionary, dictionaryProperty, count)
+        return (compressed, uncompressed, dictionary, dictionaryProperty, count, usesRISCVFilter)
     }
 
     /// Reads only chunk controls and sizes. No archive-sized allocation is made.

@@ -124,15 +124,14 @@ final class ParallelXZDecompressorTests: XCTestCase {
 
     func testExistingFilterFixturesMatchSerial() throws {
         _ = try ParallelXZTestSupport.compare(TestFixtures.base64("singlefile/x86.xz"))
-        for name in ["riscv.xz", "riscv.tar.xz"] {
-            let source = DataByteSource(try TestFixtures.base64("singlefile/\(name)"))
-            XCTAssertThrowsError(try ParallelXZDecompressor(source: source, limits: ReadLimits())) {
-                XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("XZ RISC-V filter"))
-            }
-            XCTAssertThrowsError(try XZDecompressor(source: source, limits: ReadLimits())) {
-                XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("XZ RISC-V filter"))
-            }
-        }
+        let expected = Data(String(repeating: "KaitoKit XZ filter fixture\n", count: 64).utf8) + Data(0...255)
+        XCTAssertEqual(
+            try ParallelXZTestSupport.compare(TestFixtures.base64("singlefile/riscv.xz")),
+            expected
+        )
+        let tar = try TestFixtures.base64("singlefile/riscv.tar.xz")
+        XCTAssertEqual(try ParallelXZTestSupport.compare(tar).count, 10_240)
+        try compareMap(tar)
     }
 
     func testMultiBlockBCJAndDeltaFiltersMatchSerial() throws {
@@ -141,6 +140,40 @@ final class ParallelXZDecompressorTests: XCTestCase {
         for filters in [["--x86", "--lzma2=preset=1"], ["--delta=dist=4", "--lzma2=preset=1"]] {
             XCTAssertEqual(try ParallelXZTestSupport.compare(ParallelXZTestSupport.compress(body, filters: filters)), body)
         }
+    }
+
+    func testMultiBlockRISCVFilterMatchesOriginalWithoutAppleFallback() throws {
+        try ParallelXZTestSupport.requireXZ()
+        let unit = try TestFixtures.base64("sevenzip/riscv-vector-plain.bin")
+        let body = Data((0..<100).flatMap { _ in [UInt8](unit) })
+        let bytes = try ParallelXZTestSupport.compress(
+            body, threads: 1, blockSize: 65_536,
+            filters: ["--riscv", "--lzma2=preset=1"]
+        )
+        let layout = try ParallelXZTestSupport.layout(bytes)
+        let stream = try XCTUnwrap(layout.streams.first)
+        XCTAssertGreaterThan(stream.blocks.count, 1)
+        XCTAssertTrue(stream.blocks.allSatisfy { $0.usesRISCVFilter })
+
+        let diagnostics = ParallelXZDecompressor.Diagnostics()
+        let decoder = try ParallelXZDecompressor(
+            source: DataByteSource(bytes), limits: ReadLimits(), workers: 8,
+            targetJobOutput: 65_536, diagnostics: diagnostics
+        )
+        XCTAssertEqual(try drain(decoder, bufferSize: 131_071), body)
+        XCTAssertTrue(diagnostics.fellBackToSerial)
+        XCTAssertEqual(diagnostics.peakWorkers, 0)
+        XCTAssertEqual(diagnostics.compressionReplays, 0)
+
+        var damaged = bytes
+        damaged[Int(stream.blocks[0].compressedRange.upperBound - stream.checkSize)] ^= 1
+        let damagedDiagnostics = ParallelXZDecompressor.Diagnostics()
+        let damagedDecoder = try ParallelXZDecompressor(
+            source: DataByteSource(damaged), limits: ReadLimits(),
+            diagnostics: damagedDiagnostics
+        )
+        XCTAssertThrowsError(try drain(damagedDecoder, bufferSize: 131_071))
+        XCTAssertEqual(damagedDiagnostics.compressionReplays, 0)
     }
 
     func testTruncationAtBlockBoundaryAndWithinBlockMatchesSerial() throws {

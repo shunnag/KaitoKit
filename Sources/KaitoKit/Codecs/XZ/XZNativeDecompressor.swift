@@ -51,6 +51,7 @@ enum XZBlockCheck {
 /// `holdback` byte しか返さないので、再生経路が失敗する read の開始位置は、こちらが
 /// 失敗を見つけた位置から `holdback` 以上手前にはならない。こちらの検出位置が Compression
 /// 経路より遅くならないこと（同じ復号規則の違反を同じ symbol か、それより前で検出する）が前提。
+/// RISC-V を含む入力は Compression が処理できないため、再生せず native の error を返す。
 ///
 /// 失敗は latch する。read が throw した後は同じエラーを投げ続ける。
 final class XZNativeDecompressor: Decompressor {
@@ -68,7 +69,7 @@ final class XZNativeDecompressor: Decompressor {
 
     private var streamIndex = 0
     private var blockIndex = 0
-    private var block: LZMA2Decoder?
+    private var block: (any Decompressor)?
     private var check = XZBlockCheck.none
     private var ring: UnsafeMutableRawBufferPointer?
     private var decoded: UInt64 = 0
@@ -82,11 +83,13 @@ final class XZNativeDecompressor: Decompressor {
     private var replayFinished = false
     private var terminalError: (any Error)?
 
-    /// 全 block が LZMA2 だけの filter chain で、check 種別が既知の stream だけを native で復号する。
-    /// 前置 filter と予約 check は Compression 経路に任せる。
+    /// LZMA2 だけ、または RISC-V + LZMA2 の chain と、既知の check 種別だけを native で復号する。
+    /// RISC-V を含む連結 stream では、他の単一前置 filter も block ごとに Compression で処理する。
     static func isEligible(_ layout: XZStreamLayout) -> Bool {
         layout.streams.allSatisfy { stream in
-            XZBlockCheck(type: stream.checkType) != nil && stream.blocks.allSatisfy { $0.filterCount == 1 }
+            XZBlockCheck(type: stream.checkType) != nil && stream.blocks.allSatisfy {
+                $0.filterCount == 1 || ($0.filterCount == 2 && layout.hasRISCVFilter)
+            }
         }
     }
 
@@ -126,7 +129,9 @@ final class XZNativeDecompressor: Decompressor {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                // 自分の decoder の失敗は、Compression 経路の結果に置き換える。
+                // RISC-V を Compression で再生することはできない。
+                if layout.hasRISCVFilter { throw error }
+                // 他の入力では、自分の decoder の失敗を Compression 経路の結果に置き換える。
                 try beginReplay()
                 return try serveReplay(into: buffer)
             }
@@ -195,7 +200,7 @@ final class XZNativeDecompressor: Decompressor {
                 throw KaitoError.unsupportedMethod("XZ check type \(stream.checkType)")
             }
             self.check = check
-            block = try Self.makeBlockDecoder(next, source: source, limits: limits)
+            block = try Self.makeBlockDecoder(next, stream: stream, source: source, limits: limits)
             return
         }
     }
@@ -282,9 +287,15 @@ final class XZNativeDecompressor: Decompressor {
 
     // MARK: - block 単位の補助（並列 job も使う）
 
-    static func makeBlockDecoder(_ block: XZStreamLayout.Block, source: any ByteSource,
-                                 limits: ReadLimits) throws -> LZMA2Decoder {
-        try LZMA2Decoder(
+    static func makeBlockDecoder(_ block: XZStreamLayout.Block, stream: XZStreamLayout.Stream,
+                                 source: any ByteSource, limits: ReadLimits) throws -> any Decompressor {
+        if block.filterCount > 1, !block.usesRISCVFilter {
+            let synthetic = try XZSyntheticStream.make(
+                source: source, stream: stream, blocks: [block][...]
+            )
+            return try XZDecompressor(source: synthetic, limits: limits)
+        }
+        let decoder = try LZMA2Decoder(
             source: source,
             offset: block.payloadOffset,
             compressedSize: block.payloadSize,
@@ -292,6 +303,12 @@ final class XZNativeDecompressor: Decompressor {
             expectedSize: block.outputSize,
             dictionarySizeLimit: limits.maxDictionarySize
         )
+        if block.usesRISCVFilter {
+            return try BCJFilterDecompressor(
+                input: decoder, filter: .riscv, expectedSize: block.outputSize
+            )
+        }
+        return decoder
     }
 
     static func verifyCheck(_ check: XZBlockCheck, block: XZStreamLayout.Block,
@@ -343,7 +360,7 @@ final class XZNativeDecompressor: Decompressor {
             guard var check = XZBlockCheck(type: stream.checkType) else {
                 throw KaitoError.unsupportedMethod("XZ check type \(stream.checkType)")
             }
-            let decoder = try makeBlockDecoder(block, source: source, limits: limits)
+            let decoder = try makeBlockDecoder(block, stream: stream, source: source, limits: limits)
             while !decoder.isFinished {
                 if isAbandoned() { throw CancellationError() }
                 guard total < destination.count else {

@@ -4,7 +4,7 @@ import Foundation
 // Implementation input: the public XZ container description and Apple's
 // Compression framework streaming API. COMPRESSION_LZMA decodes XZ streams.
 
-/// A streaming XZ decoder backed by Apple Compression.
+/// Apple Compression による streaming XZ decoder。RISC-V は native decoder に委譲する。
 final class XZDecompressor: Decompressor {
     /// 入力の補充単位と、一回の read で返す出力の上限。`XZNativeDecompressor.holdback` はこの値に合わせる。
     static let chunkSize = 256 * 1_024
@@ -21,6 +21,7 @@ final class XZDecompressor: Decompressor {
     private var streamWasInitialized = false
     private var finished = false
     private let recorder: CompressedTarMapRecorder?
+    private var nativeRISCV: XZNativeDecompressor?
 
     init(source: any ByteSource, offset: UInt64 = 0, compressedSize: UInt64? = nil,
          limits: ReadLimits, recorder: CompressedTarMapRecorder? = nil) throws {
@@ -37,7 +38,18 @@ final class XZDecompressor: Decompressor {
             source: source, offset: offset, endOffset: end, chunkSize: Self.chunkSize
         )
         let window = try BoundedByteSource(source: source, baseOffset: offset, length: size)
-        try XZResourceValidator.validate(source: window, dictionaryLimit: limits.maxDictionarySize, recorder: recorder)
+        let layout = try XZResourceValidator.validate(
+            source: window, dictionaryLimit: limits.maxDictionarySize, recorder: recorder
+        )
+        if layout.hasRISCVFilter {
+            guard XZNativeDecompressor.isEligible(layout) else {
+                throw KaitoError.unsupportedMethod("XZ RISC-V filter chain")
+            }
+            nativeRISCV = XZNativeDecompressor(
+                source: window, layout: layout, limits: limits, recorder: recorder
+            )
+            return
+        }
         try initializeStream()
     }
 
@@ -47,9 +59,10 @@ final class XZDecompressor: Decompressor {
         }
     }
 
-    var isFinished: Bool { finished }
+    var isFinished: Bool { nativeRISCV?.isFinished ?? finished }
 
     func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+        if let nativeRISCV { return try nativeRISCV.read(into: buffer) }
         guard !buffer.isEmpty, !finished else { return 0 }
         let outputCapacity = min(buffer.count, Self.chunkSize)
         var totalProduced = 0

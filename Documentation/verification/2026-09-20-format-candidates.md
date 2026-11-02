@@ -1,7 +1,7 @@
 # 追加できる形式の候補調査（2026-09-20、v0.7.0 時点）
 
-> 2026-11-02 追記: 7z RISC-V filter は [後日の導出](2026-11-02-sevenzip-riscv.md)で対応した。
-> XZ の RISC-V filter は別課題として残る。
+> 2026-11-02 追記: 7z / XZ の RISC-V filter は後日の導出（[7z](2026-11-02-sevenzip-riscv.md)、
+> [XZ](2026-11-02-xz-riscv.md)）で対応した。
 
 環境: macOS 27.2 / Apple Silicon / 7-Zip 26.03 / libarchive 3.7.4（`/usr/bin/bsdtar`）と
 Homebrew libarchive 3.8.9（keg-only、`/opt/homebrew/opt/libarchive/bin/bsdtar`）。

@@ -2,6 +2,10 @@
 struct XZStreamLayout: Sendable {
     let streams: [Stream]
 
+    var hasRISCVFilter: Bool {
+        streams.contains { stream in stream.blocks.contains { $0.usesRISCVFilter } }
+    }
+
     struct Stream: Sendable {
         let headerRange: Range<UInt64>
         let flags: UInt16
@@ -25,6 +29,7 @@ struct XZStreamLayout: Sendable {
         let dictionaryProperty: UInt8
         /// filter chain の長さ。1 なら LZMA2 だけで、前置 filter（BCJ・Delta）がない。
         let filterCount: Int
+        let usesRISCVFilter: Bool
 
         /// LZMA2 payload（先頭 control byte から end control まで）の絶対 offset。
         var payloadOffset: UInt64 { compressedRange.lowerBound + headerSize }

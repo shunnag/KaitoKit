@@ -3,24 +3,21 @@ import XCTest
 @testable import KaitoKit
 
 final class XZResourceLimitTests: XCTestCase {
-    func testRiscVXZAndTarXZReportUnsupportedMethod() throws {
+    func testRiscVXZAndTarXZDecode() throws {
         let directory = try TarTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let expected = Data(String(repeating: "KaitoKit XZ filter fixture\n", count: 64).utf8) + Data(0...255)
         for name in ["riscv.xz", "riscv.tar.xz"] {
             let data = try fixture(name)
             let url = directory.appendingPathComponent(name)
             try data.write(to: url)
-            XCTAssertThrowsError(try {
-                let reader = try ArchiveReader.open(url: url)
-                _ = try reader.read(reader.entries[0])
-            }()) {
-                XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("XZ RISC-V filter"), name)
-            }
+            let reader = try ArchiveReader.open(url: url)
+            XCTAssertEqual(try reader.read(reader.entries[0]), expected, name)
         }
-        // 連結 stream の後半も native decoder より先に検査する。
-        XCTAssertThrowsError(try read(fixture("x86.xz") + fixture("riscv.xz"), dictionary: 1 << 20)) {
-            XCTAssertEqual($0 as? KaitoError, .unsupportedMethod("XZ RISC-V filter"))
-        }
+        XCTAssertEqual(
+            try read(fixture("x86.xz") + fixture("riscv.xz"), dictionary: 1 << 20),
+            expected + expected
+        )
     }
 
     func testX86XZFilterStillDecodes() throws {

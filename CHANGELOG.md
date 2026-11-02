@@ -9,7 +9,9 @@
 ### 追加
 
 - 7z の RISC-V branch filter（method `0x0B`）を展開できるようにした。JAL、AUIPC と後続命令の対、
-  2 byte 整列、縮小命令を含む入力に対応する。XZ の RISC-V filter は引き続き未対応。
+  2 byte 整列、縮小命令を含む入力に対応する。
+- XZ の RISC-V filter（ID `0x0B`）も同じ逆変換で展開できるようにした。複数 block、連結 stream、
+  `.tar.xz`、各 check 種別に対応し、Apple Compression 非対応の filter は native の直列経路で復号する。
 
 ### 修正
 

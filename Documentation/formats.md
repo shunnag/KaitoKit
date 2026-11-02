@@ -34,6 +34,7 @@
 | 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz` / `.tbz2` / `.tar.bz2`、`.tar.lzma` / `.tlz`、`.txz` / `.tar.xz`、`.tar.zst` / `.tzst`、`.tar.lz4`、`.tar.lz`（`.tlz` は署名で LZMA_Alone / lzip を判別）、`.tar.br` / `.tbr`、`.taz` / `.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
 | ZIP / ZIP64 | stored (0)、Shrink (1、連続する部分クリア後も未使用 code を再利用)、Reduce (2〜5)、Implode (6)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、Zstandard (20/93)、XZ (95)、PPMd (98)、中央 directory、SFX。Finder / ditto の `__MACOSX/._name` AppleDouble sidecar は既定で resource fork に統合（`ReaderOptions.appleDoublePolicy`） | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001` のバイト分割、`.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP（ZIP64・100 巻以上）対応。最終巻・途中巻から URL open |
 | 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、Deflate64、BZip2、Zstandard（7-Zip ZS / NanaZip / libarchive の coder 04F71101）、Delta、Swap2/Swap4、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64/RISC-V)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
+| RAR 1.3 / 1.4 | `RE~^` container、stored、Unpack15（raw UnpVer 2）の adaptive Huffman + LZ77、main / file flag の solid、16-bit rolling checksum、archive comment | 旧暗号は非対応 | 分割・SFX・file comment は非対応 |
 | RAR4 | stored、unpack version 15 の adaptive Huffman + LZ77、20/26 の LZ・音声、29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption（version 15 の旧暗号は非対応） | URL-backed old `.r00` / new `.partN.rar`（solid 内の分割 member は非対応） |
 | RAR5 | stored、compression version 0 / 1 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX、file copy（`rar -oi` の参照。同一内容の先行 entry の本文を返す `.file`） | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
 | LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
@@ -163,6 +164,9 @@
 >   another coder as its input; Deflate64 (040109), the Zstandard coder 04F71101 written by 7-Zip ZS / NanaZip / libarchive,
 >   the RISC-V branch filter (0x0B), Swap2/Swap4 byte-order filters, solid folders and a bounded Mach-O/PE SFX prefix are supported.
 >   `.001` byte splits made with 7-Zip `-v`, solid and block splits are supported.
+> - **RAR 1.3 / 1.4**: the `RE~^` container, stored and Unpack15-compressed members, solid groups,
+>   archive comments and 16-bit rolling checksums are supported. Legacy encryption, split volumes,
+>   SFX stubs and per-file comments are unsupported.
 > - **RAR4 / RAR5**: LZ and PPMd of the listed unpack versions, the listed filters, solid mode, and
 >   a bounded SFX prefix. Multi-volume works from URL-backed input, including encrypted volumes for
 >   RAR5. RAR5 file copies (`rar -oi` references) are exposed as `.file` entries that return the

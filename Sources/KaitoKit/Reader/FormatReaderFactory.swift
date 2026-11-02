@@ -94,7 +94,9 @@ enum FormatReaderFactory {
                 ? nil
                 : (sourceVolumeURL ?? sourceURL)
             if try RAR13Reader.hasSignature(source: source) {
-                reader = try RAR13Reader(source: source, options: options)
+                let rar = try RAR13Reader(source: source, options: options)
+                reader = rar
+                password = rar.resolvedPassword
             } else {
                 guard let signature = try RARSignatureScanner.find(source: source) else {
                     throw KaitoError.unsupportedFormat

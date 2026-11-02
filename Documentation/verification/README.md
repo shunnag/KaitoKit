@@ -8,6 +8,7 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-11-03-rar13-volumes.md](2026-11-03-rar13-volumes.md) | 2026-11-03 | RAR 1.3 / 1.4 old multi-volume、stored・非 solid 圧縮・最終 checksum | cooViewer-c1vj.13 |
 | [2026-11-03-rar13-sfx.md](2026-11-03-rar13-sfx.md) | 2026-11-03 | RAR 1.3 / 1.4 SFX、RSFX・MZ 画像サイズ・Data opt-in | cooViewer-c1vj.14 |
 | [2026-11-03-rar13-crypto.md](2026-11-03-rar13-crypto.md) | 2026-11-03 | RAR 1.3 / 1.4 の旧暗号・暗号化 solid・packed / stored comment | cooViewer-c1vj.12 |
 | [2026-11-03-rar13-unpack.md](2026-11-03-rar13-unpack.md) | 2026-11-03 | RAR 1.3 / 1.4、RE~^ container・16-bit rolling checksum・solid・RAR 1.402 実書庫 | cooViewer-c1vj.11 |

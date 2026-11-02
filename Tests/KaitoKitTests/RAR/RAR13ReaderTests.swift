@@ -91,17 +91,85 @@ final class RAR13ReaderTests: XCTestCase {
         XCTAssertEqual(try reader.read(entry), Data("RAR15!\r\n".utf8))
     }
 
-    func testSplitEntriesAreExplicitlyUnsupported() throws {
-        for flag in [UInt8(0x01), 0x02] {
-            var data = try TestFixtures.base64("rar13/normal.rar")
-            data[7 + 17] |= flag
-            let reader = try ArchiveReader.open(data: data)
-            XCTAssertThrowsError(try reader.read(reader.entries[0]), "flag \(flag)") { error in
-                guard case KaitoError.unsupportedMethod = error else {
-                    return XCTFail("unexpected error: \(error)")
-                }
+    func testOldMultiVolumeEntriesMatchUnrarOutput() throws {
+        for prefix in ["split", "stored-split"] {
+            let directory = try writeVolumes(prefix)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let reader = try ArchiveReader.open(url: directory.appendingPathComponent("\(prefix).rar"))
+            let phrase = Data("RAR15!\r\n".utf8)
+            for entry in reader.entries {
+                let expected = entry.name == "compressed.txt" ? phrase + phrase : phrase
+                XCTAssertEqual(try reader.read(entry), expected, "\(prefix):\(entry.name)")
+            }
+            if prefix == "split" {
+                XCTAssertEqual(reader.entries[1].formatSpecific["multiVolume"], "true")
+                XCTAssertEqual(reader.entries[1].formatSpecific["volumeSegmentCount"], "2")
             }
         }
+    }
+
+    func testMissingAndMismatchedContinuationVolumesAreRejected() throws {
+        let missing = try writeVolumes("split")
+        defer { try? FileManager.default.removeItem(at: missing) }
+        try FileManager.default.removeItem(at: missing.appendingPathComponent("split.r00"))
+        XCTAssertThrowsError(try ArchiveReader.open(url: missing.appendingPathComponent("split.rar"))) { error in
+            XCTAssertEqual(error as? KaitoError, .truncated)
+        }
+
+        let mismatched = try writeVolumes("split")
+        defer { try? FileManager.default.removeItem(at: mismatched) }
+        try TestFixtures.base64("rar13/stored-split.r00").write(to: mismatched.appendingPathComponent("split.r00"))
+        XCTAssertThrowsError(try ArchiveReader.open(url: mismatched.appendingPathComponent("split.rar"))) { error in
+            guard case KaitoError.malformed = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+
+        let limited = try writeVolumes("split")
+        defer { try? FileManager.default.removeItem(at: limited) }
+        XCTAssertThrowsError(try ArchiveReader.open(
+            url: limited.appendingPathComponent("split.rar"),
+            options: ReaderOptions(limits: ReadLimits(maxVolumeCount: 1))
+        )) { error in
+            XCTAssertEqual(error as? KaitoError, .limitExceeded("RAR1.3 volume count"))
+        }
+        XCTAssertThrowsError(try ArchiveReader.open(
+            url: limited.appendingPathComponent("split.rar"),
+            options: ReaderOptions(limits: ReadLimits(maxVolumeCount: 0))
+        )) { error in
+            XCTAssertEqual(error as? KaitoError, .limitExceeded("RAR1.3 volume count"))
+        }
+    }
+
+    func testRAR1402MultiVolumeEntriesMatchUnrarOutput() throws {
+        guard let path = ProcessInfo.processInfo.environment["KAITOKIT_RAR13_FIXTURES"] else {
+            throw XCTSkip("set KAITOKIT_RAR13_FIXTURES")
+        }
+        let root = URL(fileURLWithPath: path, isDirectory: true)
+        for (archive, expectedName, segments) in [("CMULTIV.RAR", "CMULTI.TXT", "8"), ("MULTIVOL.RAR", "RANDOM.BIN", "4")] {
+            let reader = try ArchiveReader.open(url: root.appendingPathComponent(archive))
+            let entry = try XCTUnwrap(reader.entries.first)
+            XCTAssertEqual(entry.formatSpecific["volumeSegmentCount"], segments)
+            let expected = try Data(contentsOf: root.appendingPathComponent("expected/\(expectedName)"))
+            XCTAssertEqual(try reader.read(entry), expected, archive)
+        }
+    }
+
+    func testSplitEntriesFromDataAreExplicitlyUnsupported() throws {
+        let data = try TestFixtures.base64("rar13/split.rar")
+        XCTAssertThrowsError(try ArchiveReader.open(data: data)) { error in
+            XCTAssertEqual(error as? KaitoError, .unsupportedMethod("multi-volume from Data"))
+        }
+    }
+
+    private func writeVolumes(_ prefix: String) throws -> URL {
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "rar13-volumes")
+        for suffix in ["rar", "r00"] {
+            try TestFixtures.base64("rar13/\(prefix).\(suffix)").write(
+                to: directory.appendingPathComponent("\(prefix).\(suffix)")
+            )
+        }
+        return directory
     }
 
     func testTruncatedHeaderPayloadAndTrailingDataAreRejected() throws {

@@ -7,7 +7,11 @@ UNRAR 7.23 の `t` と `x` により、全ファイルの CRC と展開後の全
 ```sh
 python3 Scripts/fixtures/make-rar13.py --unrar /opt/homebrew/bin/unrar
 python3 Scripts/fixtures/make-rar13-crypto.py --unrar /opt/homebrew/bin/unrar
+python3 Scripts/fixtures/make-rar13-volumes.py --unrar /opt/homebrew/bin/unrar
 ```
+
+`make-rar13-volumes.py` は通常書庫を 2 巻に分け、UNRAR でも連結展開を照合します。
+`split.rar` / `.r00` は stored + 圧縮、`stored-split.rar` / `.r00` は stored の 2 巻です。
 
 暗号・comment の fixture は `make-rar13-crypto.py` が生成し、UNRAR の password 展開と
 `unrar v` の comment 表示も照合します。password は `password` です。
@@ -34,6 +38,10 @@ archive SHA-256:
 - `encrypted.rar`: `a3fdc9e65d646c444dbebf42d821c027ff5413f59f235f0f11095b6fc39662ab`
 - `solid-encrypted.rar`: `ab1aec0527dcf8feaf050642f7f592fda8cee44d0898a822cf22bd0ad93b8950`
 - `comments.rar`: `bf198b41ff9ccbb3c0fb001af2d3039cd248f1b012ef847fb884a35a15035ebd`
+- `split.rar`: `e8dd6776a52bad1d539a51f82706d111752fb3d03d9538820add1d5e2b5c8daf`
+- `split.r00`: `ddb960e89bb242b9d2ed36aea9db5e42a5df10252496beefc4640dc2598c88cb`
+- `stored-split.rar`: `62a7f69a3918d80a34feda96d43738d7ec3bca0eca5e6a3010046330087ee46c`
+- `stored-split.r00`: `5f55567d2c08caf881eda61b0e04505210434ff73aef15e5acee7aff52237f7c`
 
 RAR 1.402 の大きい実書庫は `inbox/rar13` に置き、`KAITOKIT_RAR13_FIXTURES` で渡す
 非配布の比較対象です。これらの fixture には含めていません。

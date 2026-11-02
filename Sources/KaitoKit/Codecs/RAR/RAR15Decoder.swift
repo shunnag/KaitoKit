@@ -92,7 +92,7 @@ final class RAR15Decoder: Decompressor {
         limits: ReadLimits,
         solidState suppliedSolidState: SolidState? = nil
     ) throws {
-        guard unpackVersion == 15 else {
+        guard unpackVersion == 15 || unpackVersion == 13 else {
             throw KaitoError.unsupportedMethod("RAR4 unpack version \(unpackVersion)")
         }
         guard (0x31...0x35).contains(method) else {

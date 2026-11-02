@@ -14,10 +14,10 @@ import Foundation
 
 /// Reader for the RAR 1.5-4.x container (normally called "RAR4").
 ///
-/// Implements the RAR 2.9/3.x (unpack version 29) container and data paths:
-/// stored and LZ/PPMd-H streams, native standard filters, solid groups, SFX,
-/// old/new multi-volume sets, and data/header encryption. Older compressed
-/// unpack versions and custom RAR VM programs fail explicitly.
+/// Implements RAR 2.0/2.5 (unpack versions 20/26) LZ and audio streams, plus
+/// RAR 2.9/3.x (version 29) LZ/PPMd-H streams, native standard filters, solid
+/// groups, SFX, old/new multi-volume sets, and data/header encryption. Version
+/// 15 and custom RAR VM programs fail explicitly.
 final class RAR4Reader: FormatReader {
     static let signature: [UInt8] = [
         0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00,
@@ -36,6 +36,7 @@ final class RAR4Reader: FormatReader {
     private let keyCache: RAR3KeyCache
     private var password: String?
     private var solidCoordinators: [Int: RARSolidCoordinator<RAR29Decoder.SolidState>] = [:]
+    private var solid20Coordinators: [Int: RARSolidCoordinator<RAR20Decoder.SolidState>] = [:]
     private var activeSolidGroup: Int?
     /// Which RAR3 password encoding the writer used, once a CRC has decided it.
     final class PasswordEncodingSelection {
@@ -150,7 +151,11 @@ final class RAR4Reader: FormatReader {
         for coordinator in solidCoordinators.values {
             coordinator.invalidateAndRelease()
         }
+        for coordinator in solid20Coordinators.values {
+            coordinator.invalidateAndRelease()
+        }
         solidCoordinators.removeAll(keepingCapacity: false)
+        solid20Coordinators.removeAll(keepingCapacity: false)
         activeSolidGroup = nil
     }
 
@@ -265,6 +270,10 @@ final class RAR4Reader: FormatReader {
         group: Int,
         limits: ReadLimits
     ) throws -> EntryStream {
+        if let indices = solidGroupMembers[group], let first = indices.first,
+           records[first].unpackVersion == 20 || records[first].unpackVersion == 26 {
+            return try streamSolid20Entry(entry, group: group, limits: limits)
+        }
         if let activeSolidGroup, activeSolidGroup != group {
             solidCoordinators[activeSolidGroup]?.invalidateAndRelease()
         }
@@ -357,6 +366,110 @@ final class RAR4Reader: FormatReader {
             entryIndex: entry.index,
             limits: limits
         )
+    }
+
+    private func streamSolid20Entry(
+        _ entry: ArchiveEntry,
+        group: Int,
+        limits: ReadLimits
+    ) throws -> EntryStream {
+        if let activeSolidGroup, activeSolidGroup != group {
+            solidCoordinators[activeSolidGroup]?.invalidateAndRelease()
+            solid20Coordinators[activeSolidGroup]?.invalidateAndRelease()
+        }
+        activeSolidGroup = group
+
+        let coordinator: RARSolidCoordinator<RAR20Decoder.SolidState>
+        if let existing = solid20Coordinators[group] {
+            coordinator = existing
+        } else {
+            guard let groupIndices = solidGroupMembers[group],
+                  !groupIndices.isEmpty,
+                  groupIndices.first == group,
+                  groupIndices.contains(entry.index) else {
+                throw KaitoError.malformed("RAR4 solid group membership is inconsistent")
+            }
+            let dictionarySize = records[groupIndices[0]].dictionarySize
+            for index in groupIndices {
+                let member = records[index]
+                guard RAR4Method.compressed.contains(member.method) else {
+                    throw KaitoError.unsupportedMethod("RAR4 solid group containing a stored entry")
+                }
+                guard member.unpackVersion == 20 || member.unpackVersion == 26 else {
+                    throw KaitoError.unsupportedMethod("RAR4 solid unpack version \(member.unpackVersion)")
+                }
+                guard !member.isSplit else {
+                    if sourceURL == nil { throw KaitoError.unsupportedMethod("multi-volume from Data") }
+                    throw KaitoError.truncated
+                }
+            }
+            let capturedEntries = entries
+            let capturedRecords = records
+            let capturedPassword = password
+            let capturedKeyCache = keyCache
+            let capturedEncodings = passwordEncodings
+            coordinator = RARSolidCoordinator<RAR20Decoder.SolidState>(
+                formatLabel: "RAR4",
+                entryIndices: groupIndices,
+                dictionarySize: dictionarySize,
+                limits: limits
+            ) { index, state in
+                guard capturedEntries.indices.contains(index), capturedRecords.indices.contains(index) else {
+                    throw KaitoError.malformed("RAR4 solid coordinator references an invalid entry")
+                }
+                return try Self.makeSolidVerifiedStream20(
+                    entry: capturedEntries[index], record: capturedRecords[index], limits: limits, state: state,
+                    password: capturedPassword, keyCache: capturedKeyCache,
+                    unixScalars: capturedEncodings.unixScalars ?? false
+                )
+            }
+            solid20Coordinators[group] = coordinator
+        }
+        let range = try coordinator.stream(entryIndex: entry.index, unpackedSize: records[entry.index].unpackedSize)
+        return try EntryStream(
+            decompressor: range, length: records[entry.index].unpackedSize,
+            expectedCRC32: nil, entryIndex: entry.index, limits: limits
+        )
+    }
+
+    private static func makeSolidVerifiedStream20(
+        entry: ArchiveEntry,
+        record: RAR4EntryRecord,
+        limits: ReadLimits,
+        state: RAR20Decoder.SolidState,
+        password: String?,
+        keyCache: RAR3KeyCache,
+        unixScalars: Bool
+    ) throws -> EntryStream {
+        guard RAR4Method.compressed.contains(record.method),
+              record.unpackVersion == 20 || record.unpackVersion == 26 else {
+            throw KaitoError.unsupportedMethod("RAR4 unsupported solid stream member")
+        }
+        let payload = try preparePayload(
+            record, entryIndex: entry.index, limits: limits,
+            password: password, keyCache: keyCache, unixScalars: unixScalars
+        )
+        do {
+            let decoder = try RAR20Decoder(
+                source: payload.source, offset: payload.offset,
+                compressedSize: record.packedSize, expectedSize: record.unpackedSize,
+                unpackVersion: record.unpackVersion, method: record.method,
+                dictionarySize: record.dictionarySize,
+                isSolid: record.firstFlags & RAR4FileFlag.solid != 0,
+                limits: limits, solidState: state
+            )
+            let protected: any Decompressor = record.isEncrypted
+                ? RARPasswordAmbiguousDecompressor(base: decoder, expectedSize: record.unpackedSize)
+                : decoder
+            return try EntryStream(
+                decompressor: protected, length: record.unpackedSize,
+                expectedCRC32: record.crc32, entryIndex: entry.index, limits: limits,
+                checksumMismatchIsWrongPassword: record.isEncrypted
+            )
+        } catch {
+            guard record.isEncrypted else { throw error }
+            try RARPasswordAmbiguousDecompressor.rethrowNormalized(error)
+        }
     }
 
     /// CRC verification is streamed through a small scratch buffer. Failed
@@ -652,19 +765,37 @@ final class RAR4Reader: FormatReader {
         allowsPPMd: Bool = true
     ) throws -> any Decompressor {
         do {
-            let decoder = try RAR29Decoder(
-                source: source,
-                offset: offset,
-                compressedSize: compressedSize,
-                expectedSize: uncompressedSize,
-                unpackVersion: unpackVersion,
-                method: method,
-                dictionarySize: dictionarySize,
-                isSolid: isSolid,
-                limits: limits,
-                solidState: solidState,
-                allowsPPMd: allowsPPMd
-            )
+            let decoder: any Decompressor
+            if unpackVersion == 20 || unpackVersion == 26 {
+                guard solidState == nil else {
+                    throw KaitoError.unsupportedMethod("RAR4 solid unpack version \(unpackVersion)")
+                }
+                decoder = try RAR20Decoder(
+                    source: source,
+                    offset: offset,
+                    compressedSize: compressedSize,
+                    expectedSize: uncompressedSize,
+                    unpackVersion: unpackVersion,
+                    method: method,
+                    dictionarySize: dictionarySize,
+                    isSolid: isSolid,
+                    limits: limits
+                )
+            } else {
+                decoder = try RAR29Decoder(
+                    source: source,
+                    offset: offset,
+                    compressedSize: compressedSize,
+                    expectedSize: uncompressedSize,
+                    unpackVersion: unpackVersion,
+                    method: method,
+                    dictionarySize: dictionarySize,
+                    isSolid: isSolid,
+                    limits: limits,
+                    solidState: solidState,
+                    allowsPPMd: allowsPPMd
+                )
+            }
             guard mismatchIsWrongPassword else { return decoder }
             return RARPasswordAmbiguousDecompressor(
                 base: decoder,

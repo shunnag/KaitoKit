@@ -1024,7 +1024,7 @@ RAR 関連 source file ごとの実装入力は次のとおり。表の「black-
 |---|---|
 | `Sources/KaitoKit/Formats/FormatDetector.swift`・`Formats/RAR/RARSignatureScanner.swift` | RAR4 signature は bitplane/rar-research、RAR5 signature は RARLab technote。SFX の探索上限は task 要件 |
 | `Sources/KaitoKit/Formats/RAR/RAR4Reader.swift`・`RAR4VolumeParser.swift`・`RAR4EntryPublisher.swift`・`RAR4Structures.swift`・`RARSolidCoordinator.swift`(2026-09-29 に RAR5 版を generic 化し RAR4 と共有) | bitplane/rar-research の RAR 1.5-4.x note、BSD-2 libarchive `archive_read_support_format_rar.c` の header traversal / optional-field order / Unicode name / timestamp の挙動だけ、RAR 7.23 black-box |
-| `Sources/KaitoKit/Formats/RAR/RAR13Reader.swift`・`RAR13Crypto.swift` | bitplane/rar-research の RAR13_FORMAT_SPECIFICATION、RAR 1.402 実書庫と UNRAR 7.23 展開の black-box vector。main header のみの solid 指定、旧暗号、packed / stored comment、`RSFX` と MZ 画像サイズによる SFX 検出も実書庫で確認 |
+| `Sources/KaitoKit/Formats/RAR/RAR13Reader.swift`・`RAR13Crypto.swift`・`RAR13VolumeLocator.swift` | bitplane/rar-research の RAR13_FORMAT_SPECIFICATION、RAR 1.402 実書庫と UNRAR 7.23 展開の black-box vector。main header のみの solid 指定、旧暗号、packed / stored comment、`RSFX` と MZ 画像サイズによる SFX 検出、old `.r00` の payload 連結も実書庫で確認 |
 | `Sources/KaitoKit/Codecs/RAR/RAR15Decoder.swift` | bitplane/rar-research の RAR13_FORMAT_SPECIFICATION §6、RAR 1.54 実書庫と UNRAR 7.23 展開の black-box vector、独自 encoder が生成し UNRAR で検証した fixture。第三者 decoder source は不使用 |
 | `Sources/KaitoKit/Codecs/RAR/RAR29Decoder.swift`・`RAR3FilterToken.swift` | bitplane/rar-research §§18-20、同 libarchive RAR4 file の block/table transition・match・RAR3 standard-filter 挙動だけ、RAR 3.00 生成物と RAR 7.23 展開の black-box vector |
 | `Sources/KaitoKit/Codecs/PPMd/VariantH/RARPPMdRangeDecoder.swift` | bitplane/rar-research の RAR PPMd range-coder note、public-domain LZMA SDK PPMd7 model contract、RAR black-box vector |
@@ -1532,7 +1532,10 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   ASCII に限定し、誤 password は `wrongPassword`、未指定は `passwordRequired` にする。
   2026-11-03 の追補(cooViewer-c1vj.14)では、`RSFX` marker と MZ 画像サイズ、その位置の
   `RE~^` を照合する SFX を追加した。Data では opt-in とし、偶然の署名は信用しない。
-  分割は別課題。
+  2026-11-03 の追補(cooViewer-c1vj.13)では、directory anchor で old `.r00` を解決し、
+  header を除く payload を `SourceSegment` で連結して stored・圧縮・solid を展開する。
+  最終巻の checksum を使い、solid の辞書と adaptive Huffman 状態は巻をまたいで保持する。
+  追補(cooViewer-c1vj.15)で solid 分割を追加した。Data からの継続巻は拒否する。
 - 2026-11-03 の追補(cooViewer-c1vj.16): ENDARC を省略した RAR4 volume では、末尾 file の
   `SPLIT_AFTER` から次巻を解決する。結合後の record は `isSplit == false` となり、version 15 の
   solid 分割も既存の coordinator で辞書と adaptive Huffman 状態を継続する。

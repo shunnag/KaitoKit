@@ -11,7 +11,9 @@
 - RAR 1.3 / 1.4 の `RE~^` container、stored・Unpack15 圧縮・solid・旧暗号を展開できるようにした。
   16-bit rolling checksum を検証し、main header だけで指定する実 RAR 1.402 の solid にも対応する。
   packed archive comment と stored file comment も復号する。password は ASCII に限る。
-  `RSFX` marker と MZ 画像サイズを検証した SFX も展開できる。分割は明示的に拒否する。
+  `RSFX` marker と MZ 画像サイズを検証した SFX も展開できる。URL-backed old `.r00` の
+  stored・圧縮・solid 分割にも対応し、最終巻の checksum を検証する。
+  solid の辞書と adaptive Huffman 状態は巻をまたいで引き継ぐ。Data からの継続巻解決は拒否する。
 - RAR4 unpack version 15（RAR 1.3 / 1.5）の adaptive Huffman + LZ77 と solid 書庫を展開できるようにした。
   64 KiB 窓、頻度補正、ShortLZ / LongLZ、StMode、距離履歴に対応する。
   custom VM と旧暗号は明示的に拒否する。

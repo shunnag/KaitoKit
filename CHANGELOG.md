@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-02
+
+RAR5 compression version 1、7z / XZ の RISC-V filter、RAR4 / RAR5 の分割 SFX に対応する release。
+version 0 の RAR5、他の 7z filter、既存の展開経路は維持する。ビルド要件（Xcode 27 / Swift 6.4 以上）と
+実行環境（macOS 26 以上・Apple Silicon と Intel）は 0.18.0 と同じ。
+
 ### 追加
 
 - 7z の RISC-V branch filter（method `0x0B`）を展開できるようにした。JAL、AUIPC と後続命令の対、

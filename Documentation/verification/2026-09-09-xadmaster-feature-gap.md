@@ -1,5 +1,8 @@
 # XADMaster との機能差分の black-box 調査 — 2026-09-09
 
+> 2026-11-02 追記: 7z RISC-V filter は [後日の導出](2026-11-02-sevenzip-riscv.md)で対応した。
+> XZ の RISC-V filter は引き続き未対応。以下の表は調査時点の結果である。
+
 XADMaster に対して KaitoKit に足りていないものを測る。**XADMaster の source は
 参照していない。** 比較は design.md §10 のとおり展開オラクル(実行ファイルの入出力)
 だけで行った。同 session の provenance incident と是正は §10 に開示してある。

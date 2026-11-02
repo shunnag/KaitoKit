@@ -8,6 +8,7 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-11-02-rar15-unpack.md](2026-11-02-rar15-unpack.md) | 2026-11-02 | RAR4 unpack version 15、adaptive Huffman + LZ77・solid・独自 fixture | cooViewer-c1vj.10 |
 | [2026-11-02-rar20-unpack.md](2026-11-02-rar20-unpack.md) | 2026-11-02 | RAR4 unpack version 20 / 26、LZ・音声・solid、RAR 2.50 自作 fixture | cooViewer-c1vj.9 |
 | [2026-11-02-rar5-version1.md](2026-11-02-rar5-version1.md) | 2026-11-02 | RAR5 compression version 1、80 distance symbols・非2の累乗辞書・5 GiB 実書庫 | cooViewer-c1vj.8 |
 | [2026-11-02-xz-riscv.md](2026-11-02-xz-riscv.md) | 2026-11-02 | XZ RISC-V filter、複数 block・連結 stream・check・圧縮 tar の検証 | cooViewer-zu1v |

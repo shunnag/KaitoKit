@@ -1024,6 +1024,7 @@ RAR 関連 source file ごとの実装入力は次のとおり。表の「black-
 |---|---|
 | `Sources/KaitoKit/Formats/FormatDetector.swift`・`Formats/RAR/RARSignatureScanner.swift` | RAR4 signature は bitplane/rar-research、RAR5 signature は RARLab technote。SFX の探索上限は task 要件 |
 | `Sources/KaitoKit/Formats/RAR/RAR4Reader.swift`・`RAR4VolumeParser.swift`・`RAR4EntryPublisher.swift`・`RAR4Structures.swift`・`RARSolidCoordinator.swift`(2026-09-29 に RAR5 版を generic 化し RAR4 と共有) | bitplane/rar-research の RAR 1.5-4.x note、BSD-2 libarchive `archive_read_support_format_rar.c` の header traversal / optional-field order / Unicode name / timestamp の挙動だけ、RAR 7.23 black-box |
+| `Sources/KaitoKit/Codecs/RAR/RAR15Decoder.swift` | bitplane/rar-research の RAR13_FORMAT_SPECIFICATION §6、RAR 1.54 実書庫と UNRAR 7.23 展開の black-box vector、独自 encoder が生成し UNRAR で検証した fixture。第三者 decoder source は不使用 |
 | `Sources/KaitoKit/Codecs/RAR/RAR29Decoder.swift`・`RAR3FilterToken.swift` | bitplane/rar-research §§18-20、同 libarchive RAR4 file の block/table transition・match・RAR3 standard-filter 挙動だけ、RAR 3.00 生成物と RAR 7.23 展開の black-box vector |
 | `Sources/KaitoKit/Codecs/PPMd/VariantH/RARPPMdRangeDecoder.swift` | bitplane/rar-research の RAR PPMd range-coder note、public-domain LZMA SDK PPMd7 model contract、RAR black-box vector |
 | `Sources/KaitoKit/Codecs/PPMd/VariantH/PPMd7Decoder.swift`・`PPMd7RangeDecoding.swift`・`SevenZipPPMdRangeDecoder.swift` | public-domain LZMA SDK `C/Ppmd7.c` / `C/Ppmd7.h` / `C/Ppmd7Dec.c`、Shkarin PPMd var.H description |
@@ -1516,6 +1517,12 @@ prose ページであることを確認し、`source-archive` を含む URL は�
     作業途中に禁止対象の libarchive RAR5 source を誤って開いた incident が一度あり、その時点の
     filter file は全削除した。現在の `RARStandardFilters.swift` は §10 の許可資料と入力だけから
     独立に新規実装しており、incident 前のコードや構造は残していない。
+- 2026-11-02 の追補(cooViewer-c1vj.10): RAR4 unpack version 15 の adaptive Huffman + LZ77 と
+  solid を実装した。頻度補正後の表を読み直す規則、ShortLZ code 14 が repeat-distance 履歴を
+  更新しない規則を守り、peek の末尾 padding と実際に消費した bit を区別する。64 KiB 窓の
+  zero-fill は match 開始時に確定する。実装入力と実書庫の照合範囲は
+  [検証記録](verification/2026-11-02-rar15-unpack.md)を参照。custom VM、version 15 の旧暗号、
+  solid 内の分割 member は対象外。
 - M3(784b37a + 第 2 段): RAR 5.x(v0 LZ・フィルタ・solid・AES-256・ヘッダ暗号化・分割・BLAKE2sp)と RAR 2.9/3.x
   (LZ・標準 VM フィルタ 6 種・PPMd var.H・solid・AES-128・ヘッダ暗号化・分割・SFX 前置)。RAR5 corpus と実書庫、
   RAR4 の st1200(19 JPEG)と libarchive の BSD 試験書庫が `rar` オラクル / XADMaster と一致。第 1 段の敵対

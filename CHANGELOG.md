@@ -17,13 +17,21 @@ RAR4 unpack version 15 / 20 / 26 と RAR 1.3 / 1.4 の展開を強化する rele
 - RAR 1.3 / 1.4 の `RE~^` container、stored・Unpack15 圧縮・solid・旧暗号を展開できるようにした。
   16-bit rolling checksum を検証し、main header だけで指定する実 RAR 1.402 の solid にも対応する。
   packed archive comment と stored file comment も復号する。password は ASCII に限る。
-  `RSFX` marker と MZ 画像サイズを検証した SFX も展開できる。分割は明示的に拒否する。
+  `RSFX` marker と MZ 画像サイズを検証した SFX も展開できる。URL-backed old `.r00` の
+  stored・圧縮・solid 分割にも対応し、最終巻の checksum を検証する。
+  solid の辞書と adaptive Huffman 状態は巻をまたいで引き継ぐ。Data からの継続巻解決は拒否する。
 - RAR4 unpack version 15（RAR 1.3 / 1.5）の adaptive Huffman + LZ77 と solid 書庫を展開できるようにした。
   64 KiB 窓、頻度補正、ShortLZ / LongLZ、StMode、距離履歴に対応する。
-  custom VM、旧暗号、solid 書庫内の分割 member は明示的に拒否する。
+  custom VM と旧暗号は明示的に拒否する。
 - RAR4 unpack version 20 / 26 の LZ・音声ブロックと solid 書庫を展開できるようにした。
   1 MiB 窓、version 20 専用の距離履歴・長さボーナス、1〜4 チャンネルの音声予測に対応する。
   custom RAR VM は従来どおり明示的に拒否する。
+
+### 修正
+
+- ENDARC を省略した RAR4 volume は、末尾 file の `SPLIT_AFTER` から次巻を解決するようにした。
+  version 15 の solid 分割 member も結合した packed stream と継続した辞書・adaptive Huffman 状態で展開する。
+  Data からの継続巻探索と、ENDARC がある場合の `EARC_NEXT_VOLUME` の意味は変えない。
 
 ## [0.19.0] - 2026-11-02
 

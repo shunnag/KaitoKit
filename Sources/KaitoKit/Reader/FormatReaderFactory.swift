@@ -94,14 +94,19 @@ enum FormatReaderFactory {
                 ? nil
                 : (sourceVolumeURL ?? sourceURL)
             if try RAR13Reader.hasSignature(source: source) {
-                let rar = try RAR13Reader(source: source, options: options)
+                let rar = try RAR13Reader(
+                    source: source, options: options, sourceURL: rarSourceURL,
+                    sourceDirectoryAnchor: sourceDirectoryAnchor
+                )
                 reader = rar
                 password = rar.resolvedPassword
             } else if (sourceURL != nil || options.scanForSFXInData),
                       let offset = try RAR13Reader.sfxOffset(source: source) {
                 let rar = try RAR13Reader(
                     source: try RebasedByteSource(source: source, baseOffset: offset),
-                    options: options
+                    options: options, sourceURL: rarSourceURL,
+                    sourceDirectoryAnchor: sourceDirectoryAnchor,
+                    firstVolumeIdentitySource: source
                 )
                 reader = rar
                 password = rar.resolvedPassword

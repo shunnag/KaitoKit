@@ -186,6 +186,69 @@ final class RAR13ReaderTests: XCTestCase {
         }
     }
 
+    func testSFXArchiveRequiresOptInAndReadsEntries() throws {
+        let data = try makeSFX()
+        XCTAssertThrowsError(try ArchiveReader.open(data: data))
+        let options = ReaderOptions(scanForSFXInData: true)
+        XCTAssertEqual(try FormatDetector.detect(data: data, options: options), .rar)
+        let reader = try ArchiveReader.open(data: data, options: options)
+        let phrase = Data("RAR15!\r\n".utf8)
+        for entry in reader.entries {
+            XCTAssertEqual(try reader.read(entry), entry.name == "compressed.txt" ? phrase + phrase : phrase)
+        }
+    }
+
+    func testSFXFullFinalPageComputesCorrectOffset() throws {
+        let reader = try ArchiveReader.open(data: try makeSFX(stubSize: 512), options: ReaderOptions(scanForSFXInData: true))
+        XCTAssertEqual(try reader.read(reader.entries[0]), Data("RAR15!\r\n".utf8))
+    }
+
+    func testInvalidSFXStubsAreRejected() throws {
+        var wrongMarker = try makeSFX()
+        wrongMarker[28] = 0
+        var zeroPages = try makeSFX()
+        zeroPages[4] = 0
+        zeroPages[5] = 0
+        var badLastPage = try makeSFX()
+        badLastPage[2] = 0
+        badLastPage[3] = 2
+        var badSize = try makeSFX()
+        badSize[4] = 2
+        var badSignature = try makeSFX()
+        badSignature[64] = 0
+        for data in [wrongMarker, zeroPages, badLastPage, badSize, badSignature] {
+            XCTAssertNil(try RAR13Reader.sfxOffset(source: DataByteSource(data: data)))
+            XCTAssertThrowsError(try ArchiveReader.open(data: data, options: ReaderOptions(scanForSFXInData: true)))
+        }
+    }
+
+    func testRAR1402SFXMatchesUnrarOutput() throws {
+        guard let path = ProcessInfo.processInfo.environment["KAITOKIT_RAR13_FIXTURES"] else {
+            throw XCTSkip("set KAITOKIT_RAR13_FIXTURES")
+        }
+        let url = URL(fileURLWithPath: path, isDirectory: true).appendingPathComponent("SFXSRC.EXE")
+        XCTAssertEqual(try FormatDetector.detect(url: url), .rar)
+        let reader = try ArchiveReader.open(url: url)
+        let entry = try XCTUnwrap(reader.entries.first)
+        let expected = try Data(contentsOf: url.deletingLastPathComponent().appendingPathComponent("expected/\(entry.name)"))
+        XCTAssertEqual(try reader.read(entry), expected)
+    }
+
+    private func makeSFX(stubSize: Int = 64) throws -> Data {
+        precondition(stubSize >= 32 && stubSize <= 128 * 1_024)
+        var stub = Data(repeating: 0, count: stubSize)
+        stub[0] = 0x4d
+        stub[1] = 0x5a
+        let lastPage = stubSize % 512
+        let pages = (stubSize + 511) / 512
+        stub[2] = UInt8(truncatingIfNeeded: lastPage)
+        stub[3] = UInt8(truncatingIfNeeded: lastPage >> 8)
+        stub[4] = UInt8(truncatingIfNeeded: pages)
+        stub[5] = UInt8(truncatingIfNeeded: pages >> 8)
+        stub.replaceSubrange(28..<32, with: Data("RSFX".utf8))
+        return try stub + TestFixtures.base64("rar13/normal.rar")
+    }
+
     func testPasswordProviderIsResolvedOnceAndReused() throws {
         let provider = RAR13TestPasswordProvider()
         let reader = try ArchiveReader.open(

@@ -8,9 +8,12 @@
 
 ### 追加
 
+- RAR4 unpack version 15（RAR 1.3 / 1.5）の adaptive Huffman + LZ77 と solid 書庫を展開できるようにした。
+  64 KiB 窓、頻度補正、ShortLZ / LongLZ、StMode、距離履歴に対応する。
+  custom VM、旧暗号、solid 書庫内の分割 member は明示的に拒否する。
 - RAR4 unpack version 20 / 26 の LZ・音声ブロックと solid 書庫を展開できるようにした。
   1 MiB 窓、version 20 専用の距離履歴・長さボーナス、1〜4 チャンネルの音声予測に対応する。
-  version 15 と custom RAR VM は従来どおり明示的に拒否する。
+  custom RAR VM は従来どおり明示的に拒否する。
 
 ## [0.19.0] - 2026-11-02
 

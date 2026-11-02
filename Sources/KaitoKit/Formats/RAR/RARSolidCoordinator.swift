@@ -7,8 +7,9 @@ import Darwin
 // - RARLab, "RAR 5.0 archive format": https://www.rarlab.com/technote.htm
 // - KaitoKit's own RAR5 raw-buffer reuse pattern for drain scratch.
 // No unrar, 7-Zip, XADMaster, or The Unarchiver source was used.
-// RAR4Reader supplies RAR20Decoder.SolidState or RAR29Decoder.SolidState with a known UInt64 size;
-// RAR5Reader supplies RAR5Decoder.SolidState and an optional UInt64 size.
+// RAR4Reader supplies RAR15Decoder.SolidState, RAR20Decoder.SolidState, or
+// RAR29Decoder.SolidState with a known UInt64 size; RAR5Reader supplies
+// RAR5Decoder.SolidState and an optional UInt64 size.
 
 protocol RARSolidState: AnyObject {
     init(dictionarySize: UInt64) throws
@@ -21,6 +22,9 @@ extension RARSolidState {
     }
 }
 
+extension RAR15Decoder.SolidState: RARSolidState {
+    static func allocationSize(for dictionarySize: UInt64) throws -> Int { RAR15Decoder.windowSize }
+}
 extension RAR20Decoder.SolidState: RARSolidState {
     static func allocationSize(for dictionarySize: UInt64) throws -> Int { RAR20Decoder.windowSize }
 }

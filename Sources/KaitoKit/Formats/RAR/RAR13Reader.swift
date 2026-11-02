@@ -42,6 +42,24 @@ final class RAR13Reader: FormatReader {
         return try readByteRange(source: source, offset: 0, count: 4) == signature
     }
 
+    static func sfxOffset(source: any ByteSource) throws -> UInt64? {
+        guard source.length >= 32 else { return nil }
+        let header = try readByteRange(source: source, offset: 0, count: 32)
+        guard header[0] == 0x4d, header[1] == 0x5a,
+              Array(header[28..<32]) == Array("RSFX".utf8) else { return nil }
+        let lastPageBytes = Int(LittleEndian.uint16(header, at: 2))
+        let pages = Int(LittleEndian.uint16(header, at: 4))
+        guard lastPageBytes < 512, pages > 0 else { return nil }
+        let imageSize = lastPageBytes == 0
+            ? UInt64(pages) * 512
+            : UInt64(pages - 1) * 512 + UInt64(lastPageBytes)
+        guard imageSize >= 32, imageSize <= 128 * 1_024 else { return nil }
+        let archiveEnd = try Checked.add(imageSize, 7)
+        guard archiveEnd <= source.length else { return nil }
+        guard try readByteRange(source: source, offset: imageSize, count: 4) == signature else { return nil }
+        return imageSize
+    }
+
     init(source: any ByteSource, options: ReaderOptions) throws {
         self.source = source
         password = options.password

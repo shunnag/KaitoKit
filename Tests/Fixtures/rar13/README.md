@@ -20,6 +20,9 @@ python3 Scripts/fixtures/make-rar13-crypto.py --unrar /opt/homebrew/bin/unrar
 - `solid.rar`: main と 2 件目の file flag で solid を指定した `first.txt` / `second.txt`。
 - `solid-main.rar`: 実 RAR 1.402 と同じく main header だけで solid を指定した 2 member。
 
+SFX は `RAR13ReaderTests` が `normal.rar` に synthetic MZ / `RSFX` header を前置して検証します。
+実 RAR 1.402 の `SFXSRC.EXE` は非配布の比較対象です。
+
 各本文は `RAR15!\r\n` の 8 byte、`compressed.txt` だけその 2 倍です。solid の 2 件目は
 ShortLZ で 1 件目の窓を参照します。
 

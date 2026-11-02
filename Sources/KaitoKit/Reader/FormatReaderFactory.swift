@@ -97,6 +97,14 @@ enum FormatReaderFactory {
                 let rar = try RAR13Reader(source: source, options: options)
                 reader = rar
                 password = rar.resolvedPassword
+            } else if (sourceURL != nil || options.scanForSFXInData),
+                      let offset = try RAR13Reader.sfxOffset(source: source) {
+                let rar = try RAR13Reader(
+                    source: try RebasedByteSource(source: source, baseOffset: offset),
+                    options: options
+                )
+                reader = rar
+                password = rar.resolvedPassword
             } else {
                 guard let signature = try RARSignatureScanner.find(source: source) else {
                     throw KaitoError.unsupportedFormat

@@ -214,6 +214,9 @@ public enum FormatDetector {
             || hasPrefix(prefix, [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00]) {
             return .rar
         }
+        if sfxScanSize > 0, try RAR13Reader.sfxOffset(source: source) != nil {
+            return .rar
+        }
         if hasPrefix(prefix, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]) {
             return .sevenZip
         }

@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-03
+
+RAR4 unpack version 15 / 20 / 26 と RAR 1.3 / 1.4 の展開を強化する release。
+旧形式の圧縮・solid・旧暗号・comment・SFX・old multi-volume に対応する。
+ビルド要件（Xcode 27 / Swift 6.4 以上）と実行環境（macOS 26 以上・Apple Silicon と Intel）は 0.19.0 と同じ。
+
 ### 追加
 
 - RAR 1.3 / 1.4 の `RE~^` container、stored・Unpack15 圧縮・solid・旧暗号を展開できるようにした。

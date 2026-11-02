@@ -197,7 +197,7 @@ final class ParallelXZDecompressor: Decompressor {
     ///   - workers: reader が open 時に解決した要求並列数。
     ///   - targetJobOutput: job をまとめる出力目標。nil は配置と要求 worker 数から解決する。
     ///   - diagnostics: 観測値の記録先。本番の呼出元は渡さない。
-    ///   - useNativeDecoder: false なら全経路を Apple Compression で復号する。比較試験が使う。
+    ///   - useNativeDecoder: false なら RISC-V 以外を Apple Compression で復号する。比較試験が使う。
     init(source: any ByteSource, limits: ReadLimits, recorder: CompressedTarMapRecorder? = nil,
          workers: Int = ReaderOptions.automaticDecodeThreads(),
          expectedSize: UInt64? = nil,
@@ -222,11 +222,14 @@ final class ParallelXZDecompressor: Decompressor {
             serial = try XZDecompressor(source: source, limits: limits, recorder: recorder)
             return
         }
-        // LZMA2 だけの chain と既知の check 種別なら、KaitoKit 自身の LZMA2 decoder で復号する。
-        let native = useNativeDecoder && XZNativeDecompressor.isEligible(layout)
+        // RISC-V は Compression が扱えないため必ず native にする。その stream は
+        // worker から Apple へ戻す経路を作らず、直列で復号する。
+        let native = XZNativeDecompressor.isEligible(layout)
+            && (useNativeDecoder || layout.hasRISCVFilter)
         self.native = native
         if native { diagnostics?.useNative() }
-        if layout.streams.count == 1, let stream = layout.streams.first, stream.blocks.count >= 2 {
+        if !layout.hasRISCVFilter, layout.streams.count == 1,
+           let stream = layout.streams.first, stream.blocks.count >= 2 {
             // 二巡分の job を用意し、小さい multi-block stream でも worker を使えるようにする。
             // 一 block は分割しない。保持 byte に基づく下の worker 上限は従来どおり適用する。
             let target: UInt64

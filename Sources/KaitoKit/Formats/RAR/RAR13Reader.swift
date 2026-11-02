@@ -6,28 +6,30 @@ final class RAR13Reader: FormatReader {
     static let signature: [UInt8] = [0x52, 0x45, 0x7e, 0x5e]
 
     private struct Record {
-        let dataOffset: UInt64
-        let packedSize: UInt64
+        var packedSegments: [SourceSegment]
+        var packedSize: UInt64
         let unpackedSize: UInt64
-        let checksum: UInt16
+        var checksum: UInt16
         let method: UInt8
         let unpackVersion: UInt8
-        let flags: UInt8
         let isSolid: Bool
         let kind: EntryKind
         let modificationDate: Date?
         let attributes: UInt8
         let comment: [UInt8]
+        let firstFlags: UInt8
+        var lastFlags: UInt8
 
-        var isEncrypted: Bool { flags & 0x04 != 0 }
-        var hasComment: Bool { flags & 0x08 != 0 }
-        var isSplit: Bool { flags & 0x03 != 0 }
+        var isEncrypted: Bool { firstFlags & 0x04 != 0 || lastFlags & 0x04 != 0 }
+        var hasComment: Bool { firstFlags & 0x08 != 0 || lastFlags & 0x08 != 0 }
+        var isSplit: Bool { firstFlags & 0x03 != 0 || lastFlags & 0x03 != 0 }
     }
 
     let format: ArchiveFormat = .rar
     let entries: [ArchiveEntry]
     let nameEncoding: String.Encoding?
     private let source: any ByteSource
+    private let volumeLocator: RAR13VolumeLocator?
     private let records: [Record]
     private let solidGroupMembers: [Int: [Int]]
     private let archiveCommentBytes: [UInt8]?
@@ -40,6 +42,17 @@ final class RAR13Reader: FormatReader {
     static func hasSignature(source: any ByteSource) throws -> Bool {
         guard source.length >= 4 else { return false }
         return try readByteRange(source: source, offset: 0, count: 4) == signature
+    }
+
+    private static func readMainHeader(source: any ByteSource) throws -> (size: Int, flags: UInt8) {
+        guard try hasSignature(source: source) else { throw KaitoError.unsupportedFormat }
+        guard source.length >= 7 else { throw KaitoError.truncated }
+        let bytes = try readByteRange(source: source, offset: 0, count: 7)
+        let size = Int(LittleEndian.uint16(bytes, at: 4))
+        guard size >= 7, UInt64(size) <= source.length else {
+            throw KaitoError.malformed("RAR1.3 main header size")
+        }
+        return (size, bytes[6])
     }
 
     static func sfxOffset(source: any ByteSource) throws -> UInt64? {
@@ -60,7 +73,13 @@ final class RAR13Reader: FormatReader {
         return imageSize
     }
 
-    init(source: any ByteSource, options: ReaderOptions) throws {
+    init(
+        source: any ByteSource,
+        options: ReaderOptions,
+        sourceURL: URL? = nil,
+        sourceDirectoryAnchor: FileByteSource.DirectoryAnchor? = nil,
+        firstVolumeIdentitySource: (any ByteSource)? = nil
+    ) throws {
         self.source = source
         password = options.password
         let limits = options.limits
@@ -74,6 +93,16 @@ final class RAR13Reader: FormatReader {
         archiveCommentBytes = try Self.readArchiveComment(
             source: source, mainSize: mainSize, flags: mainFlags, limits: limits
         )
+        if let sourceURL {
+            volumeLocator = try RAR13VolumeLocator(
+                firstVolumeURL: sourceURL, firstVolumeSource: source,
+                firstVolumeDirectory: sourceDirectoryAnchor,
+                firstVolumeIdentitySource: firstVolumeIdentitySource,
+                firstVolumeSignatureOffset: 0, maxVolumeCount: limits.maxVolumeCount
+            )
+        } else {
+            volumeLocator = nil
+        }
         var offset = UInt64(mainSize)
         var metadata = UInt64(mainSize)
         try Checked.size(metadata, limit: limits.maxTotalMetadataSize)
@@ -82,86 +111,141 @@ final class RAR13Reader: FormatReader {
         var rawNames: [[UInt8]] = []
         var solidGroups: [Int] = []
         var previousFileIndex: Int?
-        while offset < source.length {
-            try checkCancellation(every: records.count)
-            guard source.length - offset >= 21 else { throw KaitoError.truncated }
-            let fixed = try readByteRange(source: source, offset: offset, count: 21)
-            let headSize = Int(LittleEndian.uint16(fixed, at: 10))
-            let nameSize = Int(fixed[19])
-            guard headSize >= 21 + nameSize, nameSize > 0 else {
-                throw KaitoError.malformed("RAR1.3 file header size")
-            }
-            let rawVersion = fixed[18]
-            guard (1...20).contains(rawVersion), fixed[20] <= 7 else {
-                throw KaitoError.malformed("RAR1.3 file header version or method")
-            }
-            let header = try readByteRange(source: source, offset: offset, count: headSize)
-            let rawName = Array(header[21..<(21 + nameSize)])
-            let packedSize = UInt64(LittleEndian.uint32(header, at: 0))
-            let unpackedSize = UInt64(LittleEndian.uint32(header, at: 4))
-            let dataOffset = try Checked.add(offset, UInt64(headSize))
-            let end = try Checked.add(dataOffset, packedSize)
-            guard end <= source.length else { throw KaitoError.truncated }
-            metadata = try Checked.add(metadata, UInt64(headSize))
-            try Checked.size(metadata, limit: limits.maxTotalMetadataSize)
-            guard records.count < limits.maxEntryCount else {
-                throw KaitoError.limitExceeded("RAR1.3 entry count")
-            }
+        var volumeSource = source
+        var currentMainFlags = mainFlags
+        var volumeNumber: UInt64 = 0
+        while true {
+            while offset < volumeSource.length {
+                try checkCancellation(every: records.count)
+                guard volumeSource.length - offset >= 21 else { throw KaitoError.truncated }
+                let fixed = try readByteRange(source: volumeSource, offset: offset, count: 21)
+                let headSize = Int(LittleEndian.uint16(fixed, at: 10))
+                let nameSize = Int(fixed[19])
+                guard headSize >= 21 + nameSize, nameSize > 0 else {
+                    throw KaitoError.malformed("RAR1.3 file header size")
+                }
+                let rawVersion = fixed[18]
+                guard (1...20).contains(rawVersion), fixed[20] <= 7 else {
+                    throw KaitoError.malformed("RAR1.3 file header version or method")
+                }
+                let header = try readByteRange(source: volumeSource, offset: offset, count: headSize)
+                let rawName = Array(header[21..<(21 + nameSize)])
+                let packedSize = UInt64(LittleEndian.uint32(header, at: 0))
+                let unpackedSize = UInt64(LittleEndian.uint32(header, at: 4))
+                let dataOffset = try Checked.add(offset, UInt64(headSize))
+                let end = try Checked.add(dataOffset, packedSize)
+                guard end <= volumeSource.length else { throw KaitoError.truncated }
+                metadata = try Checked.add(metadata, UInt64(headSize))
+                try Checked.size(metadata, limit: limits.maxTotalMetadataSize)
 
-            let flags = header[17]
-            let comment: [UInt8]
-            if flags & 0x08 != 0 {
-                let start = 21 + nameSize
-                guard header.count >= start + 2 else {
-                    throw KaitoError.malformed("RAR1.3 file comment header")
-                }
-                let length = Int(LittleEndian.uint16(header, at: start))
-                guard start + 2 + length == header.count else {
-                    throw KaitoError.malformed("RAR1.3 file comment length")
-                }
-                comment = Array(header[(start + 2)...])
-            } else {
-                comment = []
-            }
-            let kind: EntryKind = header[16] & 0x10 != 0 ? .directory : .file
-            if kind == .directory, packedSize != 0 || unpackedSize != 0 {
-                throw KaitoError.malformed("RAR1.3 directory contains data")
-            }
-            let method = header[20]
-            let requestsSolidContinuation = kind == .file && method != 0 &&
-                (mainFlags & 0x08 != 0 || flags & 0x10 != 0)
-            let isSolid = requestsSolidContinuation && previousFileIndex != nil
-            if kind == .file, method != 0 {
-                if requestsSolidContinuation {
-                    guard mainFlags & 0x08 != 0 else {
-                        throw KaitoError.malformed("RAR1.3 solid file is not in a solid archive")
+                let flags = header[17]
+                if flags & 0x03 != 0 {
+                    guard currentMainFlags & 0x01 != 0 else {
+                        throw KaitoError.malformed("RAR1.3 split file is not in a volume set")
                     }
-                    if flags & 0x10 != 0 || previousFileIndex != nil {
-                        guard let predecessor = previousFileIndex else {
-                            throw KaitoError.malformed("RAR1.3 first file cannot continue a solid stream")
+                }
+                let comment: [UInt8]
+                if flags & 0x08 != 0 {
+                    let start = 21 + nameSize
+                    guard header.count >= start + 2 else {
+                        throw KaitoError.malformed("RAR1.3 file comment header")
+                    }
+                    let length = Int(LittleEndian.uint16(header, at: start))
+                    guard start + 2 + length == header.count else {
+                        throw KaitoError.malformed("RAR1.3 file comment length")
+                    }
+                    comment = Array(header[(start + 2)...])
+                } else {
+                    comment = []
+                }
+                let kind: EntryKind = header[16] & 0x10 != 0 ? .directory : .file
+                if kind == .directory, packedSize != 0 || unpackedSize != 0 {
+                    throw KaitoError.malformed("RAR1.3 directory contains data")
+                }
+                let method = header[20]
+                if flags & 0x01 != 0 {
+                    guard let lastIndex = records.indices.last else {
+                        throw KaitoError.malformed("RAR1.3 continuation has no preceding file")
+                    }
+                    var record = records[lastIndex]
+                    guard record.lastFlags & 0x02 != 0,
+                          record.unpackedSize == unpackedSize,
+                          record.method == method,
+                          record.unpackVersion == rawVersion,
+                          record.kind == kind,
+                          record.comment == comment,
+                          rawNames[lastIndex] == rawName else {
+                        throw KaitoError.malformed("RAR1.3 continuation does not match its file")
+                    }
+                    record.packedSegments.append(
+                        SourceSegment(source: volumeSource, offset: dataOffset, length: packedSize)
+                    )
+                    record.packedSize = try Checked.add(record.packedSize, packedSize)
+                    record.checksum = LittleEndian.uint16(header, at: 8)
+                    record.lastFlags = flags
+                    records[lastIndex] = record
+                    offset = end
+                    continue
+                }
+                if let last = records.last, last.lastFlags & 0x02 != 0 {
+                    throw KaitoError.malformed("RAR1.3 expected a continuation file header")
+                }
+                guard records.count < limits.maxEntryCount else {
+                    throw KaitoError.limitExceeded("RAR1.3 entry count")
+                }
+                let requestsSolidContinuation = kind == .file && method != 0 &&
+                    (currentMainFlags & 0x08 != 0 || flags & 0x10 != 0)
+                let isSolid = requestsSolidContinuation && previousFileIndex != nil
+                if kind == .file, method != 0 {
+                    if requestsSolidContinuation {
+                        guard currentMainFlags & 0x08 != 0 else {
+                            throw KaitoError.malformed("RAR1.3 solid file is not in a solid archive")
                         }
-                        let group = solidGroups[predecessor] >= 0 ? solidGroups[predecessor] : predecessor
-                        solidGroups[predecessor] = group
-                        solidGroups.append(group)
+                        if flags & 0x10 != 0 || previousFileIndex != nil {
+                            guard let predecessor = previousFileIndex else {
+                                throw KaitoError.malformed("RAR1.3 first file cannot continue a solid stream")
+                            }
+                            let group = solidGroups[predecessor] >= 0 ? solidGroups[predecessor] : predecessor
+                            solidGroups[predecessor] = group
+                            solidGroups.append(group)
+                        } else {
+                            solidGroups.append(-1)
+                        }
                     } else {
                         solidGroups.append(-1)
                     }
+                    previousFileIndex = records.count
                 } else {
                     solidGroups.append(-1)
                 }
-                previousFileIndex = records.count
-            } else {
-                solidGroups.append(-1)
+                records.append(Record(
+                    packedSegments: [SourceSegment(
+                        source: volumeSource, offset: dataOffset, length: packedSize
+                    )],
+                    packedSize: packedSize, unpackedSize: unpackedSize,
+                    checksum: LittleEndian.uint16(header, at: 8), method: method,
+                    unpackVersion: rawVersion, isSolid: isSolid, kind: kind,
+                    modificationDate: ARJReader.dosDate(LittleEndian.uint32(header, at: 12)),
+                    attributes: header[16], comment: comment, firstFlags: flags, lastFlags: flags
+                ))
+                rawNames.append(rawName)
+                offset = end
             }
-            records.append(Record(
-                dataOffset: dataOffset, packedSize: packedSize, unpackedSize: unpackedSize,
-                checksum: LittleEndian.uint16(header, at: 8), method: method,
-                unpackVersion: rawVersion, flags: flags, isSolid: isSolid, kind: kind,
-                modificationDate: ARJReader.dosDate(LittleEndian.uint32(header, at: 12)),
-                attributes: header[16], comment: comment
-            ))
-            rawNames.append(rawName)
-            offset = end
+            guard let last = records.last, last.lastFlags & 0x02 != 0 else { break }
+            guard let volumeLocator else {
+                throw KaitoError.unsupportedMethod("multi-volume from Data")
+            }
+            let next = try volumeLocator.locate(volumeNumber: volumeNumber + 1)
+            volumeNumber += 1
+            let nextMain = try Self.readMainHeader(source: next.source)
+            guard nextMain.flags & 0x01 != 0 else {
+                throw KaitoError.malformed("RAR1.3 continuation is not marked as a volume")
+            }
+            currentMainFlags = nextMain.flags
+            metadata = try Checked.add(metadata, UInt64(nextMain.size))
+            try Checked.size(metadata, limit: limits.maxTotalMetadataSize)
+            volumeSource = next.source
+            offset = UInt64(nextMain.size)
         }
 
         let batchLimit = try Checked.toInt(min(limits.maxMetadataSize, UInt64(Int.max)))
@@ -205,6 +289,10 @@ final class RAR13Reader: FormatReader {
                     bytes: record.comment, policy: options.encodingPolicy,
                     archiveEncoding: archiveEncoding, fromWindows: true
                 ).string
+            }
+            if record.isSplit {
+                specific["multiVolume"] = "true"
+                specific["volumeSegmentCount"] = String(record.packedSegments.count)
             }
             entries.append(ArchiveEntry(
                 index: index,
@@ -261,7 +349,7 @@ final class RAR13Reader: FormatReader {
             }
             for index in indices {
                 let record = records[index]
-                guard record.method != 0, record.unpackVersion == 2, !record.isSplit else {
+                guard record.method != 0, record.unpackVersion == 2 else {
                     throw KaitoError.unsupportedMethod("RAR1.3 unsupported solid stream member")
                 }
             }
@@ -342,20 +430,31 @@ final class RAR13Reader: FormatReader {
         state: RAR15Decoder.SolidState?,
         password: String?
     ) throws -> EntryStream {
-        guard !record.isSplit else { throw KaitoError.unsupportedMethod("RAR1.3 multi-volume file") }
         do {
+            let packedSource: any ByteSource
+            let packedOffset: UInt64
+            if record.packedSegments.count == 1, let segment = record.packedSegments.first {
+                packedSource = segment.source
+                packedOffset = segment.offset
+            } else {
+                packedSource = try ConcatenatedByteSource(
+                    segments: record.packedSegments, maximumLength: record.packedSize,
+                    maximumSegmentCount: limits.maxVolumeCount, label: "RAR1.3 split stream"
+                )
+                packedOffset = 0
+            }
             let payloadSource: any ByteSource
             let payloadOffset: UInt64
             if record.isEncrypted {
                 guard let password else { throw KaitoError.passwordRequired }
                 payloadSource = try RAR13EncryptedByteSource(
-                    source: source, offset: record.dataOffset,
+                    source: packedSource, offset: packedOffset,
                     length: record.packedSize, password: password
                 )
                 payloadOffset = 0
             } else {
-                payloadSource = source
-                payloadOffset = record.dataOffset
+                payloadSource = packedSource
+                payloadOffset = packedOffset
             }
             let base: any Decompressor
             if record.method == 0 {

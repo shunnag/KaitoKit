@@ -42,6 +42,7 @@ enum SevenZipMethod {
         case [0x07], [0x03, 0x03, 0x05, 0x01]: return .branch(.arm)
         case [0x08], [0x03, 0x03, 0x07, 0x01]: return .branch(.armThumb)
         case [0x0A]: return .branch(.arm64)
+        case [0x0B]: return .branch(.riscv)
         case [0x03, 0x03, 0x01, 0x1B]: return .bcj2
         case [0x06], [0x03, 0x03, 0x04, 0x01]:
             return .branch(.ia64)
@@ -78,6 +79,7 @@ enum SevenZipMethod {
             case .powerPC: return "PPC"
             case .sparc: return "SPARC"
             case .ia64: return "IA64"
+            case .riscv: return "RISCV"
             }
         case .bcj2: return "BCJ2"
         case let .unsupported(name): return name

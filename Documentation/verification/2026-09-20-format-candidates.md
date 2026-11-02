@@ -1,5 +1,8 @@
 # 追加できる形式の候補調査（2026-09-20、v0.7.0 時点）
 
+> 2026-11-02 追記: 7z RISC-V filter は [後日の導出](2026-11-02-sevenzip-riscv.md)で対応した。
+> XZ の RISC-V filter は別課題として残る。
+
 環境: macOS 27.2 / Apple Silicon / 7-Zip 26.03 / libarchive 3.7.4（`/usr/bin/bsdtar`）と
 Homebrew libarchive 3.8.9（keg-only、`/opt/homebrew/opt/libarchive/bin/bsdtar`）。
 対象は「KaitoKit が現在読めない形式・方式のうち、何を追加できるか」であり、

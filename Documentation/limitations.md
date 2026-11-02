@@ -35,7 +35,7 @@
   中身を確かめられないので残ります（`.hide` は `__MACOSX/` 配下を名前で隠します）。`.expose` で書庫どおりの一覧に
   戻ります。
 - zstd の外部辞書は非対応です。Dictionary_ID が非零なら `unsupportedMethod` になります。
-- 7z は RISC-V filter (method 0x0B) と、7-Zip ZS の LZ4 / Brotli / LZ5 / Lizard coder を扱いません。Zstandard coder の properties は 3 byte または 5 byte だけを受理します。7-Zip ZS の FLZMA2 は標準の LZMA2（ID 21）として書かれるため、そのまま読めます。
+- 7z は 7-Zip ZS の LZ4 / Brotli / LZ5 / Lizard coder を扱いません。Zstandard coder の properties は 3 byte または 5 byte だけを受理します。7-Zip ZS の FLZMA2 は標準の LZMA2（ID 21）として書かれるため、そのまま読めます。
 - RAR4 は unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成を扱いません。
   RAR5 は compression version 1、サイズ不明の暗号化 stored entry を扱いません。
 - LHA は `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` を一覧できますが、読み取り時に
@@ -109,7 +109,7 @@
 >   are not AppleDouble stay listed, and encrypted sidecars stay because they cannot be inspected
 >   (`.hide` still removes everything below `__MACOSX/` by name). `.expose` lists the archive as stored.
 > - External zstd dictionaries are unsupported; a nonzero Dictionary_ID produces `unsupportedMethod`.
-> - 7z does not handle the RISC-V filter (method 0x0B) or the LZ4 / Brotli / LZ5 / Lizard coders of 7-Zip ZS.
+> - 7z does not handle the LZ4 / Brotli / LZ5 / Lizard coders of 7-Zip ZS.
 >   The Zstandard coder accepts only 3- or 5-byte properties. 7-Zip ZS's FLZMA2 is written as standard
 >   LZMA2 (ID 21) and reads as such.
 > - RAR4 does not handle unpack versions 15, 20 and 26, the custom VM, or solid configurations whose

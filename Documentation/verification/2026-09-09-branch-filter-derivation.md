@@ -5,6 +5,10 @@ design.md §10 の許可資料(LZMA SDK の `Methods.txt` / `7zFormat.txt` /
 **変換そのもの**を定義していない。そこで変換規則を実行ファイルだけを使って
 導出した。禁止対象 source は開いていない。
 
+> 2026-11-02 追記: RISC-V は後日の独立した black-box 導出で対応した。
+> 下の「実装しない」という節は 2026-09-09 時点の判断を残したもので、現在の方針と導出結果は
+> [2026-11-02-sevenzip-riscv.md](2026-11-02-sevenzip-riscv.md) を参照する。
+
 ## オラクルの作り方
 
 7-Zip は `-m1=Copy` を指定すると filter の出力を無圧縮のまま packed stream に

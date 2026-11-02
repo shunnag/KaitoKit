@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+### 追加
+
+- 7z の RISC-V branch filter（method `0x0B`）を展開できるようにした。JAL、AUIPC と後続命令の対、
+  2 byte 整列、縮小命令を含む入力に対応する。XZ の RISC-V filter は引き続き未対応。
+
 ### 修正
 
 - SFX prefix のある RAR4 / RAR5 の分割書庫を開けるようにした。先頭巻の署名 offset と原本の identity を検証し、

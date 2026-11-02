@@ -729,6 +729,13 @@ XZ の `riscv.c` と Linux の `xz_dec_bcj.c` の実装断片が自動表示さ�
 Swap2/Swap4の実装と独立fixtureはこの検索前に作成済みで、検索断片はその入力に含めていない。
 今後のRISC-V追加には、許可された資料から独立に確定した仕様とblack-box vectorを別途そろえる。
 
+2026-11-02 の 7z RISC-V filter 実装は、この要件に沿って RISC-V の公開命令形式と 7zz 26.05 の
+black-box 入出力だけから変換規則を再導出した。第三者の decoder source や実装解説は参照していない。
+JAL、AUIPC と後続命令の対、変換済み marker、縮小命令を含む走査境界を独立モデルと固定ベクタで
+検証した。資料・導出手順・全 byte 照合の範囲は
+[7z RISC-V 検証記録](verification/2026-11-02-sevenzip-riscv.md)に記録する。XZ の RISC-V filter は
+この変更の対象外で、既存の明示的な拒否を維持する。
+
 2026-09-18 の追加incident開示。lzipの公式マニュアルのFile formatを確認する検索結果に、
 同じマニュアル後半のReference source codeからCRC・member header/trailer処理等の断片が
 自動表示された。仕様節だけを求めた検索でも参考実装を含み得ることを確認した。

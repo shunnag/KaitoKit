@@ -383,6 +383,18 @@ implementation source was consulted.
       678c8ff2903b5b39ac5e4cb34a426cae7a2bc6e131617a162302a93a464b5488
       ed1eb85d618010a3cec4e1cbc429e3de3671a387f1d1ce2bb2e1c19a42a88f40
       a91802db740401e17d61f724c4bb403a82bf68a303af96ad591662e5782b7c30
+
+  sevenzip/riscv-vector-plain.bin.b64      (4096 bytes decoded)
+  sevenzip/riscv-vector-filtered.bin.b64   (4096 bytes decoded)
+    Project-owned deterministic RISC-V instruction and noise vectors (Python
+    random, seed 20261102), generated 2026-11-02. The filtered file is the
+    output of `7zz a -t7z -mhc=off -m0=RISCV -m1=Copy` using 7-Zip 26.05 only
+    as a black-box writer. The derivation is recorded in
+    Documentation/verification/2026-11-02-sevenzip-riscv.md.
+    SHA-256, in the order above:
+      cc8015e25a080a7080f0161c34d1f0267a82c0653834ca7bae73cc2b73becf38
+      061cf92e119d3ab29bea43c38d6c42fef62e7c94ec6f10f058df5153323e52d7
+
   container/newc.cpio.b64   find . | cpio -o -H newc     (5 entries)
   container/odc.cpio.b64    find . | cpio -o -H odc      (5 entries)
   container/bin.cpio.b64    find . | cpio -o -H bin      (5 entries)

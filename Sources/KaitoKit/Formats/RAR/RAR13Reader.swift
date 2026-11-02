@@ -349,7 +349,7 @@ final class RAR13Reader: FormatReader {
             }
             for index in indices {
                 let record = records[index]
-                guard record.method != 0, record.unpackVersion == 2, !record.isSplit else {
+                guard record.method != 0, record.unpackVersion == 2 else {
                     throw KaitoError.unsupportedMethod("RAR1.3 unsupported solid stream member")
                 }
             }

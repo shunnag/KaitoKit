@@ -28,8 +28,8 @@ def entries(data):
     return result
 
 
-def volume(parts):
-    result = bytearray(b'RE~^' + struct.pack('<HB', 7, 0x81))
+def volume(parts, solid=False):
+    result = bytearray(b'RE~^' + struct.pack('<HB', 7, 0x89 if solid else 0x81))
     for header, payload in parts:
         result += header + payload
     return bytes(result)
@@ -56,17 +56,26 @@ def generate(unrar):
         'stored-split.rar': volume([stored_first]),
         'stored-split.r00': volume([stored_second]),
     }
+    for variant in ['solid', 'solid-main']:
+        solid_entries = entries(archives[variant])
+        first, second = split_entry(solid_entries[1], 3)
+        outputs[variant + '-split.rar'] = volume([
+            (solid_entries[0]['header'], solid_entries[0]['payload']), first,
+        ], solid=True)
+        outputs[variant + '-split.r00'] = volume([second], solid=True)
     with tempfile.TemporaryDirectory(prefix='kaitokit-rar13-volumes-') as temporary:
         root = Path(temporary)
         for name, data in outputs.items():
             (root / name).write_bytes(data)
-        for name in ['split', 'stored-split']:
+        for name in ['split', 'stored-split', 'solid-split', 'solid-main-split']:
             archive = root / (name + '.rar')
             subprocess.run([unrar, 't', '-idq', str(archive)], check=True)
             destination = root / name
             destination.mkdir()
             subprocess.run([unrar, 'x', '-idq', str(archive), str(destination) + '/'], check=True)
             expected = original[1:] if name == 'split' else original[:1]
+            if name in ['solid-split', 'solid-main-split']:
+                expected = entries(archives[name.removesuffix('-split')])
             for entry in expected:
                 name_bytes = entry['header'][21:]
                 actual = (destination / name_bytes.decode()).read_bytes()

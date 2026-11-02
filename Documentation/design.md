@@ -1533,8 +1533,9 @@ prose ページであることを確認し、`source-archive` を含む URL は�
   2026-11-03 の追補(cooViewer-c1vj.14)では、`RSFX` marker と MZ 画像サイズ、その位置の
   `RE~^` を照合する SFX を追加した。Data では opt-in とし、偶然の署名は信用しない。
   2026-11-03 の追補(cooViewer-c1vj.13)では、directory anchor で old `.r00` を解決し、
-  header を除く payload を `SourceSegment` で連結して stored・非 solid 圧縮を展開する。
-  最終巻の checksum を使い、Data からの継続巻と solid 分割は拒否する。
+  header を除く payload を `SourceSegment` で連結して stored・圧縮・solid を展開する。
+  最終巻の checksum を使い、solid の辞書と adaptive Huffman 状態は巻をまたいで保持する。
+  追補(cooViewer-c1vj.15)で solid 分割を追加した。Data からの継続巻は拒否する。
 - M3(784b37a + 第 2 段): RAR 5.x(v0 LZ・フィルタ・solid・AES-256・ヘッダ暗号化・分割・BLAKE2sp)と RAR 2.9/3.x
   (LZ・標準 VM フィルタ 6 種・PPMd var.H・solid・AES-128・ヘッダ暗号化・分割・SFX 前置)。RAR5 corpus と実書庫、
   RAR4 の st1200(19 JPEG)と libarchive の BSD 試験書庫が `rar` オラクル / XADMaster と一致。第 1 段の敵対

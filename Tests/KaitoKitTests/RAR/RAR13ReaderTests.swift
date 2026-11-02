@@ -108,6 +108,23 @@ final class RAR13ReaderTests: XCTestCase {
         }
     }
 
+    func testSolidMultiVolumeEntriesKeepDecoderStateAcrossVolumes() throws {
+        for prefix in ["solid-split", "solid-main-split"] {
+            let directory = try writeVolumes(prefix)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let reader = try ArchiveReader.open(url: directory.appendingPathComponent("\(prefix).rar"))
+            XCTAssertEqual(reader.entries.map(\.name), ["first.txt", "second.txt"])
+            XCTAssertEqual(reader.entries[1].solidGroup, 0)
+            XCTAssertEqual(reader.entries[1].formatSpecific["volumeSegmentCount"], "2")
+            for index in [0, 1, 1, 0, 1] {
+                XCTAssertEqual(
+                    try reader.read(reader.entries[index]), Data("RAR15!\r\n".utf8),
+                    "\(prefix):read \(index)"
+                )
+            }
+        }
+    }
+
     func testMissingAndMismatchedContinuationVolumesAreRejected() throws {
         let missing = try writeVolumes("split")
         defer { try? FileManager.default.removeItem(at: missing) }
@@ -266,6 +283,18 @@ final class RAR13ReaderTests: XCTestCase {
         }
     }
 
+    func testSFXMultiVolumeEntriesMatchUnrarOutput() throws {
+        let directory = try TestFixtures.makeTemporaryDirectory(label: "rar13-sfx-volumes")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try makeSFX(fixture: "split.rar").write(to: directory.appendingPathComponent("split.exe"))
+        try TestFixtures.base64("rar13/split.r00").write(to: directory.appendingPathComponent("split.r00"))
+        let reader = try ArchiveReader.open(url: directory.appendingPathComponent("split.exe"))
+        let phrase = Data("RAR15!\r\n".utf8)
+        for entry in reader.entries {
+            XCTAssertEqual(try reader.read(entry), entry.name == "compressed.txt" ? phrase + phrase : phrase)
+        }
+    }
+
     func testSFXFullFinalPageComputesCorrectOffset() throws {
         let reader = try ArchiveReader.open(data: try makeSFX(stubSize: 512), options: ReaderOptions(scanForSFXInData: true))
         XCTAssertEqual(try reader.read(reader.entries[0]), Data("RAR15!\r\n".utf8))
@@ -302,7 +331,7 @@ final class RAR13ReaderTests: XCTestCase {
         XCTAssertEqual(try reader.read(entry), expected)
     }
 
-    private func makeSFX(stubSize: Int = 64) throws -> Data {
+    private func makeSFX(stubSize: Int = 64, fixture: String = "normal.rar") throws -> Data {
         precondition(stubSize >= 32 && stubSize <= 128 * 1_024)
         var stub = Data(repeating: 0, count: stubSize)
         stub[0] = 0x4d
@@ -314,7 +343,7 @@ final class RAR13ReaderTests: XCTestCase {
         stub[4] = UInt8(truncatingIfNeeded: pages)
         stub[5] = UInt8(truncatingIfNeeded: pages >> 8)
         stub.replaceSubrange(28..<32, with: Data("RSFX".utf8))
-        return try stub + TestFixtures.base64("rar13/normal.rar")
+        return try stub + TestFixtures.base64("rar13/\(fixture)")
     }
 
     func testPasswordProviderIsResolvedOnceAndReused() throws {

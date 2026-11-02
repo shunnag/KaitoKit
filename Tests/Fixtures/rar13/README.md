@@ -10,8 +10,10 @@ python3 Scripts/fixtures/make-rar13-crypto.py --unrar /opt/homebrew/bin/unrar
 python3 Scripts/fixtures/make-rar13-volumes.py --unrar /opt/homebrew/bin/unrar
 ```
 
-`make-rar13-volumes.py` は通常書庫を 2 巻に分け、UNRAR でも連結展開を照合します。
+`make-rar13-volumes.py` は書庫を 2 巻に分け、UNRAR でも連結展開を照合します。
 `split.rar` / `.r00` は stored + 圧縮、`stored-split.rar` / `.r00` は stored の 2 巻です。
+`solid-split` と `solid-main-split` は 2 件目の圧縮 bitstream を分割し、前 file の
+辞書・adaptive Huffman 状態を巻またぎで引き継ぎます。各巻の `MHD_SOLID` も保持します。
 
 暗号・comment の fixture は `make-rar13-crypto.py` が生成し、UNRAR の password 展開と
 `unrar v` の comment 表示も照合します。password は `password` です。
@@ -42,6 +44,10 @@ archive SHA-256:
 - `split.r00`: `ddb960e89bb242b9d2ed36aea9db5e42a5df10252496beefc4640dc2598c88cb`
 - `stored-split.rar`: `62a7f69a3918d80a34feda96d43738d7ec3bca0eca5e6a3010046330087ee46c`
 - `stored-split.r00`: `5f55567d2c08caf881eda61b0e04505210434ff73aef15e5acee7aff52237f7c`
+- `solid-split.rar`: `61815b43cc68624658df374a9960fe08f0f313861b70883c60096125e0ec7023`
+- `solid-split.r00`: `52309c9bcdfa767aa2341e94260a99cb4f20131da11d022fed8e32114b5202d0`
+- `solid-main-split.rar`: `ce6cef51ff0228f5f43c53fd0eeff35eb7258b25bcf962c641d495fe837f1052`
+- `solid-main-split.r00`: `b23c2ab349e57f88954fd4d47a7e72f1a676c9a60c02f491048127181f347f23`
 
 RAR 1.402 の大きい実書庫は `inbox/rar13` に置き、`KAITOKIT_RAR13_FIXTURES` で渡す
 非配布の比較対象です。これらの fixture には含めていません。

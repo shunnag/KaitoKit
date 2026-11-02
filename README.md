@@ -126,7 +126,7 @@ print(encrypted.entries.count)
 | tar / cpio（`.tar` / `.cpio` / `.cpgz` など） | ファイル一覧・展開、圧縮された tar / cpio | なし |
 | ZIP / ZIP64（`.zip` / `.zipx`） | 単一・分割書庫、自己解凍書庫 | ZipCrypto、WinZip AES-128/192/256 |
 | 7z（`.7z`） | 単一・分割書庫、自己解凍書庫 | 7zAES-256（data / header） |
-| RAR 1.3 / 1.4（`.rar` / `.exe`） | stored・Unpack15 圧縮・solid・comment・検証済み SFX・old multi-volume（Data からの継続巻解決・solid 分割は非対応） | 旧暗号（ASCII password） |
+| RAR 1.3 / 1.4（`.rar` / `.exe`） | stored・Unpack15 圧縮・solid・comment・検証済み SFX・old multi-volume（Data からの継続巻解決は非対応） | 旧暗号（ASCII password） |
 | RAR4 / RAR5（`.rar`） | 単一・分割書庫、自己解凍書庫（組み合わせに制限あり） | AES-128 / AES-256（data / header） |
 | LHA / LZH（`.lha` / `.lzh`） | 主要な圧縮方式、自己解凍書庫 | なし |
 | StuffIt classic / StuffIt 5（`.sit` / `.sea`） | data / resource fork、classic の分割書庫 | classic 改変 DES（条件あり）、StuffIt 5 RC4 |

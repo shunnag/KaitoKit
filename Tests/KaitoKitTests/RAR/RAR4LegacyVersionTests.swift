@@ -3,8 +3,8 @@ import Foundation
 import XCTest
 
 final class RAR4LegacyVersionTests: XCTestCase {
-    func testCompressedUnpackVersions15_20And26AreExplicitlyUnsupported() throws {
-        for version: UInt8 in [15, 20, 26] {
+    func testCompressedUnpackVersion15IsExplicitlyUnsupported() throws {
+        for version: UInt8 in [15] {
             let reader = try ArchiveReader.open(data: makeArchive(unpackVersion: version))
             let entry = try XCTUnwrap(reader.entries.first)
             XCTAssertThrowsError(try reader.stream(entry)) { error in

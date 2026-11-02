@@ -7,13 +7,23 @@ import Darwin
 // - RARLab, "RAR 5.0 archive format": https://www.rarlab.com/technote.htm
 // - KaitoKit's own RAR5 raw-buffer reuse pattern for drain scratch.
 // No unrar, 7-Zip, XADMaster, or The Unarchiver source was used.
-// RAR4Reader supplies RAR29Decoder.SolidState and a known UInt64 size;
+// RAR4Reader supplies RAR20Decoder.SolidState or RAR29Decoder.SolidState with a known UInt64 size;
 // RAR5Reader supplies RAR5Decoder.SolidState and an optional UInt64 size.
 
 protocol RARSolidState: AnyObject {
     init(dictionarySize: UInt64) throws
+    static func allocationSize(for dictionarySize: UInt64) throws -> Int
 }
 
+extension RARSolidState {
+    static func allocationSize(for dictionarySize: UInt64) throws -> Int {
+        try RAR5Decoder.allocationWindowSize(for: Checked.toInt(dictionarySize))
+    }
+}
+
+extension RAR20Decoder.SolidState: RARSolidState {
+    static func allocationSize(for dictionarySize: UInt64) throws -> Int { RAR20Decoder.windowSize }
+}
 extension RAR29Decoder.SolidState: RARSolidState {}
 extension RAR5Decoder.SolidState: RARSolidState {}
 
@@ -145,9 +155,7 @@ final class RARSolidCoordinator<State: RARSolidState> {
     }
 
     private func restart() throws {
-        let allocationSize = try RAR5Decoder.allocationWindowSize(
-            for: Checked.toInt(dictionarySize)
-        )
+        let allocationSize = try State.allocationSize(for: dictionarySize)
         try Checked.size(UInt64(allocationSize), limit: limits.maxDictionarySize)
         state = try State(dictionarySize: dictionarySize)
         nextPosition = 0

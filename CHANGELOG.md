@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+### 追加
+
+- RAR4 unpack version 20 / 26 の LZ・音声ブロックと solid 書庫を展開できるようにした。
+  1 MiB 窓、version 20 専用の距離履歴・長さボーナス、1〜4 チャンネルの音声予測に対応する。
+  version 15 と custom RAR VM は従来どおり明示的に拒否する。
+
 ## [0.19.0] - 2026-11-02
 
 RAR5 compression version 1、7z / XZ の RISC-V filter、RAR4 / RAR5 の分割 SFX に対応する release。

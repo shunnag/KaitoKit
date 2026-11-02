@@ -1485,8 +1485,12 @@ prose ページであることを確認し、`source-archive` を含む URL は�
     Data / 任意 `ByteSource` からの sibling volume 継続、サイズ不明の暗号化 stored entry である。
     redirection type 5 は一覧と 0-byte read / stream を行えるが、copy target の展開は行わない
     （2026-09-20 に変更: 解決できる参照は参照先の本文を返す `.file` として公開する）。
-    compression method 1〜5 の algorithm version 1 は stream 作成時に拒否し、stored method 0 は
-    圧縮 grammar を使わない。version 2 以上も対象 entry の stream 作成時に拒否する。
+    compression method 1〜5 の algorithm version 0 / 1 を展開し、stored method 0 は圧縮 grammar を
+    使わない。version 1 は 80 distance symbols を使い、非2の累乗辞書を次の2の累乗の ring に確保する。
+    実確保量を `ReadLimits.maxDictionarySize` で制限し、match distance は宣言辞書で制限する。
+    version 2 以上は対象 entry の stream 作成時に拒否する。version 1 の変換規則は RAR 7.23 の
+    black-box 入出力から導出し、第三者 decoder source は使っていない
+    （[検証記録](verification/2026-11-02-rar5-version1.md)）。
   - 最終 RAR5 release `bench` の warm median は `book-rar5.cbr` extract 29.965 ms、
     `book-tiff-rar5.cbr` extract 518.363 ms。XADMaster 基準 34 / 352 ms に対して 0.881 / 1.473 倍で、
     RAR 固有の 1.5 倍目標内。同じ実行環境での 784b37a は 29.698 / 512.411 ms で、差は

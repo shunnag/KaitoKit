@@ -37,7 +37,9 @@
 - zstd の外部辞書は非対応です。Dictionary_ID が非零なら `unsupportedMethod` になります。
 - 7z は 7-Zip ZS の LZ4 / Brotli / LZ5 / Lizard coder を扱いません。Zstandard coder の properties は 3 byte または 5 byte だけを受理します。7-Zip ZS の FLZMA2 は標準の LZMA2（ID 21）として書かれるため、そのまま読めます。
 - RAR4 は unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成を扱いません。
-  RAR5 は compression version 1、サイズ不明の暗号化 stored entry を扱いません。
+  RAR5 は compression version 0 / 1 を展開できますが、サイズ不明の暗号化 stored entry は扱いません。
+  version 1 の非2の累乗辞書は次の2の累乗で確保するため、実確保量が `maxDictionarySize` を超える場合は
+  上限の引上げが必要です。5 GiB 辞書は 8 GiB として扱います。
 - LHA は `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` を一覧できますが、読み取り時に
   `unsupportedMethod` になります。resource fork は separate entry として公開しません。
 - XZ は LZMA2 だけの filter chain と RISC-V + LZMA2 を KaitoKit 自身の decoder で復号し、
@@ -113,8 +115,9 @@
 >   The Zstandard coder accepts only 3- or 5-byte properties. 7-Zip ZS's FLZMA2 is written as standard
 >   LZMA2 (ID 21) and reads as such.
 > - RAR4 does not handle unpack versions 15, 20 and 26, the custom VM, or solid configurations whose
->   dictionary size changes. RAR5 does not handle compression version 1 or an encrypted stored entry
->   of unknown size.
+>   dictionary size changes. RAR5 decodes compression versions 0 and 1, but not encrypted stored entries
+>   of unknown size. A non-power-of-two version 1 dictionary uses the next power-of-two allocation;
+>   `maxDictionarySize` must cover that allocation (5 GiB becomes 8 GiB).
 > - LHA can list `-pm1-`, `-pm2-`, `-lh2-` and `-lh3-` but fails with `unsupportedMethod` when
 >   reading them. Resource forks are not exposed as separate entries.
 > - XZ decodes LZMA2-only and RISC-V + LZMA2 filter chains with KaitoKit's own decoder; streams with other

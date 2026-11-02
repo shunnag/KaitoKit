@@ -145,7 +145,10 @@ final class RARSolidCoordinator<State: RARSolidState> {
     }
 
     private func restart() throws {
-        try Checked.size(dictionarySize, limit: limits.maxDictionarySize)
+        let allocationSize = try RAR5Decoder.allocationWindowSize(
+            for: Checked.toInt(dictionarySize)
+        )
+        try Checked.size(UInt64(allocationSize), limit: limits.maxDictionarySize)
         state = try State(dictionarySize: dictionarySize)
         nextPosition = 0
         activePosition = nil

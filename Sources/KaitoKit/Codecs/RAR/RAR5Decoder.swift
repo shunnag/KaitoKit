@@ -16,7 +16,8 @@ import Foundation
 // Documentation/design.md §10–§11 records the generic algorithm references
 // and the incident/remediation in full.
 
-/// Pull decoder for the version-zero RAR5 LZ stream.
+/// Pull decoder for the version 0 and 1 RAR5 LZ streams. Version 1 extends the
+/// distance table from 64 to 80 symbols; the other table layouts are shared.
 ///
 /// Performance invariants:
 /// - compressed bytes, the ring window and all Huffman lookup tables are raw
@@ -37,14 +38,18 @@ final class RAR5Decoder: Decompressor {
     /// Initial value of the XOR check over a compressed block header.
     private static let blockHeaderChecksumSeed: UInt8 = 0x5a
     private static let mainSymbolCount = 306
-    private static let distanceSymbolCount = 64
     private static let lowDistanceSymbolCount = 16
     private static let repeatLengthSymbolCount = 44
     private static let bitLengthSymbolCount = 20
-    private static let combinedTableCount = mainSymbolCount
-        + distanceSymbolCount
-        + lowDistanceSymbolCount
-        + repeatLengthSymbolCount
+
+    private static func distanceSymbolCount(for version: UInt8) -> Int {
+        version == 0 ? 64 : 80
+    }
+
+    private static func combinedTableCount(for version: UInt8) -> Int {
+        mainSymbolCount + distanceSymbolCount(for: version)
+            + lowDistanceSymbolCount + repeatLengthSymbolCount
+    }
 
     private static let lengthBase: [Int] = [
         0, 1, 2, 3, 4, 5, 6, 7,
@@ -80,6 +85,7 @@ final class RAR5Decoder: Decompressor {
         let window: UnsafeMutablePointer<UInt8>
         let windowSize: Int
         let windowMask: Int
+        let matchDistanceLimit: Int
 
         fileprivate let mainTable = RAR5HuffmanTable()
         fileprivate let distanceTable = RAR5HuffmanTable()
@@ -105,19 +111,17 @@ final class RAR5Decoder: Decompressor {
         var lastLength = 0
 
         init(dictionarySize: UInt64) throws {
-            let size = try Checked.toInt(dictionarySize)
-            guard size >= RAR5Decoder.minimumDictionarySize, size.nonzeroBitCount == 1 else {
-                throw KaitoError.unsupportedMethod(
-                    "RAR5 decoder requires a power-of-two dictionary"
-                )
-            }
+            let size = try RAR5Decoder.allocationWindowSize(
+                for: Checked.toInt(dictionarySize)
+            )
             guard let raw = malloc(size) else {
                 throw KaitoError.limitExceeded("unable to allocate RAR5 dictionary")
             }
             window = raw.bindMemory(to: UInt8.self, capacity: size)
             windowSize = size
             windowMask = size - 1
-            codeLengths = .allocate(capacity: RAR5Decoder.combinedTableCount)
+            matchDistanceLimit = try Checked.toInt(dictionarySize)
+            codeLengths = .allocate(capacity: RAR5Decoder.combinedTableCount(for: 1))
             bitCodeLengths = .allocate(capacity: RAR5Decoder.bitLengthSymbolCount)
             // validateMatch requires distance <= historySize. All readable
             // history is written by literals/matches before it is referenced,
@@ -226,6 +230,7 @@ final class RAR5Decoder: Decompressor {
     private let describedWindowSize: Int
     private let expectedSize: UInt64?
     private let maximumFilterCount: Int
+    private let compressionVersion: UInt8
     // Most compressed entries do not use a standard filter. Allocate these
     // large work areas once, on the first filter, instead of touching 8 MiB for
     // every entry in JPEG-heavy archives.
@@ -243,6 +248,7 @@ final class RAR5Decoder: Decompressor {
         let bytes: UnsafeMutableRawPointer
         // 8 byte 境界の record。tag 0 は byte 数と後続の literal run、
         // tag 1/2 は bit 32〜47 の長さと下位 32 bit の距離 / repeat index。
+        // version 1 の長い距離は bit 48〜55 に上位 8 bit を追加する。
         // tag 3 は直前の match の再使用。run の末尾だけ 8 byte へ切り上げる。
         var used = 0
         var valid = false
@@ -273,9 +279,11 @@ final class RAR5Decoder: Decompressor {
 
         deinit { free(bytes) }
 
-        func decode(input: UnsafePointer<UInt8>, state: SolidState) {
+        func decode(input: UnsafePointer<UInt8>, state: SolidState, compressionVersion: UInt8) {
             var bits = RAR5RawBitReader(pointer: input.advanced(by: payload), bitLimit: bitLimit)
-            do { try RAR5Decoder.readTables(from: &bits, state: state) }
+            do { try RAR5Decoder.readTables(
+                from: &bits, compressionVersion: compressionVersion, state: state
+            ) }
             catch { return }
             var cursor = 0
             var literalHeader = 0
@@ -312,13 +320,16 @@ final class RAR5Decoder: Decompressor {
                     guard var length = RAR5Decoder.decodeLengthSlot(symbol - 262, bits: &bits),
                           let slot = state.distanceTable.decode(from: &bits),
                           let distance = RAR5Decoder.decodeDistance(
-                            slot: slot, bits: &bits, lowDistanceTable: state.lowDistanceTable
+                            slot: slot, bits: &bits, compressionVersion: compressionVersion,
+                            lowDistanceTable: state.lowDistanceTable
                           ) else { return }
-                    guard distance <= Int(UInt32.max) else { return }
+                    guard compressionVersion != 0 || distance <= Int(UInt32.max) else { return }
                     if distance > 0x100 { length += 1 }
                     if distance > 0x2_000 { length += 1 }
                     if distance > 0x4_0000 { length += 1 }
-                    token = (1 << 56) | (UInt64(length) << 32) | UInt64(distance)
+                    token = (1 << 56) | (UInt64(length) << 32)
+                        | (UInt64(distance) & 0xffff_ffff)
+                        | ((UInt64(distance) >> 32) << 48)
                 default:
                     // filter と不正な符号は元の loop で同じ位置・順序で検査する。
                     return
@@ -341,18 +352,23 @@ final class RAR5Decoder: Decompressor {
             let input: UnsafePointer<UInt8>
             let blocks: [TokenBlock]
             let workers: Int
+            let compressionVersion: UInt8
             let condition = NSCondition()
             var remaining: Int
 
-            init(input: UnsafePointer<UInt8>, blocks: [TokenBlock], workers: Int) {
+            init(input: UnsafePointer<UInt8>, blocks: [TokenBlock], workers: Int,
+                 compressionVersion: UInt8) {
                 self.input = input; self.blocks = blocks; self.workers = workers
+                self.compressionVersion = compressionVersion
                 remaining = workers
             }
 
             func run(_ worker: Int) {
                 if let state = try? SolidState(dictionarySize: UInt64(minimumDictionarySize)) {
                     for i in stride(from: worker, to: blocks.count, by: workers) {
-                        blocks[i].decode(input: input, state: state)
+                        blocks[i].decode(
+                            input: input, state: state, compressionVersion: compressionVersion
+                        )
                     }
                 }
                 condition.withLock {
@@ -366,13 +382,16 @@ final class RAR5Decoder: Decompressor {
         let count: Int
         let workers: Int
         let budget: Int
+        let compressionVersion: UInt8
         var blocks: [TokenBlock] = []
         var index = 0
 
-        init(input: UnsafePointer<UInt8>, count: Int, workers: Int, budget: Int) {
+        init(input: UnsafePointer<UInt8>, count: Int, workers: Int, budget: Int,
+             compressionVersion: UInt8) {
             self.input = input; self.count = count
             self.workers = min(workers, LeafDecodePool.shared.capacity)
             self.budget = budget
+            self.compressionVersion = compressionVersion
         }
 
         func tokens(at start: Int) -> TokenBlock? {
@@ -399,7 +418,10 @@ final class RAR5Decoder: Decompressor {
             }
             guard blocks.count >= 2 else { blocks.removeAll(); return nil }
             let jobs = min(workers, blocks.count)
-            let batch = Batch(input: input, blocks: blocks, workers: jobs)
+            let batch = Batch(
+                input: input, blocks: blocks, workers: jobs,
+                compressionVersion: compressionVersion
+            )
             let group = LeafDecodePool.Group()
             var tickets: [LeafDecodePool.Ticket] = []
             for worker in 1..<jobs {
@@ -488,20 +510,16 @@ final class RAR5Decoder: Decompressor {
         solidState suppliedSolidState: SolidState? = nil,
         scratchPool: ScratchPool? = nil,
         independentState: SolidState? = nil,
-        decodeThreads: Int = 1
+        decodeThreads: Int = 1,
+        compressionVersion: UInt8 = 0
     ) throws {
         if let expectedSize {
             try Checked.size(expectedSize, limit: limits.maxEntrySize)
         }
         try Checked.size(compressedSize, limit: limits.maxEntrySize)
-        try Checked.size(dictionarySize, limit: limits.maxDictionarySize)
         let requiredDictionarySize = try Checked.toInt(dictionarySize)
-        guard requiredDictionarySize >= Self.minimumDictionarySize,
-              requiredDictionarySize.nonzeroBitCount == 1 else {
-            throw KaitoError.unsupportedMethod(
-                "RAR5 decoder requires a power-of-two dictionary"
-            )
-        }
+        let allocationDictionarySize = try Self.allocationWindowSize(for: requiredDictionarySize)
+        try Checked.size(UInt64(allocationDictionarySize), limit: limits.maxDictionarySize)
         let inputCount = try Checked.toInt(compressedSize)
         let allocationCount = try Checked.toInt(
             try Checked.add(compressedSize, UInt64(Self.sentinelByteCount))
@@ -524,7 +542,7 @@ final class RAR5Decoder: Decompressor {
                     )
                 }
                 state = suppliedSolidState
-                matchDistanceLimit = suppliedSolidState.windowSize
+                matchDistanceLimit = suppliedSolidState.matchDistanceLimit
             } else {
                 // Only independent entries with a known total output size
                 // can retain less than the declared dictionary. The ring still
@@ -570,6 +588,7 @@ final class RAR5Decoder: Decompressor {
         self.describedWindowSize = suppliedSolidState?.windowSize ?? requiredDictionarySize
         self.expectedSize = expectedSize
         self.maximumFilterCount = limits.maxMetadataRecordCount
+        self.compressionVersion = compressionVersion
         self.filterInput = nil
         self.filterOutput = nil
 
@@ -605,7 +624,8 @@ final class RAR5Decoder: Decompressor {
                     if budget > resident {
                         blockPipeline = BlockPipeline(
                             input: UnsafePointer(input), count: inputCount,
-                            workers: decodeThreads, budget: min(32 * 1_024 * 1_024, budget - resident)
+                            workers: decodeThreads, budget: min(32 * 1_024 * 1_024, budget - resident),
+                            compressionVersion: compressionVersion
                         )
                     }
                 }
@@ -616,6 +636,17 @@ final class RAR5Decoder: Decompressor {
             // buffers here as well would double-free them on malformed input.
             throw error
         }
+    }
+
+    /// 非2の累乗の辞書も、次の2の累乗の ring に確保する。距離上限と
+    /// resource limit の実確保量は宣言値・丸め値をそれぞれ別に扱う。
+    static func allocationWindowSize(for dictionarySize: Int) throws -> Int {
+        guard dictionarySize >= minimumDictionarySize, dictionarySize <= (1 << 62) else {
+            throw KaitoError.unsupportedMethod(
+                "RAR5 dictionary is outside the supported allocation range"
+            )
+        }
+        return 1 << (Int.bitWidth - (dictionarySize - 1).leadingZeroBitCount)
     }
 
     /// Ring retained for an independent member: the declared dictionary, or
@@ -1031,7 +1062,8 @@ final class RAR5Decoder: Decompressor {
                 guard var matchLength = Self.decodeLengthSlot(symbol &- 262, bits: &bitReader),
                       let distanceSlot = distanceTable.decode(from: &bitReader),
                       let matchDistance = Self.decodeDistance(
-                        slot: distanceSlot, bits: &bitReader, lowDistanceTable: lowDistanceTable
+                        slot: distanceSlot, bits: &bitReader, compressionVersion: compressionVersion,
+                        lowDistanceTable: lowDistanceTable
                       ) else {
                     failure = .matchOverrun
                     break symbols
@@ -1252,7 +1284,9 @@ final class RAR5Decoder: Decompressor {
 
             case 262..<Self.mainSymbolCount:
                 let matchLength = Int((token >> 32) & 0xffff)
-                let matchDistance = Int(token & 0xffff_ffff)
+                let matchDistance = Int(
+                    (token & 0xffff_ffff) | ((token >> 16) & 0xff_0000_0000)
+                )
                 guard Self.isValidMatch(
                     distance: matchDistance, length: matchLength, distanceLimit: distanceLimit,
                     historySize: history, remainingOutput: remainingOutput
@@ -1483,7 +1517,9 @@ final class RAR5Decoder: Decompressor {
         currentBlockIsLast = flags & 0x40 != 0
         nextBlockOffset = end
         if flags & 0x80 != 0 {
-            try Self.readTables(from: &reader, state: solidState)
+            try Self.readTables(
+                from: &reader, compressionVersion: compressionVersion, state: solidState
+            )
             solidState.tablesWereRead = true
         } else if !solidState.tablesWereRead {
             throw KaitoError.malformed("RAR5 first compressed block has no Huffman tables")
@@ -1491,10 +1527,16 @@ final class RAR5Decoder: Decompressor {
         bits = reader
     }
 
-    private static func readTables(from bits: inout RAR5RawBitReader, state: SolidState) throws {
+    private static func readTables(
+        from bits: inout RAR5RawBitReader,
+        compressionVersion: UInt8,
+        state: SolidState
+    ) throws {
         let bitLengthTable = state.bitLengthTable
         let bitCodeLengths = state.bitCodeLengths
         let codeLengths = state.codeLengths
+        let distanceSymbolCount = distanceSymbolCount(for: compressionVersion)
+        let combinedTableCount = combinedTableCount(for: compressionVersion)
         // RAR5 table descriptions are self-contained. A block without the
         // table flag reuses the last tables, but a present description does
         // not delta its lengths against the preceding block.
@@ -1526,7 +1568,7 @@ final class RAR5Decoder: Decompressor {
         )
 
         index = 0
-        while index < Self.combinedTableCount {
+        while index < combinedTableCount {
             guard let symbol = bitLengthTable.decode(from: &bits) else {
                 throw KaitoError.malformed("RAR5 code-length stream is invalid")
             }
@@ -1543,7 +1585,7 @@ final class RAR5Decoder: Decompressor {
                 let base = symbol == 16 ? 3 : 11
                 guard let extra = bits.read(extraBitCount) else { throw KaitoError.truncated }
                 let count = base + extra
-                guard count <= Self.combinedTableCount - index else {
+                guard count <= combinedTableCount - index else {
                     throw KaitoError.malformed("RAR5 repeated length exceeds its tables")
                 }
                 codeLengths.advanced(by: index).update(
@@ -1557,7 +1599,7 @@ final class RAR5Decoder: Decompressor {
                 let base = symbol == 18 ? 3 : 11
                 guard let extra = bits.read(extraBitCount) else { throw KaitoError.truncated }
                 let count = base + extra
-                guard count <= Self.combinedTableCount - index else {
+                guard count <= combinedTableCount - index else {
                     throw KaitoError.malformed("RAR5 zero run exceeds its tables")
                 }
                 codeLengths.advanced(by: index).update(repeating: 0, count: count)
@@ -1578,12 +1620,12 @@ final class RAR5Decoder: Decompressor {
         )
         try state.distanceTable.build(
             lengths: UnsafePointer(codeLengths.advanced(by: Self.mainSymbolCount)),
-            count: Self.distanceSymbolCount,
+            count: distanceSymbolCount,
             requireSymbol: false
         )
         try state.lowDistanceTable.build(
             lengths: UnsafePointer(codeLengths.advanced(
-                by: Self.mainSymbolCount + Self.distanceSymbolCount
+                by: Self.mainSymbolCount + distanceSymbolCount
             )),
             count: Self.lowDistanceSymbolCount,
             requireSymbol: false
@@ -1591,7 +1633,7 @@ final class RAR5Decoder: Decompressor {
         try state.repeatLengthTable.build(
             lengths: UnsafePointer(codeLengths.advanced(
                 by: Self.mainSymbolCount
-                    + Self.distanceSymbolCount
+                    + distanceSymbolCount
                     + Self.lowDistanceSymbolCount
             )),
             count: Self.repeatLengthSymbolCount,
@@ -1620,9 +1662,11 @@ final class RAR5Decoder: Decompressor {
     private static func decodeDistance(
         slot: Int,
         bits: inout RAR5RawBitReader,
+        compressionVersion: UInt8,
         lowDistanceTable: RAR5HuffmanTable
     ) -> Int? {
-        guard slot >= 0, slot < Self.distanceSymbolCount else { return nil }
+        let distanceSymbolCount = distanceSymbolCount(for: compressionVersion)
+        guard slot >= 0, slot < distanceSymbolCount else { return nil }
         if slot < 4 { return slot &+ 1 }
 
         let extraBitCount = (slot >> 1) &- 1

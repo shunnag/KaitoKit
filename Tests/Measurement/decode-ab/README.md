@@ -120,3 +120,72 @@ sandbox が `time -l` の `sysctl kern.clockrate` を拒否する場合だけ、
 計測中は build・test・他の処理を止め、電源・温度条件を揃える。
 noise floor の比の範囲内の変化は採用しない。範囲を外れる変化だけを再測定し、
 identity の一致と複数 round の再現を確認して採否を決める。
+
+## 元入力との照合・競合 decoder との比較
+
+`verify-corpus.py` は、manifest と `inputs/` に残る決定的な原本から entry 名・byte 数・SHA-256 を
+作り、`kaito sha` の全 entry と照合する。directory entry は本文として数えず、
+`ditto --keepParent` が単一 file に付ける `inputs/` は期待値に反映する。`--threads` は auto / 1 / 3 / 16、
+`--select` は path の部分一致を複数指定できる。結果は途中再開可能な JSONL に残る。
+
+```sh
+python3 Tests/Measurement/decode-ab/verify-corpus.py \
+  --kaito .build/release/kaito --threads auto \
+  --manifest /tmp/kaito-decode-corpus/manifest.json --out /tmp/kaito-decode-verify.jsonl
+```
+
+`compete.py` は、同じ manifest の `kaito sha --sink` と black-box の競合 decoder を
+`ab.py` と同じ交互順・warm・`/usr/bin/time -l` で測る。RAR は `unrar t`、ZIP / 7z と
+CAB / CHM / ARJ / WIM / DMG / MSI / CFB / ISO などの対応 container は `7zz t`、
+圧縮 tar は `bsdtar -xOf`、単一 stream は対応する公式 CLI の decode を使う。
+未対応を黙って skip せず、参照 tool が無い場合やどちらかの exit が 0 以外なら失敗とする。
+`--threads 1` は KaitoKit / 7zz / xz / zstd を 1 thread にする。`--threads auto --parallel-stream`
+は別の条件として xz / zstd にも自動並列を要求する。bsdtar 内部の thread 数を推定しない。
+
+```sh
+python3 Tests/Measurement/decode-ab/compete.py \
+  --kaito .build/release/kaito --revision "$(git rev-parse HEAD)" \
+  --manifest /tmp/kaito-decode-corpus/manifest.json --threads 1 --rounds 5 \
+  --out /tmp/kaito-decode-competitors.jsonl
+python3 Tests/Measurement/decode-ab/compete.py --summary /tmp/kaito-decode-competitors.jsonl
+```
+
+両 tool とも binary・manifest・tool・条件の digest を記録する。条件を変えたり
+失敗を取り消したりする場合は、同じ output を再利用せず新しい output を使う。
+base / candidate の比較には `--reference-kaito /path/to/candidate-kaito` を使える。
+その場合も両側に同じ `sha --sink --threads` を使い、別の binary 名を reference 側に記録する。
+
+既定 corpus にない PPMd var.H / var.I、Deflate64、LZMA1、BZip2、LHA lh5–7 は、
+完成した corpus の同じ入力から `make-codec-corpus.py` で追加できる。writer が見つからない
+場合や作成に失敗した場合は、欠落を黙って残さず終了 2 とする。LHA writer の path は
+`LHA_TOOL` でも指定できる。
+
+```sh
+python3 Tests/Measurement/decode-ab/make-codec-corpus.py \
+  /tmp/kaito-decode-corpus /tmp/kaito-codec-corpus
+python3 Tests/Measurement/decode-ab/verify-corpus.py \
+  --kaito .build/release/kaito --manifest /tmp/kaito-codec-corpus/manifest.json \
+  --out /tmp/kaito-codec-verify.jsonl
+python3 Tests/Measurement/decode-ab/compete.py \
+  --kaito .build/release/kaito --manifest /tmp/kaito-codec-corpus/manifest.json \
+  --threads 1 --rounds 5 --out /tmp/kaito-codec-competitors.jsonl
+```
+
+## read 境界と部分出力の identity
+
+`Outcomes.swift` は、independently link した binary の public API 結果を比較するための probe。
+original は thread auto / 1 / 3 / 16 と read buffer 1 / 4,099 / 65,536 の全組合せ、
+mutations は auto + 4,099 で切断・bit flip を試す。entry 名・返った byte 数・部分出力の
+SHA-256・`String(reflecting:)` のエラー・open エラーを残す。path 以外は同じ
+`--out` を使わず、base / candidate の JSONL を `cmp` で比較する。
+
+```sh
+BIN_DIR="$(swift build -c release --show-bin-path)"
+swiftc -O -module-cache-path /tmp/kaito-decode-module-cache \
+  -I "$BIN_DIR" -I Sources/CBzip2 Tests/Measurement/decode-ab/Outcomes.swift \
+  "$BIN_DIR/KaitoKit.o" -lz -lbz2 -o /tmp/kaito-decode-outcomes
+/tmp/kaito-decode-outcomes /tmp/kaito-decode-smoke/manifest.json \
+  /tmp/kaito-decode-outcomes-original.jsonl original
+/tmp/kaito-decode-outcomes /tmp/kaito-decode-smoke/manifest.json \
+  /tmp/kaito-decode-outcomes-mutations.jsonl mutations
+```

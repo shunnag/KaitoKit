@@ -17,7 +17,7 @@ static void finish(void) {
     if (!out) return;
     for (int i = 0; i < count; i++) {
         Dl_info info;
-        if (dladdr((void *)samples[i], &info)) fprintf(out, "%s\t%llx\n", info.dli_fname, (unsigned long long)(samples[i] - (uintptr_t)info.dli_fbase));
+        if (dladdr((void *)samples[i], &info)) fprintf(out, "%s\t%llx\t%s\n", info.dli_fname, (unsigned long long)(samples[i] - (uintptr_t)info.dli_fbase), info.dli_sname ? info.dli_sname : "");
     }
     fclose(out);
 }

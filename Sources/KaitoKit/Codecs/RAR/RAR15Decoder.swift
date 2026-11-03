@@ -32,14 +32,14 @@ final class RAR15Decoder: Decompressor {
         0xfc, 0xc0, 0x80, 0x90, 0x98, 0x9c, 0xb0]
 
     final class SolidState {
-        var chSet = (0..<256).map { $0 << 8 }
-        var chSetA = Array(0..<256)
-        var chSetB = (0..<256).map { $0 << 8 }
-        var chSetC = (0..<256).map { ((256 - $0) & 0xff) << 8 }
-        var nToPl = [Int](repeating: 0, count: 256)
-        var nToPlB = [Int](repeating: 0, count: 256)
-        var nToPlC = [Int](repeating: 0, count: 256)
-        var window = [UInt8](repeating: 0, count: RAR15Decoder.windowSize)
+        var chSet = UnsafeMutableBufferPointer<Int>.allocate(capacity: 256)
+        var chSetA = UnsafeMutableBufferPointer<Int>.allocate(capacity: 256)
+        var chSetB = UnsafeMutableBufferPointer<Int>.allocate(capacity: 256)
+        var chSetC = UnsafeMutableBufferPointer<Int>.allocate(capacity: 256)
+        var nToPl = UnsafeMutableBufferPointer<Int>.allocate(capacity: 256)
+        var nToPlB = UnsafeMutableBufferPointer<Int>.allocate(capacity: 256)
+        var nToPlC = UnsafeMutableBufferPointer<Int>.allocate(capacity: 256)
+        var window = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: RAR15Decoder.windowSize)
         var unpPtr = 0
         var firstWinDone = false
         var avrPlc = 0x3500
@@ -62,7 +62,28 @@ final class RAR15Decoder: Decompressor {
         var lastLength = 0
 
         init(dictionarySize: UInt64) throws {
+            for index in 0..<256 {
+                chSet[index] = index << 8
+                chSetA[index] = index
+                chSetB[index] = index << 8
+                chSetC[index] = ((256 - index) & 0xff) << 8
+                nToPl[index] = 0
+                nToPlB[index] = 0
+                nToPlC[index] = 0
+            }
+            window.initialize(repeating: 0)
             RAR15Decoder.corrHuff(&chSetB, &nToPlB)
+        }
+
+        deinit {
+            chSet.deallocate()
+            chSetA.deallocate()
+            chSetB.deallocate()
+            chSetC.deallocate()
+            nToPl.deallocate()
+            nToPlB.deallocate()
+            nToPlC.deallocate()
+            window.deallocate()
         }
     }
 
@@ -510,7 +531,8 @@ final class RAR15Decoder: Decompressor {
         produced += 1
     }
 
-    private static func corrHuff(_ chars: inout [Int], _ places: inout [Int]) {
+    private static func corrHuff(_ chars: inout UnsafeMutableBufferPointer<Int>,
+                                 _ places: inout UnsafeMutableBufferPointer<Int>) {
         var index = 0
         for rank in stride(from: 7, through: 0, by: -1) {
             for _ in 0..<32 {
@@ -518,7 +540,7 @@ final class RAR15Decoder: Decompressor {
                 index += 1
             }
         }
-        places = [Int](repeating: 0, count: 256)
+        places.baseAddress!.update(repeating: 0, count: places.count)
         for rank in stride(from: 6, through: 0, by: -1) {
             places[rank] = (7 - rank) * 32
         }

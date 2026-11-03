@@ -183,4 +183,15 @@ final class LZ4BlockBuffer {
     func withOutputBytes<T>(_ body: (UnsafeRawBufferPointer) throws -> T) rethrows -> T {
         try body(UnsafeRawBufferPointer(start: storage.map { $0.advanced(by: historyCount) }, count: outputCount))
     }
+
+    func takeOutput() -> Data {
+        precondition(historyCount == 0)
+        guard let storage else { return Data() }
+        let result = Data(bytesNoCopy: storage, count: outputCount,
+                          deallocator: .custom { pointer, _ in pointer.deallocate() })
+        self.storage = nil
+        capacity = 0
+        outputCount = 0
+        return result
+    }
 }

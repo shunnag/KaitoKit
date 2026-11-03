@@ -4,7 +4,17 @@
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
 バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従う。
 
-## [Unreleased]
+## [0.21.0] - 2026-11-03
+
+RAR15・LZ4・Deflate64・CAB LZX の復号を高速化する release。ビルド要件（Xcode 27 / Swift 6.4 以上）と実行環境（macOS 26 以上・Apple Silicon と Intel）は 0.20.0 と同じ。
+
+### 変更
+
+- RAR15 の window・Huffman 状態を固定長 buffer にし、solid 復号の配列管理費を削減する。
+- 独立した modern LZ4 block を文法と実出力長の検証後に並列復号する。dependent・legacy・連結 frame・単一 block・解析できない入力は従来の直列経路を使い、部分出力と checksum のエラー順も維持する。
+- Deflate64 の bit 読み出し・match 処理を inline 化し、alignment を reservoir から求めて Huffman entry を 4 byte にする。
+- CAB LZX の Huffman 高速表を固定 buffer にし、table 参照を block ごとに解く。実 product.cab（106 file）の復号時間を baseline の約 0.44〜0.52 倍にする。
+- 測定条件・他実装との残差・却下した試案は [全形式の decode 性能・安定性検証](Documentation/verification/2026-11-03-decode-performance.md) に記録する。
 
 ## [0.20.0] - 2026-11-03
 

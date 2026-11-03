@@ -28,6 +28,12 @@ final class LZ4AppleBlockDecoder {
             try LZ4BlockDecoder.decode(input, into: buffer, maximumSize: maximumSize)
             return
         }
+        try decodeValidated(input, into: buffer, blockMaximum: blockMaximum,
+                            maximumSize: maximumSize, expected: expected)
+    }
+
+    func decodeValidated(_ input: UnsafeRawBufferPointer, into buffer: LZ4BlockBuffer,
+                         blockMaximum: Int, maximumSize: Int, expected: Int) throws {
         // The walk proved expected <= maximumSize <= blockMaximum. The extra
         // byte distinguishes expected output from a capped decode without pinning
         // the frame maximum for short blocks or small entry limits.
@@ -48,8 +54,12 @@ final class LZ4AppleBlockDecoder {
 
     // Exposed internally for differential tests of the acceptance proof. Rejected
     // candidates always use the original decoder for their exact error diagnosis.
-    static func validatedSize(_ input: UnsafeRawBufferPointer, maximumSize: Int) throws -> Int {
-        if let count = scanValidSize(input, maximumSize: maximumSize) { return count }
+    static func validatedSize(
+        _ input: UnsafeRawBufferPointer, maximumSize: Int, complete: Bool = false
+    ) throws -> Int {
+        if let result = scanValidSize(input, maximumSize: maximumSize, complete: complete) {
+            return result
+        }
         let buffer = LZ4BlockBuffer()
         try LZ4BlockDecoder.decode(input, into: buffer, maximumSize: maximumSize)
         return buffer.outputCount
@@ -59,7 +69,9 @@ final class LZ4AppleBlockDecoder {
     // (two remaining bytes for distances); additions are bounded by remaining
     // output. No output bytes are read or copied. Keep the cursor in locals and
     // use a raw pointer only after establishing the nonempty input range.
-    private static func scanValidSize(_ input: UnsafeRawBufferPointer, maximumSize: Int) -> Int? {
+    private static func scanValidSize(
+        _ input: UnsafeRawBufferPointer, maximumSize: Int, complete: Bool = false
+    ) -> Int? {
         guard maximumSize >= 0, !input.isEmpty else { return nil }
         let bytes = input.baseAddress!.assumingMemoryBound(to: UInt8.self)
         var cursor = 0
@@ -99,8 +111,8 @@ final class LZ4AppleBlockDecoder {
             // A full validation walk costs more than it saves on dense short
             // matches. Sample at most 32 sequences before committing to Apple;
             // >=64 decoded bytes/sequence amortizes the walk on measured inputs.
-            // Returning nil simply runs the original Swift decoder from scratch.
-            if sequences == 32, outputCount < 32 * 64 { return nil }
+            // Parallel planning completes the walk to obtain the exact size.
+            if sequences == 32, outputCount < 32 * 64, !complete { return nil }
         }
         return nil // A block ending immediately after a match is invalid.
     }

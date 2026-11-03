@@ -9,7 +9,7 @@ addresses=[a for a,_ in symbols]
 for file in sys.argv[2:]:
     counts=collections.Counter()
     for line in Path(file).read_text().splitlines():
-        name,offset=line.split('\t')
+        name,offset=line.split('\t',2)[:2]
         if Path(name).name!=Path(binary).name: counts[name]+=1; continue
         pc=int(offset,16)+0x100000000
         idx=bisect.bisect_right(addresses,pc)-1

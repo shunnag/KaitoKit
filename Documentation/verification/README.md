@@ -8,6 +8,7 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-11-03-decode-performance.md](2026-11-03-decode-performance.md) | 2026-11-03 | 全形式の再計測、RAR15・LZ4・Deflate64・CAB LZX の最適化、818 fixture・変異入力・他実装比較 | 未コミット |
 | [2026-11-03-rar13-volumes.md](2026-11-03-rar13-volumes.md) | 2026-11-03 | RAR 1.3 / 1.4 old multi-volume、stored・圧縮・solid・最終 checksum | cooViewer-c1vj.13 / .15 |
 | [2026-11-03-rar15-volumes.md](2026-11-03-rar15-volumes.md) | 2026-11-03 | RAR4 version 15 の solid 分割、ENDARC 省略・SPLIT_AFTER | cooViewer-c1vj.16 |
 | [2026-11-03-rar13-sfx.md](2026-11-03-rar13-sfx.md) | 2026-11-03 | RAR 1.3 / 1.4 SFX、RSFX・MZ 画像サイズ・Data opt-in | cooViewer-c1vj.14 |

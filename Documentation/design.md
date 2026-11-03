@@ -766,6 +766,15 @@ Swift に戻す。dependent / checksum なし modern / legacy block は Swift �
 破損入力の error/出力位置の同一性、境界証明・計測・全 test は
 [wave 2 検証記録](verification/2026-10-29-wave2-codecs.md)に記録する。
 
+2026-11-03 の性能追補。RAR15 は状態配列を固定長 buffer にする。LZ4 は単一の modern
+independent frame について、全 block の文法と実出力長を先に検証して独立復号し、結果を入力順に返す。
+サイズ未記録の frame も全量上限の内側では対象とし、dependent・legacy・連結・単一 block・予算超過・
+解析できない入力は従来の直列 decoder に戻す。block buffer は `Data` へ所有権を移し、checksum と
+部分出力の順序は直列と同じにする。Deflate64 は alignment を `availableBits` から導出し、
+Huffman entry を 4 byte にする。CAB LZX は 10 bit prefix の fast lookup を固定 buffer に保持し、
+table 参照を block ごとに解く。測定条件・境界証明・却下した試案は
+[全形式の decode 性能・安定性検証](verification/2026-11-03-decode-performance.md)に記録する。
+
 Swap2/Swap4の実装入力は公式 `Methods.txt` のID、既存 `Decompressor` 契約、
 7zz 26.03の `SwapN + Copy` 出力だけである。
 [2026-09-18 の検証記録](verification/2026-09-18-sevenzip-swap.md)に由来・境界・統合検証を記した。

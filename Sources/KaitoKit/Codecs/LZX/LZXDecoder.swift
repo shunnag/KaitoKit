@@ -97,37 +97,39 @@ final class LZXDecoder {
                     blockRemaining -= count
                 } else {
                     guard let mainTable, let lengthTable else { throw KaitoError.malformed("cab LZX missing tree") }
-                    let symbol = try mainTable.decode(&bits)
-                    if symbol < 256 {
-                        let byte = UInt8(symbol)
-                        ring[position] = byte
-                        output[out] = byte
-                        position = (position + 1) & mask
-                        out += 1
-                        history = min(windowSize, history + 1)
-                        blockRemaining -= 1
-                    } else {
-                        let header = (symbol - 256) & 7, slot = (symbol - 256) >> 3
-                        let length = header == 7 ? try lengthTable.decode(&bits) + 9 : header + 2
-                        guard length <= blockRemaining, length <= outputSize - out else {
-                            throw KaitoError.malformed("cab LZX match exceeds block or frame")
-                        }
-                        let offset = try matchOffset(slot: slot, bits: &bits)
-                        // LZX の match offset は最大で window サイズ - 3。
-                        guard offset > 0, offset <= history, offset <= windowSize - 3 else {
-                            throw KaitoError.malformed("cab LZX match exceeds history")
-                        }
-                        var source = (position - offset) & mask
-                        for _ in 0..<length {
-                            let byte = ring[source]
+                    while blockRemaining > 0, out < outputSize {
+                        let symbol = try mainTable.decode(&bits)
+                        if symbol < 256 {
+                            let byte = UInt8(symbol)
                             ring[position] = byte
                             output[out] = byte
-                            source = (source + 1) & mask
                             position = (position + 1) & mask
                             out += 1
+                            history = min(windowSize, history + 1)
+                            blockRemaining -= 1
+                        } else {
+                            let header = (symbol - 256) & 7, slot = (symbol - 256) >> 3
+                            let length = header == 7 ? try lengthTable.decode(&bits) + 9 : header + 2
+                            guard length <= blockRemaining, length <= outputSize - out else {
+                                throw KaitoError.malformed("cab LZX match exceeds block or frame")
+                            }
+                            let offset = try matchOffset(slot: slot, bits: &bits)
+                            // LZX の match offset は最大で window サイズ - 3。
+                            guard offset > 0, offset <= history, offset <= windowSize - 3 else {
+                                throw KaitoError.malformed("cab LZX match exceeds history")
+                            }
+                            var source = (position - offset) & mask
+                            for _ in 0..<length {
+                                let byte = ring[source]
+                                ring[position] = byte
+                                output[out] = byte
+                                source = (source + 1) & mask
+                                position = (position + 1) & mask
+                                out += 1
+                            }
+                            history = min(windowSize, history + length)
+                            blockRemaining -= length
                         }
-                        history = min(windowSize, history + length)
-                        blockRemaining -= length
                     }
                 }
             }

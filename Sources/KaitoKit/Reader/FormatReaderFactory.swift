@@ -93,38 +93,54 @@ enum FormatReaderFactory {
             let rarSourceURL = source is ConcatenatedByteSource
                 ? nil
                 : (sourceVolumeURL ?? sourceURL)
-            guard let signature = try RARSignatureScanner.find(source: source) else {
-                throw KaitoError.unsupportedFormat
-            }
-            if signature.version == .rar5 {
-                let rarSource: any ByteSource
-                if signature.offset > 0 {
-                    rarSource = try RebasedByteSource(source: source, baseOffset: signature.offset)
-                } else {
-                    rarSource = source
-                }
-                let rar = try RAR5Reader(
-                    source: rarSource,
-                    options: options,
-                    sourceURL: signature.offset == 0 ? rarSourceURL : nil,
-                    sourceDirectoryAnchor: signature.offset == 0
-                        ? sourceDirectoryAnchor
-                        : nil
+            if try RAR13Reader.hasSignature(source: source) {
+                let rar = try RAR13Reader(
+                    source: source, options: options, sourceURL: rarSourceURL,
+                    sourceDirectoryAnchor: sourceDirectoryAnchor
+                )
+                reader = rar
+                password = rar.resolvedPassword
+            } else if (sourceURL != nil || options.scanForSFXInData),
+                      let offset = try RAR13Reader.sfxOffset(source: source) {
+                let rar = try RAR13Reader(
+                    source: try RebasedByteSource(source: source, baseOffset: offset),
+                    options: options, sourceURL: rarSourceURL,
+                    sourceDirectoryAnchor: sourceDirectoryAnchor,
+                    firstVolumeIdentitySource: source
                 )
                 reader = rar
                 password = rar.resolvedPassword
             } else {
-                let rar = try RAR4Reader(
-                    source: source,
-                    options: options,
-                    sourceURL: signature.offset == 0 ? rarSourceURL : nil,
-                    sourceDirectoryAnchor: signature.offset == 0
-                        ? sourceDirectoryAnchor
-                        : nil,
-                    signatureOffset: signature.offset
-                )
-                reader = rar
-                password = rar.resolvedPassword
+                guard let signature = try RARSignatureScanner.find(source: source) else {
+                    throw KaitoError.unsupportedFormat
+                }
+                if signature.version == .rar5 {
+                    let rarSource: any ByteSource
+                    if signature.offset > 0 {
+                        rarSource = try RebasedByteSource(source: source, baseOffset: signature.offset)
+                    } else {
+                        rarSource = source
+                    }
+                    let rar = try RAR5Reader(
+                        source: rarSource,
+                        options: options,
+                        sourceURL: rarSourceURL,
+                        sourceDirectoryAnchor: sourceDirectoryAnchor,
+                        firstVolumeIdentitySource: signature.offset > 0 ? source : nil
+                    )
+                    reader = rar
+                    password = rar.resolvedPassword
+                } else {
+                    let rar = try RAR4Reader(
+                        source: source,
+                        options: options,
+                        sourceURL: rarSourceURL,
+                        sourceDirectoryAnchor: sourceDirectoryAnchor,
+                        signatureOffset: signature.offset
+                    )
+                    reader = rar
+                    password = rar.resolvedPassword
+                }
             }
         case .lha:
             // FormatDetector accepts a lone terminator only with an LHA

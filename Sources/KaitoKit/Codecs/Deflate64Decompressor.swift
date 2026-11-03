@@ -37,7 +37,6 @@ public final class Deflate64Decompressor: Decompressor {
         var inputCount = 0
         var bitReservoir: UInt64 = 0
         var availableBits = 0
-        var bitAlignment = 0
         var windowOffset = 0
         var totalOutput: UInt64 = 0
         var matchDistance = 0
@@ -269,6 +268,7 @@ public final class Deflate64Decompressor: Decompressor {
         state.windowOffset = (state.windowOffset &+ 1) & (Self.windowSize - 1)
     }
 
+    @inline(__always)
     private func copyMatch(into output: UnsafeMutablePointer<UInt8>, outputOffset: inout Int,
                            limit: Int, state: inout State) throws {
         // The token checked 1...65536 and distance <= produced history. Therefore
@@ -292,6 +292,7 @@ public final class Deflate64Decompressor: Decompressor {
         if state.matchRemaining == 0 { state.matchDistance = 0 }
     }
 
+    @inline(__always)
     private func decodeLength(symbol: Int, state: inout State) throws -> Int {
         if symbol == 285 {
             // APPNOTE: 3 + 16 bits, hence 3...65538 (fits Int).
@@ -301,6 +302,7 @@ public final class Deflate64Decompressor: Decompressor {
         return Self.lengthBases[index] + Int(try readBits(Self.lengthExtraBits[index], state: &state))
     }
 
+    @inline(__always)
     private func decodeDistance(symbol: Int, state: inout State) throws -> Int {
         guard symbol >= 0, symbol < Self.distanceBases.count else {
             throw KaitoError.malformed("invalid Deflate64 distance symbol \(symbol)")
@@ -468,7 +470,6 @@ public final class Deflate64Decompressor: Decompressor {
             }
             state.bitReservoir >>= count
             state.availableBits -= count
-            state.bitAlignment = (state.bitAlignment + count) & 7
             guard entry.value >= 0 else {
                 throw KaitoError.malformed("invalid Deflate64 \(decoder.alphabet) Huffman code")
             }
@@ -477,10 +478,11 @@ public final class Deflate64Decompressor: Decompressor {
     }
 
     private func alignToByte(state: inout State) throws {
-        let count = (8 - state.bitAlignment) & 7
+        let count = state.availableBits & 7
         _ = try readBits(count, state: &state)
     }
 
+    @inline(__always)
     private func readBits(_ count: Int, state: inout State) throws -> UInt32 {
         guard (0...32).contains(count) else {
             throw KaitoError.malformed("invalid Deflate64 bit count")
@@ -507,7 +509,6 @@ public final class Deflate64Decompressor: Decompressor {
         let value = UInt32(truncatingIfNeeded: state.bitReservoir & mask)
         state.bitReservoir >>= count
         state.availableBits -= count
-        state.bitAlignment = (state.bitAlignment + count) & 7
         return value
     }
 
@@ -613,9 +614,19 @@ private struct Deflate64HuffmanDecoder: Sendable {
 
     // Nonnegative value: symbol; -1: invalid prefix; <= -2: secondary offset.
     struct Entry: Sendable {
-        let value: Int32
-        let bitCount: UInt8
-        let lookupBits: UInt8
+        let storage: UInt32
+
+        init(value: Int32, bitCount: UInt8, lookupBits: UInt8) {
+            storage = (UInt32(bitPattern: value) & 0x00ff_ffff)
+                | UInt32(bitCount) << 24 | UInt32(lookupBits) << 28
+        }
+
+        @inline(__always)
+        var value: Int32 { Int32(bitPattern: storage << 8) >> 8 }
+        @inline(__always)
+        var bitCount: UInt8 { UInt8(truncatingIfNeeded: storage >> 24) & 0xf }
+        @inline(__always)
+        var lookupBits: UInt8 { UInt8(truncatingIfNeeded: storage >> 28) }
     }
 
     let table: [Entry]

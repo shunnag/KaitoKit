@@ -1,5 +1,9 @@
 import Foundation
 
+protocol DirectIndependentDataDecoding: Decompressor {
+    func decodeDirect() throws -> Data
+}
+
 /// 独立した frame / member / chunk の結果を入力順に返す。葉は他の葉を待たない。
 /// 失敗した単位は順番が来てから直列で再実行し、単位内の部分出力と元のエラーも保存する。
 final class ParallelIndependentDecompressor: Decompressor {
@@ -68,6 +72,13 @@ final class ParallelIndependentDecompressor: Decompressor {
                     let reservation = pending.reservation!
                     pending.reservation = nil
                     let decoder = try unit.makeDecoder()
+                    if let direct = decoder as? DirectIndependentDataDecoding {
+                        let output = try direct.decodeDirect()
+                        guard output.count == unit.outputSize, direct.isFinished else {
+                            throw KaitoError.malformed("independent unit output size mismatch")
+                        }
+                        return Decoded(bytes: output, reservation: reservation)
+                    }
                     // 余分な 1 byte で、宣言長の後の終端検査と過大な出力を両方確認する。
                     let capacity = unit.outputSize + 1
                     var output = Data(count: capacity)

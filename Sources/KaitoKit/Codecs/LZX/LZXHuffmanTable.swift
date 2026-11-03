@@ -1,11 +1,13 @@
 // Microsoft [MS-PATCH] v20160613 §2.4 の正準符号。外部の LZX 実装は参照していない。
-struct LZXHuffmanTable {
+final class LZXHuffmanTable {
     private static let fastBits = 10
-    private let fast: [UInt32]
+    private let fast: UnsafeMutableBufferPointer<UInt32>
     private let counts: [Int]
     private let firstCodes: [Int]
     private let firstSymbols: [Int]
     private let symbols: [Int]
+
+    deinit { fast.deallocate() }
 
     init(lengths: [Int], allowEmpty: Bool = false) throws {
         guard !lengths.isEmpty, lengths.count <= 656 else {
@@ -37,7 +39,10 @@ struct LZXHuffmanTable {
         }
         var nextCodes = firstCodes, nextSymbols = firstSymbols
         var symbols = [Int](repeating: 0, count: populated)
-        var fast = [UInt32](repeating: 0, count: 1 << Self.fastBits)
+        let fast = UnsafeMutableBufferPointer<UInt32>.allocate(capacity: 1 << Self.fastBits)
+        fast.initialize(repeating: 0)
+        var retained = false
+        defer { if !retained { fast.deallocate() } }
         for (symbol, length) in lengths.enumerated() where length > 0 {
             let value = nextCodes[length]
             let index = nextSymbols[length]
@@ -57,6 +62,7 @@ struct LZXHuffmanTable {
         }
         self.fast = fast; self.counts = counts; self.firstCodes = firstCodes
         self.firstSymbols = firstSymbols; self.symbols = symbols
+        retained = true
     }
 
     @inline(__always)

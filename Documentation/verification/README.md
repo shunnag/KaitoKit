@@ -8,6 +8,17 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
+| [2026-11-03-decode-performance.md](2026-11-03-decode-performance.md) | 2026-11-03 | 全形式の再計測、RAR15・LZ4・Deflate64・CAB LZX の最適化、818 fixture・変異入力・他実装比較 | 未コミット |
+| [2026-11-03-rar13-volumes.md](2026-11-03-rar13-volumes.md) | 2026-11-03 | RAR 1.3 / 1.4 old multi-volume、stored・圧縮・solid・最終 checksum | cooViewer-c1vj.13 / .15 |
+| [2026-11-03-rar15-volumes.md](2026-11-03-rar15-volumes.md) | 2026-11-03 | RAR4 version 15 の solid 分割、ENDARC 省略・SPLIT_AFTER | cooViewer-c1vj.16 |
+| [2026-11-03-rar13-sfx.md](2026-11-03-rar13-sfx.md) | 2026-11-03 | RAR 1.3 / 1.4 SFX、RSFX・MZ 画像サイズ・Data opt-in | cooViewer-c1vj.14 |
+| [2026-11-03-rar13-crypto.md](2026-11-03-rar13-crypto.md) | 2026-11-03 | RAR 1.3 / 1.4 の旧暗号・暗号化 solid・packed / stored comment | cooViewer-c1vj.12 |
+| [2026-11-03-rar13-unpack.md](2026-11-03-rar13-unpack.md) | 2026-11-03 | RAR 1.3 / 1.4、RE~^ container・16-bit rolling checksum・solid・RAR 1.402 実書庫 | cooViewer-c1vj.11 |
+| [2026-11-02-rar15-unpack.md](2026-11-02-rar15-unpack.md) | 2026-11-02 | RAR4 unpack version 15、adaptive Huffman + LZ77・solid・独自 fixture | cooViewer-c1vj.10 |
+| [2026-11-02-rar20-unpack.md](2026-11-02-rar20-unpack.md) | 2026-11-02 | RAR4 unpack version 20 / 26、LZ・音声・solid、RAR 2.50 自作 fixture | cooViewer-c1vj.9 |
+| [2026-11-02-rar5-version1.md](2026-11-02-rar5-version1.md) | 2026-11-02 | RAR5 compression version 1、80 distance symbols・非2の累乗辞書・5 GiB 実書庫 | cooViewer-c1vj.8 |
+| [2026-11-02-xz-riscv.md](2026-11-02-xz-riscv.md) | 2026-11-02 | XZ RISC-V filter、複数 block・連結 stream・check・圧縮 tar の検証 | cooViewer-zu1v |
+| [2026-11-02-sevenzip-riscv.md](2026-11-02-sevenzip-riscv.md) | 2026-11-02 | 7z RISC-V filter の black-box 導出、JAL / AUIPC 対、全 byte 差分と chunk 境界 | PR #82 |
 | [2026-10-26-security-audit.md](2026-10-26-security-audit.md) | 2026-10-26 | 外部 AI の監査報告 34 指摘の独立検証（81 agent）、判定と実リスク、監査自体の誤りの記録 | v0.17.0 |
 | [2026-10-26-audit-extract-fixes.md](2026-10-26-audit-extract-fixes.md) | 2026-10-26 | triage S1〜S7: 展開 metadata・stdin password・bidi 表示・7z / tar の無駄な計算・CI oracle version | v0.17.0 |
 | [2026-10-26-audit-kdf-fixes.md](2026-10-26-audit-kdf-fixes.md) | 2026-10-26 | 7z entry / StuffIt X の reader KDF 予算、鍵 cache の保持上限、StuffIt verifier の定時間比較 | v0.17.0 |

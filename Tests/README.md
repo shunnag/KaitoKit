@@ -72,6 +72,8 @@ PR の検査済み tree と一致する main push でも bundle を新たに bui
 | `KAITO_REQUIRE_LHA_GOLDEN` | 1 | TZ が Asia/Tokyo でない LHAPublicValueGoldenTests を skip でなく失敗にする（CI の Tokyo の step） |
 | `KAITOKIT_LHA_CORPUS` | dir | LHAExternalCorpus・LHAMethodCorpus・LHASFX・LHAMacBinary の外部 corpus（skip） |
 | `KAITOKIT_RAR4_CORPUS`・`_PPMD_SOLID_ARCHIVE`・`_FILTER_ARCHIVE` | dir・file | RAR4Reader・RAR4SFX・RAR4CorpusDifferential の外部書庫（skip） |
+| `KAITOKIT_RAR15_FIXTURES` | dir | RAR15DecoderTests の RAR 1.54 実書庫と UNRAR 展開結果の比較（無ければ skip） |
+| `KAITOKIT_RAR13_FIXTURES` | dir | RAR13ReaderTests の RAR 1.402 実書庫と UNRAR 展開結果の比較（無ければ skip） |
 | `KAITOKIT_CAB_CORPUS`・`KAITOKIT_AR_ORACLE`・`KAITOKIT_CPIO_ORACLE`・`KAITOKIT_CPIO_DETECTION_BASELINE`・`KAITOKIT_BOOK_LHA` | dir・file | CabLZX・ArReader・CpioReader・LHAIntegration の外部 oracle（skip） |
 | `STUFFITX_CORPUS`・`STUFFIT_SLICE6_CORPUS` | dir | StuffItXCorpus・StuffItXCrypto の外部 corpus（skip）。`STUFFITX_VERIFY_STREAMS=1`・`STUFFITX_INVENTORY`（.build 下の出力名）は補助 |
 | `STUFFITX_JPEG_CORPUS`・`_BENCHMARK`・`_MUTATE` | 1 | StuffItXJPEGTests の外部 corpus・release の計測・敵対的入力（skip）。`_FILTER`（正規表現）・`_REPORT`（出力名）・`_SEED`・`_ROUNDS`（整数）はその設定 |

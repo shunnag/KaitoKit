@@ -729,6 +729,18 @@ XZ の `riscv.c` と Linux の `xz_dec_bcj.c` の実装断片が自動表示さ�
 Swap2/Swap4の実装と独立fixtureはこの検索前に作成済みで、検索断片はその入力に含めていない。
 今後のRISC-V追加には、許可された資料から独立に確定した仕様とblack-box vectorを別途そろえる。
 
+2026-11-02 の 7z RISC-V filter 実装は、この要件に沿って RISC-V の公開命令形式と 7zz 26.05 の
+black-box 入出力だけから変換規則を再導出した。第三者の decoder source や実装解説は参照していない。
+JAL、AUIPC と後続命令の対、変換済み marker、縮小命令を含む走査境界を独立モデルと固定ベクタで
+検証した。資料・導出手順・全 byte 照合の範囲は
+[7z RISC-V 検証記録](verification/2026-11-02-sevenzip-riscv.md)に記録する。
+
+同日の XZ RISC-V 対応は、同じ black-box 導出済みの逆変換を再利用し、XZ container と block の
+公開仕様だけを追加資料とした。block ごとの LZMA2 出力へ filter を接続し、逆変換後の byte で
+check を検証する。RISC-V を含む stream は Apple Compression への再生と並列 job を使わず、
+native の直列経路にする。x86 など他の filter との連結は block ごとに既存の Compression 経路を
+使う。対象範囲と検証は [XZ RISC-V 検証記録](verification/2026-11-02-xz-riscv.md)に記録する。
+
 2026-09-18 の追加incident開示。lzipの公式マニュアルのFile formatを確認する検索結果に、
 同じマニュアル後半のReference source codeからCRC・member header/trailer処理等の断片が
 自動表示された。仕様節だけを求めた検索でも参考実装を含み得ることを確認した。
@@ -753,6 +765,15 @@ Swift に戻す。dependent / checksum なし modern / legacy block は Swift �
 の費用が text で改善を打ち消した）。第三者の実装 source は参照しない。開始時 HEAD の test-only decoder、
 破損入力の error/出力位置の同一性、境界証明・計測・全 test は
 [wave 2 検証記録](verification/2026-10-29-wave2-codecs.md)に記録する。
+
+2026-11-03 の性能追補。RAR15 は状態配列を固定長 buffer にする。LZ4 は単一の modern
+independent frame について、全 block の文法と実出力長を先に検証して独立復号し、結果を入力順に返す。
+サイズ未記録の frame も全量上限の内側では対象とし、dependent・legacy・連結・単一 block・予算超過・
+解析できない入力は従来の直列 decoder に戻す。block buffer は `Data` へ所有権を移し、checksum と
+部分出力の順序は直列と同じにする。Deflate64 は alignment を `availableBits` から導出し、
+Huffman entry を 4 byte にする。CAB LZX は 10 bit prefix の fast lookup を固定 buffer に保持し、
+table 参照を block ごとに解く。測定条件・境界証明・却下した試案は
+[全形式の decode 性能・安定性検証](verification/2026-11-03-decode-performance.md)に記録する。
 
 Swap2/Swap4の実装入力は公式 `Methods.txt` のID、既存 `Decompressor` 契約、
 7zz 26.03の `SwapN + Copy` 出力だけである。
@@ -1012,6 +1033,8 @@ RAR 関連 source file ごとの実装入力は次のとおり。表の「black-
 |---|---|
 | `Sources/KaitoKit/Formats/FormatDetector.swift`・`Formats/RAR/RARSignatureScanner.swift` | RAR4 signature は bitplane/rar-research、RAR5 signature は RARLab technote。SFX の探索上限は task 要件 |
 | `Sources/KaitoKit/Formats/RAR/RAR4Reader.swift`・`RAR4VolumeParser.swift`・`RAR4EntryPublisher.swift`・`RAR4Structures.swift`・`RARSolidCoordinator.swift`(2026-09-29 に RAR5 版を generic 化し RAR4 と共有) | bitplane/rar-research の RAR 1.5-4.x note、BSD-2 libarchive `archive_read_support_format_rar.c` の header traversal / optional-field order / Unicode name / timestamp の挙動だけ、RAR 7.23 black-box |
+| `Sources/KaitoKit/Formats/RAR/RAR13Reader.swift`・`RAR13Crypto.swift`・`RAR13VolumeLocator.swift` | bitplane/rar-research の RAR13_FORMAT_SPECIFICATION、RAR 1.402 実書庫と UNRAR 7.23 展開の black-box vector。main header のみの solid 指定、旧暗号、packed / stored comment、`RSFX` と MZ 画像サイズによる SFX 検出、old `.r00` の payload 連結も実書庫で確認 |
+| `Sources/KaitoKit/Codecs/RAR/RAR15Decoder.swift` | bitplane/rar-research の RAR13_FORMAT_SPECIFICATION §6、RAR 1.54 実書庫と UNRAR 7.23 展開の black-box vector、独自 encoder が生成し UNRAR で検証した fixture。第三者 decoder source は不使用 |
 | `Sources/KaitoKit/Codecs/RAR/RAR29Decoder.swift`・`RAR3FilterToken.swift` | bitplane/rar-research §§18-20、同 libarchive RAR4 file の block/table transition・match・RAR3 standard-filter 挙動だけ、RAR 3.00 生成物と RAR 7.23 展開の black-box vector |
 | `Sources/KaitoKit/Codecs/PPMd/VariantH/RARPPMdRangeDecoder.swift` | bitplane/rar-research の RAR PPMd range-coder note、public-domain LZMA SDK PPMd7 model contract、RAR black-box vector |
 | `Sources/KaitoKit/Codecs/PPMd/VariantH/PPMd7Decoder.swift`・`PPMd7RangeDecoding.swift`・`SevenZipPPMdRangeDecoder.swift` | public-domain LZMA SDK `C/Ppmd7.c` / `C/Ppmd7.h` / `C/Ppmd7Dec.c`、Shkarin PPMd var.H description |
@@ -1473,8 +1496,12 @@ prose ページであることを確認し、`source-archive` を含む URL は�
     Data / 任意 `ByteSource` からの sibling volume 継続、サイズ不明の暗号化 stored entry である。
     redirection type 5 は一覧と 0-byte read / stream を行えるが、copy target の展開は行わない
     （2026-09-20 に変更: 解決できる参照は参照先の本文を返す `.file` として公開する）。
-    compression method 1〜5 の algorithm version 1 は stream 作成時に拒否し、stored method 0 は
-    圧縮 grammar を使わない。version 2 以上も対象 entry の stream 作成時に拒否する。
+    compression method 1〜5 の algorithm version 0 / 1 を展開し、stored method 0 は圧縮 grammar を
+    使わない。version 1 は 80 distance symbols を使い、非2の累乗辞書を次の2の累乗の ring に確保する。
+    実確保量を `ReadLimits.maxDictionarySize` で制限し、match distance は宣言辞書で制限する。
+    version 2 以上は対象 entry の stream 作成時に拒否する。version 1 の変換規則は RAR 7.23 の
+    black-box 入出力から導出し、第三者 decoder source は使っていない
+    （[検証記録](verification/2026-11-02-rar5-version1.md)）。
   - 最終 RAR5 release `bench` の warm median は `book-rar5.cbr` extract 29.965 ms、
     `book-tiff-rar5.cbr` extract 518.363 ms。XADMaster 基準 34 / 352 ms に対して 0.881 / 1.473 倍で、
     RAR 固有の 1.5 倍目標内。同じ実行環境での 784b37a は 29.698 / 512.411 ms で、差は
@@ -1500,6 +1527,28 @@ prose ページであることを確認し、`source-archive` を含む URL は�
     作業途中に禁止対象の libarchive RAR5 source を誤って開いた incident が一度あり、その時点の
     filter file は全削除した。現在の `RARStandardFilters.swift` は §10 の許可資料と入力だけから
     独立に新規実装しており、incident 前のコードや構造は残していない。
+- 2026-11-02 の追補(cooViewer-c1vj.10): RAR4 unpack version 15 の adaptive Huffman + LZ77 と
+  solid を実装した。頻度補正後の表を読み直す規則、ShortLZ code 14 が repeat-distance 履歴を
+  更新しない規則を守り、peek の末尾 padding と実際に消費した bit を区別する。64 KiB 窓の
+  zero-fill は match 開始時に確定する。実装入力と実書庫の照合範囲は
+  [検証記録](verification/2026-11-02-rar15-unpack.md)を参照。custom VM、version 15 の旧暗号、
+  solid 内の分割 member は当初対象外とした。
+- 2026-11-03 の追補(cooViewer-c1vj.11): RAR 1.3 / 1.4 の `RE~^` container、stored・Unpack15 圧縮、
+  16-bit rolling checksum、solid を実装した。実 RAR 1.402 は main header だけで solid を指定し、
+  file flag がなくても最初の圧縮 file を group 先頭として状態を共有する。RAR15Decoder は internal
+  version 13 でも同じ codec を使う。2026-11-03 の追補(cooViewer-c1vj.12)では、旧暗号を
+  entry ごとに復号し、packed archive comment と stored file comment も公開する。password は
+  ASCII に限定し、誤 password は `wrongPassword`、未指定は `passwordRequired` にする。
+  2026-11-03 の追補(cooViewer-c1vj.14)では、`RSFX` marker と MZ 画像サイズ、その位置の
+  `RE~^` を照合する SFX を追加した。Data では opt-in とし、偶然の署名は信用しない。
+  2026-11-03 の追補(cooViewer-c1vj.13)では、directory anchor で old `.r00` を解決し、
+  header を除く payload を `SourceSegment` で連結して stored・圧縮・solid を展開する。
+  最終巻の checksum を使い、solid の辞書と adaptive Huffman 状態は巻をまたいで保持する。
+  追補(cooViewer-c1vj.15)で solid 分割を追加した。Data からの継続巻は拒否する。
+- 2026-11-03 の追補(cooViewer-c1vj.16): ENDARC を省略した RAR4 volume では、末尾 file の
+  `SPLIT_AFTER` から次巻を解決する。結合後の record は `isSplit == false` となり、version 15 の
+  solid 分割も既存の coordinator で辞書と adaptive Huffman 状態を継続する。
+  ENDARC がある場合の `EARC_NEXT_VOLUME` と Data からの継続巻拒否は変えない。
 - M3(784b37a + 第 2 段): RAR 5.x(v0 LZ・フィルタ・solid・AES-256・ヘッダ暗号化・分割・BLAKE2sp)と RAR 2.9/3.x
   (LZ・標準 VM フィルタ 6 種・PPMd var.H・solid・AES-128・ヘッダ暗号化・分割・SFX 前置)。RAR5 corpus と実書庫、
   RAR4 の st1200(19 JPEG)と libarchive の BSD 試験書庫が `rar` オラクル / XADMaster と一致。第 1 段の敵対

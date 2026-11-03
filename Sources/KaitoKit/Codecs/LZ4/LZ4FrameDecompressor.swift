@@ -221,6 +221,199 @@ final class LZ4FrameDecompressor: Decompressor {
     }
 }
 
+final class ParallelLZ4FrameDecompressor: Decompressor {
+    private let decoder: ParallelIndependentDecompressor
+    private let expectedChecksum: UInt32?
+    private var checksum = XXH32()
+    private var terminalError: (any Error)?
+    private(set) var isFinished = false
+
+    init?(units: [ParallelIndependentDecompressor.Unit], contentChecksum: UInt32?,
+          limits: ReadLimits, workers: Int) {
+        guard let decoder = ParallelIndependentDecompressor(
+            units: units, limits: limits, workers: workers
+        ) else { return nil }
+        self.decoder = decoder
+        expectedChecksum = contentChecksum
+    }
+
+    func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+        if let terminalError { throw terminalError }
+        guard !buffer.isEmpty, !isFinished else { return 0 }
+        do {
+            let count = try decoder.read(into: buffer)
+            if count > 0 {
+                if expectedChecksum != nil {
+                    checksum.update(UnsafeRawBufferPointer(rebasing: buffer[..<count]))
+                }
+                return count
+            }
+            guard decoder.isFinished else {
+                throw KaitoError.malformed("LZ4 parallel decoder made no progress")
+            }
+            // Match the serial reader: publish the final bytes first, then diagnose
+            // a bad content checksum on the next nonempty read.
+            if let expectedChecksum, checksum.value != expectedChecksum {
+                throw KaitoError.checksumMismatch(entry: 0)
+            }
+            isFinished = true
+            return 0
+        } catch {
+            terminalError = error
+            throw error
+        }
+    }
+}
+
+private final class LZ4FrameBlockDecompressor: DirectIndependentDataDecoding {
+    private let encoded: [UInt8]
+    private let blockMaximum: Int
+    private let maximumSize: Int
+    private let useApple: Bool
+    private var decoded: LZ4BlockBuffer?
+    private var offset = 0
+    private var terminalError: (any Error)?
+
+    init(encoded: [UInt8], blockMaximum: Int, maximumSize: Int, useApple: Bool) {
+        self.encoded = encoded
+        self.blockMaximum = blockMaximum
+        self.maximumSize = maximumSize
+        self.useApple = useApple
+    }
+
+    var isFinished: Bool { decoded.map { offset == $0.outputCount } ?? false }
+
+    private func decodeBuffer() throws -> LZ4BlockBuffer {
+        if let decoded { return decoded }
+        let output = LZ4BlockBuffer()
+        try encoded.withUnsafeBytes { bytes in
+            if useApple {
+                try LZ4AppleBlockDecoder().decodeValidated(
+                    bytes, into: output, blockMaximum: blockMaximum,
+                    maximumSize: maximumSize, expected: maximumSize
+                )
+            } else {
+                try LZ4BlockDecoder.decode(bytes, into: output, maximumSize: maximumSize)
+            }
+        }
+        decoded = output
+        return output
+    }
+
+    func decodeDirect() throws -> Data {
+        if let terminalError { throw terminalError }
+        do {
+            return try decodeBuffer().takeOutput()
+        } catch {
+            terminalError = error
+            throw error
+        }
+    }
+
+    func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+        if let terminalError { throw terminalError }
+        guard !buffer.isEmpty, !isFinished else { return 0 }
+        do {
+            let decoded = try decodeBuffer()
+            let count = min(buffer.count, decoded.outputCount - offset)
+            decoded.withOutputBytes { bytes in
+                buffer.copyMemory(from: UnsafeRawBufferPointer(rebasing: bytes[offset..<(offset + count)]))
+            }
+            offset += count
+            return count
+        } catch {
+            terminalError = error
+            throw error
+        }
+    }
+}
+
+private struct LZ4ParallelFramePlan {
+    let units: [ParallelIndependentDecompressor.Unit]
+    let contentChecksum: UInt32?
+}
+
+extension LZ4FrameDecompressor {
+    static func parallel(source: any ByteSource, limits: ReadLimits, workers: Int) throws -> any Decompressor {
+        if workers > 1, let plan = try? parallelPlan(source: source, limits: limits),
+           let decoder = ParallelLZ4FrameDecompressor(
+               units: plan.units, contentChecksum: plan.contentChecksum, limits: limits, workers: workers
+           ) {
+            return decoder
+        }
+        // A failed speculative scan must not move framing, grammar, or checksum
+        // failures ahead of the partial output produced by the original reader.
+        return try LZ4FrameDecompressor(source: source, limits: limits)
+    }
+
+    private static func parallelPlan(source: any ByteSource, limits: ReadLimits) throws -> LZ4ParallelFramePlan? {
+        let encodedBudget = min(UInt64(256 * 1_024 * 1_024), UInt64(limits.resolvedParallelDecodeMemory() / 2))
+        guard source.length <= encodedBudget else { return nil }
+        let input = try LZ4FrameInput(source: source, offset: 0, size: source.length)
+        guard try input.integer(4) == magic else { return nil }
+        let header = try LZ4FrameHeader(input: input, limits: limits)
+        guard header.independent else { return nil }
+        let outputLimit = header.contentSize ?? limits.maxEntrySize
+        var units: [ParallelIndependentDecompressor.Unit] = []
+        var total: UInt64 = 0
+        var blockCount = 0
+        while true {
+            try Task.checkCancellation()
+            let word = try input.integer(4)
+            if word == 0 { break }
+            try charge(&blockCount, limits: limits)
+            let count = try header.blockSize(word)
+            let encoded = try input.read(count)
+            if header.blockChecksum {
+                guard try input.integer(4) == UInt64(XXH32.digest(encoded)) else {
+                    throw KaitoError.checksumMismatch(entry: 0)
+                }
+            }
+            let stored = word & uncompressedBlockFlag != 0
+            let remaining = try Checked.sub(outputLimit, total)
+            let maximum = Int(min(UInt64(header.maximumBlockSize), remaining))
+            let outputSize: Int
+            if stored {
+                guard UInt64(count) <= remaining else {
+                    throw KaitoError.malformed("LZ4 frame output exceeds content size")
+                }
+                outputSize = count
+            } else {
+                outputSize = try encoded.withUnsafeBytes {
+                    try LZ4AppleBlockDecoder.validatedSize($0, maximumSize: maximum, complete: true)
+                }
+            }
+            total = try Checked.add(total, UInt64(outputSize))
+            guard total <= outputLimit else {
+                throw KaitoError.malformed("LZ4 frame output exceeds content size")
+            }
+            let scratch = try Checked.add(UInt64(encoded.count), UInt64(outputSize))
+            if stored {
+                let data = Data(encoded)
+                units.append(try .init(outputSize: UInt64(outputSize), scratchBytes: scratch) {
+                    try CopyDecompressor(source: DataByteSource(data), offset: 0, compressedSize: UInt64(data.count))
+                })
+            } else {
+                let useApple = LZ4AppleBlockDecoder.isEligible(
+                    independent: header.independent, blockChecksum: header.blockChecksum,
+                    contentChecksum: header.contentChecksum
+                )
+                units.append(try .init(outputSize: UInt64(outputSize), scratchBytes: scratch) {
+                    LZ4FrameBlockDecompressor(
+                        encoded: encoded, blockMaximum: header.maximumBlockSize,
+                        maximumSize: outputSize, useApple: useApple
+                    )
+                })
+            }
+        }
+        let contentChecksum = header.contentChecksum
+            ? UInt32(truncatingIfNeeded: try input.integer(4)) : nil
+        guard header.contentSize == nil || header.contentSize == total,
+              units.count >= 2, input.remaining == 0 else { return nil }
+        return LZ4ParallelFramePlan(units: units, contentChecksum: contentChecksum)
+    }
+}
+
 private struct LZ4FrameHeader {
     let independent: Bool
     let blockChecksum: Bool

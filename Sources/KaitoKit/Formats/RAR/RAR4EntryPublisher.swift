@@ -52,6 +52,7 @@ enum RAR4EntryPublisher {
             firstVolumeURL: sourceURL,
             firstVolumeSource: source,
             firstVolumeDirectory: sourceDirectoryAnchor,
+            firstVolumeSignatureOffset: signatureOffset,
             naming: naming,
             maxMetadataSize: options.limits.maxMetadataSize,
             maxVolumeCount: options.limits.maxVolumeCount

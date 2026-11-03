@@ -35,15 +35,19 @@
   中身を確かめられないので残ります（`.hide` は `__MACOSX/` 配下を名前で隠します）。`.expose` で書庫どおりの一覧に
   戻ります。
 - zstd の外部辞書は非対応です。Dictionary_ID が非零なら `unsupportedMethod` になります。
-- 7z は RISC-V filter (method 0x0B) と、7-Zip ZS の LZ4 / Brotli / LZ5 / Lizard coder を扱いません。Zstandard coder の properties は 3 byte または 5 byte だけを受理します。7-Zip ZS の FLZMA2 は標準の LZMA2（ID 21）として書かれるため、そのまま読めます。
-- RAR4 は unpack version 15/20/26、custom VM、dictionary size が変わる solid 構成、SFX と multi-volume の組合せを
-  扱いません。RAR5 は compression version 1、SFX と multi-volume の組合せ、
-  サイズ不明の暗号化 stored entry を扱いません。
+- 7z は 7-Zip ZS の LZ4 / Brotli / LZ5 / Lizard coder を扱いません。Zstandard coder の properties は 3 byte または 5 byte だけを受理します。7-Zip ZS の FLZMA2 は標準の LZMA2（ID 21）として書かれるため、そのまま読めます。
+- RAR 1.3 / 1.4 は旧暗号・comment・SFX・old multi-volume も展開できますが、
+  solid 分割も展開できます。Data からの継続巻解決と ASCII 以外の password は扱いません。
+- RAR4 は custom VM、dictionary size が変わる solid 構成を扱いません。
+  unpack version 15 の旧暗号は扱いません。solid 書庫内の分割 member は展開できます。
+  RAR5 は compression version 0 / 1 を展開できますが、サイズ不明の暗号化 stored entry は扱いません。
+  version 1 の非2の累乗辞書は次の2の累乗で確保するため、実確保量が `maxDictionarySize` を超える場合は
+  上限の引上げが必要です。5 GiB 辞書は 8 GiB として扱います。
 - LHA は `-pm1-` / `-pm2-` / `-lh2-` / `-lh3-` を一覧できますが、読み取り時に
   `unsupportedMethod` になります。resource fork は separate entry として公開しません。
-- XZ は Apple Compression が扱う XZ container が対象で（LZMA2 だけの filter chain は KaitoKit 自身の
-  decoder で復号し、BCJ / Delta などの filter 付き stream は Apple Compression に渡します）、同 liblzma が
-  知らない RISC-V filter 付き stream は `unsupportedMethod("XZ RISC-V filter")` になります。LZMA_Alone は `.lzma` / `.tlz` 拡張子と妥当なheaderがあるときだけ対象です。gzip/bzip2/xz の
+- XZ は LZMA2 だけの filter chain と RISC-V + LZMA2 を KaitoKit 自身の decoder で復号し、
+  BCJ / Delta などの他の filter 付き stream は Apple Compression に渡します。RISC-V を含む stream は
+  native の直列経路で復号します。LZMA_Alone は `.lzma` / `.tlz` 拡張子と妥当なheaderがあるときだけ対象です。gzip/bzip2/xz の
   concatenated stream は一つの entry として連結した出力を返します。
 - lzip の version 0（2008 年以前の lzip 0.x）は `unsupportedMethod` です。空 member は単独 file のときだけ受理します。
 - tar の旧 GNU sparse（typeflag `S`、header 内の sparse 表と拡張 block）は展開できます。star の `SCHILY.filetype=sparse`、Solaris の `SUN.holesdata` は `unsupportedMethod` です。GNU sparse の major.minor が 1.0 以外の 1.x も同様です。[検証記録](verification/2026-09-22-small-method-gaps.md)。
@@ -110,19 +114,21 @@
 >   are not AppleDouble stay listed, and encrypted sidecars stay because they cannot be inspected
 >   (`.hide` still removes everything below `__MACOSX/` by name). `.expose` lists the archive as stored.
 > - External zstd dictionaries are unsupported; a nonzero Dictionary_ID produces `unsupportedMethod`.
-> - 7z does not handle the RISC-V filter (method 0x0B) or the LZ4 / Brotli / LZ5 / Lizard coders of 7-Zip ZS.
+> - 7z does not handle the LZ4 / Brotli / LZ5 / Lizard coders of 7-Zip ZS.
 >   The Zstandard coder accepts only 3- or 5-byte properties. 7-Zip ZS's FLZMA2 is written as standard
 >   LZMA2 (ID 21) and reads as such.
-> - RAR4 does not handle unpack versions 15, 20 and 26, the custom VM, solid configurations whose
->   dictionary size changes, or SFX combined with multi-volume. RAR5 does not handle compression
->   version 1, SFX combined with multi-volume, or an encrypted stored entry
->   of unknown size.
+> - RAR 1.3 / 1.4 supports legacy encryption, comments, verified SFX stubs and URL-backed old volumes,
+>   including solid split members, but not continuation from Data or non-ASCII passwords.
+> - RAR4 does not handle the custom VM or solid configurations whose dictionary size changes.
+>   Legacy encryption is unsupported for unpack version 15. Split members within solid groups are supported.
+>   RAR5 decodes compression versions 0 and 1, but not encrypted stored entries
+>   of unknown size. A non-power-of-two version 1 dictionary uses the next power-of-two allocation;
+>   `maxDictionarySize` must cover that allocation (5 GiB becomes 8 GiB).
 > - LHA can list `-pm1-`, `-pm2-`, `-lh2-` and `-lh3-` but fails with `unsupportedMethod` when
 >   reading them. Resource forks are not exposed as separate entries.
-> - XZ covers the XZ container that Apple Compression handles (LZMA2-only filter chains are decoded by
->   KaitoKit's own decoder; streams with BCJ / Delta filters go to Apple Compression); a stream carrying a RISC-V filter that
->   its liblzma does not know returns `unsupportedMethod("XZ RISC-V filter")`. LZMA_Alone is covered only with a
->   `.lzma` / `.tlz` extension and a plausible header. A concatenated gzip, bzip2 or xz stream is returned as one entry whose output
+> - XZ decodes LZMA2-only and RISC-V + LZMA2 filter chains with KaitoKit's own decoder; streams with other
+>   BCJ / Delta filters go to Apple Compression. A stream carrying RISC-V uses the native serial path.
+>   LZMA_Alone is covered only with a `.lzma` / `.tlz` extension and a plausible header. A concatenated gzip, bzip2 or xz stream is returned as one entry whose output
 >   is the concatenation.
 > - lzip version 0 (pre-2008 lzip 0.x) is `unsupportedMethod`; an empty member is accepted only in a
 >   single-member file.

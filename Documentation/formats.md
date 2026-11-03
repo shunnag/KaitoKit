@@ -23,7 +23,7 @@
 | tar | POSIX/ustar、pax、GNU long name/link、stored member、GNU sparse（旧 GNU `S` 型、pax 0.0 / 0.1 / 1.0。穴は 0 で埋め、実サイズと `GNU.sparse.name` の名前を公開）。macOS tar の `._name` AppleDouble sidecar は既定で resource fork に統合 | なし | volume 分割なし |
 | gzip | RFC 1952、FTEXT/FHCRC/FEXTRA/FNAME/FCOMMENT、DEFLATE、CRC32/ISIZE | なし | concatenated member 対応 |
 | bzip2 | BZip2 block size 1〜9 | なし | concatenated stream 対応 |
-| xz | XZ container、LZMA2（KaitoKit 自身の decoder。BCJ / Delta などの filter chain と予約 check 種別は Apple Compression）、CRC32 / CRC64 / SHA-256 check、Index / footer / padding | なし | concatenated stream 対応 |
+| xz | XZ container、LZMA2 / RISC-V + LZMA2（KaitoKit 自身の decoder。他の BCJ / Delta filter chain と予約 check 種別は Apple Compression）、CRC32 / CRC64 / SHA-256 check、Index / footer / padding | なし | concatenated stream 対応 |
 | zstd | RFC 8878、`.zst` / `.tar.zst` / `.tzst`、RPM payload、ZIP method 20/93、XXH64 checksum。辞書は非対応 | なし | 連結 frame・skippable frame 対応 |
 | LZ4 frame | `.lz4` / `.tar.lz4`、独立／連続block、stored block、header/block/contentのXXH32、宣言サイズ、legacy 8 MiB block | なし | 連結・skippable frame対応。外部辞書は非対応。legacyにはchecksum・宣言サイズがない |
 | UNIX compress (`.Z`) | LZW、9〜16 bit、block mode | なし | なし |
@@ -33,9 +33,10 @@
 | brotli (`.br` / `.tar.br` / `.tbr`) | RFC 7932 の stream（Apple Compression `COMPRESSION_BROTLI` で復号）。RFC 9841 の large window header（WBITS 10〜62）を解釈し、window を `maxDictionarySize` と照合。magic・サイズ・checksum が無いため、`.br` / `.tbr` の名前と有効な header、先頭 64 KiB の試し復号がそろったときだけ受理し、判定は最後に回す | なし | なし。単一 stream で、END 後の余分な byte は `malformed` |
 | 圧縮 tar | `.tgz` / `.tar.gz`、`.tbz` / `.tbz2` / `.tar.bz2`、`.tar.lzma` / `.tlz`、`.txz` / `.tar.xz`、`.tar.zst` / `.tzst`、`.tar.lz4`、`.tar.lz`（`.tlz` は署名で LZMA_Alone / lzip を判別）、`.tar.br` / `.tbr`、`.taz` / `.tz` / `.tar.Z` を展開後に TarReader で列挙 | なし | なし |
 | ZIP / ZIP64 | stored (0)、Shrink (1、連続する部分クリア後も未使用 code を再利用)、Reduce (2〜5)、Implode (6)、Deflate (8)、Deflate64 (9)、BZip2 (12)、LZMA (14)、Zstandard (20/93)、XZ (95)、PPMd (98)、中央 directory、SFX。Finder / ditto の `__MACOSX/._name` AppleDouble sidecar は既定で resource fork に統合（`ReaderOptions.appleDoublePolicy`） | ZipCrypto、WinZip AES-128/192/256 (AE-1/AE-2) | `.zip.001` のバイト分割、`.z01`…`.zip` / `.zx01`…`.zipx` の split ZIP（ZIP64・100 巻以上）対応。最終巻・途中巻から URL open |
-| 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、Deflate64、BZip2、Zstandard（7-Zip ZS / NanaZip / libarchive の coder 04F71101）、Delta、Swap2/Swap4、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
-| RAR4 | stored、unpack version 29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption | URL-backed old `.r00` / new `.partN.rar` |
-| RAR5 | stored、compression version 0 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX、file copy（`rar -oi` の参照。同一内容の先行 entry の本文を返す `.file`） | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
+| 7z | Copy、LZMA1、LZMA2、PPMd7 var.H、Deflate、Deflate64、BZip2、Zstandard（7-Zip ZS / NanaZip / libarchive の coder 04F71101）、Delta、Swap2/Swap4、BCJ (x86/ARM/ARMT/ARM64/PPC/SPARC/IA-64/RISC-V)、BCJ2、coder 連鎖 (byte を消費する coder が他 coder の出力を入力にする folder)、solid folder、上限付き Mach-O/PE SFX prefix | 7zAES-256、data/header encryption | `.001` 分割巻（7-Zip `-v`）、solid/block split 対応 |
+| RAR 1.3 / 1.4 | `RE~^` container、stored、Unpack15（raw UnpVer 2）の adaptive Huffman + LZ77、main / file flag の solid、16-bit rolling checksum、packed archive comment・stored file comment、`RSFX` marker と MZ 画像サイズを検証した SFX | 旧暗号（ASCII password） | URL-backed old `.r00`（Data からの継続巻は非対応） |
+| RAR4 | stored、unpack version 15 の adaptive Huffman + LZ77、20/26 の LZ・音声、29 の LZ/PPMd-H、E8/E8E9/Itanium/Delta/RGB/Audio、solid、上限付き SFX | RAR3 AES-128 per-file、`-hp` header encryption（version 15 の旧暗号は非対応） | URL-backed old `.r00` / new `.partN.rar` |
+| RAR5 | stored、compression version 0 / 1 の LZ、Delta/E8/E8E9/ARM、solid、上限付き SFX、file copy（`rar -oi` の参照。同一内容の先行 entry の本文を返す `.file`） | AES-256 per-file、`-hp` header encryption、HashMAC | URL-backed `.partN.rar`、暗号化 volume 対応 |
 | LHA / LZH | level 0/1/2/3、`-lh0-`/`-lh1-`/`-lh4-`〜`-lh7-`/`-lhx-`/`-lz4-`/`-lz5-`/`-lzs-`/`-pm0-`、LHArk `-lh7-`、上限付き SFX | なし | なし、全 member は独立 (`solidGroup == -1`) |
 | StuffIt / `.sit` | classic・StuffIt 5、method 0/1/2/3/5/6/8/13/14/15、MacBinary / AppleSingle / BinHex 4 の一段 unwrap | StuffIt 5 RC4、classic 改変 DES（wrapper の MKey が必要） | data/resource fork は別 entry。`.sea` は先頭署名、MZ `.exe` は header 検証付き走査。classic の分割セット（100 byte header の part、URL open で同じ directory の兄弟 part を番号順に連結し、resource fork も復元。既定上限 128 巻ちょうどの完結セットを受理）。AppleDouble sidecar は非対応 |
 | StuffIt X / `.sitx` | `StuffIt!`、未圧縮、Brimstone、Cyanide、Darkhorse、Deflate（window 10〜25）、Blend（全 4 submethod）、RC4-stored、Iron（BWT/ST4）、JPEG（mode 0/1/2） | AES / Blowfish / DES の CFB、RC4、複数暗号層、暗号化 catalog | solid・data/resource fork、MZ `.exe`。English（辞書組み込み）と x86 前処理。[下記の制約](#stuffit-classicstuffit-5stuffit-x)を参照 |
@@ -161,8 +162,11 @@
 >   default (`ReaderOptions.appleDoublePolicy`).
 > - **7z**: the coder chain covers a folder in which a byte-consuming coder takes the output of
 >   another coder as its input; Deflate64 (040109), the Zstandard coder 04F71101 written by 7-Zip ZS / NanaZip / libarchive,
->   Swap2/Swap4 byte-order filters, solid folders and a bounded Mach-O/PE SFX prefix are supported.
+>   the RISC-V branch filter (0x0B), Swap2/Swap4 byte-order filters, solid folders and a bounded Mach-O/PE SFX prefix are supported.
 >   `.001` byte splits made with 7-Zip `-v`, solid and block splits are supported.
+> - **RAR 1.3 / 1.4**: the `RE~^` container, stored and Unpack15-compressed members, solid groups,
+>   legacy encryption with ASCII passwords, archive/file comments, verified SFX stubs and 16-bit rolling checksums are supported.
+>   Split volumes and non-ASCII passwords are unsupported.
 > - **RAR4 / RAR5**: LZ and PPMd of the listed unpack versions, the listed filters, solid mode, and
 >   a bounded SFX prefix. Multi-volume works from URL-backed input, including encrypted volumes for
 >   RAR5. RAR5 file copies (`rar -oi` references) are exposed as `.file` entries that return the
@@ -279,7 +283,8 @@ MacBinary ではない member はそのまま返します。公開 `uncompressed
 RAR4 / RAR5 の URL-backed multi-volume は、最初の volume と同じ directory の deterministic
 sibling 名だけを、保持した directory descriptor から symlink を追わず regular file として開き、
 既定 128 volume の `ReadLimits.maxVolumeCount` で制限します。RAR4 は old / new numbering、
-RAR5 は `.partN.rar` と暗号化 data / header の継続に対応します。`reopen()` は検証済みの全
+RAR5 は `.partN.rar` と暗号化 data / header の継続に対応します。SFX prefix のある先頭巻も、
+署名 offset と原本の identity を検証して同じ規則で続巻を開きます。`reopen()` は検証済みの全
 volume handle を共有し、path を再解決しません。Data / 任意 `ByteSource` は sibling volume を
 一意に特定できないため、未解決の分割 entry を読むと
 `unsupportedMethod("multi-volume from Data")` を返します。
@@ -290,9 +295,10 @@ volume handle を共有し、path を再解決しません。Data / 任意 `Byte
 > as the first volume. They are opened as regular files from a retained directory descriptor without
 > following symbolic links, and are bounded by `ReadLimits.maxVolumeCount`, which defaults to 128
 > volumes. RAR4 supports old and new numbering; RAR5 supports `.partN.rar` and the continuation of
-> encrypted data and headers. `reopen()` shares all verified volume handles and does not re-resolve
-> paths. `Data` and custom `ByteSource` inputs cannot identify sibling volumes uniquely, so reading
-> an unresolved split entry returns `unsupportedMethod("multi-volume from Data")`.
+> encrypted data and headers. A first volume with an SFX prefix uses the same continuation rules after
+> validating its signature offset and original identity. `reopen()` shares all verified volume handles
+> and does not re-resolve paths. `Data` and custom `ByteSource` inputs cannot identify sibling volumes
+> uniquely, so reading an unresolved split entry returns `unsupportedMethod("multi-volume from Data")`.
 
 ## バイト分割セット
 

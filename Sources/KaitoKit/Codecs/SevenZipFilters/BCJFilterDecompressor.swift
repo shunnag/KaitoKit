@@ -2,8 +2,8 @@ import Foundation
 
 // 参照仕様: LZMA SDK の Methods.txt と各 ISA の公開命令形式。
 // x86 は呼出し境界をまたぐ候補を 5-byte lookback state で追跡する。
-// SPARC / IA-64 は Documentation/verification/2026-09-09-branch-filter-derivation.md
-// のブラックボックス導出に従う。
+// SPARC / IA-64 は Documentation/verification/2026-09-09-branch-filter-derivation.md、
+// RISC-V は Documentation/verification/2026-11-02-sevenzip-riscv.md の導出に従う。
 
 /// 7z の単一入力 branch-conversion filter。
 enum SevenZipBranchFilter: Sendable, Equatable {
@@ -14,6 +14,7 @@ enum SevenZipBranchFilter: Sendable, Equatable {
     case powerPC
     case sparc
     case ia64
+    case riscv
 }
 
 /// 7z branch filter を固定長の出力ストリームとして逆変換する。
@@ -53,6 +54,10 @@ final class BCJFilterDecompressor: Decompressor {
         case .armThumb:
             guard startOffset.isMultiple(of: 2) else {
                 throw KaitoError.malformed("ARMT start offset is not 2-byte aligned")
+            }
+        case .riscv:
+            guard startOffset.isMultiple(of: 2) else {
+                throw KaitoError.malformed("RISC-V start offset is not 2-byte aligned")
             }
         case .ia64:
             guard startOffset.isMultiple(of: 16) else {
@@ -165,6 +170,8 @@ final class BCJFilterDecompressor: Decompressor {
             consumed = Self.decodeSPARC(&pending, instructionPointer: virtualOffset)
         case .ia64:
             consumed = Self.decodeIA64(&pending, instructionPointer: virtualOffset)
+        case .riscv:
+            consumed = Self.decodeRISCV(&pending, instructionPointer: virtualOffset)
         }
 
         guard consumed >= 0, consumed <= pending.count else {
@@ -391,6 +398,75 @@ final class BCJFilterDecompressor: Decompressor {
             index += 4
         }
         return count
+    }
+
+    private static func decodeRISCV(
+        _ bytes: inout [UInt8],
+        instructionPointer: UInt32
+    ) -> Int {
+        var index = 0
+        while index + 8 <= bytes.count {
+            let pc = instructionPointer &+ UInt32(index)
+            var first = readUInt32LE(bytes, at: index)
+            let opcode = first & 0x7F
+            let destination = (first >> 7) & 0x1F
+
+            if opcode == 0x6F, destination == 1 || destination == 5 {
+                let target = ((first & 0xFF00_0000) >> 23)
+                    | ((first & 0x00FF_0000) >> 7)
+                    | ((first & 0x0000_F000) << 5)
+                let immediate = (target &- pc) & 0x001F_FFFF
+                let instruction = (first & 0xFFF)
+                    | (((immediate >> 20) & 1) << 31)
+                    | (((immediate >> 1) & 0x3FF) << 21)
+                    | (((immediate >> 11) & 1) << 20)
+                    | (((immediate >> 12) & 0xFF) << 12)
+                writeUInt32LE(instruction, into: &bytes, at: index)
+                index += 4
+                continue
+            }
+
+            guard opcode == 0x17 else {
+                index += 2
+                continue
+            }
+            var second = readUInt32LE(bytes, at: index + 4)
+            if destination == 2 {
+                let low = first >> 12
+                let originalDestination = (low >> 15) & 0x1F
+                guard originalDestination != 0, originalDestination != 2,
+                      (low & 3) == 3 else {
+                    index += 4
+                    continue
+                }
+                let target = readUInt32BE(bytes, at: index + 4) &- pc
+                // 負の 12-bit 即値で借りた上位を AUIPC へ戻す。
+                let upper = (target &+ ((target & 0x800) != 0 ? 0x1000 : 0))
+                    & 0xFFFF_F000
+                first = upper | (originalDestination << 7) | 0x17
+                second = ((target & 0xFFF) << 20) | low
+                writeUInt32LE(first, into: &bytes, at: index)
+                writeUInt32LE(second, into: &bytes, at: index + 4)
+                index += 8
+                continue
+            }
+            guard destination != 0 else {
+                index += 4
+                continue
+            }
+            guard ((second >> 15) & 0x1F) == destination, (second & 3) == 3 else {
+                index += 6
+                continue
+            }
+
+            // この逆変換経路は PC を加えず、20 bit と 12 bit の即値を連結する。
+            let target = (first & 0xFFFF_F000) | (second >> 20)
+            first = ((second & 0x000F_FFFF) << 12) | 0x117
+            writeUInt32LE(first, into: &bytes, at: index)
+            writeUInt32LE(target, into: &bytes, at: index + 4)
+            index += 8
+        }
+        return index
     }
 
     private static func decodeIA64(

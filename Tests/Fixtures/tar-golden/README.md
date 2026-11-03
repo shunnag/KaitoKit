@@ -14,12 +14,12 @@ baseline checkout.
 
 ## Compact storage
 
-`public-values.json.lzfse` stores the original 24,492,114-byte JSON in 103,945 bytes,
+`public-values.json.lzfse` stores the 24,529,586-byte JSON in 104,149 bytes,
 using Foundation's `NSData.compressed(using: .lzfse)`. Tests decompress it with
 Foundation, independently of KaitoKit's codecs, and assert the decompressed
 SHA-256 from `public-values.json.sha256` before reading the JSON:
 
-`9ea2ba84246f423558a82207b23052d94db06ac03a61b14ef6f926c1c339f796`
+`848d9fa2185c4f1e0f77a62e19be2a76fceede2c3b59d30184d39fa93b3f22a3`
 
 107 inputs remain frozen base64 files. Two deterministic inputs are constructed
 at test time from the manifest's versioned recipe and seed. `generated/` is a
@@ -65,12 +65,16 @@ writes `expected.json` and `actual.json` in the same directory. Outside UTC,
 diff -u "${TMPDIR:-/tmp}/kaitokit-tar-golden-actual/expected.json" "${TMPDIR:-/tmp}/kaitokit-tar-golden-actual/actual.json"
 ```
 
-## Regenerate on the baseline only
+## Regenerate expectations
 
-Use a `24311ac` checkout with these fixtures, the Step-0 test support/dependencies
-and the no-op option helper. Do not regenerate expectations from the changed parser.
+For storage-only work, use a `24311ac` checkout with these fixtures, the Step-0
+test support/dependencies and the no-op option helper. Do not regenerate
+expectations from a changed parser in that case. An intentional behavior change
+may instead be regenerated from its implementation branch, but every scalar
+difference must be reviewed against that change.
 
 ```sh
+# Storage-only baseline only; omit this guard for a reviewed behavior change.
 git diff --quiet -- Sources
 TZ=UTC KAITOKIT_WRITE_TAR_GOLDEN=1 KAITOKIT_DUMP_TAR_GOLDEN="${TMPDIR:-/tmp}/tar-golden-regenerated.json" swift test --filter TarPublicValueGoldenTests
 shasum -a 256 "${TMPDIR:-/tmp}/tar-golden-regenerated.json"

@@ -330,11 +330,46 @@ final class RAR5DecoderTests: XCTestCase {
         XCTAssertThrowsError(try RAR5Decoder(
             source: DataByteSource(data: packed), offset: 0,
             compressedSize: UInt64(packed.count), expectedSize: 1,
-            dictionarySize: 192 * 1_024, limits: ReadLimits()
+            dictionarySize: 64 * 1_024, limits: ReadLimits()
         )) { error in
             XCTAssertEqual(error as? KaitoError, .unsupportedMethod(
-                "RAR5 decoder requires a power-of-two dictionary"
+                "RAR5 dictionary is outside the supported allocation range"
             ))
+        }
+    }
+
+    func testVersionOneTablesAndRoundedDictionary() throws {
+        var packed = Data()
+        for index in 0..<9 {
+            packed += makeLiteralBlock(
+                byte: UInt8(65 + index), count: 65_536,
+                includesTables: true, isLast: index == 8,
+                distanceSymbolCount: 80
+            )
+        }
+        let expected = Data((0..<9).flatMap { index in
+            [UInt8](repeating: UInt8(65 + index), count: 65_536)
+        })
+        for threads in [1, 4] {
+            let decoder = try RAR5Decoder(
+                source: DataByteSource(data: packed), offset: 0,
+                compressedSize: UInt64(packed.count), expectedSize: UInt64(expected.count),
+                dictionarySize: 192 * 1_024,
+                limits: ReadLimits(maxDictionarySize: 256 * 1_024),
+                decodeThreads: threads, compressionVersion: 1
+            )
+            XCTAssertEqual(try drain(decoder, bufferSize: 4_099), expected)
+        }
+        XCTAssertThrowsError(try RAR5Decoder(
+            source: DataByteSource(data: packed), offset: 0,
+            compressedSize: UInt64(packed.count), expectedSize: UInt64(expected.count),
+            dictionarySize: 192 * 1_024,
+            limits: ReadLimits(maxDictionarySize: 192 * 1_024),
+            compressionVersion: 1
+        )) { error in
+            guard case .limitExceeded = error as? KaitoError else {
+                return XCTFail("unexpected error: \(error)")
+            }
         }
     }
 
@@ -930,12 +965,15 @@ final class RAR5DecoderTests: XCTestCase {
         byte: UInt8,
         count: Int,
         includesTables: Bool,
-        isLast: Bool
+        isLast: Bool,
+        distanceSymbolCount: Int = 64
     ) -> Data {
         precondition(count > 0)
         var bits = RAR5DecoderBitWriter()
         if includesTables {
-            appendSingleMainSymbolTables(symbol: Int(byte), to: &bits)
+            appendSingleMainSymbolTables(
+                symbol: Int(byte), distanceSymbolCount: distanceSymbolCount, to: &bits
+            )
         }
         for _ in 0..<count { bits.append(0, count: 1) }
         return makeRawBlock(
@@ -1118,12 +1156,14 @@ final class RAR5DecoderTests: XCTestCase {
 
     private func appendSingleMainSymbolTables(
         symbol: Int,
+        distanceSymbolCount: Int = 64,
         to bits: inout RAR5DecoderBitWriter
     ) {
         precondition((0..<306).contains(symbol))
         // The bit-length alphabet has two one-bit codes: 0 -> 0 and 1 -> 1.
         for index in 0..<20 { bits.append(index < 2 ? 1 : 0, count: 4) }
-        for index in 0..<430 { bits.append(index == symbol ? 1 : 0, count: 1) }
+        let combinedCount = 306 + distanceSymbolCount + 16 + 44
+        for index in 0..<combinedCount { bits.append(index == symbol ? 1 : 0, count: 1) }
     }
 
     private func appendTwoMainSymbolTables(

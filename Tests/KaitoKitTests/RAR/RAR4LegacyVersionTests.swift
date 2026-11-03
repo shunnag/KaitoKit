@@ -3,16 +3,11 @@ import Foundation
 import XCTest
 
 final class RAR4LegacyVersionTests: XCTestCase {
-    func testCompressedUnpackVersions15_20And26AreExplicitlyUnsupported() throws {
-        for version: UInt8 in [15, 20, 26] {
-            let reader = try ArchiveReader.open(data: makeArchive(unpackVersion: version))
-            let entry = try XCTUnwrap(reader.entries.first)
-            XCTAssertThrowsError(try reader.stream(entry)) { error in
-                XCTAssertEqual(
-                    error as? KaitoError,
-                    .unsupportedMethod("RAR4 unpack version \(version)")
-                )
-            }
+    func testCompressedUnpackVersion15RejectsTruncatedPackedData() throws {
+        let reader = try ArchiveReader.open(data: makeArchive(unpackVersion: 15))
+        let entry = try XCTUnwrap(reader.entries.first)
+        XCTAssertThrowsError(try reader.read(entry)) { error in
+            XCTAssertEqual(error as? KaitoError, .truncated)
         }
     }
 

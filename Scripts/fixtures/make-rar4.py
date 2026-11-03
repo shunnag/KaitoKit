@@ -126,7 +126,7 @@ def verify_archive(archive, entries, kaito, unrar, bsdtar, solid=False):
             result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             solid_diagnostic = b"bsdtar: RAR solid archive support unavailable"
             allowed_diagnostics = {solid_diagnostic, b"bsdtar: Error exit delayed from previous errors"}
-            diagnostics = set(result.stderr.splitlines())
+            diagnostics = {line.rstrip(b".") for line in result.stderr.splitlines()}
             if (name == "bsdtar" and solid and result.returncode == 1
                     and solid_diagnostic in diagnostics and diagnostics <= allowed_diagnostics):
                 results[name] = "unsupported: RAR solid archive support unavailable"

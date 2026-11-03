@@ -4,7 +4,66 @@
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
 バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従う。
 
-## [Unreleased]
+## [0.21.0] - 2026-11-03
+
+RAR15・LZ4・Deflate64・CAB LZX の復号を高速化する release。ビルド要件（Xcode 27 / Swift 6.4 以上）と実行環境（macOS 26 以上・Apple Silicon と Intel）は 0.20.0 と同じ。
+
+### 変更
+
+- RAR15 の window・Huffman 状態を固定長 buffer にし、solid 復号の配列管理費を削減する。
+- 独立した modern LZ4 block を文法と実出力長の検証後に並列復号する。dependent・legacy・連結 frame・単一 block・解析できない入力は従来の直列経路を使い、部分出力と checksum のエラー順も維持する。
+- Deflate64 の bit 読み出し・match 処理を inline 化し、alignment を reservoir から求めて Huffman entry を 4 byte にする。
+- CAB LZX の Huffman 高速表を固定 buffer にし、table 参照を block ごとに解く。実 product.cab（106 file）の復号時間を baseline の約 0.44〜0.52 倍にする。
+- 測定条件・他実装との残差・却下した試案は [全形式の decode 性能・安定性検証](Documentation/verification/2026-11-03-decode-performance.md) に記録する。
+
+## [0.20.0] - 2026-11-03
+
+RAR4 unpack version 15 / 20 / 26 と RAR 1.3 / 1.4 の展開を強化する release。
+旧形式の圧縮・solid・旧暗号・comment・SFX・old multi-volume に対応する。
+ビルド要件（Xcode 27 / Swift 6.4 以上）と実行環境（macOS 26 以上・Apple Silicon と Intel）は 0.19.0 と同じ。
+
+### 追加
+
+- RAR 1.3 / 1.4 の `RE~^` container、stored・Unpack15 圧縮・solid・旧暗号を展開できるようにした。
+  16-bit rolling checksum を検証し、main header だけで指定する実 RAR 1.402 の solid にも対応する。
+  packed archive comment と stored file comment も復号する。password は ASCII に限る。
+  `RSFX` marker と MZ 画像サイズを検証した SFX も展開できる。URL-backed old `.r00` の
+  stored・圧縮・solid 分割にも対応し、最終巻の checksum を検証する。
+  solid の辞書と adaptive Huffman 状態は巻をまたいで引き継ぐ。Data からの継続巻解決は拒否する。
+- RAR4 unpack version 15（RAR 1.3 / 1.5）の adaptive Huffman + LZ77 と solid 書庫を展開できるようにした。
+  64 KiB 窓、頻度補正、ShortLZ / LongLZ、StMode、距離履歴に対応する。
+  custom VM と旧暗号は明示的に拒否する。
+- RAR4 unpack version 20 / 26 の LZ・音声ブロックと solid 書庫を展開できるようにした。
+  1 MiB 窓、version 20 専用の距離履歴・長さボーナス、1〜4 チャンネルの音声予測に対応する。
+  custom RAR VM は従来どおり明示的に拒否する。
+
+### 修正
+
+- ENDARC を省略した RAR4 volume は、末尾 file の `SPLIT_AFTER` から次巻を解決するようにした。
+  version 15 の solid 分割 member も結合した packed stream と継続した辞書・adaptive Huffman 状態で展開する。
+  Data からの継続巻探索と、ENDARC がある場合の `EARC_NEXT_VOLUME` の意味は変えない。
+
+## [0.19.0] - 2026-11-02
+
+RAR5 compression version 1、7z / XZ の RISC-V filter、RAR4 / RAR5 の分割 SFX に対応する release。
+version 0 の RAR5、他の 7z filter、既存の展開経路は維持する。ビルド要件（Xcode 27 / Swift 6.4 以上）と
+実行環境（macOS 26 以上・Apple Silicon と Intel）は 0.18.0 と同じ。
+
+### 追加
+
+- 7z の RISC-V branch filter（method `0x0B`）を展開できるようにした。JAL、AUIPC と後続命令の対、
+  2 byte 整列、縮小命令を含む入力に対応する。
+- XZ の RISC-V filter（ID `0x0B`）も同じ逆変換で展開できるようにした。複数 block、連結 stream、
+  `.tar.xz`、各 check 種別に対応し、Apple Compression 非対応の filter は native の直列経路で復号する。
+- RAR5 compression version 1 を展開できるようにした。80 distance symbols と 4 GiB を超える
+  非2の累乗辞書に対応する。辞書は次の2の累乗へ確保し、実確保量を上限へ計上するため、
+  大きな version 1 書庫には `maxEntrySize` / `maxDictionarySize` の引上げが必要。
+
+### 修正
+
+- SFX prefix のある RAR4 / RAR5 の分割書庫を開けるようにした。先頭巻の署名 offset と原本の identity を検証し、
+  RAR4 の old / new numbering と RAR5 の `.partN.rar` に対応する。Data / 任意 `ByteSource` の multi-volume 拒否と、
+  決定的な兄弟名だけを開く安全境界は維持する。
 
 ## [0.18.0] - 2026-10-30
 

@@ -110,12 +110,44 @@ final class SevenZipFilterTests: XCTestCase {
         )
     }
 
+    func testRISCVFilterMatches7ZipEncodedBytes() throws {
+        try assertBranchDecode(
+            encoded: try Hex.bytes(
+                "ef000000ef000004ef000002ef000086eff0ff88ef3002c5"
+            ),
+            expected: try Hex.bytes(
+                "ef000000ef004000eff0dfffef000010eff01ff0ef3002c5"
+            ),
+            filter: .riscv
+        )
+        try assertBranchDecode(
+            encoded: try Hex.bytes(
+                "17710608ffffefff1751341267808067"
+            ),
+            expected: try Hex.bytes(
+                "97f0ffff6780f0ff1751341267808067"
+            ),
+            filter: .riscv
+        )
+    }
+
+    func testRISCVFilterMatchesOracleAcrossChunkBoundaries() throws {
+        try assertOracleBranchDecode(
+            fixture: "riscv", name: "RISCV", unitSize: 2,
+            methodIDs: [[0x0B]]
+        )
+    }
+
     func testSPARCArchiveExtractsExpectedSHA256() throws {
         try assertBranchArchive(fixture: "sparc", name: "SPARC")
     }
 
     func testIA64ArchiveExtractsExpectedSHA256() throws {
         try assertBranchArchive(fixture: "ia64", name: "IA64")
+    }
+
+    func testRISCVArchiveExtractsExpectedSHA256() throws {
+        try assertBranchArchive(fixture: "riscv", name: "RISCV")
     }
 
     func testBCJ2CallJumpAndConditionalJump() throws {

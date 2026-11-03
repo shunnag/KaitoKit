@@ -155,6 +155,8 @@ final class SingleFileReader: FormatReader {
             return decoder
         } else if format == .zstd {
             return try ZstdDecompressor.parallel(source: source, limits: limits, workers: decodeThreads)
+        } else if format == .lz4 {
+            return try LZ4FrameDecompressor.parallel(source: source, limits: limits, workers: decodeThreads)
         } else if format == .lzip {
             return try LzipDecompressor.parallel(source: source, limits: limits, workers: decodeThreads)
         } else if format == .pbzx {

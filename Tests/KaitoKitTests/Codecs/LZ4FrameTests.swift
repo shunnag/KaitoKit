@@ -20,8 +20,12 @@ final class LZ4FrameTests: XCTestCase {
         try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appendingPathComponent("manifest.json")))
     }
     private func fixture(_ name: String) throws -> Data { try TestFixtures.base64("lz4-frame/" + name + ".lz4") }
-    private func decode(_ bytes: Data, chunk: Int = 8191, limits: ReadLimits = ReadLimits(), partialInput: Int = Int.max) throws -> Data {
-        let decoder = try LZ4FrameDecompressor(source: LZ4PartialSource(data: bytes, chunk: partialInput), limits: limits)
+    private func decode(_ bytes: Data, chunk: Int = 8191, limits: ReadLimits = ReadLimits(),
+                        partialInput: Int = Int.max, workers: Int = 1) throws -> Data {
+        let source = LZ4PartialSource(data: bytes, chunk: partialInput)
+        let decoder: any Decompressor = workers > 1
+            ? try LZ4FrameDecompressor.parallel(source: source, limits: limits, workers: workers)
+            : try LZ4FrameDecompressor(source: source, limits: limits)
         var result = Data(), buffer = [UInt8](repeating: 0, count: chunk)
         XCTAssertEqual(try decoder.read(into: UnsafeMutableRawBufferPointer(start: nil, count: 0)), 0)
         while true {
@@ -32,6 +36,171 @@ final class LZ4FrameTests: XCTestCase {
         XCTAssertTrue(decoder.isFinished)
         XCTAssertEqual(try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }, 0)
         return result
+    }
+
+    func testParallelIndependentFramesMatchSerialAtEveryBufferBoundary() throws {
+        for includeSize in [false, true] {
+            for blockChecksum in [false, true] {
+                for contentChecksum in [false, true] {
+                    for storedSecond in [false, true] {
+                        let (bytes, expected) = multiBlockFrame(
+                            includeSize: includeSize, blockChecksum: blockChecksum,
+                            contentChecksum: contentChecksum, storedSecond: storedSecond
+                        )
+                        let decoder = try LZ4FrameDecompressor.parallel(
+                            source: LZ4PartialSource(data: bytes, chunk: 37), limits: ReadLimits(), workers: 4
+                        )
+                        XCTAssertTrue(decoder is ParallelLZ4FrameDecompressor)
+                        for chunk in [1, 4_099, 65_536] {
+                            XCTAssertEqual(try decode(bytes, chunk: chunk, partialInput: 37, workers: 4), expected)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testParallelFallbackPreservesSingleDependentLegacyAndConcatenatedFrames() throws {
+        let (bytes, expected) = multiBlockFrame()
+        let serial = try LZ4FrameDecompressor.parallel(
+            source: DataByteSource(bytes), limits: ReadLimits(), workers: 1
+        )
+        XCTAssertFalse(serial is ParallelLZ4FrameDecompressor)
+        for name in ["tiny", "linked-64k", "legacy-tiny"] {
+            let encoded = try fixture(name)
+            let decoder = try LZ4FrameDecompressor.parallel(
+                source: DataByteSource(encoded), limits: ReadLimits(), workers: 4
+            )
+            XCTAssertFalse(decoder is ParallelLZ4FrameDecompressor, name)
+            XCTAssertEqual(try decode(encoded, workers: 4), try decode(encoded), name)
+        }
+        XCTAssertEqual(try decode(bytes + bytes, workers: 4), expected + expected)
+        let constrained = try LZ4FrameDecompressor.parallel(
+            source: DataByteSource(bytes), limits: ReadLimits(parallelDecodeMemory: 1), workers: 4
+        )
+        XCTAssertFalse(constrained is ParallelLZ4FrameDecompressor)
+        XCTAssertEqual(try decode(bytes, limits: ReadLimits(parallelDecodeMemory: 1), workers: 4), expected)
+    }
+
+    func testParallelMutationsPreservePartialOutputErrorsAndFailedBuffers() throws {
+        let (bytes, _) = multiBlockFrame(blockChecksum: true)
+        var badContent = bytes
+        badContent[badContent.count - 1] ^= 1
+        var badBlock = bytes
+        badBlock[7 + 4 + 166] ^= 1
+        var badGrammar = bytes
+        badGrammar[11] = 0xf0
+        let firstBlock = Data(badGrammar[11..<(11 + 166)])
+        badGrammar.replaceSubrange((11 + 166)..<(15 + 166), with: word(XXH32.digest(Array(firstBlock))))
+        let variants = [bytes, badContent, badBlock, badGrammar,
+                        Data(bytes.dropLast()), Data(bytes.dropLast(32)), bytes + Data([1, 2, 3, 4])]
+        for (index, variant) in variants.enumerated() {
+            for chunk in [1, 4_099, 65_536] {
+                let expected = streamOutcome(variant, chunk: chunk, workers: 1)
+                let actual = streamOutcome(variant, chunk: chunk, workers: 4)
+                let difference = zip(expected.failedBuffer ?? Data(), actual.failedBuffer ?? Data())
+                    .enumerated().first { $0.element.0 != $0.element.1 }
+                XCTAssertEqual(actual, expected,
+                               "variant \(index), chunk \(chunk), buffer difference \(String(describing: difference))")
+            }
+        }
+    }
+
+    func testPublicReaderUsesParallelLZ4WithoutChangingEntryIdentity() throws {
+        let (bytes, expected) = multiBlockFrame()
+        let reader = try ArchiveReader.open(data: bytes, options: ReaderOptions(decodeThreads: 4))
+        XCTAssertEqual(reader.entries.count, 1)
+        XCTAssertEqual(reader.entries[0].uncompressedSize, nil)
+        XCTAssertEqual(try reader.read(reader.entries[0]), expected)
+        XCTAssertEqual(try LZ4FrameDecompressor.contentSize(source: DataByteSource(bytes), limits: ReadLimits()), nil)
+    }
+
+    private struct StreamOutcome: Equatable {
+        let bytes: Data
+        let error: String?
+        let failedBuffer: Data?
+        let finished: Bool
+    }
+
+    private func streamOutcome(_ bytes: Data, chunk: Int, workers: Int) -> StreamOutcome {
+        var result = Data(), buffer = [UInt8](repeating: 0xa5, count: chunk)
+        var decoder: (any Decompressor)?
+        do {
+            let source = LZ4PartialSource(data: bytes, chunk: 37)
+            let current: any Decompressor = workers > 1
+                ? try LZ4FrameDecompressor.parallel(source: source, limits: ReadLimits(), workers: workers)
+                : try LZ4FrameDecompressor(source: source, limits: ReadLimits())
+            decoder = current
+            while true {
+                let count = try buffer.withUnsafeMutableBytes { try current.read(into: $0) }
+                if count == 0 { return StreamOutcome(bytes: result, error: nil, failedBuffer: nil, finished: current.isFinished) }
+                result.append(contentsOf: buffer[..<count])
+            }
+        } catch {
+            return StreamOutcome(bytes: result, error: String(reflecting: error),
+                                 failedBuffer: Data(buffer), finished: decoder?.isFinished ?? false)
+        }
+    }
+
+    private func multiBlockFrame(includeSize: Bool = false, blockChecksum: Bool = false,
+                                 contentChecksum: Bool = true, storedSecond: Bool = false,
+                                 includeEmpty: Bool = false) -> (Data, Data) {
+        let sequence: [UInt8] = [0x14, 65, 1, 0]
+        let first: [UInt8] = Array(repeating: sequence, count: 40).flatMap { $0 } + [0x50, 66, 67, 68, 69, 70]
+        let payload: [UInt8] = [71, 72, 73, 74, 75]
+        let encodedSecond = storedSecond ? payload : [0x50] + payload
+        let expected = Data(repeating: 65, count: 360) + Data([66, 67, 68, 69, 70] + payload)
+        func encodedBlock(_ bytes: [UInt8], stored: Bool) -> Data {
+            var result = word(UInt32(bytes.count) | (stored ? 0x8000_0000 : 0)) + Data(bytes)
+            if blockChecksum { result += word(XXH32.digest(bytes)) }
+            return result
+        }
+        var flags: UInt8 = 0x60
+        if includeSize { flags |= 8 }
+        if blockChecksum { flags |= 16 }
+        if contentChecksum { flags |= 4 }
+        let optional = includeSize
+            ? Data((0..<8).map { UInt8(truncatingIfNeeded: UInt64(expected.count) >> (8 * $0)) }) : Data()
+        let empty = includeEmpty ? encodedBlock([], stored: true) + encodedBlock([0], stored: false) : Data()
+        var result = frame(flags: flags, blockDescriptor: 0x40, optional: optional,
+                           blocks: empty + encodedBlock(first, stored: false) + encodedBlock(encodedSecond, stored: storedSecond))
+        if contentChecksum { result += word(XXH32.digest(Array(expected))) }
+        return (result, expected)
+    }
+
+    func testParallelEmptyCompressedAndStoredBlocksMakeProgress() throws {
+        for blockChecksum in [false, true] {
+            for contentChecksum in [false, true] {
+                let (bytes, expected) = multiBlockFrame(
+                    blockChecksum: blockChecksum, contentChecksum: contentChecksum, includeEmpty: true
+                )
+                for chunk in [1, 4_099, 65_536] {
+                    XCTAssertEqual(try decode(bytes, chunk: chunk, workers: 4), expected)
+                }
+            }
+        }
+    }
+
+    func testCancelledParallelDecodeRemainsSticky() async throws {
+        let (bytes, _) = multiBlockFrame()
+        let task = Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            let decoder = try LZ4FrameDecompressor.parallel(
+                source: DataByteSource(bytes), limits: ReadLimits(), workers: 4
+            )
+            var output = [UInt8](repeating: 0, count: 37)
+            do {
+                _ = try output.withUnsafeMutableBytes { try decoder.read(into: $0) }
+                return false
+            } catch is CancellationError {
+                do {
+                    _ = try output.withUnsafeMutableBytes { try decoder.read(into: $0) }
+                    return false
+                } catch is CancellationError { return true }
+            }
+        }
+        let cancelled = try await task.value
+        XCTAssertTrue(cancelled)
     }
 
     func testStreamingXXH32MatchesIndependentCLIAtStripeAndInputBoundaries() throws {

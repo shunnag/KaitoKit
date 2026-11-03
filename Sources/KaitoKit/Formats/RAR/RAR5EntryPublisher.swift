@@ -66,13 +66,15 @@ enum RAR5EntryPublisher {
         source: any ByteSource,
         sourceURL: URL?,
         sourceDirectoryAnchor: FileByteSource.DirectoryAnchor?,
+        firstVolumeIdentitySource: (any ByteSource)? = nil,
         options: ReaderOptions,
         passwordSelection: RAR5PasswordSelection
     ) throws -> (entries: [ArchiveEntry], records: [RAR5EntryRecord], password: String?) {
         let verification = RAR5QuickOpenVerification()
         do {
             let parsed = try parseWithQuickOpen(source: source, sourceURL: sourceURL,
-                sourceDirectoryAnchor: sourceDirectoryAnchor, options: options,
+                sourceDirectoryAnchor: sourceDirectoryAnchor,
+                firstVolumeIdentitySource: firstVolumeIdentitySource, options: options,
                 passwordSelection: passwordSelection, quickOpenVerification: verification)
             if verification.hasAllocatedSlots {
                 // 公開 Reader が行う合計 size の検査も、写しだけを理由に open を失敗させない。
@@ -89,14 +91,17 @@ enum RAR5EntryPublisher {
             var plainOptions = options
             plainOptions.rar5QuickOpenPolicy = .never
             return try parseWithQuickOpen(source: source, sourceURL: sourceURL,
-                sourceDirectoryAnchor: sourceDirectoryAnchor, options: plainOptions,
+                sourceDirectoryAnchor: sourceDirectoryAnchor,
+                firstVolumeIdentitySource: firstVolumeIdentitySource, options: plainOptions,
                 passwordSelection: passwordSelection, quickOpenVerification: RAR5QuickOpenVerification())
         }
     }
 
     private static func parseWithQuickOpen(
         source: any ByteSource, sourceURL: URL?,
-        sourceDirectoryAnchor: FileByteSource.DirectoryAnchor?, options: ReaderOptions,
+        sourceDirectoryAnchor: FileByteSource.DirectoryAnchor?,
+        firstVolumeIdentitySource: (any ByteSource)? = nil,
+        options: ReaderOptions,
         passwordSelection: RAR5PasswordSelection, quickOpenVerification: RAR5QuickOpenVerification
     ) throws -> (entries: [ArchiveEntry], records: [RAR5EntryRecord], password: String?) {
         var resolvedPassword = options.password
@@ -161,6 +166,7 @@ enum RAR5EntryPublisher {
             firstVolumeURL: sourceURL,
             firstVolumeSource: source,
             firstVolumeDirectory: sourceDirectoryAnchor,
+            firstVolumeIdentitySource: firstVolumeIdentitySource,
             naming: .rar5,
             maxMetadataSize: options.limits.maxMetadataSize,
             maxVolumeCount: options.limits.maxVolumeCount

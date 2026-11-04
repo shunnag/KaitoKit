@@ -60,6 +60,37 @@ final class RAR20DecoderTests: XCTestCase {
         XCTAssertEqual(try hash(output), "b915c3b0b8335cdb7ee06bb9487ea26a1a338cae4f8fc3208363d99e3938f842")
     }
 
+    func testHuffmanLookupRetainsLongCodesAndTruncation() throws {
+        let table = RAR20HuffmanTable()
+        try table.build([1, 10, 10])
+        var inputBits = [UInt8]()
+        for (code, count) in [(0, 1), (512, 10), (513, 10), (512, 10)] {
+            for shift in stride(from: count - 1, through: 0, by: -1) {
+                inputBits.append(UInt8((code >> shift) & 1))
+            }
+        }
+        inputBits.append(contentsOf: repeatElement(0, count: (8 - inputBits.count % 8) % 8))
+        var packed = [UInt8](repeating: 0, count: inputBits.count / 8)
+        for (index, bit) in inputBits.enumerated() {
+            packed[index / 8] |= bit << UInt8(7 - index % 8)
+        }
+        var bits = MSBFirstBitReader(bytes: packed)
+        for expected in [0, 1, 2, 1] {
+            XCTAssertEqual(try table.decode(&bits), expected)
+        }
+        XCTAssertFalse(bits.overrun)
+
+        var truncated = MSBFirstBitReader(bytes: Array(packed.prefix(3)))
+        for expected in [0, 1, 2, 1] {
+            XCTAssertEqual(try table.decode(&truncated), expected)
+        }
+        XCTAssertTrue(truncated.overrun)
+
+        var empty = MSBFirstBitReader(bytes: [])
+        XCTAssertEqual(try table.decode(&empty), 0)
+        XCTAssertTrue(empty.overrun)
+    }
+
     func testTruncatedPackedInputIsRejected() throws {
         let data = try TestFixtures.base64("rar20/autorej.rar")
         for packedSize in [UInt64(1), 8, 20] {

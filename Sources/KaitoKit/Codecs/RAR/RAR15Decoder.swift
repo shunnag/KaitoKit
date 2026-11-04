@@ -211,13 +211,15 @@ final class RAR15Decoder: Decompressor {
         Int(try bits.peek(16))
     }
 
+    @inline(__always)
     private func addBits(_ count: Int) throws {
         guard (0...32).contains(count) else { throw KaitoError.malformed("RAR4 invalid bit count") }
         consumedBits = try Checked.add(consumedBits, UInt64(count))
         guard consumedBits <= packedBitCount else { throw KaitoError.truncated }
-        _ = try bits.read(count)
+        try bits.consume(count)
     }
 
+    @inline(__always)
     private func decodeNum(_ start: Int, _ dec: [Int], _ pos: [Int]) throws -> Int {
         let num = try getBits() & 0xfff0
         var start = start, index = 0

@@ -152,7 +152,7 @@ final class PPMdVarIModel {
         if orderFall == 0, selected.successor >= arena.unitsStart {
             maximumContext = selected.successor
         } else {
-            try updateModel(minimum)
+            try updateModel(minimum, selected: selected)
             if escapeCount == 0 { clearMask() }
         }
         needsNormalization = true
@@ -195,12 +195,15 @@ final class PPMdVarIModel {
 
     @inline(__always)
     private func decodeBinSymbol(_ c: Offset, _ decoder: PPMdVarIRangeDecoder) throws {
-        let p = try oneState(c)
-        var s = try state(p)
+        // numStats at the call site validates the context and its inline state.
+        let p = c + 2
+        let stateIndex = try arena.checkedInt(p, count: Self.stateSize)
+        var s = uncheckedState(stateIndex)
         guard (1...196).contains(s.frequency) else { throw malformed("invalid binary frequency") }
-        let suffixCount = try numStats(suffix(c))
+        let suffixCount = try numStats(arena.uncheckedGet32(Int(c) + 8))
         let row = Self.qTable[s.frequency - 1]
-        let column = try Self.nsToBS[suffixCount] + previousSuccess + flags(c) + Int((runLength >> 26) & 0x20)
+        let column = Self.nsToBS[suffixCount] + previousSuccess
+            + Int(arena.uncheckedGet8(Int(c) + 1)) + Int((runLength >> 26) & 0x20)
         guard row < Self.binarySummaryRows, (0..<Self.binarySummaryColumns).contains(column) else { throw malformed("invalid binary index") }
         let index = row * Self.binarySummaryColumns + column
         let probability = Int(binSumm[index])
@@ -208,7 +211,7 @@ final class PPMdVarIModel {
             try decoder.remove(low: 0, high: probability)
             foundState = p
             s.frequency += s.frequency < 196 ? 1 : 0
-            try writeState(p, s)
+            arena.uncheckedPut8(UInt8(s.frequency), stateIndex + 1)
             binSumm[index] &+= UInt16(128 - ((probability + 32) >> 7))
             previousSuccess = 1
             runLength &+= 1
@@ -225,10 +228,13 @@ final class PPMdVarIModel {
 
     @inline(__always)
     private func decodeSymbol1(_ c: Offset, _ decoder: PPMdVarIRangeDecoder) throws {
-        let base = try stats(c), n = try numStats(c), total = try sum(c)
+        // numStats at the call site covers every fixed-offset context field.
+        let n = Int(arena.uncheckedGet8(Int(c)))
+        let base = arena.uncheckedGet32(Int(c) + 4)
+        try arena.requireUnit(base, count: (n + 1) * Self.stateSize)
+        let total = Int(arena.uncheckedGet16(Int(c) + 2))
         let count = try decoder.threshold(total: total)
-        // stats が検証した連続領域内だけを読み、領域を変更する更新の後は再利用しない。
-        // stats already checked (n + 1) * 6 bytes. All symbol/frequency
+        // requireUnit checked (n + 1) * 6 bytes. All symbol/frequency
         // offsets below are i * 6 + {0, 1}, i <= n, inside this live span.
         // No allocation/release occurs before a selected-state update returns.
         let states = try arena.checkedBytes(base, count: (n + 1) * Self.stateSize)
@@ -307,13 +313,14 @@ final class PPMdVarIModel {
     }
 
     @inline(__always)
-    private func makeEscFreq2(_ c: Offset) throws -> (index: Int?, scale: Int) {
-        let n = try numStats(c)
+    private func makeEscFreq2(_ c: Offset, n: Int) throws -> (index: Int?, scale: Int) {
+        // The enclosing suffix walk already validated this multi-state context.
         if n == 255 { return (nil, 1) }
-        let t = try numStats(suffix(c))
+        let t = try numStats(arena.uncheckedGet32(Int(c) + 8))
         let row = Self.qTable[n + 2] - 3
-        let column = try (sum(c) > 11 * (n + 1) ? 1 : 0)
-            + 2 * (2 * n < t + numberMasked ? 1 : 0) + flags(c)
+        let column = (Int(arena.uncheckedGet16(Int(c) + 2)) > 11 * (n + 1) ? 1 : 0)
+            + 2 * (2 * n < t + numberMasked ? 1 : 0)
+            + Int(arena.uncheckedGet8(Int(c) + 1))
         guard (0..<Self.seeRows).contains(row), (0..<Self.seeColumns).contains(column) else {
             throw malformed("invalid SEE index")
         }
@@ -323,8 +330,10 @@ final class PPMdVarIModel {
 
     @inline(__always)
     private func decodeSymbol2(_ c: Offset, _ decoder: PPMdVarIRangeDecoder) throws {
-        let estimator = try makeEscFreq2(c)
-        let n = try numStats(c), base = try stats(c)
+        let n = Int(arena.uncheckedGet8(Int(c)))
+        let estimator = try makeEscFreq2(c, n: n)
+        let base = arena.uncheckedGet32(Int(c) + 4)
+        try arena.requireUnit(base, count: (n + 1) * Self.stateSize)
         let expected = n - numberMasked
         guard expected > 0 else { throw malformed("no unmasked states") }
         // All cursors stay inside the checked (n + 1) * 6 span. The shared
@@ -588,24 +597,29 @@ final class PPMdVarIModel {
         }
     }
 
-    private func updateModel(_ minimum: Offset) throws {
-        let selected = try state(foundState)
+    private func updateModel(_ minimum: Offset, selected: State) throws {
         let fFrequency = selected.frequency, fSymbol = selected.symbol
         var fSuccessor = selected.successor
         var pc = try suffix(minimum), pc1 = maximumContext, p: Offset = 0
         if fFrequency < 124 / 4, pc != 0 {
             p = try findState(pc, fSymbol)
-            if try numStats(pc) != 0 {
-                let base = try stats(pc)
+            if arena.uncheckedGet8(Int(pc)) != 0 {
+                // findState has validated the context, complete state block and
+                // returned member. Swapping states does not move the block.
+                let base = arena.uncheckedGet32(Int(pc) + 4)
                 if p != base {
-                    let previous = try arena.advance(p, -Self.stateSize)
-                    if try frequency(p) >= frequency(previous) { try swap(p, previous); p = previous }
+                    let previous = p - Offset(Self.stateSize)
+                    if arena.uncheckedGet8(Int(p) + 1)
+                        >= arena.uncheckedGet8(Int(previous) + 1) {
+                        try swap(p, previous)
+                        p = previous
+                    }
                 }
-                let f = try frequency(p), delta = f < 124 - 9 ? 2 : 0
+                let f = Int(arena.uncheckedGet8(Int(p) + 1)), delta = f < 124 - 9 ? 2 : 0
                 try setFrequency(p, f + delta)
                 try setSum(pc, sum(pc) + delta)
             } else {
-                let f = try frequency(p)
+                let f = Int(arena.uncheckedGet8(Int(p) + 1))
                 try setFrequency(p, f + (f < 32 ? 1 : 0))
             }
         }
@@ -647,8 +661,9 @@ final class PPMdVarIModel {
             let ns1 = try numStats(pc1)
             guard ns1 < 255 else { throw malformed("too many context states") }
             if ns1 != 0 {
+                p = arena.uncheckedGet32(Int(pc1) + 4)
                 if ns1 & 1 != 0 {
-                    p = try arena.expandUnits(stats(pc1), (ns1 + 1) >> 1)
+                    p = try arena.expandUnits(p, (ns1 + 1) >> 1)
                     if p == 0 { try restartModelRare(pc1, minimum, fSuccessor); return }
                     try setStats(pc1, p)
                 }
@@ -662,7 +677,7 @@ final class PPMdVarIModel {
                 try setStats(pc1, p)
                 try setSum(pc1, s.frequency + initialEscape + (ns > 2 ? 1 : 0))
             }
-            let sum = try self.sum(pc1)
+            let sum = Int(arena.uncheckedGet16(Int(pc1) + 2))
             let cf = UInt32(2 * fFrequency * (sum + 6)), sf = s0 &+ UInt32(sum)
             let frequency: Int
             if cf < 6 &* sf {
@@ -673,7 +688,10 @@ final class PPMdVarIModel {
                 try setSum(pc1, sum + frequency)
             }
             try setNumStats(pc1, ns1 + 1)
-            p = try at(stats(pc1), ns1 + 1)
+            // The allocator has not moved this block since selecting p. Check
+            // the enlarged span as stats(c) did before writing its last member.
+            try arena.requireUnit(p, count: (ns1 + 2) * Self.stateSize)
+            p += Offset((ns1 + 1) * Self.stateSize)
             try writeState(p, State(symbol: fSymbol, frequency: frequency, successor: next))
             try setFlags(pc1, flags(pc1) | flag)
             pc = try suffix(pc1)

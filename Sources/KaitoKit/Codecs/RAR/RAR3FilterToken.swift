@@ -167,9 +167,7 @@ struct RAR3FilterToken {
                   globalLength <= cursor.remainingByteCapacity else {
                 throw KaitoError.malformed("RAR3 filter global data is invalid")
             }
-            for _ in 0..<globalLength {
-                _ = try cursor.read(8)
-            }
+            try cursor.consume(globalLength * 8)
         }
 
         // Native standard filters are size preserving. R3/R4/R5/R6 are VM
@@ -239,6 +237,15 @@ private struct RAR3MemoryBitCursor {
             bitOffset += 1
         }
         return value
+    }
+
+    mutating func consume(_ count: Int) throws {
+        guard count >= 0,
+              bitOffset <= bytes.count * 8,
+              count <= bytes.count * 8 - bitOffset else {
+            throw KaitoError.malformed("RAR3 filter payload is truncated")
+        }
+        bitOffset += count
     }
 
     mutating func readRARVMNumber() throws -> UInt32 {

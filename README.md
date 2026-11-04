@@ -20,14 +20,14 @@ KaitoKit は macOS 向けの純 Swift 書庫読み取りライブラリです。
 
 ## SwiftPM
 
-現行リリースは **0.21.0** です（[変更履歴](CHANGELOG.md)）。`Package.swift` に依存を追加します。
-次の指定は 0.21.x の更新を受け取ります。
+現行リリースは **0.22.0** です（[変更履歴](CHANGELOG.md)）。`Package.swift` に依存を追加します。
+次の指定は 0.22.x の更新を受け取ります。
 
 ```swift
 dependencies: [
     .package(
         url: "https://github.com/shunnag/KaitoKit.git",
-        .upToNextMinor(from: "0.21.0")
+        .upToNextMinor(from: "0.22.0")
     )
 ],
 targets: [

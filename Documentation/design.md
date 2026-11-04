@@ -2326,3 +2326,20 @@ TarEditLayout は 0.x の間は追加だけとし、削除・改名・型変更�
 公開 swiftinterface には出さない。全公開値の frozen golden、各段の回帰・差分 fuzz、TSan / ASan、Release と
 負荷付きの計測は [段階 A](verification/2026-09-25-tar-edit-layout.md)・
 [段階 B](verification/2026-09-25-tar-splice-verification.md)の検証記録に残す。
+
+## codec の CPU 最適化（2026-11-05）
+
+独立 modern LZ4 frame は、文法と展開後サイズを検証した block を Apple decoder で復号する。block 表の読み取り後、
+最大 `workers` lane が独立にサイズを求め、順序どおり結果を回収する。小 block は出力 256 KiB を目標に集約するが、
+結果が一つしかないときは集約しない。worker の失敗は block 単位の直列再実行で再現し、部分出力・失敗時 buffer・
+checksum の error 順を維持する。dependent・legacy・連結 frame・単一 block・解析できない入力は従来の直列経路のまま。
+
+LZS だけ owner が保証する入力の raw pointer と UInt64 reservoir を持つ bit cursor を使う。実消費 bit が足りない
+場合は従来どおり overrun とする。lz5 には専用の inline emit を使い、他方式には拡大しない。RAR20 は 10 bit の
+short-code 表を持ち、長い符号は canonical tree に戻す。RAR15 の bit 消費と RAR3 global data の skip は、
+返り値が不要な peek / read を重ねない。PPMd H / I は、arena 割当や state 移動が起きない範囲だけ検証済みの
+context / state を再利用し、suffix・successor・拡大後の配列は検査する。CAB LZX の高速表は 12 bit。
+
+いずれも CPU と OS の既存 framework だけを使い、Metal / Core ML の本番依存は追加しない。両機の速度、出力・error の
+照合、ASan、全 2,100 tests と Compat 34 tests、却下した候補は
+[性能・安定性検証](verification/2026-11-05-codec-performance.md) と KaitoAccelLab に記録する。

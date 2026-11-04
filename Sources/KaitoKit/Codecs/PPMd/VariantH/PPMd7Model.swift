@@ -203,8 +203,6 @@ struct PPMd7ModelCursor: ~Copyable {
     @inline(__always)
     mutating func decodeByte<Decoder: PPMd7RangeDecoding & ~Copyable>(using decoder: inout Decoder) throws -> UInt8 {
         var minimumContext = maximumContext
-        try requireContext(minimumContext)
-
         if try numberOfStats(in: minimumContext) != 0 {
             try decodeSymbol1(in: minimumContext, using: &decoder)
         } else {
@@ -249,10 +247,13 @@ struct PPMd7ModelCursor: ~Copyable {
         guard selected != Self.null else {
             throw KaitoError.malformed("PPMd7 selected no symbol")
         }
-        let symbol = try stateSymbol(at: selected)
+        try requirePackedState(selected)
+        let symbol = allocator.uncheckedGet8(Int(selected))
 
         if orderFall == 0,
-           case let .context(successor) = try successorKind(ofState: selected) {
+           case let .context(successor) = try successorKind(
+            allocator.uncheckedGet32(Int(selected) + 2)
+           ) {
             maximumContext = successor
         } else {
             do {
@@ -278,13 +279,10 @@ struct PPMd7ModelCursor: ~Copyable {
         in context: Offset,
         using decoder: inout Decoder
     ) throws {
-        // state は初期化/更新時に生成・検査済み。記号ごとの全 state 再走査を避ける。
-        // 個別参照の arena 境界と range/頻度の検査は下のアクセス経路に残す。
-        try requireContext(context)
-        let scale = try summaryFrequency(of: context)
+        // numberOfStats at the call site validates the context and its nonzero
+        // count before this function reads any fixed-offset multi-state field.
+        let scale = Int(allocator.uncheckedGet16(Int(context) + 2))
         let count = try decoder.threshold(total: scale)
-        // summaryFrequency checked this 12-byte multi-state context. Reuse
-        // its count/reference without checking the same context again.
         let stateCount = Int(allocator.uncheckedGet16(Int(context)))
         let stateBase = allocator.uncheckedGet32(Int(context) + 4)
         try requireStateBlock(stateBase, stateCount: stateCount)
@@ -343,18 +341,19 @@ struct PPMd7ModelCursor: ~Copyable {
         in context: Offset,
         using decoder: inout Decoder
     ) throws {
-        // state は初期化/更新時に生成・検査済み。記号ごとの全 state 再走査を避ける。
-        // 個別参照の arena 境界と range/頻度の検査は下のアクセス経路に残す。
-        try requireContext(context)
-        let state = try stateRef(in: context, index: 0)
-        let suffix = try self.suffix(of: context)
+        // numberOfStats at the call site validates this 12-byte context and
+        // its inline state. suffix and all other arena references stay checked.
+        let state = context + 2
+        try requirePackedState(state)
+        let suffix = allocator.uncheckedGet32(Int(context) + 8)
         guard suffix != Self.null else {
             throw KaitoError.malformed("invalid PPMd7 binary context")
         }
-        let frequency = Int(try stateFrequency(at: state))
+        let frequency = Int(allocator.uncheckedGet8(Int(state) + 1))
         guard (1...128).contains(frequency) else {
             throw KaitoError.malformed("PPMd7 binary frequency is out of range")
         }
+        let symbol = allocator.uncheckedGet8(Int(state))
         let row = frequency - 1
         let runFlag = (runLength >> 26) & 0x20
         let suffixStats = try numberOfStats(in: suffix)
@@ -364,7 +363,7 @@ struct PPMd7ModelCursor: ~Copyable {
         highBitsFlag = Self.highBits3(previousFoundSymbol)
         let column = nsToBinaryIndex[suffixStats]
             + previousSuccess
-            + Self.highBits4(try stateSymbol(at: state))
+            + Self.highBits4(symbol)
             + highBitsFlag
             + runFlag
         guard (0..<Self.binarySummaryRows).contains(row),
@@ -381,13 +380,13 @@ struct PPMd7ModelCursor: ~Copyable {
             binarySummaries[row * Self.binarySummaryColumns + column] = updated
             foundState = state
             if frequency < 128 {
-                try setStateFrequency(frequency + 1, at: state)
+                allocator.uncheckedPut8(UInt8(frequency + 1), Int(state) + 1)
             }
             runLength += 1
             previousSuccess = 1
         } else {
             binarySummaries[row * Self.binarySummaryColumns + column] = updated
-            characterMask[Int(try stateSymbol(at: state))] = escapeCount
+            characterMask[Int(symbol)] = escapeCount
             numberMasked = 0
             previousSuccess = 0
             initialEscape = SDK.exponentialEscape[updated >> 10]
@@ -400,19 +399,23 @@ struct PPMd7ModelCursor: ~Copyable {
         in context: Offset,
         using decoder: inout Decoder
     ) throws {
-        // state は初期化/更新時に生成・検査済み。記号ごとの全 state 再走査を避ける。
-        // 個別参照の arena 境界と range/頻度の検査は下のアクセス経路に残す。
+        // Validate the complete context once, then reuse its fixed-offset fields
+        // while no allocator operation can invalidate the state storage.
         try requireContext(context)
-        let stats = try numberOfStats(in: context)
+        let stateCount = Int(allocator.uncheckedGet16(Int(context)))
+        guard (1...256).contains(stateCount) else {
+            throw KaitoError.malformed("PPMd7 context state count is out of range")
+        }
+        let stats = stateCount - 1
         let availableCount = stats - numberMasked
         guard availableCount > 0 else {
             throw KaitoError.malformed("PPMd7 context has no unmasked symbols")
         }
 
-        let see = try escapeEstimator(for: context)
+        let see = try escapeEstimator(for: context, stats: stats)
         let escapeFrequency = see == Self.seeRows * Self.seeColumns ? 1 : seeContexts[see].mean()
-        let stateCount = stats + 1
-        let stateBase = try statsRef(of: context)
+        let stateBase = allocator.uncheckedGet32(Int(context) + 4)
+        try requireStateBlock(stateBase, stateCount: stateCount)
         let states = try allocator.checkedBytes(
             at: stateBase, count: stateCount * Self.stateSize
         ).baseAddress!.assumingMemoryBound(to: UInt8.self)
@@ -467,10 +470,9 @@ struct PPMd7ModelCursor: ~Copyable {
     }
 
     @inline(__always)
-    private func escapeEstimator(for context: Offset) throws -> Int {
-        let stats = try numberOfStats(in: context)
+    private func escapeEstimator(for context: Offset, stats: Int) throws -> Int {
         if stats == 255 { return Self.seeRows * Self.seeColumns }
-        let suffix = try self.suffix(of: context)
+        let suffix = allocator.uncheckedGet32(Int(context) + 8)
         guard suffix != Self.null else {
             throw KaitoError.malformed("PPMd7 non-root context has no suffix")
         }
@@ -480,7 +482,7 @@ struct PPMd7ModelCursor: ~Copyable {
             throw KaitoError.malformed("PPMd7 SEE row source is out of range")
         }
         let row = nsToSEEIndex[rowIndex]
-        let summary = try summaryFrequency(of: context)
+        let summary = Int(allocator.uncheckedGet16(Int(context) + 2))
         let suffixStats = try numberOfStats(in: suffix)
         let column = (nonMasked < suffixStats - stats ? 1 : 0)
             + 2 * (summary < 11 * (stats + 1) ? 1 : 0)
@@ -635,12 +637,13 @@ struct PPMd7ModelCursor: ~Copyable {
         guard selected != Self.null else {
             throw KaitoError.malformed("PPMd7 update has no selected state")
         }
-        let symbol = try stateSymbol(at: selected)
-        let foundFrequency = Int(try stateFrequency(at: selected))
-        let oldSuccessor = try stateSuccessor(at: selected)
+        try requirePackedState(selected)
+        let symbol = allocator.uncheckedGet8(Int(selected))
+        let foundFrequency = Int(allocator.uncheckedGet8(Int(selected) + 1))
+        let oldSuccessor = allocator.uncheckedGet32(Int(selected) + 2)
         var suffixState = Self.null
 
-        let minimumSuffix = try suffix(of: minimumContext)
+        let minimumSuffix = allocator.uncheckedGet32(Int(minimumContext) + 8)
         if foundFrequency < SDK.maximumFrequency / 4,
            minimumSuffix != Self.null {
             let suffixStats = try numberOfStats(in: minimumSuffix)
@@ -648,17 +651,19 @@ struct PPMd7ModelCursor: ~Copyable {
                 guard let foundIndex = try indexOfSymbol(symbol, in: minimumSuffix) else {
                     throw KaitoError.malformed("PPMd7 suffix state is missing")
                 }
-                var index = foundIndex
+                // indexOfSymbol has validated this complete block. Swapping two
+                // states does not move the block or invalidate either offset.
+                let stateBase = allocator.uncheckedGet32(Int(minimumSuffix) + 4)
+                var state = stateBase + Offset(foundIndex * Self.stateSize)
                 if foundIndex > 0 {
-                    let state = try stateRef(in: minimumSuffix, index: foundIndex)
-                    let previous = try stateRef(in: minimumSuffix, index: foundIndex - 1)
-                    if try stateFrequency(at: state) >= stateFrequency(at: previous) {
+                    let previous = state - Offset(Self.stateSize)
+                    if allocator.uncheckedGet8(Int(state) + 1)
+                        >= allocator.uncheckedGet8(Int(previous) + 1) {
                         try swapStates(state, previous)
-                        index = foundIndex - 1
+                        state = previous
                     }
                 }
-                let state = try stateRef(in: minimumSuffix, index: index)
-                let frequency = Int(try stateFrequency(at: state))
+                let frequency = Int(allocator.uncheckedGet8(Int(state) + 1))
                 if frequency < SDK.maximumFrequency - 9 {
                     try setStateFrequency(frequency + 2, at: state)
                     try setSummaryFrequency(
@@ -668,8 +673,9 @@ struct PPMd7ModelCursor: ~Copyable {
                 }
                 suffixState = state
             } else {
-                let state = try stateRef(in: minimumSuffix, index: 0)
-                let frequency = Int(try stateFrequency(at: state))
+                let state = minimumSuffix + 2
+                try requirePackedState(state)
+                let frequency = Int(allocator.uncheckedGet8(Int(state) + 1))
                 if frequency < 32 {
                     try setStateFrequency(frequency + 1, at: state)
                 }
@@ -733,10 +739,8 @@ struct PPMd7ModelCursor: ~Copyable {
         // バイナリコンテキストでは SDK の共用体と同様に、2...3 バイト目の
         // シンボル／頻度を同じ領域から読み取る。
         let minimumSummary = Int(try allocator.uint16(at: try Self.add(minimumContext, 2)))
-        let escapedTotal = minimumSummary
-            - (try numberOfStats(in: minimumContext))
-            - foundFrequency
         let minimumStats = try numberOfStats(in: minimumContext)
+        let escapedTotal = minimumSummary - minimumStats - foundFrequency
         guard escapedTotal > 0 else {
             throw KaitoError.malformed("PPMd7 context has no escape frequency")
         }
@@ -744,20 +748,26 @@ struct PPMd7ModelCursor: ~Copyable {
         var context = maximumContext
         var traversed = 0
         while context != minimumContext {
-            let nextSuffix = try suffix(of: context)
-            let oldStats = try numberOfStats(in: context)
+            try requireContext(context)
+            let currentStateCount = Int(allocator.uncheckedGet16(Int(context)))
+            guard (1...256).contains(currentStateCount) else {
+                throw KaitoError.malformed("PPMd7 context state count is out of range")
+            }
+            let nextSuffix = allocator.uncheckedGet32(Int(context) + 8)
+            let oldStats = currentStateCount - 1
             var workingSummary: Int
             if oldStats != 0 {
                 let currentCount = oldStats + 1
                 let minimumCount = minimumStats + 1
-                let oldSummary = try summaryFrequency(of: context)
+                let oldSummary = Int(allocator.uncheckedGet16(Int(context) + 2))
                 workingSummary = oldSummary
                     + (2 * currentCount < minimumCount ? 1 : 0)
                     + (4 * currentCount <= minimumCount
                         && oldSummary <= 8 * currentCount ? 2 : 0)
             } else {
-                let state = try stateRef(in: context, index: 0)
-                let oldFrequency = Int(try stateFrequency(at: state))
+                let state = context + 2
+                try requirePackedState(state)
+                let oldFrequency = Int(allocator.uncheckedGet8(Int(state) + 1))
                 let adjusted = oldFrequency < SDK.maximumFrequency / 4 - 1
                     ? 2 * oldFrequency
                     : SDK.maximumFrequency - 4
@@ -789,7 +799,8 @@ struct PPMd7ModelCursor: ~Copyable {
                     successor: newSuccessor
                 ),
                 summaryFrequency: workingSummary,
-                to: context
+                to: context,
+                oldStats: oldStats
             )
             guard nextSuffix != Self.null else {
                 throw KaitoError.malformed("PPMd7 update did not reach the minimum context")
@@ -1312,11 +1323,12 @@ struct PPMd7ModelCursor: ~Copyable {
     private func appendState(
         _ value: StateValue,
         summaryFrequency: Int,
-        to context: Offset
+        to context: Offset,
+        oldStats: Int
     ) throws -> Offset {
-        let oldStats = try numberOfStats(in: context)
+        try requireContext(context)
         let oldCount = oldStats + 1
-        guard oldCount < 256,
+        guard oldCount > 0, oldCount < 256,
               summaryFrequency > 0,
               summaryFrequency <= Int(UInt16.max) else {
             throw KaitoError.malformed("PPMd7 state append is out of range")
@@ -1324,7 +1336,7 @@ struct PPMd7ModelCursor: ~Copyable {
 
         if oldStats == 0 {
             // 2...7 バイト目を SummFreq/Stats に切り替える前にインライン状態を退避する。
-            let first = try loadState(at: stateRef(in: context, index: 0))
+            let first = try loadState(at: context + 2)
             guard let states = try allocator.allocateUnits(1) else {
                 throw PPMd7ArenaAllocationError.exhausted
             }
@@ -1337,7 +1349,8 @@ struct PPMd7ModelCursor: ~Copyable {
             return appended
         }
 
-        let oldStates = try statsRef(of: context)
+        let oldStates = allocator.uncheckedGet32(Int(context) + 4)
+        try requireStateBlock(oldStates, stateCount: oldCount)
         let oldUnits = Self.units(forStateCount: oldCount)
         let newCount = oldCount + 1
         let newUnits = Self.units(forStateCount: newCount)

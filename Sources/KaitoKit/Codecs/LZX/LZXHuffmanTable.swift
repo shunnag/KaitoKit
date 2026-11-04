@@ -1,6 +1,6 @@
 // Microsoft [MS-PATCH] v20160613 §2.4 の正準符号。外部の LZX 実装は参照していない。
 final class LZXHuffmanTable {
-    private static let fastBits = 10
+    private static let fastBits = 12
     private let fast: UnsafeMutableBufferPointer<UInt32>
     private let counts: [Int]
     private let firstCodes: [Int]

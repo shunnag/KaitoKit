@@ -4,6 +4,18 @@
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
 バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従う。
 
+## [0.22.0] - 2026-11-05
+
+LZ4・LArc・PPMd・RAR・CAB LZX の復号を高速化する release。公開 API、対応形式、ビルド要件（Xcode 27 / Swift 6.4 以上）と実行環境（macOS 26 以上・Apple Silicon と Intel）は 0.21.0 と同じ。GPU / NPU の研究経路は KaitoAccelLab に限定し、本番には両機で検証した CPU 最適化だけを採用した。
+
+### 変更
+
+- 独立した modern LZ4 block の文法と展開後サイズを並列に検証し、小 block を 256 KiB 目標の job に集約する。検証済み block は Apple decoder を使う。dependent・legacy・連結 frame・単一 block・解析できない入力は従来の直列経路を使い、失敗時の部分出力・buffer・error 順も照合した。64 MiB の測定で 0.21.0 の 2.2〜2.6 倍。
+- LArc の LZS は専用 bit cursor、lz5 は専用 emit を使う。LZS の画像は両機で約 1.8 倍、lz5 の画像は約 7% 短縮。全方式に inline を広げる案は後退したため採用しない。
+- PPMd H / I は、検証済みの context / state を allocator が動かない範囲で再利用する。文書の PPMd I は両機で約 16% 短縮。CAB LZX の Huffman 高速表は 12 bit とし、実 product.cab が両機で約 6.4% 短縮。
+- RAR15 は consume-only bit 更新と小さな decode 関数の inline 化、RAR20 は 10 bit の short-code 表を使う。RAR3 filter の global data は長さの検査後に一括で進める。RAR20 biglz は両機で約 1.7 倍、RAR15 の文書・音声は両機で約 15〜28% 短縮。
+- 測定条件、全出力・error の照合、全 2,100 tests と Compat 34 tests、不採用案は [codec の性能・安定性検証](Documentation/verification/2026-11-05-codec-performance.md) と KaitoAccelLab に記録する。
+
 ## [0.21.0] - 2026-11-03
 
 RAR15・LZ4・Deflate64・CAB LZX の復号を高速化する release。ビルド要件（Xcode 27 / Swift 6.4 以上）と実行環境（macOS 26 以上・Apple Silicon と Intel）は 0.20.0 と同じ。

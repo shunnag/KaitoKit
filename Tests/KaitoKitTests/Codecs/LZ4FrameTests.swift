@@ -83,25 +83,31 @@ final class LZ4FrameTests: XCTestCase {
     }
 
     func testParallelMutationsPreservePartialOutputErrorsAndFailedBuffers() throws {
-        let (bytes, _) = multiBlockFrame(blockChecksum: true)
-        var badContent = bytes
-        badContent[badContent.count - 1] ^= 1
-        var badBlock = bytes
-        badBlock[7 + 4 + 166] ^= 1
-        var badGrammar = bytes
-        badGrammar[11] = 0xf0
-        let firstBlock = Data(badGrammar[11..<(11 + 166)])
-        badGrammar.replaceSubrange((11 + 166)..<(15 + 166), with: word(XXH32.digest(Array(firstBlock))))
-        let variants = [bytes, badContent, badBlock, badGrammar,
-                        Data(bytes.dropLast()), Data(bytes.dropLast(32)), bytes + Data([1, 2, 3, 4])]
-        for (index, variant) in variants.enumerated() {
-            for chunk in [1, 4_099, 65_536] {
-                let expected = streamOutcome(variant, chunk: chunk, workers: 1)
-                let actual = streamOutcome(variant, chunk: chunk, workers: 4)
-                let difference = zip(expected.failedBuffer ?? Data(), actual.failedBuffer ?? Data())
-                    .enumerated().first { $0.element.0 != $0.element.1 }
-                XCTAssertEqual(actual, expected,
-                               "variant \(index), chunk \(chunk), buffer difference \(String(describing: difference))")
+        for contentChecksum in [false, true] {
+            let (bytes, _) = multiBlockFrame(blockChecksum: true, contentChecksum: contentChecksum)
+            var badContent = bytes
+            badContent[badContent.count - 1] ^= 1
+            var badBlock = bytes
+            badBlock[7 + 4 + 166] ^= 1
+            var badGrammar = bytes
+            badGrammar[11] = 0xf0
+            let firstBlock = Data(badGrammar[11..<(11 + 166)])
+            badGrammar.replaceSubrange((11 + 166)..<(15 + 166), with: word(XXH32.digest(Array(firstBlock))))
+            var badSecondGrammar = bytes
+            badSecondGrammar.replaceSubrange(185..<191, with: [0xF0])
+            badSecondGrammar.replaceSubrange(181..<185, with: word(1))
+            badSecondGrammar.replaceSubrange(186..<190, with: word(XXH32.digest([0xF0])))
+            let variants = [bytes, badContent, badBlock, badGrammar, badSecondGrammar,
+                            Data(bytes.dropLast()), Data(bytes.dropLast(32)), bytes + Data([1, 2, 3, 4])]
+            for (index, variant) in variants.enumerated() {
+                for chunk in [1, 4_099, 65_536] {
+                    let expected = streamOutcome(variant, chunk: chunk, workers: 1)
+                    let actual = streamOutcome(variant, chunk: chunk, workers: 4)
+                    let difference = zip(expected.failedBuffer ?? Data(), actual.failedBuffer ?? Data())
+                        .enumerated().first { $0.element.0 != $0.element.1 }
+                    XCTAssertEqual(actual, expected,
+                                   "checksum \(contentChecksum), variant \(index), chunk \(chunk), buffer difference \(String(describing: difference))")
+                }
             }
         }
     }
@@ -113,6 +119,67 @@ final class LZ4FrameTests: XCTestCase {
         XCTAssertEqual(reader.entries[0].uncompressedSize, nil)
         XCTAssertEqual(try reader.read(reader.entries[0]), expected)
         XCTAssertEqual(try LZ4FrameDecompressor.contentSize(source: DataByteSource(bytes), limits: ReadLimits()), nil)
+    }
+
+    func testBlockBatchFailureReplayMatchesSeparateUnits() throws {
+        let first = try ParallelIndependentDecompressor.Unit(outputSize: 1, scratchBytes: 0) {
+            InjectedLeaf(bytes: [65])
+        }
+        let second = try ParallelIndependentDecompressor.Unit(outputSize: 1, scratchBytes: 0) {
+            InjectedLeaf(bytes: [66], failure: true)
+        }
+        let third = try ParallelIndependentDecompressor.Unit(outputSize: 1, scratchBytes: 0) {
+            InjectedLeaf(bytes: [67])
+        }
+        let batch = try ParallelIndependentDecompressor.Unit(outputSize: 2, scratchBytes: 0) {
+            LZ4FrameBlockBatch(units: [first, second])
+        }
+        for chunk in [1, 4_099, 65_536] {
+            let separate = try XCTUnwrap(ParallelIndependentDecompressor(
+                units: [first, second, third], limits: ReadLimits(), workers: 2
+            ))
+            let batched = try XCTUnwrap(ParallelIndependentDecompressor(
+                units: [batch, third], limits: ReadLimits(), workers: 2
+            ))
+            XCTAssertEqual(streamOutcome(batched, chunk: chunk), streamOutcome(separate, chunk: chunk))
+        }
+    }
+
+    private final class InjectedLeaf: Decompressor {
+        private let bytes: [UInt8]
+        private let failure: Bool
+        private var offset = 0
+        var isFinished: Bool { !failure && offset == bytes.count }
+
+        init(bytes: [UInt8], failure: Bool = false) {
+            self.bytes = bytes
+            self.failure = failure
+        }
+
+        func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+            if failure { throw KaitoError.malformed("injected LZ4 block failure") }
+            guard !buffer.isEmpty, !isFinished else { return 0 }
+            let count = min(buffer.count, bytes.count - offset)
+            bytes.withUnsafeBytes { source in
+                buffer.copyMemory(from: UnsafeRawBufferPointer(rebasing: source[offset..<(offset + count)]))
+            }
+            offset += count
+            return count
+        }
+    }
+
+    private func streamOutcome(_ current: any Decompressor, chunk: Int) -> StreamOutcome {
+        var result = Data(), buffer = [UInt8](repeating: 0xa5, count: chunk)
+        do {
+            while true {
+                let count = try buffer.withUnsafeMutableBytes { try current.read(into: $0) }
+                if count == 0 { return StreamOutcome(bytes: result, error: nil, failedBuffer: nil, finished: current.isFinished) }
+                result.append(contentsOf: buffer[..<count])
+            }
+        } catch {
+            return StreamOutcome(bytes: result, error: String(reflecting: error),
+                                 failedBuffer: Data(buffer), finished: current.isFinished)
+        }
     }
 
     private struct StreamOutcome: Equatable {

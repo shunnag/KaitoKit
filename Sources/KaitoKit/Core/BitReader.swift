@@ -226,6 +226,15 @@ public struct MSBFirstBitReader: Sendable {
         return UInt32(truncatingIfNeeded: reservoir >> (64 - count))
     }
 
+    /// Returns upcoming bits without advancing or requiring that all of them
+    /// exist. Consuming the resulting symbol still checks its actual bit count.
+    mutating func peekPadded(_ count: Int) throws -> UInt32 {
+        try validateBitCount(count)
+        guard count > 0 else { return 0 }
+        refill(for: count)
+        return UInt32(truncatingIfNeeded: reservoir >> (64 - count))
+    }
+
     /// Advances over a number of bits.
     public mutating func consume(_ count: Int) throws {
         try validateBitCount(count)

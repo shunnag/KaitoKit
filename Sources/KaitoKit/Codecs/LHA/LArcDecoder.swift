@@ -42,7 +42,7 @@ final class LArcDecoder: Decompressor {
     private let windowSize: Int
     private let windowMask: Int
 
-    private var bits: MSBFirstBitReader
+    private var bits: LArcLZSBitCursor
     private var inputOffset = 0
     private var flagByte: UInt8 = 0
     private var flagBitsRemaining = 0
@@ -99,7 +99,7 @@ final class LArcDecoder: Decompressor {
         self.window = window
         self.windowSize = windowSize
         self.windowMask = windowSize - 1
-        self.bits = MSBFirstBitReader(
+        self.bits = LArcLZSBitCursor(
             borrowing: UnsafePointer(input.bytes),
             count: input.logicalCount
         )
@@ -187,7 +187,7 @@ final class LArcDecoder: Decompressor {
         flagBitsRemaining -= 1
 
         if isLiteral {
-            try emit(try readLZ5Byte(), into: output, outputPosition: &outputPosition)
+            try emitLZ5(try readLZ5Byte(), into: output, outputPosition: &outputPosition)
             return
         }
 
@@ -218,6 +218,22 @@ final class LArcDecoder: Decompressor {
         pendingLength = length
     }
 
+    @inline(__always)
+    private func emitLZ5(
+        _ byte: UInt8,
+        into output: UnsafeMutablePointer<UInt8>,
+        outputPosition: inout Int
+    ) throws {
+        guard produced < expectedSize else {
+            throw KaitoError.malformed("LArc output exceeds the declared size")
+        }
+        output[outputPosition] = byte
+        outputPosition += 1
+        window[windowPosition] = byte
+        windowPosition = (windowPosition + 1) & windowMask
+        produced &+= 1
+    }
+
     private func emit(
         _ byte: UInt8,
         into output: UnsafeMutablePointer<UInt8>,
@@ -234,7 +250,7 @@ final class LArcDecoder: Decompressor {
     }
 
     private func readLZSBits(_ count: Int) throws -> UInt32 {
-        let value = try bits.read(count)
+        let value = bits.read(count)
         guard !bits.overrun else { throw KaitoError.truncated }
         return value
     }

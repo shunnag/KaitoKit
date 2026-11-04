@@ -229,6 +229,51 @@ final class RAR29R1Tests: XCTestCase {
         }
     }
 
+    func testGlobalDataSkipAndThroughputWhenEnabled() throws {
+        let reference = makeGlobalStream(filterCount: 4, globalCount: 0)
+        let expected = try decode(reference, size: 72, chunk: 97)
+        for count in [0, 1, 17, 128, 0x1FC0] {
+            let packed = makeGlobalStream(filterCount: 4, globalCount: count)
+            XCTAssertEqual(try decode(packed, size: 72, chunk: 97), expected, "global bytes \(count)")
+        }
+        let truncated = makeGlobalStream(filterCount: 4, globalCount: 128)
+        for amount in [1, 9, 33] {
+            XCTAssertThrowsError(try decode(Array(truncated.dropLast(amount)), size: 72, chunk: 97))
+        }
+        guard ProcessInfo.processInfo.environment["KAITO_RAR3_GLOBAL_BENCH"] == "1" else { return }
+        #if DEBUG
+        XCTFail("Run the RAR3 global-data benchmark with -c release")
+        #else
+        let packed = makeGlobalStream(filterCount: 16, globalCount: 128)
+        let start = ProcessInfo.processInfo.systemUptime
+        var decoded = Data()
+        for _ in 0..<1000 {
+            decoded = try decode(packed, size: 288, chunk: 97)
+        }
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
+        XCTAssertEqual(decoded, try decode(makeGlobalStream(filterCount: 16, globalCount: 0),
+                                           size: 288, chunk: 97))
+        print(String(format: "RAR3-GLOBAL filters=16 bytes=128 decode1000_ms=%.3f", elapsed * 1000))
+        #endif
+    }
+
+    private func makeGlobalStream(filterCount: Int, globalCount: Int) -> [UInt8] {
+        let delta = [UInt8](repeating: 0, count: 23) + [0xE0, 0xD4, 0x13, 0x7F, 0x58, 0]
+        let literal: [UInt8] = [0x90, 0xE8, 0x20, 0, 0, 0, 0xE9, 7]
+        var bits = R1BitWriter()
+        bits.table(main: [UInt8](repeating: 9, count: 299), matchTables: true)
+        for _ in 0..<filterCount {
+            bits.filter(program: 0, channels: 2, bytecode: delta,
+                        global: [UInt8](repeating: 0xA5, count: globalCount))
+            for byte in literal { bits.append(Int(byte), count: 9) }
+            bits.append(278, count: 9)
+            bits.append(0, count: 6)
+        }
+        bits.append(256, count: 9)
+        bits.append(0, count: 2)
+        return bits.bytes
+    }
+
     private func decode(_ bytes: [UInt8], size: UInt64, dictionary: Int = 65_536,
                         chunk: Int = 7) throws -> Data {
         let decoder = try RAR29Decoder(
@@ -277,7 +322,7 @@ private struct R1BitWriter {
         else { append(2, count: 2); append(value, count: 16) }
     }
 
-    mutating func filter(program: Int, channels: Int?, bytecode: [UInt8] = []) {
+    mutating func filter(program: Int, channels: Int?, bytecode: [UInt8] = [], global: [UInt8] = []) {
         var payload = R1BitWriter()
         payload.number(program)
         payload.number(0) // starts at current raw output position
@@ -290,14 +335,22 @@ private struct R1BitWriter {
             payload.number(bytecode.count)
             for byte in bytecode { payload.append(Int(byte), count: 8) }
         }
+        if !global.isEmpty {
+            payload.number(global.count)
+            for byte in global { payload.append(Int(byte), count: 8) }
+        }
         append(257, count: 9)
-        let flags = 0xA0 | (channels == nil ? 0 : 0x10)
+        let flags = 0xA0 | (channels == nil ? 0 : 0x10) | (global.isEmpty ? 0 : 0x08)
         if payload.bytes.count <= 6 {
             append(flags | (payload.bytes.count - 1), count: 8)
-        } else {
-            precondition(payload.bytes.count <= 262)
+        } else if payload.bytes.count <= 262 {
             append(flags | 6, count: 8)
             append(payload.bytes.count - 7, count: 8)
+        } else {
+            precondition(payload.bytes.count <= 8200)
+            append(flags | 7, count: 8)
+            append(payload.bytes.count >> 8, count: 8)
+            append(payload.bytes.count & 255, count: 8)
         }
         for byte in payload.bytes { append(Int(byte), count: 8) }
     }

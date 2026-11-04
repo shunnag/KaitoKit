@@ -128,6 +128,83 @@ final class LHLegacyDecoderTests: XCTestCase {
         }
     }
 
+    func testLZSDeterministicLongStreamAndTruncation() throws {
+        var packed = Data()
+        var expected = Data()
+        var reservoir: UInt64 = 0
+        var availableBits = 0
+        var window = [UInt8](repeating: 0x20, count: 2_048)
+        var windowPosition = 2_031
+        var state: UInt32 = 0x6D2B79F5
+
+        func appendBits(_ value: UInt32, count: Int) {
+            reservoir = (reservoir << count) | UInt64(value)
+            availableBits += count
+            while availableBits >= 8 {
+                packed.append(UInt8(truncatingIfNeeded: reservoir >> (availableBits - 8)))
+                availableBits -= 8
+            }
+            reservoir &= (UInt64(1) << availableBits) - 1
+        }
+
+        for index in 0..<10_000 {
+            state = state &* 1_664_525 &+ 1_013_904_223
+            if index % 3 != 2 {
+                let byte = UInt8(truncatingIfNeeded: state >> 24)
+                appendBits(1, count: 1)
+                appendBits(UInt32(byte), count: 8)
+                expected.append(byte)
+                window[windowPosition] = byte
+                windowPosition = (windowPosition + 1) & 2_047
+            } else {
+                let distance = (index * 7_919 % 2_048) + 1
+                var sourcePosition = (windowPosition - distance) & 2_047
+                let length = (index * 13 % 16) + 2
+                appendBits(0, count: 1)
+                appendBits(UInt32(sourcePosition), count: 11)
+                appendBits(UInt32(length - 2), count: 4)
+                for _ in 0..<length {
+                    let byte = window[sourcePosition]
+                    expected.append(byte)
+                    window[windowPosition] = byte
+                    windowPosition = (windowPosition + 1) & 2_047
+                    sourcePosition = (sourcePosition + 1) & 2_047
+                }
+            }
+        }
+        appendBits(1, count: 1)
+        appendBits(0xA5, count: 8)
+        expected.append(0xA5)
+        if availableBits > 0 {
+            packed.append(UInt8(truncatingIfNeeded: reservoir << (8 - availableBits)))
+        }
+
+        for bufferSize in [1, 7, 4_096, 65_536] {
+            let decoder = try makeLArc(packed, size: UInt64(expected.count), method: "-lzs-")
+            XCTAssertEqual(try drain(decoder, bufferSize: bufferSize), expected)
+        }
+        let prefixDecoder = try makeLArc(packed, size: UInt64(expected.count), method: "-lzs-")
+        XCTAssertEqual(
+            try readPrefix(prefixDecoder, count: expected.count - 1, bufferSize: 4_093),
+            expected.dropLast()
+        )
+
+        let truncatedLengths = Set(
+            Array(0..<min(64, packed.count))
+                + stride(from: 64, to: packed.count, by: 97)
+        )
+        for length in truncatedLengths.sorted() {
+            let decoder = try makeLArc(
+                packed.prefix(length),
+                size: UInt64(expected.count),
+                method: "-lzs-"
+            )
+            XCTAssertThrowsError(try drain(decoder, bufferSize: 31), "prefix \(length)") {
+                XCTAssertEqual($0 as? KaitoError, KaitoError.truncated)
+            }
+        }
+    }
+
     func testLegacyDecodersRejectTruncationOvershootAndLimits() throws {
         let truncatedLZS = try makeLArc(Data([0x80]), size: 1, method: "-lzs-")
         XCTAssertThrowsError(try drain(truncatedLZS, bufferSize: 1)) {

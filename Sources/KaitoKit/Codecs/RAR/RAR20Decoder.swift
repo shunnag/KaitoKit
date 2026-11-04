@@ -356,10 +356,23 @@ final class RAR20Decoder: Decompressor {
 }
 
 final class RAR20HuffmanTable {
+    private static let primaryBits = 10
+    private static let primaryCount = 1 << primaryBits
+    private let primary: UnsafeMutablePointer<UInt32>
     private var counts = [Int]()
     private var firstCodes = [Int]()
     private var firstSymbols = [Int]()
     private var symbols = [Int]()
+
+    init() {
+        primary = .allocate(capacity: Self.primaryCount)
+        primary.initialize(repeating: 0, count: Self.primaryCount)
+    }
+
+    deinit {
+        primary.deinitialize(count: Self.primaryCount)
+        primary.deallocate()
+    }
 
     func build(_ lengths: some Sequence<UInt8>, requireSymbol: Bool = true) throws {
         let lengths = Array(lengths)
@@ -389,12 +402,26 @@ final class RAR20HuffmanTable {
         }
         var nextCodes = firstCodes, nextSymbols = firstSymbols
         var symbols = [Int](repeating: 0, count: populated)
+        var primaryFilled = 0
         for (symbol, length) in lengths.enumerated() where length > 0 {
             let count = Int(length)
-            guard nextCodes[count] < 1 << count else { throw KaitoError.malformed("RAR4 canonical Huffman code") }
+            let canonicalCode = nextCodes[count]
+            guard canonicalCode < 1 << count else { throw KaitoError.malformed("RAR4 canonical Huffman code") }
             symbols[nextSymbols[count]] = symbol
             nextSymbols[count] += 1
             nextCodes[count] += 1
+            if count <= Self.primaryBits {
+                let first = canonicalCode << (Self.primaryBits - count)
+                let repetitions = 1 << (Self.primaryBits - count)
+                let record = UInt32(count) << 16 | UInt32(symbol + 1)
+                primary.advanced(by: first).update(repeating: record, count: repetitions)
+                primaryFilled = max(primaryFilled, first + repetitions)
+            }
+        }
+        if primaryFilled < Self.primaryCount {
+            primary.advanced(by: primaryFilled).update(
+                repeating: 0, count: Self.primaryCount - primaryFilled
+            )
         }
         self.counts = counts
         self.firstCodes = firstCodes
@@ -402,7 +429,13 @@ final class RAR20HuffmanTable {
         self.symbols = symbols
     }
 
+    @inline(__always)
     func decode(_ bits: inout MSBFirstBitReader) throws -> Int {
+        let record = primary[Int(try bits.peekPadded(Self.primaryBits))]
+        if record != 0 {
+            try bits.consume(Int(record >> 16))
+            return Int(record & 0xffff) - 1
+        }
         var code = 0
         for length in 1...15 {
             code = (code << 1) | Int(try bits.read(1))

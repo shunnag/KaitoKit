@@ -2,7 +2,7 @@ import Darwin
 
 /// Exactly bounded packed-member bytes with optional zero lookahead storage.
 /// The allocation is fallible and owned for the full decoder lifetime, which
-/// lets MSBFirstBitReader borrow a stable raw pointer without Array/COW work.
+/// lets LHA bit readers borrow a stable raw pointer without Array/COW work.
 final class LHAPackedInputStorage {
     let bytes: UnsafeMutablePointer<UInt8>
     let logicalCount: Int

@@ -86,6 +86,10 @@ RAR3 filter の global data は、長さの検査後に一括で consume する�
 
 さらに 4 MiB を出力する match の直後に終わる block を 256 個持つ independent frame（4,213,003 bytes、block maximum 4 MiB）を `sha --sink --threads auto` に与えた。M4 Max の `time -p` の user CPU は 0.22.0 が 0.10 秒、最終版が 0.01 秒で、どちらも `LZ4 block has no final literal sequence` と同じ error だった。wall time は 0.01 秒刻みの表示なので、ここから倍率は主張しない。
 
+入力の上限に近い最悪ケースも測った。1 block 16,452 bytes で同じ形の block を 15,800 個持つ independent frame（260,004,811 bytes）を、Mac mini で `sha --sink --threads auto` に与え、5 回交互に起動した。real / user は 0.22.0 が約 1.1 / 9.1 秒、最終版が 0.06 / 0.01 秒（初回のみ real 0.34 秒）で、どちらも同じ error。
+
+完了通知より先に停止を公開するよう直した最終版と直す前の版で、新しい 2 tests を 30 個の CPU 負荷の下で各 150 回実行し、どちらも全回成功した。直す前の競合は実行では再現せず、コードの順序から確認した。
+
 ### 正常系の性能
 
 64 MiB の Swift source corpus（SHA-256 `0ea82c38fc3cfba471d2f2441306d278efbafc4fc422c8b195d40e1da2d519ab`）を `accel-lab lz4-make-frame` で independent frame にし、`lz4 -t` で検証した。`sha --sink --threads auto`、12 回交互起動（各 6 回）の中央値。0.22.0 (`aac75e8`) と最終版の別々の release binary を使い、性能測定と全 test は同時に実行していない。
@@ -110,3 +114,5 @@ RAR3 filter の global data は、長さの検査後に一括で consume する�
 ## 0.22.1 の全テスト
 
 最終 production source を持つ `/tmp/kaitokit-lz4-plan-cancellation-candidate` で、Mac mini の全 test を実行した。外部 tool を必須にし、timezone を Asia/Tokyo にした `swift test -j 4` の結果は **2,102 tests、68 skipped、0 failures**（1,453.271 秒）、Compat は **34 tests、0 failures**。文書・導入例の 15 tests、新規 2 tests の 25 回連続実行も成功した。`Scripts/build-framework.sh` では arm64 / x86_64 の universal framework を生成できた。
+
+上記の修正を入れた最終版でも、Mac mini の `swift test -j 4` は **2,102 tests、68 skipped、0 failures**（1,408.351 秒）、Compat は **34 tests、0 failures** だった。

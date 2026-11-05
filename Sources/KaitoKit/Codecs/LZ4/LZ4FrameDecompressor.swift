@@ -1,5 +1,6 @@
 import Dispatch
 import Foundation
+import Synchronization
 
 // LZ4 Frame Format v1.6.4 (2023-12-28). No third-party codec source is used.
 // At most one encoded block, one decoded block, and 64 KiB of history are held.
@@ -369,6 +370,8 @@ private struct LZ4ParallelFramePlan {
 }
 
 extension LZ4FrameDecompressor {
+    @TaskLocal static var testingParallelSizeValidation: (@Sendable (Int, Bool) -> Void)?
+
     static func parallel(source: any ByteSource, limits: ReadLimits, workers: Int) throws -> any Decompressor {
         if workers > 1, let plan = try? parallelPlan(source: source, limits: limits, workers: workers),
            let decoder = ParallelLZ4FrameDecompressor(
@@ -386,11 +389,23 @@ extension LZ4FrameDecompressor {
         let stored: Bool
     }
 
-    // 各 lane は別々の block と結果欄だけを書き換える。
+    private final class SizeStop: @unchecked Sendable {
+        private let stopped = Atomic(false)
+        private let task: UnsafeCurrentTask?
+        var isStopped: Bool {
+            stopped.load(ordering: .acquiring) || (task?.isCancelled ?? false)
+        }
+        init(task: UnsafeCurrentTask?) { self.task = task }
+        func stop() { stopped.store(true, ordering: .releasing) }
+    }
+
+    // 結果欄は lane ごとに分け、失敗と取消しは全 lane で共有する。
     private struct SizeWork: @unchecked Sendable {
         let blocks: [PendingBlock]
         let maximumSize: Int
         let results: UnsafeMutablePointer<Result<Int, any Error>?>
+        let stop: SizeStop
+        let observer: (@Sendable (Int, Bool) -> Void)?
 
         func run(lane: Int, lanes: Int) {
             let quotient = blocks.count / lanes
@@ -398,15 +413,21 @@ extension LZ4FrameDecompressor {
             let start = lane * quotient + min(lane, remainder)
             let end = start + quotient + (lane < remainder ? 1 : 0)
             for index in start..<end {
+                if stop.isStopped { break }
                 let block = blocks[index]
-                if block.stored {
-                    results[index] = .success(block.encoded.count)
-                } else {
-                    results[index] = Result {
-                        try block.encoded.withUnsafeBytes {
-                            try LZ4AppleBlockDecoder.validatedSize($0, maximumSize: maximumSize, complete: true)
-                        }
+                observer?(index, false)
+                let result = Result<Int, any Error> {
+                    try Task.checkCancellation()
+                    if block.stored { return block.encoded.count }
+                    return try block.encoded.withUnsafeBytes {
+                        try LZ4AppleBlockDecoder.validatedSize($0, maximumSize: maximumSize, complete: true)
                     }
+                }
+                results[index] = result
+                observer?(index, true)
+                if case .failure = result {
+                    stop.stop()
+                    break
                 }
             }
         }
@@ -445,14 +466,19 @@ extension LZ4FrameDecompressor {
         results.initialize(repeating: nil, count: blocks.count)
         defer { results.deinitialize(count: blocks.count); results.deallocate() }
         let lanes = min(workers, blocks.count)
-        let work = SizeWork(blocks: blocks, maximumSize: maximum, results: results)
+        let stop = SizeStop(task: withUnsafeCurrentTask { $0 })
+        let work = SizeWork(blocks: blocks, maximumSize: maximum, results: results,
+                            stop: stop, observer: testingParallelSizeValidation)
+        try Task.checkCancellation()
         DispatchQueue.concurrentPerform(iterations: lanes) { work.run(lane: $0, lanes: lanes) }
+        try Task.checkCancellation()
 
         var units: [ParallelIndependentDecompressor.Unit] = []
         units.reserveCapacity(blocks.count)
         var total: UInt64 = 0
         for (index, block) in blocks.enumerated() {
-            let outputSize = try results[index]!.get()
+            guard let result = results[index] else { return nil }
+            let outputSize = try result.get()
             total = try Checked.add(total, UInt64(outputSize))
             guard total <= outputLimit else {
                 throw KaitoError.malformed("LZ4 frame output exceeds content size")

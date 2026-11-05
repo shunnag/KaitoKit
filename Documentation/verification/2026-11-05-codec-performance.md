@@ -75,3 +75,38 @@ RAR3 filter の global data は、長さの検査後に一括で consume する�
 - `Results/lz4-kaito-parallel-scan-source256-20261104.txt`
 
 初回の一時 copy に文書と fixture がなかった失敗 log は `kaito-larc-incomplete-tree-full-mini-20261105.txt` に残し、完全な source tree の最終結果と区別する。
+
+## LZ4 並列計画の早期終了（0.22.1）
+
+`cooViewer-3g4e` の指摘を確認した。0.22.0 の `SizeWork.run` は失敗した lane も含め全 block を処理し、結果の確認も全 lane の完了後だった。match 直後に終わる不正 block では、token walk の拒否後に Swift decoder が実際に復号して error を診断するため、先頭の失敗とは無関係な後続 block にも大きな費用が生じる。
+
+最終版は失敗を `Synchronization.Atomic<Bool>` で全 lane に共有し、block ごとに呼出側の `UnsafeCurrentTask.isCancelled` も確認する。既に実行中の block は完了するが、未開始の block は飛ばす。結果欄が未確定なら強制アンラップせず、従来どおり直列 decoder へ戻す。計画の失敗を `try?` で直列へ戻す契約は変えず、部分出力・失敗時 buffer・error 順を直列 decoder に委ねる。GCD worker だけの `Task.checkCancellation()` に依存せず、呼出側の task を捕捉して確認する。
+
+新しい 2 tests は、2 lane の最初の block を test hook で同期させる。先頭が不正な frame と検証中に取消す frame のどちらも、開始 index は `[0, 2]` だけで `[1, 3]` を検証しないことを確認する。停止処理を外した反証では両方とも `[0, 1, 2, 3]` になり、意図どおり失敗した。既存の serial / parallel outcome、全 buffer 境界、legacy・差分試験も成功した。
+
+さらに 4 MiB を出力する match の直後に終わる block を 256 個持つ independent frame（4,213,003 bytes、block maximum 4 MiB）を `sha --sink --threads auto` に与えた。M4 Max の `time -p` の user CPU は 0.22.0 が 0.10 秒、最終版が 0.01 秒で、どちらも `LZ4 block has no final literal sequence` と同じ error だった。wall time は 0.01 秒刻みの表示なので、ここから倍率は主張しない。
+
+### 正常系の性能
+
+64 MiB の Swift source corpus（SHA-256 `0ea82c38fc3cfba471d2f2441306d278efbafc4fc422c8b195d40e1da2d519ab`）を `accel-lab lz4-make-frame` で independent frame にし、`lz4 -t` で検証した。`sha --sink --threads auto`、12 回交互起動（各 6 回）の中央値。0.22.0 (`aac75e8`) と最終版の別々の release binary を使い、性能測定と全 test は同時に実行していない。
+
+| machine | block | 0.22.0 | 最終版 |
+|---|---:|---:|---:|
+| M4 Max | 4 KiB | 0.045681563 s | 0.045225958 s |
+| M4 Max | 16 KiB | 0.020966042 s | 0.021000812 s |
+| M4 Max | 64 KiB | 0.015597438 s | 0.015594105 s |
+| Mac mini M4 | 4 KiB | 0.046548480 s | 0.047043084 s |
+| Mac mini M4 | 16 KiB | 0.023735250 s | 0.023593958 s |
+| Mac mini M4 | 64 KiB | 0.019524854 s | 0.019097812 s |
+
+最初の `NSLock` 版は M4 Max の 4 KiB block で約 9% 遅く、採用しなかった。atomic に変えた最終版は、4 KiB の差が M4 Max で約 −1.0%、mini で約 +1.1%、16・64 KiB でも測定のばらつきを超える一貫した後退はなかった。
+
+### sanitizer
+
+- 標準 `swift test --sanitize address --filter 'LZ4FrameTests|LZ4DifferentialTests'`：25 tests、0 failures、sanitizer finding なし。
+- 14 の実際の production source file と一時 probe を直接 build する TSan：失敗・取消しの両ケースを通過し、race 報告なし。同じ probe を ASan / UBSan でも通過した。
+- 全 target の `swift test --sanitize=thread` は、テスト実行前に既存の PPMd source で Swift compiler が `Invalid bitcast` / `Broken module found` となり、実行できなかった。これは LZ4 の test failure ではない。`-Xswiftc -sanitize=address,undefined` は SwiftPM XCTest helper の ASan late-load で停止するため、標準 `--sanitize address` と直接 probe の結果を区別して記録する。
+
+## 0.22.1 の全テスト
+
+最終 production source を持つ `/tmp/kaitokit-lz4-plan-cancellation-candidate` で、Mac mini の全 test を実行した。外部 tool を必須にし、timezone を Asia/Tokyo にした `swift test -j 4` の結果は **2,102 tests、68 skipped、0 failures**（1,453.271 秒）、Compat は **34 tests、0 failures**。文書・導入例の 15 tests、新規 2 tests の 25 回連続実行も成功した。`Scripts/build-framework.sh` では arm64 / x86_64 の universal framework を生成できた。

@@ -248,6 +248,136 @@ final class LZ4FrameTests: XCTestCase {
         }
     }
 
+    private final class ParallelValidationProbe: @unchecked Sendable {
+        private let condition = NSCondition()
+        private var started: [Int] = []
+        private var finished: [Int] = []
+        private var released = false
+        private var timedOut = false
+
+        func start(_ index: Int) {
+            condition.withLock {
+                started.append(index)
+                condition.broadcast()
+            }
+        }
+
+        func finish(_ index: Int) {
+            condition.withLock {
+                finished.append(index)
+                condition.broadcast()
+            }
+        }
+
+        func waitForStarts(_ count: Int) -> Bool {
+            condition.withLock { wait { started.count >= count } }
+        }
+
+        func waitForFinish(_ index: Int) -> Bool {
+            condition.withLock { wait { finished.contains(index) } }
+        }
+
+        func waitForRelease() -> Bool {
+            condition.withLock { wait { released } }
+        }
+
+        func release() {
+            condition.withLock {
+                released = true
+                condition.broadcast()
+            }
+        }
+
+        func snapshot() -> (started: [Int], finished: [Int], timedOut: Bool) {
+            condition.withLock { (started.sorted(), finished.sorted(), timedOut) }
+        }
+
+        private func wait(until predicate: () -> Bool) -> Bool {
+            let deadline = Date(timeIntervalSinceNow: 10)
+            while !predicate(), !timedOut {
+                if !condition.wait(until: deadline) {
+                    timedOut = true
+                    condition.broadcast()
+                }
+            }
+            return predicate() && !timedOut
+        }
+    }
+
+    func testParallelSizeFailureSkipsBlocksNotYetStartedAndPreservesSerialOutcome() throws {
+        let valid = Data([0x50, 65, 66, 67, 68, 69])
+        let invalid = Data([0x10, 65, 1, 0])
+        let bytes = lz4IndependentTestFrame(blocks: [invalid, valid, valid, valid])
+        let probe = ParallelValidationProbe()
+        let outcomes = LZ4FrameDecompressor.$testingParallelSizeValidation.withValue({ index, finished in
+            if finished {
+                probe.finish(index)
+            } else {
+                probe.start(index)
+                if index == 0 {
+                    _ = probe.waitForStarts(2)
+                } else {
+                    _ = probe.waitForFinish(0)
+                }
+            }
+        }) {
+            (streamOutcome(bytes, chunk: 37, workers: 1), streamOutcome(bytes, chunk: 37, workers: 2))
+        }
+        XCTAssertEqual(outcomes.1, outcomes.0)
+        let state = probe.snapshot()
+        XCTAssertEqual(state.started, [0, 2])
+        XCTAssertEqual(state.finished, [0, 2])
+        XCTAssertFalse(state.timedOut)
+    }
+
+    func testCancellationDuringParallelSizeValidationStopsAtBlockBoundary() async throws {
+        let valid = Data([0x50, 65, 66, 67, 68, 69])
+        let bytes = lz4IndependentTestFrame(blocks: Array(repeating: valid, count: 4))
+        let probe = ParallelValidationProbe()
+        let task = Task.detached { () -> (cancelled: Bool, sticky: Bool) in
+            LZ4FrameDecompressor.$testingParallelSizeValidation.withValue({ index, finished in
+                if finished {
+                    probe.finish(index)
+                } else {
+                    probe.start(index)
+                    _ = probe.waitForRelease()
+                }
+            }) {
+                var decoder: (any Decompressor)?
+                var output = [UInt8](repeating: 0, count: 37)
+                do {
+                    let current = try LZ4FrameDecompressor.parallel(
+                        source: DataByteSource(bytes), limits: ReadLimits(), workers: 2
+                    )
+                    decoder = current
+                    while try output.withUnsafeMutableBytes({ try current.read(into: $0) }) > 0 {}
+                    return (false, false)
+                } catch is CancellationError {
+                    guard let decoder else { return (true, false) }
+                    do {
+                        _ = try output.withUnsafeMutableBytes { try decoder.read(into: $0) }
+                        return (true, false)
+                    } catch is CancellationError {
+                        return (true, true)
+                    } catch {
+                        return (true, false)
+                    }
+                } catch {
+                    return (false, false)
+                }
+            }
+        }
+        XCTAssertTrue(probe.waitForStarts(2))
+        task.cancel()
+        probe.release()
+        let outcome = await task.value
+        XCTAssertTrue(outcome.cancelled)
+        XCTAssertTrue(outcome.sticky)
+        let state = probe.snapshot()
+        XCTAssertEqual(state.started, [0, 2])
+        XCTAssertFalse(state.timedOut)
+    }
+
     func testCancelledParallelDecodeRemainsSticky() async throws {
         let (bytes, _) = multiBlockFrame()
         let task = Task.detached {
@@ -518,4 +648,20 @@ private struct LZ4PartialSource: ByteSource {
     func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
         try DataByteSource(data).read(into: UnsafeMutableRawBufferPointer(rebasing: buffer.prefix(min(chunk, buffer.count))), at: offset)
     }
+}
+
+private func lz4IndependentTestFrame(blocks: [Data]) -> Data {
+    func word(_ value: UInt32) -> Data {
+        Data((0..<4).map { UInt8(truncatingIfNeeded: value >> ($0 * 8)) })
+    }
+    let descriptor: [UInt8] = [0x60, 0x40]
+    let check = UInt8(truncatingIfNeeded: XXH32.digest(descriptor) >> 8)
+    let encoded = blocks.reduce(into: Data()) { result, block in
+        result += word(UInt32(block.count))
+        result += block
+    }
+    var result = word(0x184d2204) + Data(descriptor) + Data([check])
+    result += encoded
+    result += word(0)
+    return result
 }

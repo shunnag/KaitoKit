@@ -4,6 +4,15 @@
 [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
 バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従う。
 
+## [0.22.1] - 2026-11-05
+
+0.22.0 の LZ4 並列計画における不正入力とキャンセルの処理を修正する patch release。公開 API、対応形式、ビルド要件、実行環境は 0.22.0 と同じ。
+
+### 修正
+
+- 独立 modern LZ4 frame の並列サイズ検証で、最初の不正 block の検出後も残りの block を処理していた回帰を修正。失敗を atomic に全 lane へ共有し、呼出側 task の cancellation も block ごとに確認して、未開始の検証を省く。
+- 未確定の結果欄を強制アンラップせず直列 decoder へ戻す。部分出力・失敗時 buffer・error 順は従来どおり直列経路で再現する。決定的な回帰 test、両機の正常系性能、ASan / UBSan、LZ4 限定の TSan を [検証記録](Documentation/verification/2026-11-05-codec-performance.md#lz4-並列計画の早期終了0221) に追記した。
+
 ## [0.22.0] - 2026-11-05
 
 LZ4・LArc・PPMd・RAR・CAB LZX の復号を高速化する release。公開 API、対応形式、ビルド要件（Xcode 27 / Swift 6.4 以上）と実行環境（macOS 26 以上・Apple Silicon と Intel）は 0.21.0 と同じ。GPU / NPU の研究経路は KaitoAccelLab に限定し、本番には両機で検証した CPU 最適化だけを採用した。

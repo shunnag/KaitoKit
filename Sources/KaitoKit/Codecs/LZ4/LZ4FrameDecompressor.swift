@@ -424,11 +424,12 @@ extension LZ4FrameDecompressor {
                     }
                 }
                 results[index] = result
+                var failed = false
+                if case .failure = result { failed = true }
+                // finish を受けた lane が必ず停止を読めるよう、通知より先に公開する。
+                if failed { stop.stop() }
                 observer?(index, true)
-                if case .failure = result {
-                    stop.stop()
-                    break
-                }
+                if failed { break }
             }
         }
     }
@@ -466,11 +467,13 @@ extension LZ4FrameDecompressor {
         results.initialize(repeating: nil, count: blocks.count)
         defer { results.deinitialize(count: blocks.count); results.deallocate() }
         let lanes = min(workers, blocks.count)
-        let stop = SizeStop(task: withUnsafeCurrentTask { $0 })
-        let work = SizeWork(blocks: blocks, maximumSize: maximum, results: results,
-                            stop: stop, observer: testingParallelSizeValidation)
         try Task.checkCancellation()
-        DispatchQueue.concurrentPerform(iterations: lanes) { work.run(lane: $0, lanes: lanes) }
+        withUnsafeCurrentTask { task in
+            // task は closure の中だけで使う。他の thread から使うのは Task にもある isCancelled だけ。
+            let work = SizeWork(blocks: blocks, maximumSize: maximum, results: results,
+                                stop: SizeStop(task: task), observer: testingParallelSizeValidation)
+            DispatchQueue.concurrentPerform(iterations: lanes) { work.run(lane: $0, lanes: lanes) }
+        }
         try Task.checkCancellation()
 
         var units: [ParallelIndependentDecompressor.Unit] = []

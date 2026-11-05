@@ -8,7 +8,7 @@
 
 | 記録 | 日付 | 主題 | 対応するコミット |
 | --- | --- | --- | --- |
-| [2026-11-05-codec-performance.md](2026-11-05-codec-performance.md) | 2026-11-05 | LZ4 小 block 集約、LArc・PPMd・RAR・LZX の最適化、0.22.1 の LZ4 早期終了・両機計測 | release/0.22.0 / release/0.22.1 |
+| [2026-11-05-codec-performance.md](2026-11-05-codec-performance.md) | 2026-11-05 | LZ4 小 block 集約、LArc・PPMd・RAR・LZX の最適化、0.22.1 の LZ4 早期終了・両機計測 | v0.22.0 / v0.22.1 |
 | [2026-11-03-decode-performance.md](2026-11-03-decode-performance.md) | 2026-11-03 | 全形式の再計測、RAR15・LZ4・Deflate64・CAB LZX の最適化、818 fixture・変異入力・他実装比較 | v0.21.0 |
 | [2026-11-03-rar13-volumes.md](2026-11-03-rar13-volumes.md) | 2026-11-03 | RAR 1.3 / 1.4 old multi-volume、stored・圧縮・solid・最終 checksum | cooViewer-c1vj.13 / .15 |
 | [2026-11-03-rar15-volumes.md](2026-11-03-rar15-volumes.md) | 2026-11-03 | RAR4 version 15 の solid 分割、ENDARC 省略・SPLIT_AFTER | cooViewer-c1vj.16 |

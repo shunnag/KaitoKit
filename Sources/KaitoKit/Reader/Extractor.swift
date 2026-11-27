@@ -16,11 +16,31 @@ struct ExtractionResult {
 package enum Extractor {
     private static let copyBufferSize = 1 * 1_024 * 1_024
 
+    @TaskLocal static var availableDestinationSpace: @Sendable (Int32) throws -> UInt64 = ExtractionVolume.availableBytes
+    @TaskLocal static var maximumDestinationFileSize: @Sendable (Int32) throws -> UInt64? = ExtractionVolume.maximumFileSize
+
+    private static func preflight(on descriptor: Int32, for bytes: UInt64, reserve: UInt64?) throws -> UInt64? {
+        guard reserve != nil else { return nil }
+        let maximum = try maximumDestinationFileSize(descriptor)
+        if let maximum, bytes > maximum { throw KaitoError.io(EFBIG) }
+        try checkSpace(on: descriptor, for: bytes, reserve: reserve)
+        return maximum
+    }
+
+    private static func checkSpace(on descriptor: Int32, for bytes: UInt64, reserve: UInt64?) throws {
+        guard let reserve else { return }
+        let available = try availableDestinationSpace(descriptor)
+        guard reserve <= available, bytes <= available - reserve else {
+            throw KaitoError.limitExceeded("destination free space")
+        }
+    }
+
     static func extract(
         _ entry: ArchiveEntry,
         from reader: ArchiveReader,
         to directory: URL,
         options: ExtractionOptions,
+        directoryCache: ExtractionDirectoryCache = ExtractionDirectoryCache(),
         trustedTargets: [Int: ExtractedFileIdentity]
     ) throws -> ExtractionResult {
         let fileManager = FileManager.default
@@ -68,6 +88,7 @@ package enum Extractor {
                     below: rootDescriptor,
                     from: reader,
                     options: options,
+                    directoryCache: directoryCache,
                     trustedTargets: trustedTargets
                 )
             } else {
@@ -76,7 +97,8 @@ package enum Extractor {
                     components: components,
                     below: rootDescriptor,
                     from: reader,
-                    options: options
+                    options: options,
+                    directoryCache: directoryCache
                 )
             }
 
@@ -86,7 +108,8 @@ package enum Extractor {
                 components: components,
                 below: rootDescriptor,
                 from: reader,
-                options: options
+                options: options,
+                directoryCache: directoryCache
             )
             extractedIdentity = nil
 
@@ -97,6 +120,7 @@ package enum Extractor {
                 below: rootDescriptor,
                 from: reader,
                 options: options,
+                directoryCache: directoryCache,
                 trustedTargets: trustedTargets
             )
 
@@ -142,17 +166,18 @@ package enum Extractor {
         components: [String],
         below rootDescriptor: Int32,
         from reader: ArchiveReader,
-        options: ExtractionOptions
+        options: ExtractionOptions,
+        directoryCache: ExtractionDirectoryCache
     ) throws {
         guard options.createSymbolicLinks else {
             throw KaitoError.unsupportedMethod("symbolic-link extraction is disabled")
         }
-        let parent = try ExtractionDirectoryAccess.open(
+        let parent = try directoryCache.open(
             Array(components.dropLast()),
             below: rootDescriptor,
             create: true
         )
-        defer { parent.close() }
+        defer { withExtendedLifetime(parent) {} }
         let leaf = components[components.count - 1]
         let targetPath = try linkPath(for: entry, reader: reader)
         try validateSymbolicLinkTarget(
@@ -173,6 +198,7 @@ package enum Extractor {
         below rootDescriptor: Int32,
         from reader: ArchiveReader,
         options: ExtractionOptions,
+        directoryCache: ExtractionDirectoryCache,
         trustedTargets: [Int: ExtractedFileIdentity]
     ) throws -> ExtractedFileIdentity {
         let targetPath = try linkPath(for: entry, reader: reader)
@@ -201,7 +227,8 @@ package enum Extractor {
                 components: components,
                 below: rootDescriptor,
                 from: reader,
-                options: options
+                options: options,
+                directoryCache: directoryCache
             )
         }
 
@@ -236,46 +263,57 @@ package enum Extractor {
             // 大文字小文字や Unicode 正規化が異なる同一パスも inode で検出する。
             throw KaitoError.malformed("hard-link target refers to its destination")
         }
-        try removeLeafIfRequested(
-            destinationLeaf,
-            below: destinationParent.descriptor,
-            options: options
-        )
+        let maximumFileSize = hasLinkData
+            ? try preflight(on: targetParent.descriptor, for: entry.uncompressedSize ?? 0, reserve: options.destinationFreeSpaceReserve)
+            : nil
+        // Keep an existing destination until the new link and its data are ready.
+        let newLeaf = options.overwriteExisting ? ".kaitokit-link-\(UUID().uuidString)" : destinationLeaf
         // 両親を O_NOFOLLOW で開いた dirfd に固定し、中間リンクの差替えを遮断する。
         guard Darwin.linkat(
             targetParent.descriptor,
             targetLeaf,
             destinationParent.descriptor,
-            destinationLeaf,
+            newLeaf,
             0
         ) == 0 else {
             throw KaitoError.io(errno)
         }
-        do {
-            guard try regularIdentity(
-                destinationLeaf,
-                below: destinationParent.descriptor
-            ) == targetIdentity else {
-                throw KaitoError.malformed("hard-link target changed during extraction")
-            }
-            if hasLinkData {
-                try replaceHardLinkedContents(
-                    entry,
-                    leaf: destinationLeaf,
-                    below: destinationParent.descriptor,
-                    expectedIdentity: targetIdentity,
-                    from: reader,
-                    options: options
-                )
-            }
-            try targetParent.restoreMode()
-            try destinationParent.restoreMode()
-            return targetIdentity
-        } catch {
-            // 展開ルートは呼出側が排他的に所有する契約とし、linkat が作った葉を残さない。
-            _ = Darwin.unlinkat(destinationParent.descriptor, destinationLeaf, 0)
-            throw error
+        var completed = false
+        defer {
+            if !completed { _ = Darwin.unlinkat(destinationParent.descriptor, newLeaf, 0) }
         }
+        func publish() throws {
+            if options.overwriteExisting {
+                guard Darwin.renameat(destinationParent.descriptor, newLeaf,
+                                      destinationParent.descriptor, destinationLeaf) == 0 else {
+                    throw KaitoError.io(errno)
+                }
+            }
+            completed = true
+        }
+        guard try regularIdentity(
+            newLeaf,
+            below: destinationParent.descriptor
+        ) == targetIdentity else {
+            throw KaitoError.malformed("hard-link target changed during extraction")
+        }
+        if hasLinkData {
+            try replaceHardLinkedContents(
+                entry,
+                leaf: newLeaf,
+                below: destinationParent.descriptor,
+                expectedIdentity: targetIdentity,
+                maximumFileSize: maximumFileSize,
+                from: reader,
+                options: options,
+                publish: publish
+            )
+        } else {
+            try publish()
+        }
+        try targetParent.restoreMode()
+        try destinationParent.restoreMode()
+        return targetIdentity
     }
 
     private static func extractResourceFork(
@@ -284,17 +322,18 @@ package enum Extractor {
         below rootDescriptor: Int32,
         from reader: ArchiveReader,
         options: ExtractionOptions,
+        directoryCache: ExtractionDirectoryCache,
         trustedTargets: [Int: ExtractedFileIdentity]
     ) throws -> ExtractedFileIdentity? {
         guard let leaf = components.last else {
             throw KaitoError.malformed("resource fork has no data file")
         }
-        let parent = try ExtractionDirectoryAccess.open(
+        let parent = try directoryCache.open(
             Array(components.dropLast()),
             below: rootDescriptor,
             create: true
         )
-        defer { parent.close() }
+        defer { withExtendedLifetime(parent) {} }
 
         var information = stat()
         var dataFlags = O_WRONLY | O_NOFOLLOW | O_CLOEXEC
@@ -309,9 +348,18 @@ package enum Extractor {
         } else {
             createsDataInode = false
         }
+        var maximumFileSize: UInt64?
+        if createsDataInode {
+            maximumFileSize = try preflight(on: parent.descriptor, for: entry.uncompressedSize ?? 0,
+                                            reserve: options.destinationFreeSpaceReserve)
+        }
         let dataDescriptor = Darwin.openat(parent.descriptor, leaf, dataFlags, mode_t(0o666))
         guard dataDescriptor >= 0 else { throw KaitoError.io(errno) }
         defer { _ = Darwin.close(dataDescriptor) }
+        var completed = false
+        defer {
+            if createsDataInode && !completed { _ = Darwin.unlinkat(parent.descriptor, leaf, 0) }
+        }
         let extractedIdentity = try regularIdentity(descriptor: dataDescriptor)
         let ownsDataInode = createsDataInode || trustedTargets.values.contains(extractedIdentity)
         // leaf は検査済みの通常ファイル。呼出側は展開ルートを排他的に所有する。
@@ -332,6 +380,10 @@ package enum Extractor {
                 throw KaitoError.io(errno)
             }
         }
+        if !createsDataInode {
+            maximumFileSize = try preflight(on: dataDescriptor, for: entry.uncompressedSize ?? 0,
+                                            reserve: options.destinationFreeSpaceReserve)
+        }
         let descriptor = Darwin.openat(
             parent.descriptor, forkPath,
             O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC,
@@ -339,13 +391,14 @@ package enum Extractor {
         )
         guard descriptor >= 0 else { throw KaitoError.io(errno) }
         defer { _ = Darwin.close(descriptor) }
-        try write(reader.stream(entry), to: descriptor)
+        try write(reader.stream(entry), to: descriptor, reserve: options.destinationFreeSpaceReserve, maximum: maximumFileSize)
         // fork descriptor の fchmod/futimens は EPERM。この reader が作った data inode にだけ復元する。
         if ownsDataInode {
             try restoreMetadata(entry, descriptor: dataDescriptor, options: options)
         }
         try parent.restoreMode()
         // 既存 inode は後続の展開でも trusted target に昇格させない。
+        completed = true
         return ownsDataInode ? extractedIdentity : nil
     }
 
@@ -354,14 +407,15 @@ package enum Extractor {
         components: [String],
         below rootDescriptor: Int32,
         from reader: ArchiveReader,
-        options: ExtractionOptions
+        options: ExtractionOptions,
+        directoryCache: ExtractionDirectoryCache
     ) throws -> ExtractedFileIdentity {
-        let parent = try ExtractionDirectoryAccess.open(
+        let parent = try directoryCache.open(
             Array(components.dropLast()),
             below: rootDescriptor,
             create: true
         )
-        defer { parent.close() }
+        defer { withExtendedLifetime(parent) {} }
         let leaf = components[components.count - 1]
         // CRC/HMAC は stream 終端まで確定しない。既存 destination を先に消さず、
         // 同じ directory の一時 inode を完全検証してから不可分に公開する。
@@ -381,7 +435,9 @@ package enum Extractor {
             }
         }
 
-        try write(reader.stream(entry), to: descriptor)
+        let maximumFileSize = try preflight(on: descriptor, for: entry.uncompressedSize ?? 0,
+                                            reserve: options.destinationFreeSpaceReserve)
+        try write(reader.stream(entry), to: descriptor, reserve: options.destinationFreeSpaceReserve, maximum: maximumFileSize)
         try restoreMetadata(entry, descriptor: descriptor, options: options)
         let extractedIdentity = try regularIdentity(descriptor: descriptor)
 
@@ -423,21 +479,23 @@ package enum Extractor {
         leaf: String,
         below parent: Int32,
         expectedIdentity: ExtractedFileIdentity,
+        maximumFileSize: UInt64?,
         from reader: ArchiveReader,
-        options: ExtractionOptions
+        options: ExtractionOptions,
+        publish: () throws -> Void
     ) throws {
         let information = try regularStatus(leaf, below: parent)
         guard identity(from: information) == expectedIdentity else {
             throw KaitoError.malformed("hard-link destination changed before writing linkdata")
         }
         let originalMode = information.st_mode & mode_t(0o7777)
-        let needsTemporaryWriteMode = originalMode & mode_t(S_IWUSR) == 0
-        if needsTemporaryWriteMode {
+        let accessMode = originalMode | mode_t(S_IRUSR | S_IWUSR)
+        if originalMode != accessMode {
             // leaf は検証済み dirfd 直下で、NOFOLLOW によりリンク差替えを追わない。
             guard Darwin.fchmodat(
                 parent,
                 leaf,
-                originalMode | mode_t(S_IWUSR),
+                accessMode,
                 AT_SYMLINK_NOFOLLOW
             ) == 0 else {
                 throw KaitoError.io(errno)
@@ -450,17 +508,17 @@ package enum Extractor {
         let descriptor = Darwin.openat(
             parent,
             leaf,
-            O_WRONLY | O_NOFOLLOW | O_CLOEXEC
+            O_RDWR | O_NOFOLLOW | O_CLOEXEC
         )
         guard descriptor >= 0 else {
             let code = errno
-            if needsTemporaryWriteMode {
+            if originalMode != accessMode {
                 _ = Darwin.fchmodat(parent, leaf, originalMode, AT_SYMLINK_NOFOLLOW)
             }
             throw KaitoError.io(code)
         }
         defer { _ = Darwin.close(descriptor) }
-        var restoreOriginalMode = needsTemporaryWriteMode
+        var restoreOriginalMode = originalMode != accessMode
         defer {
             if restoreOriginalMode {
                 _ = Darwin.fchmod(descriptor, originalMode)
@@ -469,15 +527,18 @@ package enum Extractor {
         guard try regularIdentity(descriptor: descriptor) == expectedIdentity else {
             throw KaitoError.malformed("hard-link destination changed before writing linkdata")
         }
-        guard Darwin.ftruncate(descriptor, 0) == 0 else {
-            throw KaitoError.io(errno)
-        }
-        try write(reader.stream(entry), to: descriptor)
-        try restoreMetadata(entry, descriptor: descriptor, options: options)
-        if needsTemporaryWriteMode, !options.preserveMetadata {
-            guard Darwin.fchmod(descriptor, originalMode) == 0 else {
-                throw KaitoError.io(errno)
+        try HardLinkContentBackup.withBackup(of: descriptor, status: information, below: parent, checkSpace: { count in
+            try checkSpace(on: descriptor, for: count, reserve: options.destinationFreeSpaceReserve)
+        }) {
+            try write(reader.stream(entry), to: descriptor, reserve: options.destinationFreeSpaceReserve, maximum: maximumFileSize)
+            let end = Darwin.lseek(descriptor, 0, SEEK_CUR)
+            guard end >= 0 else { throw KaitoError.io(errno) }
+            if end < information.st_size, Darwin.ftruncate(descriptor, end) != 0 { throw KaitoError.io(errno) }
+            try restoreMetadata(entry, descriptor: descriptor, options: options)
+            if originalMode != accessMode, !options.preserveMetadata || entry.posixPermissions == nil {
+                guard Darwin.fchmod(descriptor, originalMode) == 0 else { throw KaitoError.io(errno) }
             }
+            try publish()
         }
         restoreOriginalMode = false
     }
@@ -519,7 +580,8 @@ package enum Extractor {
         }
     }
 
-    private static func write(_ stream: EntryStream, to descriptor: Int32) throws {
+    private static func write(_ stream: EntryStream, to descriptor: Int32, reserve: UInt64?, maximum: UInt64?) throws {
+        var remainingFileBytes = maximum
         let capacity = Int(max(1, min(UInt64(copyBufferSize), stream.remaining)))
         let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: capacity, alignment: 8)
         defer { buffer.deallocate() }
@@ -528,6 +590,11 @@ package enum Extractor {
             let count = try stream.read(into: buffer)
             try Task.checkCancellation()
             if count == 0 { break }
+            if let remaining = remainingFileBytes {
+                guard UInt64(count) <= remaining else { throw KaitoError.io(EFBIG) }
+                remainingFileBytes = remaining - UInt64(count)
+            }
+            try checkSpace(on: descriptor, for: UInt64(count), reserve: reserve)
             // Only bytes initialized by the immediately preceding read are written.
             try writeAll(UnsafeRawBufferPointer(rebasing: buffer[..<count]), to: descriptor)
         }

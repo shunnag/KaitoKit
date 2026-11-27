@@ -190,6 +190,24 @@ final class CpioReaderTests: XCTestCase {
         assertError("limit") { _ = try direct(b, limits: ReadLimits(maxPathComponentCount: 1)) }
     }
 
+    func testTotalMetadataIncludesPendingAndPublishedEntries() throws {
+        var archive = B()
+        for index in 0..<64 { archive.record(String(repeating: "n", count: 250) + String(format: "%04d", index)) }
+        archive.trailer()
+        let sample = try direct(archive).entries[0]
+        let pendingCost = 64 * (256 + 254)
+        let publishedItemCost = 256 + 254 + sample.name.utf8.count
+            + sample.pathComponents.count * MemoryLayout<String>.stride
+            + sample.pathComponents.reduce(0) { $0 + $1.utf8.count }
+            + sample.formatSpecific.reduce(0) { $0 + $1.key.utf8.count + $1.value.utf8.count }
+        let publishedCost = 64 * publishedItemCost
+        XCTAssertEqual(pendingCost, 32_640)
+        XCTAssertEqual(publishedCost, 68_992)
+        let limit = UInt64(pendingCost + publishedCost)
+        XCTAssertEqual(try direct(archive, limits: ReadLimits(maxTotalMetadataSize: limit)).entries.count, 64)
+        assertError("limit") { _ = try self.direct(archive, limits: ReadLimits(maxTotalMetadataSize: limit - 1)) }
+    }
+
     func testTrailerConcatenationNULCapAndSpecialKinds() throws {
         var b = B()
         for mode: UInt32 in [0o040755, 0o010600, 0o020600, 0o060600, 0o140600, 0] {

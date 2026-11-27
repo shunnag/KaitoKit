@@ -24,6 +24,7 @@ final class RAR4Reader: FormatReader {
         0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00,
     ]
 
+    let additionalVolumeBytes: UInt64
     let format: ArchiveFormat = .rar
     private(set) var entries: [ArchiveEntry]
     private(set) var nameEncoding: String.Encoding?
@@ -99,6 +100,7 @@ final class RAR4Reader: FormatReader {
             headerKeyCache: keyCache,
             passwordEncodings: passwordEncodings
         )
+        self.additionalVolumeBytes = parsed.additionalVolumeBytes
         self.entries = parsed.entries
         self.records = parsed.records
         let groups = Self.indexSolidGroups(parsed.entries)
@@ -112,6 +114,7 @@ final class RAR4Reader: FormatReader {
         source: any ByteSource,
         sourceURL: URL?,
         options: ReaderOptions,
+        additionalVolumeBytes: UInt64,
         entries: [ArchiveEntry],
         records: [RAR4EntryRecord],
         nameEncoding: String.Encoding?,
@@ -124,6 +127,7 @@ final class RAR4Reader: FormatReader {
         self.source = source
         self.sourceURL = sourceURL
         self.options = options
+        self.additionalVolumeBytes = additionalVolumeBytes
         self.entries = entries
         self.records = records
         let groups = Self.indexSolidGroups(entries)
@@ -138,6 +142,7 @@ final class RAR4Reader: FormatReader {
             source: source,
             sourceURL: sourceURL,
             options: options,
+            additionalVolumeBytes: additionalVolumeBytes,
             entries: entries,
             records: records,
             nameEncoding: nameEncoding,
@@ -235,9 +240,9 @@ final class RAR4Reader: FormatReader {
                 // The batch checked the CRC before publication. The ordinary
                 // stream below still verifies it like the serial path.
                 decompressor = try CopyDecompressor(
-                    source: DataByteSource(data: prefetched),
+                    source: prefetched,
                     offset: 0,
-                    compressedSize: UInt64(prefetched.count)
+                    compressedSize: prefetched.length
                 )
             } else {
                 decompressor = try Self.makeCompressedDecompressor(
@@ -600,7 +605,7 @@ final class RAR4Reader: FormatReader {
         for unixScalars in [false, true] {
             let probe = RAR4Reader(
                 source: source, sourceURL: sourceURL, options: options,
-                entries: entries, records: records, nameEncoding: nameEncoding,
+                additionalVolumeBytes: additionalVolumeBytes, entries: entries, records: records, nameEncoding: nameEncoding,
                 keyCache: keyCache, unixScalars: unixScalars
             )
             probe.password = password

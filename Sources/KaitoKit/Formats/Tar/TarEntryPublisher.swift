@@ -2,16 +2,21 @@ import Foundation
 
 /// 名前と link を復号し、metadata 上限と過去の hard link 参照を検証して公開する。
 enum TarEntryPublisher {
+    private static let entryOverhead: UInt64 = 256
+
     static func publish(
         _ pendingEntries: [TarPendingEntry],
+        pendingMetadataSize: UInt64,
         policy: EncodingPolicy,
         archiveEncoding: String.Encoding?,
         archiveDecodedNames: [[UInt8]: String],
         limits: ReadLimits
     ) throws -> [ArchiveEntry] {
         var entries: [ArchiveEntry] = []
-        entries.reserveCapacity(pendingEntries.count)
-        var retainedMetadataSize: UInt64 = 0
+        let remainingBudget = limits.maxTotalMetadataSize - pendingMetadataSize
+        entries.reserveCapacity(min(pendingEntries.count, Int(clamping: remainingBudget / entryOverhead)))
+        // The complete pending array stays live while the public entries are built.
+        var retainedMetadataSize = pendingMetadataSize
         var lastEntryByNormalizedPath: [String: Int] = [:]
 
         for (index, pending) in pendingEntries.enumerated() {
@@ -133,7 +138,7 @@ enum TarEntryPublisher {
         formatSpecific: [String: String]
     ) throws -> UInt64 {
         // 固定値は ArchiveEntry と配列・辞書の管理領域を保守的に見積もる。
-        var size: UInt64 = 256
+        var size = entryOverhead
         size = try Checked.add(size, UInt64(rawName.count))
         size = try Checked.add(size, UInt64(resolvedName.utf8.count))
         for component in pathComponents {

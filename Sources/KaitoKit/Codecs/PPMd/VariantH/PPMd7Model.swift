@@ -413,7 +413,9 @@ struct PPMd7ModelCursor: ~Copyable {
         }
 
         let see = try escapeEstimator(for: context, stats: stats)
-        let escapeFrequency = see == Self.seeRows * Self.seeColumns ? 1 : seeContexts[see].mean()
+        // Keep the arena pointer explicit for Swift 6.4.2's Thread Sanitizer instrumentation.
+        let estimators = seeContexts
+        let escapeFrequency = see == Self.seeRows * Self.seeColumns ? 1 : estimators[see].mean()
         let stateBase = allocator.uncheckedGet32(Int(context) + 4)
         try requireStateBlock(stateBase, stateCount: stateCount)
         let states = try allocator.checkedBytes(
@@ -451,7 +453,7 @@ struct PPMd7ModelCursor: ~Copyable {
                 throw KaitoError.malformed("PPMd7 failed to select an unmasked state")
             }
             try decoder.remove(start: selection.low, size: selection.frequency)
-            if see != Self.seeRows * Self.seeColumns { seeContexts[see].update() }
+            if see != Self.seeRows * Self.seeColumns { estimators[see].update() }
             try update2(context: context, state: stateBase + Offset(selection.index * Self.stateSize))
             return
         }
@@ -1334,44 +1336,39 @@ struct PPMd7ModelCursor: ~Copyable {
             throw KaitoError.malformed("PPMd7 state append is out of range")
         }
 
-        if oldStats == 0 {
-            // 2...7 バイト目を SummFreq/Stats に切り替える前にインライン状態を退避する。
-            let first = try loadState(at: context + 2)
-            guard let states = try allocator.allocateUnits(1) else {
-                throw PPMd7ArenaAllocationError.exhausted
-            }
-            try storeState(first, at: states)
-            let appended = try Self.add(states, Self.stateSize)
-            try storeState(value, at: appended)
-            try setNumberOfStats(1, in: context)
-            try allocator.storeUInt16(UInt16(summaryFrequency), at: try Self.add(context, 2))
-            try setStatsRef(states, of: context, stateCount: 2)
-            return appended
-        }
-
-        let oldStates = allocator.uncheckedGet32(Int(context) + 4)
-        try requireStateBlock(oldStates, stateCount: oldCount)
-        let oldUnits = Self.units(forStateCount: oldCount)
-        let newCount = oldCount + 1
-        let newUnits = Self.units(forStateCount: newCount)
         let states: Offset
-        if newUnits > oldUnits {
-            guard newUnits == oldUnits + 1,
-                  let expanded = try allocator.expandUnits(
-                    at: oldStates,
-                    oldUnits: oldUnits
-                  ) else {
+        let newCount = oldCount + 1
+        if oldStats == 0 {
+            let first = try loadState(at: context + 2)
+            guard let allocated = try allocator.allocateUnits(1) else {
                 throw PPMd7ArenaAllocationError.exhausted
             }
-            states = expanded
+            states = allocated
+            try storeState(first, at: states)
         } else {
-            states = oldStates
+            let oldStates = allocator.uncheckedGet32(Int(context) + 4)
+            try requireStateBlock(oldStates, stateCount: oldCount)
+            let oldUnits = Self.units(forStateCount: oldCount)
+            let newUnits = Self.units(forStateCount: newCount)
+            if newUnits > oldUnits {
+                guard newUnits == oldUnits + 1,
+                      let expanded = try allocator.expandUnits(at: oldStates, oldUnits: oldUnits) else {
+                    throw PPMd7ArenaAllocationError.exhausted
+                }
+                states = expanded
+            } else {
+                states = oldStates
+            }
         }
         let appended = try Self.add(states, oldCount * Self.stateSize)
         try storeState(value, at: appended)
-        try setNumberOfStats(oldStats + 1, in: context)
-        try setStatsRef(states, of: context, stateCount: newCount)
-        try allocator.storeUInt16(UInt16(summaryFrequency), at: try Self.add(context, 2))
+        // Allocation may update arena frontiers. Revalidate before publishing
+        // the three fields, which all fit within the twelve-byte context.
+        try requireContext(context)
+        try requireStateBlock(states, stateCount: newCount)
+        allocator.uncheckedPut16(UInt16(newCount), Int(context))
+        allocator.uncheckedPut16(UInt16(summaryFrequency), Int(context) + 2)
+        allocator.uncheckedPut32(states, Int(context) + 4)
         return appended
     }
 

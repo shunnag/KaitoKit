@@ -40,20 +40,32 @@ UI 表示には `ReaderOptions.automaticDecodeThreads(powerPolicy:)` で表示�
 
 `ReadLimits.parallelDecodeMemory` は並列復号の保持 byte 予算で、既定 `nil` は物理メモリの 50% です。
 decoder ごとに job と作業領域の予約を予算内に抑え、並列化できなければ直列へ戻ります。
-辞書は `maxDictionarySize` で別に制限します。全 reader の実行中 leaf job は process 共通 pool で
-active logical CPU 数以下に抑え、要求が多ければ queue で待ちます。スレッド数によらず出力は同一で、
+辞書は `maxDictionarySize` で別に制限します。process 共通の `LeafDecodePool` は、非同期実行枠を
+active logical CPU 数までにします。待機する consumer は未開始の job を自身で実行でき、LZ4 は独立 block 用の並列経路も使います。スレッド数によらず出力は同一で、
 エラーは stream 順に返します。
+
+複数readerの予算を一つにまとめる場合は、`ParallelDecodeMemoryBudget.$active.withValue(budget)` の範囲内でreaderを作成・使用します。taskと子taskのdecoderが同じbudgetを共有し、既存の `ReadLimits` のlayoutやinitializerは変わりません。共有時も並列度を保ちたい場合は、decoderごとの `parallelDecodeMemory` を同時実行数に応じて配分してください。最初のdecoderが全量を予約すれば、後続は直列化されます。decoderごとに `parallelDecodeMemory` を上限として予約し、不足分だけ並列度を下げ、枯渇時は既存の直列経路を使います。待機せず、予約はqueue・実行中・未消費の出力を含めて保持します。`reopen()` も同じscope内で使います。scope外では従来のreader / decoderごとの動作です。この予算は `parallelDecodeMemory` が対象とする領域に限り、metadata・直列decode・process全体のRSSを制限するものではありません。
 
 `Data(contentsOf:options:.mappedIfSafe)` は、呼出中に内容が変わらないローカルの単一 file で使います。
 RAR multi-volume は sibling file を解決できる `ArchiveReader.open(url:)` を使い、nested archive のように
 既に memory 上にある bytes は `open(data:)` を使います。SFX prefix scan は URL open で有効、Data と
 任意 `ByteSource` では `ReaderOptions.scanForSFXInData` が既定 `false` です。
 
+大きな書庫を受け付けるホストは、`ReadLimits` の絶対上限と `ReaderOptions.expansionLimit` を併用できます。総展開量には「最低許容量」と「実入力長 × 指定倍率」の大きい方を適用し、`maxTotalUncompressedSize` で頭打ちにします。RAR の分割巻も合算します。圧縮 tar / cpio や RPM payload の一時展開も入力長で制限します。サイズ未申告の entry は実際に返すデータを数えます。
+
+`ExtractionOptions.destinationFreeSpaceReserve` に残すバイト数を指定すると、`extract` は開いた展開先のファイルシステムで単一ファイル上限と空き容量を照合し、書き込み中も残量を確認します。独自の書き込み処理では `ExtractionVolume` で同じ情報を取得できます。値を報告しないファイルシステムでは OS の書き込みエラーを扱ってください。
+
 展開先 root は処理中に caller が排他的に所有し、別 thread/process から名前や directory を変更しないで
 ください。directory entry は子を展開した後、深い順に処理すると archive の最終日時と permissions を
 保持できます。
 
 > **Integration notes**
+>
+> Large-archive hosts can combine absolute read limits with `ReaderOptions.expansionLimit`.
+> The aggregate ceiling is the greater of the minimum allowance and input length times the ratio,
+> capped by the absolute limit. Compressed-container staging also checks the relative allowance.
+> Set `ExtractionOptions.destinationFreeSpaceReserve` to check the destination filesystem's reported
+> maximum file size and available space. Custom writers can query these via `ExtractionVolume`.
 >
 > `ArchiveReader` and `EntryStream` are not thread-safe. Serialize the operations of one instance
 > with an actor or a serial queue, and use independent readers created by `reopen()` for parallel
@@ -96,8 +108,17 @@ RAR multi-volume は sibling file を解決できる `ArchiveReader.open(url:)` 
 > power policy. `reopen()` preserves the snapshot. Use `automaticDecodeThreads(powerPolicy:)` for UI display.
 > `ReadLimits.parallelDecodeMemory == nil` allows 50% of physical memory per decoder; in-flight
 > jobs and scratch reservations are budgeted, with serial fallback when parallel work does not fit.
-> `maxDictionarySize` separately limits dictionaries. A shared process-wide pool bounds running leaf
-> jobs to active logical CPUs. Output bytes and stream-order errors are independent of thread count.
+> `maxDictionarySize` separately limits dictionaries. The shared pool dispatches at most one job per active logical CPU.
+> Waiting consumers may run a queued job inline, and LZ4 has a separate block-parallel path. Output bytes and stream-order errors are independent of thread count.
+> To share a byte budget across readers, create and use them inside
+> `ParallelDecodeMemoryBudget.$active.withValue(budget)`. Readers and decoders in the same task
+> tree share the budget without changing the layout or initializer of `ReadLimits`. Each decoder
+> reserves up to its own `parallelDecodeMemory` allowance, reduces parallelism for a partial
+> grant, and uses the existing serial path when exhausted. To retain parallel decoding, divide
+> each decoder's allowance for the intended worker count; one decoder may otherwise reserve the
+> whole shared budget. Reservations cover queued, running, and unread output. Use `reopen()` in
+> the same scope. Outside the scope, per-decoder behavior is preserved. This is not an RSS,
+> metadata, or serial-decoding limit.
 >
 > Use `Data(contentsOf:options:.mappedIfSafe)` only for a local single file whose contents do not
 > change during the call. Use `ArchiveReader.open(url:)` for multi-volume RAR so that sibling files
@@ -169,6 +190,8 @@ for entry in directories {
 本文を持たない hard link は、同じ `ArchiveReader` で同じ出力ルートへ参照先を先に
 展開した場合だけ作成されます。この provenance は出力ルートを切り替えるか `reopen()`
 するとリセットされます。書庫順を保ち、前方参照だけ参照先の展開後まで遅らせてください。
+本文付き hard link が既に展開済みの参照先を更新する場合は、同じボリュームに元の内容を退避し、同じ inode に書き込みます。クローン非対応のファイルシステムでは元データのコピー分も空き容量が必要です。失敗時は元の内容・権限・更新日時を復元します。媒体障害などで復元も失敗した場合は、リンクの親ディレクトリに `.kaitokit-link-backup-…` を残します。
+
 resource fork（`.file` かつ末尾が `..namedfork/rsrc`）は、data fork と hard link の後、
 directory の前に展開します。data fork の不可分置換は既存 resource fork も失うため、この順序が必要です。
 単発の `extract` は対象 data ファイルがなければ空の通常ファイルを作り、resource fork を付けます。
@@ -189,6 +212,7 @@ directory の前に展開します。data fork の不可分置換は既存 resou
 > A hard link with no body of its own is created only when the same `ArchiveReader` has already
 > extracted its target into the same output root. That provenance is reset when you switch output
 > roots or call `reopen()`. Keep archive order, deferring forward links until their targets exist.
+> Updating a materialized target through a body-bearing hard link preserves its inode. KaitoKit saves the old data on the same volume first. Filesystems without cloning need space for a copy of the original data. If rollback also fails, the link’s parent directory retains a backup named `.kaitokit-link-backup-…`.
 > Extract resource forks (`.file` with the final components `..namedfork/rsrc`) after data and hard
 > links, before directories. Atomic data-file replacement discards any existing resource fork.
 > A single resource extraction creates an empty regular data file if missing. With

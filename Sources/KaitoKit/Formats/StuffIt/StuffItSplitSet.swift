@@ -41,6 +41,7 @@ struct StuffItSplitHeader: Equatable {
 final class StuffItSplitSource: ByteSource {
     let dataFork: BoundedByteSource
     let resourceFork: BoundedByteSource?
+    let inputByteCount: UInt64
     let partCount: Int
     let header: StuffItSplitHeader
 
@@ -54,6 +55,7 @@ final class StuffItSplitSource: ByteSource {
             segments: segments, maximumLength: .max,
             maximumSegmentCount: max(limits.maxVolumeCount, 1), label: "StuffIt split set"
         )
+        inputByteCount = try Checked.add(joined.length, UInt64(parts.count) * UInt64(StuffItSplitHeader.size))
         let total = try Checked.add(header.resourceLength, header.dataLength)
         guard joined.length >= total else { throw KaitoError.truncated }
         dataFork = try BoundedByteSource(source: joined, baseOffset: header.resourceLength, length: header.dataLength)

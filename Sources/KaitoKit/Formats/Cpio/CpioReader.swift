@@ -102,7 +102,6 @@ final class CpioReader: FormatReader {
         }
         let names = ArchiveNameResolver(undeclaredNames: pending.map(\.name), policy: options.encodingPolicy, limits: limits)
         var entries: [ArchiveEntry] = []
-        metadata = 0
         let concatenated = pending.contains { $0.archiveIndex > 0 }
         for (index, item) in pending.enumerated() {
             try checkCancellation(every: index)

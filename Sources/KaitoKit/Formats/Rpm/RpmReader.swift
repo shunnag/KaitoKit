@@ -37,16 +37,17 @@ final class RpmReader: FormatReader {
         var stripped: RpmStrippedPayload?
         if header.values[.payloadFormat] == nil || header.values[.payloadFormat] == "cpio",
            compressor == "none" || codecs[compressor ?? ""] != nil {
+            let stagingLimits = options.stagingLimits(forInputBytes: payload.length)
             let stream: EntryStream
             if let compressor, let codec = codecs[compressor] {
                 let single = try SingleFileReader(source: payload, format: codec, options: options,
                     fallbackFileName: nil)
-                stream = try single.stream(for: single.entries[0], limits: limits)
+                stream = try single.stream(for: single.entries[0], limits: stagingLimits)
             } else {
-                stream = try EntryStream(source: payload, offset: 0, length: payload.length, limits: limits)
+                stream = try EntryStream(source: payload, offset: 0, length: payload.length, limits: stagingLimits)
             }
             // tar.gz と同じ上限で staging し、復号エラーを blob fallback で隠さない。
-            let expanded = try SingleFileMaterializer.materialize(stream, limits: limits)
+            let expanded = try SingleFileMaterializer.materialize(stream, limits: stagingLimits)
             let magic = try readByteRange(source: expanded, offset: 0, count: Checked.toInt(min(6, expanded.length)))
             if CpioHeader.variant(magic) != nil {
                 inner = try CpioReader(source: expanded, options: options)

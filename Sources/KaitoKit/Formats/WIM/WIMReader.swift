@@ -245,7 +245,7 @@ final class WIMReader: FormatReader {
                     record.unsupported = "WIM encrypted (EFS) file"
                 }
                 if !isDirectory, kind == .file, mainHash != zeroHash {
-                    specific["sha1"] = mainHash.map { String(format: "%02x", $0) }.joined()
+                    specific["sha1"] = Self.hexadecimal(mainHash)
                     if let resource = byHash[mainHash] {
                         record.resource = resource
                         if resource.partNumber != header.partNumber {
@@ -268,7 +268,7 @@ final class WIMReader: FormatReader {
                     streamSpecific["stream"] = stream.name
                     streamSpecific.removeValue(forKey: "unsupported")
                     var streamRecord = Record()
-                    if stream.hash != zeroHash { streamSpecific["sha1"] = stream.hash.map { String(format: "%02x", $0) }.joined() }
+                    if stream.hash != zeroHash { streamSpecific["sha1"] = Self.hexadecimal(stream.hash) }
                     if let resource = byHash[stream.hash] {
                         streamRecord.resource = resource
                         if resource.partNumber != header.partNumber {
@@ -352,6 +352,17 @@ final class WIMReader: FormatReader {
             records.append(item.record)
         }
         return (entries, records)
+    }
+
+    private static func hexadecimal(_ bytes: [UInt8]) -> String {
+        let digits = Array("0123456789abcdef".utf8)
+        return String(unsafeUninitializedCapacity: bytes.count * 2) { buffer in
+            for (index, byte) in bytes.enumerated() {
+                buffer[index * 2] = digits[Int(byte >> 4)]
+                buffer[index * 2 + 1] = digits[Int(byte & 0x0F)]
+            }
+            return bytes.count * 2
+        }
     }
 
     func stream(for entry: ArchiveEntry, limits: ReadLimits) throws -> EntryStream {

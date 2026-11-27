@@ -64,7 +64,9 @@ final class ParallelXZDecompressor: Decompressor {
         private var tickets: [Int: LeafDecodePool.Ticket] = [:]
         private var results: [Int: Result<Decoded, any Error>] = [:]
 
-        init(diagnostics: Diagnostics?) {
+        private let reservation: ParallelDecodeMemoryReservation
+        init(diagnostics: Diagnostics?, reservation: ParallelDecodeMemoryReservation) {
+            self.reservation = reservation
             self.diagnostics = diagnostics
         }
         var isAbandoned: Bool {
@@ -204,7 +206,6 @@ final class ParallelXZDecompressor: Decompressor {
          targetJobOutput: Int? = nil,
          diagnostics: Diagnostics? = nil, useNativeDecoder: Bool = true) throws {
         self.source = source; self.limits = limits; self.recorder = recorder
-        let memoryBudget = limits.resolvedParallelDecodeMemory()
         let layout = try XZResourceValidator.validate(source: source, dictionaryLimit: limits.maxDictionarySize)
         let decodedSize = try? layout.streams.reduce(UInt64(0)) { total, stream in
             try stream.blocks.reduce(total) { try Checked.add($0, $1.outputSize) }
@@ -243,11 +244,12 @@ final class ParallelXZDecompressor: Decompressor {
             }
             let planned = try Self.plan(stream.blocks, target: target)
             let perJobBytes = planned.map(\.heldBytes).max()!
-            let count = max(1, min(max(1, workers), planned.count, memoryBudget / perJobBytes - Self.spareJobCount))
+            let reservation = limits.reserveParallelDecodeMemory()
+            let count = max(1, min(max(1, workers), planned.count, reservation.amount / perJobBytes - Self.spareJobCount))
             if count >= 2 {
                 try XZResourceValidator.validate(source: source, dictionaryLimit: limits.maxDictionarySize, recorder: recorder)
                 self.stream = stream; self.jobs = planned; self.workerCount = count
-                self.workers = Workers(diagnostics: diagnostics)
+                self.workers = Workers(diagnostics: diagnostics, reservation: reservation)
                 // recorder の再読と probe・結果受渡しに二つの job 分を予約する。
                 spareReservation = Reservation(try Checked.toInt(Checked.mul(UInt64(perJobBytes), UInt64(Self.spareJobCount))),
                                                diagnostics: diagnostics)

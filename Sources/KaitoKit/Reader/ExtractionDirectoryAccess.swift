@@ -9,6 +9,7 @@ package final class ExtractionDirectoryHandle {
     package let descriptor: Int32
 
     private var modeToRestore: mode_t?
+    var hasTemporaryMode: Bool { modeToRestore != nil }
     private var isClosed = false
 
     fileprivate init(descriptor: Int32, modeToRestore: mode_t?) {

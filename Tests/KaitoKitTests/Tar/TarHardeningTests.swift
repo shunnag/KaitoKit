@@ -1060,6 +1060,21 @@ final class TarHardeningTests: XCTestCase {
         }
     }
 
+    func testTotalMetadataLimitIncludesPendingAndPublishedEntries() throws {
+        let archive = try TarTestSupport.makeTar(entries: [HandTarEntry(name: "a"), HandTarEntry(name: "b")])
+        // Each pending record costs 274 bytes. Each public record adds 276 bytes and one String slot.
+        let boundary = UInt64(2 * (274 + 276 + MemoryLayout<String>.stride))
+        for recovery in [false, true] {
+            var options = ReaderOptions(limits: ReadLimits(maxTotalMetadataSize: boundary),
+                                        recoverDamagedArchives: recovery)
+            XCTAssertEqual(try ArchiveReader.open(data: archive, options: options).entries.count, 2)
+            options.limits.maxTotalMetadataSize -= 1
+            XCTAssertThrowsError(try ArchiveReader.open(data: archive, options: options)) {
+                self.assertLimitExceeded($0)
+            }
+        }
+    }
+
     func testTotalMetadataLimitCountsGlobalPAXValuesRepeatedAcrossEntries() throws {
         let repeatedPath = String(repeating: "global-name-", count: 8) + "file.txt"
         let pathMetadata = try paxPayload([
@@ -1073,7 +1088,7 @@ final class TarHardeningTests: XCTestCase {
             HandTarEntry(name: "GlobalOwner", contents: ownerMetadata, type: 0x67),
         ]
         var limits = ReadLimits()
-        limits.maxTotalMetadataSize = 900
+        limits.maxTotalMetadataSize = 1_050
 
         let singleEntryArchive = try TarTestSupport.makeTar(
             entries: globalHeaders + [HandTarEntry(name: "first.txt")]
@@ -1105,7 +1120,7 @@ final class TarHardeningTests: XCTestCase {
         let deepName = Array(repeating: "a", count: 40).joined(separator: "/")
         let flatName = String(repeating: "a", count: deepName.utf8.count)
         var limits = ReadLimits()
-        limits.maxTotalMetadataSize = 800
+        limits.maxTotalMetadataSize = 950
 
         let flat = try TarTestSupport.makeTar(entries: [HandTarEntry(name: flatName)])
         XCTAssertNoThrow(

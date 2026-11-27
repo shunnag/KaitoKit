@@ -28,8 +28,11 @@ final class CPUTopologyTests: XCTestCase {
     }
 
     func testOneTwoAndThreeLevelsWithPowerAndThermalPolicies() {
-        for (n, counts, reduced) in [(1, [1], 1), (9, [9], 5), (16, [12, 4], 4),
-                                      (36, [20, 12, 4], 4), (9, [3, 6], 5)] {
+        for (n, counts, reduced) in [(1, [1], 1), (9, [9], 5), (8, [4, 4], 4),
+                                      (10, [4, 6], 5), (16, [12, 4], 4), (12, [2, 4, 6], 6),
+                                      (18, [6, 12], 9), (30, [10, 20], 15),
+                                      (36, [20, 12, 4], 4), (9, [3, 6], 5),
+                                      (56, [], 28), (80, [8, 16, 24, 32], 32)] {
             let topology = CPUTopology(activeLogicalCPUs: n,
                 performanceLevels: counts.map { .init(logicalCPUs: $0, physicalCPUs: $0) })
             for policy in [DecodePowerPolicy.reduceInLowPowerMode, .reduceInLowPowerModeOrThermalPressure, .alwaysUseAllCores] {

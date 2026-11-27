@@ -42,7 +42,11 @@ final class LeafDecodePool: @unchecked Sendable {
     @discardableResult
     func submit(group: Group, _ body: @escaping @Sendable () -> Void) -> Ticket {
         Self.testingSubmission?()
-        let job = Ticket(group: group, body: body)
+        let budget = ParallelDecodeMemoryBudget.active
+        let job = Ticket(group: group) {
+            // Inline execution may be claimed from a different task's budget scope.
+            ParallelDecodeMemoryBudget.$active.withValue(budget, operation: body)
+        }
         let start = lock.withLock {
             if running < capacity {
                 running += 1; peak = max(peak, running)

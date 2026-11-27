@@ -208,7 +208,7 @@ final class RAR4PrefetchTests: RAR4BuilderTestCase {
                     XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
                     guard heldBatches <= window else { return }
                     reachedWindow = reachedWindow || heldBatches == window
-                    XCTAssertEqual(try prefetcher.take(index),
+                    XCTAssertEqual(try prefetcher.take(index)?.data,
                                    Data(repeating: UInt8(truncatingIfNeeded: index), count: outputSize),
                                    "member \(index), workers \(workers), budget \(budget)")
                     XCTAssertLessThanOrEqual(prefetcher.liveBatchCount, window, "taken member \(index)")
@@ -246,7 +246,7 @@ final class RAR4PrefetchTests: RAR4BuilderTestCase {
         XCTAssertEqual(prefetcher.liveBatchCount, window, "a full window schedules no more work")
 
         let index = (window - 1) * batchMembers
-        XCTAssertEqual(try prefetcher.take(index), Data(repeating: UInt8(truncatingIfNeeded: index), count: 64))
+        XCTAssertEqual(try prefetcher.take(index)?.data, Data(repeating: UInt8(truncatingIfNeeded: index), count: 64))
         XCTAssertEqual(prefetcher.liveBatchCount, 1, "passed batches are discarded")
         XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
         for _ in 0..<2 {
@@ -256,13 +256,13 @@ final class RAR4PrefetchTests: RAR4BuilderTestCase {
             XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
         }
         XCTAssertEqual(prefetcher.liveBatchCount, window, "discarding reopens the window")
-        XCTAssertNil(try prefetcher.take(0), "discarded members stay absent")
+        XCTAssertNil(try prefetcher.take(0)?.data, "discarded members stay absent")
         for next in (index + 1)..<(12 * batchMembers) {
             prefetcher.schedule(after: next - 1)
             prefetcher.waitForScheduledBatchesForTesting()
             XCTAssertLessThanOrEqual(prefetcher.liveBatchCount, window)
             XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
-            XCTAssertEqual(try prefetcher.take(next), Data(repeating: UInt8(truncatingIfNeeded: next), count: 64))
+            XCTAssertEqual(try prefetcher.take(next)?.data, Data(repeating: UInt8(truncatingIfNeeded: next), count: 64))
             XCTAssertLessThanOrEqual(prefetcher.liveBatchCount, window)
             XCTAssertLessThanOrEqual(prefetcher.heldByteCount, budget)
         }
@@ -294,7 +294,7 @@ final class RAR4PrefetchTests: RAR4BuilderTestCase {
         while prefetcher.heldByteCount != 0, Date() < deadline { Thread.sleep(forTimeInterval: 0.002) }
         XCTAssertEqual(prefetcher.heldByteCount, 0)
         XCTAssertEqual(prefetcher.runningBatchCount, 0)
-        XCTAssertNil(try prefetcher.take(1))
+        XCTAssertNil(try prefetcher.take(1)?.data)
     }
 
     func testFailedAndRepeatedTakesDoNotConsumeOtherOutputs() throws {
@@ -305,10 +305,10 @@ final class RAR4PrefetchTests: RAR4BuilderTestCase {
             decodeBatch: { members, _ in members.map { $0.index == 1 ? nil : Data(repeating: 1, count: 64) } }
         ))
         prefetcher.schedule(after: 0)
-        for _ in 0..<4 { XCTAssertNil(try prefetcher.take(1)) }
-        XCTAssertEqual(try prefetcher.take(2)?.count, 64)
-        XCTAssertNil(try prefetcher.take(2))
-        XCTAssertEqual(try prefetcher.take(3)?.count, 64)
+        for _ in 0..<4 { XCTAssertNil(try prefetcher.take(1)?.data) }
+        XCTAssertEqual(try prefetcher.take(2)?.data.count, 64)
+        XCTAssertNil(try prefetcher.take(2)?.data)
+        XCTAssertEqual(try prefetcher.take(3)?.data.count, 64)
         XCTAssertEqual(prefetcher.liveBatchCount, 0)
     }
 
@@ -348,7 +348,7 @@ final class RAR4PrefetchTests: RAR4BuilderTestCase {
         XCTAssertEqual(prefetcher.heldByteCount, budget, "packed input and gaps count against the reservation")
         for index in 1...3 {
             let start = 32 + (index - 1) * 128
-            XCTAssertEqual(try prefetcher.take(index), contents.subdata(in: start..<(start + 16)))
+            XCTAssertEqual(try prefetcher.take(index)?.data, contents.subdata(in: start..<(start + 16)))
             if index == 2 {
                 let deadline = Date(timeIntervalSinceNow: 5)
                 while prefetcher.heldByteCount != 0, Date() < deadline { Thread.sleep(forTimeInterval: 0.002) }
@@ -387,11 +387,11 @@ final class RAR4PrefetchTests: RAR4BuilderTestCase {
                 return outputs
             }
         ))
-        XCTAssertNil(try prefetcher.take(0), "nothing scheduled yet")
+        XCTAssertNil(try prefetcher.take(0)?.data, "nothing scheduled yet")
         prefetcher.schedule(after: 0)
         XCTAssertLessThanOrEqual(prefetcher.liveBatchCount, 3)
         for index in 1..<400 {
-            let output = try prefetcher.take(index)
+            let output = try prefetcher.take(index)?.data
             prefetcher.schedule(after: index)
             if index % 3 == 2 || index == 100 {
                 XCTAssertNil(output, "member \(index)")
@@ -400,16 +400,16 @@ final class RAR4PrefetchTests: RAR4BuilderTestCase {
             }
         }
         // Member 500 is oversized: never prefetched, neighbours still are.
-        XCTAssertNil(try prefetcher.take(500))
+        XCTAssertNil(try prefetcher.take(500)?.data)
         prefetcher.schedule(after: 500)
-        XCTAssertEqual(try prefetcher.take(501), Data(repeating: UInt8(truncatingIfNeeded: 501), count: 64))
+        XCTAssertEqual(try prefetcher.take(501)?.data, Data(repeating: UInt8(truncatingIfNeeded: 501), count: 64))
         // Jumping far ahead drops the batches in between.
         prefetcher.schedule(after: 501)
-        XCTAssertEqual(try prefetcher.take(900), Data(repeating: UInt8(truncatingIfNeeded: 900), count: 64))
+        XCTAssertEqual(try prefetcher.take(900)?.data, Data(repeating: UInt8(truncatingIfNeeded: 900), count: 64))
         prefetcher.schedule(after: 900)
-        XCTAssertNil(try prefetcher.take(502), "passed members are dropped")
+        XCTAssertNil(try prefetcher.take(502)?.data, "passed members are dropped")
         prefetcher.abandon()
-        XCTAssertNil(try prefetcher.take(901))
+        XCTAssertNil(try prefetcher.take(901)?.data)
         XCTAssertEqual(prefetcher.liveBatchCount, 0)
         // Give cancelled or running batches a moment to let go of their reservations.
         let deadline = Date(timeIntervalSinceNow: 5)
@@ -433,7 +433,7 @@ final class RAR4PrefetchTests: RAR4BuilderTestCase {
         XCTAssertEqual(prefetcher.liveBatchCount, 1)
         XCTAssertLessThanOrEqual(prefetcher.heldByteCount, 3 * 1_024 + 2 * 128 + 10)
         for index in 1...30 {
-            XCTAssertEqual(try prefetcher.take(index)?.count, 1_024, "member \(index)")
+            XCTAssertEqual(try prefetcher.take(index)?.data.count, 1_024, "member \(index)")
             prefetcher.schedule(after: index)
             XCTAssertLessThanOrEqual(prefetcher.heldByteCount, 3 * 1_024 + 2 * 128 + 10)
         }
@@ -519,7 +519,7 @@ final class RAR4PrefetchTests: RAR4BuilderTestCase {
                     _ = try reader.read(reader.entries[0])
                     let prefetcher = try XCTUnwrap((reader.formatReaderForTesting as? RAR4Reader)?.prefetcherForTesting)
                     prefetcher.waitForScheduledBatchesForTesting()
-                    XCTAssertNil(try prefetcher.take(1), "a corrupt member is never published")
+                    XCTAssertNil(try prefetcher.take(1)?.data, "a corrupt member is never published")
                     XCTAssertEqual(try observe(reader, order: order, bufferSize: bufferSize), expected,
                                    "threads \(String(describing: threads)), buffer \(bufferSize), truncated \(truncated)")
                     XCTAssertGreaterThan(prefetcher.servedMemberCount, 0, "intact neighbours still use the batch")
@@ -578,7 +578,7 @@ final class RAR4PrefetchTests: RAR4BuilderTestCase {
             prefetcher.schedule(after: -1)
             prefetcher.waitForScheduledBatchesForTesting()
             XCTAssertEqual(models.value, 0, "no model construction attempt on any worker")
-            for index in order { XCTAssertNil(try prefetcher.take(index)) }
+            for index in order { XCTAssertNil(try prefetcher.take(index)?.data) }
             XCTAssertEqual(try observe(reader, order: order, bufferSize: 4_099, requireSuccess: true), expected)
             XCTAssertEqual(prefetcher.servedMemberCount, 0)
             XCTAssertEqual(models.value, order.count, "the serial fallback still constructs each model")
@@ -608,8 +608,8 @@ final class RAR4PrefetchTests: RAR4BuilderTestCase {
             let prefetcher = try XCTUnwrap((reader.formatReaderForTesting as? RAR4Reader)?.prefetcherForTesting)
             prefetcher.waitForScheduledBatchesForTesting()
             XCTAssertEqual(models.value, 0, "both initial and later PPMd blocks stop before allocation")
-            XCTAssertNil(try prefetcher.take(2))
-            XCTAssertNil(try prefetcher.take(4), "the earlier LZ bytes must not be published either")
+            XCTAssertNil(try prefetcher.take(2)?.data)
+            XCTAssertNil(try prefetcher.take(4)?.data, "the earlier LZ bytes must not be published either")
             XCTAssertEqual(try observe(reader, order: order, bufferSize: 1_024, requireSuccess: true), expected)
             XCTAssertEqual(prefetcher.servedMemberCount, 2, "the two independent LZ neighbours were prefetched")
             XCTAssertEqual(models.value, 2, "only the two serial fallbacks construct models")
@@ -744,7 +744,7 @@ final class RAR4PrefetchTests: RAR4BuilderTestCase {
         reader = nil
         XCTAssertNil(weakReader, "workers must not retain the reader")
         XCTAssertEqual(prefetcher.runningBatchCount, 0)
-        XCTAssertNil(try prefetcher.take(1))
+        XCTAssertNil(try prefetcher.take(1)?.data)
         source.release.signal()
         let deadline = Date(timeIntervalSinceNow: 5)
         while prefetcher.heldByteCount != 0, Date() < deadline { Thread.sleep(forTimeInterval: 0.002) }

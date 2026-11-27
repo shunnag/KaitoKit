@@ -73,6 +73,7 @@ enum RAR4EntryPublisher {
             limits: options.limits
         )
 
+        var additionalVolumeBytes: UInt64 = 0
         var current = first
         var volumeNumber: UInt64 = 0
         while current.requestsNextVolume {
@@ -81,6 +82,7 @@ enum RAR4EntryPublisher {
                 throw KaitoError.limitExceeded("RAR4 volume count")
             }
             let located = try locator.locate(volumeNumber: nextNumber)
+            additionalVolumeBytes = try Checked.add(additionalVolumeBytes, located.source.length)
             let next = try RAR4VolumeParser.parseVolume(
                 source: located.source,
                 limits: options.limits,
@@ -118,7 +120,7 @@ enum RAR4EntryPublisher {
             volumeNumber = nextNumber
         }
         guard activeEntry == nil, activeRecord == nil else { throw KaitoError.truncated }
-        return try publish(
+        var result = try publish(
             pendingEntries: mergedEntries,
             records: mergedRecords,
             mainHeader: first.mainHeader,
@@ -126,6 +128,8 @@ enum RAR4EntryPublisher {
             limits: options.limits,
             resolvedPassword: resolvedPassword
         )
+        result.additionalVolumeBytes = additionalVolumeBytes
+        return result
     }
 
     private static func mergeFragments(

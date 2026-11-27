@@ -157,6 +157,34 @@ final class CFBReaderTests: XCTestCase {
         XCTAssertEqual(try short.read(large).sha256Hex, manifest.payload["large-b.txt"]?.sha256)
     }
 
+    func testCreationDatesKeepTheirISO8601Representation() throws {
+        var bytes = try Self.fixture("v3.cfb")
+        let header = try CFBHeader([UInt8](bytes.prefix(512)))
+        let fatSector = (Int(try XCTUnwrap(header.headerDIFAT.first { $0 <= CFBHeader.maxRegularSector })) + 1) * 512
+        let ticks: UInt64 = 132_223_104_000_000_000
+        var storageCount = 0
+        var visited = Set<UInt32>()
+        var sector = header.firstDirectorySector
+        while sector != CFBHeader.endOfChain {
+            XCTAssertTrue(visited.insert(sector).inserted)
+            let directory = (Int(sector) + 1) * 512
+            for offset in stride(from: directory, to: directory + 512, by: 128) where bytes[offset + 66] == 1 {
+                for byte in 0..<8 { bytes[offset + 100 + byte] = UInt8(truncatingIfNeeded: ticks >> (byte * 8)) }
+                storageCount += 1
+            }
+            sector = CFBBytes.u32([UInt8](bytes), fatSector + Int(sector) * 4)
+            if visited.count == 64 { return XCTFail("directory chain is unexpectedly long") }
+        }
+        XCTAssertGreaterThan(storageCount, 1)
+        let reader = try ArchiveReader.open(data: bytes)
+        let directories = reader.entries.filter { $0.kind == .directory }
+        XCTAssertEqual(directories.count, storageCount)
+        for entry in directories {
+            XCTAssertEqual(entry.formatSpecific["created"], "2020-01-01T00:00:00Z", entry.name)
+        }
+        XCTAssertTrue(reader.entries.filter { $0.kind == .file }.allSatisfy { $0.formatSpecific["created"] == nil })
+    }
+
     func testPublishedNamesEscapeControlCharactersAndSlashes() {
         XCTAssertEqual(CFBReader.publishedName("\u{05}SummaryInformation"), "[5]SummaryInformation")
         XCTAssertEqual(CFBReader.publishedName("plain"), "plain")

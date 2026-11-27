@@ -109,6 +109,7 @@ final class CFBReader: FormatReader {
         var records: [Record] = []
         var visited = Set<UInt32>()
         var pending: [(id: UInt32, components: [String], depth: Int, publish: Bool)] = [(root.child, [], 0, false)]
+        var creationDateFormatter: ISO8601DateFormatter?
         var nodeCount = 0
         while let item = pending.popLast() {
             try checkCancellation(every: nodeCount)
@@ -136,7 +137,11 @@ final class CFBReader: FormatReader {
                 var specific: [String: String] = [:]
                 if published != entry.name { specific["storedName"] = entry.name }
                 if let clsid = entry.clsidString { specific["clsid"] = clsid }
-                if entry.created != 0, let date = CFBBytes.fileTime(entry.created) { specific["created"] = ISO8601DateFormatter().string(from: date) }
+                if entry.created != 0, let date = CFBBytes.fileTime(entry.created) {
+                    let formatter = creationDateFormatter ?? ISO8601DateFormatter()
+                    creationDateFormatter = formatter
+                    specific["created"] = formatter.string(from: date)
+                }
                 let name = path.joined(separator: "/")
                 entries.append(ArchiveEntry(index: entries.count,
                     rawName: RawName(bytes: Array(name.utf8), declaredEncoding: .utf8, isDirectoryHint: kind == .directory),

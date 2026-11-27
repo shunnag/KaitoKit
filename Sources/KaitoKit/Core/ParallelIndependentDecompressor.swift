@@ -56,7 +56,12 @@ final class ParallelIndependentDecompressor: Decompressor {
         private var tickets: [Int: LeafDecodePool.Ticket] = [:]
         private var results: [Int: Result<Decoded, any Error>] = [:]
 
-        init(_ diagnostics: Diagnostics?) { self.diagnostics = diagnostics }
+        // Running jobs can outlive their decoder after abandon().
+        private let reservation: ParallelDecodeMemoryReservation
+        init(_ diagnostics: Diagnostics?, reservation: ParallelDecodeMemoryReservation) {
+            self.diagnostics = diagnostics
+            self.reservation = reservation
+        }
         var isAbandoned: Bool { condition.withLock { abandoned } }
         func abandon() {
             condition.lock(); abandoned = true; results.removeAll(); tickets.removeAll(); condition.broadcast(); condition.unlock()
@@ -147,12 +152,16 @@ final class ParallelIndependentDecompressor: Decompressor {
     /// 走査や予算で並列化できないときは、呼出元が元の直列 decoder に戻す。
     /// 7z の先頭単位は consumer で逐次復号し、同じ read の充足と失敗順を保つ。
     init?(units: [Unit], limits: ReadLimits, workers: Int, diagnostics: Diagnostics? = nil,
-          coalescingReads: Bool = false, streamsFirstUnit: Bool = false) {
+          coalescingReads: Bool = false, streamsFirstUnit: Bool = false,
+          reservation suppliedReservation: ParallelDecodeMemoryReservation? = nil, retainedInputBytes: Int = 0) {
         guard units.count >= 2, let maximum = units.map(\.heldBytes).max(), maximum > 0 else { return nil }
+        let reservation = suppliedReservation ?? limits.reserveParallelDecodeMemory()
+        let jobBudget = max(0, reservation.amount - retainedInputBytes)
         let count = min(max(1, workers), LeafDecodePool.shared.capacity, units.count,
-                        max(0, limits.resolvedParallelDecodeMemory() / maximum - 1))
+                        max(0, jobBudget / maximum - 1))
         guard count >= 2 else { return nil }
-        self.units = units; workerCount = count; self.workers = Workers(diagnostics)
+        self.units = units
+        workerCount = count; self.workers = Workers(diagnostics, reservation: reservation)
         self.coalescingReads = coalescingReads
         self.streamsFirstUnit = streamsFirstUnit
         spare = Reservation(maximum, diagnostics)

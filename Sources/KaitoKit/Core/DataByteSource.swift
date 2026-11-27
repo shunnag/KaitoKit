@@ -6,6 +6,7 @@ public final class DataByteSource: ByteSource, ByteSourceReadAhead {
     // internal にして、テストでは COW ストレージの同一性を直接確認できるようにする。
     let data: Data
     private let readAhead: MappedReadAhead?
+    private let storageOwner: (any Sendable & AnyObject)?
     @TaskLocal static var testingWillAdvise: (@Sendable (Range<UInt>) -> Void)?
     @TaskLocal static var testingDidAdvise: (@Sendable (Range<UInt>) -> Void)?
 
@@ -15,7 +16,12 @@ public final class DataByteSource: ByteSource, ByteSourceReadAhead {
     }
 
     /// Retains a data value using `Data` copy-on-write semantics.
-    public init(data: Data) {
+    public convenience init(data: Data) {
+        self.init(data: data, retaining: nil)
+    }
+
+    init(data: Data, retaining owner: (any Sendable & AnyObject)?) {
+        self.storageOwner = owner
         self.data = data
         self.readAhead = data.count >= MappedReadAhead.minimumSize
             ? data.withUnsafeBytes {

@@ -180,4 +180,12 @@ public struct ReadLimits: Sendable, Equatable {
     func resolvedParallelDecodeMemory(physicalMemory: UInt64 = cachedPhysicalMemory) -> Int {
         Int(clamping: parallelDecodeMemory ?? physicalMemory / 2)
     }
+
+    func reserveParallelDecodeMemory(physicalMemory: UInt64 = cachedPhysicalMemory) -> ParallelDecodeMemoryReservation {
+        let requested = resolvedParallelDecodeMemory(physicalMemory: physicalMemory)
+        return ParallelDecodeMemoryReservation(
+            upTo: requested,
+            budget: ParallelDecodeMemoryBudget.active
+        )
+    }
 }

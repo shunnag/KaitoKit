@@ -53,7 +53,12 @@ final class IndependentEntryPrefetcher: @unchecked Sendable {
     private final class Reservation: @unchecked Sendable {
         private weak var owner: IndependentEntryPrefetcher?
         private let bytes: Int
-        init(owner: IndependentEntryPrefetcher, bytes: Int) { self.owner = owner; self.bytes = bytes }
+        private let shared: ParallelDecodeMemoryReservation
+        init(owner: IndependentEntryPrefetcher, bytes: Int, shared: ParallelDecodeMemoryReservation) {
+            self.owner = owner
+            self.bytes = bytes
+            self.shared = shared
+        }
         deinit { owner?.release(bytes) }
     }
 
@@ -89,6 +94,7 @@ final class IndependentEntryPrefetcher: @unchecked Sendable {
     private let condition = NSCondition()
     private let workers: Int
     private let memoryBudget: Int
+    private let sharedBudget = ParallelDecodeMemoryBudget.active
     private let memberCount: Int
     private let candidate: (Int) -> Candidate?
     private let decodeBatch: BatchDecoder
@@ -140,7 +146,7 @@ final class IndependentEntryPrefetcher: @unchecked Sendable {
     /// The decoded, verified output of `index` if a batch produced it, or nil
     /// when it was never scheduled or failed. Batches that end before `index`
     /// are dropped: a caller that moved past them is not coming back in order.
-    func take(_ index: Int) throws -> Data? {
+    func take(_ index: Int) throws -> DataByteSource? {
         var hasWaited = false
         while true {
             try Task.checkCancellation()
@@ -154,7 +160,7 @@ final class IndependentEntryPrefetcher: @unchecked Sendable {
                 return nil
             }
             if batch.finished {
-                let output = batch.outputs?[position]
+                let output = batch.outputs?[position].map { DataByteSource(data: $0, retaining: batch.reservation) }
                 if output != nil {
                     batch.outputs?[position] = nil
                     batch.remaining -= 1
@@ -191,6 +197,8 @@ final class IndependentEntryPrefetcher: @unchecked Sendable {
         guard !abandoned else { return }
         if cursor <= index { cursor = index + 1 }
         while runningBatches < workers, batches.count < 2 * workers, cursor < memberCount {
+            let batchBudget = min(memoryBudget - heldBytes, sharedBudget?.availableBytes ?? Int.max)
+            guard batchBudget > 0 else { break }
             var members: [Candidate] = []
             var outputBytes = 0
             var scratchBytes = 0
@@ -209,7 +217,7 @@ final class IndependentEntryPrefetcher: @unchecked Sendable {
                 }
                 var nextSpan = packedSpan
                 nextSpan.append(next)
-                let available = memoryBudget - heldBytes - outputBytes
+                let available = batchBudget - outputBytes
                 let nextOutput = next.outputSize + 1
                 let nextScratch = max(scratchBytes, next.scratchBytes)
                 guard nextOutput <= available,
@@ -224,8 +232,12 @@ final class IndependentEntryPrefetcher: @unchecked Sendable {
             guard !members.isEmpty else { break }
             let batch = Batch(members: members)
             let reserved = outputBytes + scratchBytes + packedSpan.byteCount
+            guard let shared = ParallelDecodeMemoryReservation(exactly: reserved, budget: sharedBudget) else {
+                cursor = batch.firstIndex
+                break
+            }
             heldBytes += reserved
-            batch.reservation = Reservation(owner: self, bytes: reserved)
+            batch.reservation = Reservation(owner: self, bytes: reserved, shared: shared)
             batches.append(batch)
             runningBatches += 1
             batch.ticket = submit(batch)

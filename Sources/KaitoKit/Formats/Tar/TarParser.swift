@@ -364,6 +364,7 @@ enum TarParser {
         }
         let entries = try TarEntryPublisher.publish(
             pendingEntries,
+            pendingMetadataSize: pendingMetadataFloor,
             policy: policy,
             archiveEncoding: archiveEncoding,
             archiveDecodedNames: archiveDecodedNames,

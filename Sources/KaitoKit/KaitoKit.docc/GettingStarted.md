@@ -110,9 +110,14 @@ returns the current automatic request for display in a UI.
 ``ReadLimits/parallelDecodeMemory`` defaults to `nil`, meaning 50% of physical memory per decoder.
 Each decoder limits its in-flight jobs and scratch reservations to this budget and falls back to
 serial decoding when parallel work does not fit. Dictionary allocations remain governed by
-`maxDictionarySize`. Running leaf jobs across all readers share one process-wide pool bounded by
-active logical CPUs; larger requests queue. Thread counts preserve output bytes and errors are
+`maxDictionarySize`. The shared leaf pool dispatches up to one job per active logical CPU.
+Consumers may execute queued jobs inline. LZ4 also uses a separate block-parallel path. Thread counts preserve output bytes and errors are
 reported in stream order.
+
+Set ``ReaderOptions/expansionLimit`` to bound aggregate output relative to the input length.
+The same policy bounds the expanded envelope when opening compressed tar and cpio archives.
+Set ``ExtractionOptions/destinationFreeSpaceReserve`` to check available space and the
+reported maximum file size on the destination volume during extraction.
 
 For a stable local single file, `Data(contentsOf:options:.mappedIfSafe)` can avoid an eager copy.
 Prefer URL opening for multi-volume RAR, and use streaming rather than mapped output for large

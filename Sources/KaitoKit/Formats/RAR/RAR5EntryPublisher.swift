@@ -69,7 +69,7 @@ enum RAR5EntryPublisher {
         firstVolumeIdentitySource: (any ByteSource)? = nil,
         options: ReaderOptions,
         passwordSelection: RAR5PasswordSelection
-    ) throws -> (entries: [ArchiveEntry], records: [RAR5EntryRecord], password: String?) {
+    ) throws -> (entries: [ArchiveEntry], records: [RAR5EntryRecord], password: String?, additionalVolumeBytes: UInt64) {
         let verification = RAR5QuickOpenVerification()
         do {
             let parsed = try parseWithQuickOpen(source: source, sourceURL: sourceURL,
@@ -78,8 +78,10 @@ enum RAR5EntryPublisher {
                 passwordSelection: passwordSelection, quickOpenVerification: verification)
             if verification.hasAllocatedSlots {
                 // 公開 Reader が行う合計 size の検査も、写しだけを理由に open を失敗させない。
-                do { _ = try ArchiveOutputBudget(entries: parsed.entries, limit: options.limits.maxTotalUncompressedSize) }
-                catch {
+                do {
+                    let bytes = try Checked.add((firstVolumeIdentitySource ?? source).length, parsed.additionalVolumeBytes)
+                    _ = try ArchiveOutputBudget(entries: parsed.entries, limit: options.outputLimit(forInputBytes: bytes))
+                } catch {
                     if error is CancellationError { throw error }
                     throw QuickOpenPublicationError()
                 }
@@ -103,7 +105,7 @@ enum RAR5EntryPublisher {
         firstVolumeIdentitySource: (any ByteSource)? = nil,
         options: ReaderOptions,
         passwordSelection: RAR5PasswordSelection, quickOpenVerification: RAR5QuickOpenVerification
-    ) throws -> (entries: [ArchiveEntry], records: [RAR5EntryRecord], password: String?) {
+    ) throws -> (entries: [ArchiveEntry], records: [RAR5EntryRecord], password: String?, additionalVolumeBytes: UInt64) {
         var resolvedPassword = options.password
         // One archive-encryption envelope can occur per volume. Retaining every
         // reachable context makes the cumulative work accounting match actual
@@ -155,7 +157,7 @@ enum RAR5EntryPublisher {
                 archiveFlags: first.archiveFlags,
                 recoverDamagedArchives: options.recoverDamagedArchives
             )
-            return (published.entries, published.records, resolvedPassword)
+            return (published.entries, published.records, resolvedPassword, 0)
         }
 
         // The locator authenticates an unencrypted main header immediately. If
@@ -185,12 +187,14 @@ enum RAR5EntryPublisher {
             limits: options.limits
         )
 
+        var additionalVolumeBytes: UInt64 = 0
         while current.endFlags.contains(RAR5EndFlags.moreVolumes) {
             let nextNumber = try Checked.add(volumeNumber, 1)
             guard nextNumber < UInt64(options.limits.maxVolumeCount) else {
                 throw KaitoError.limitExceeded("RAR5 volume count")
             }
             let located = try locator.locate(volumeNumber: nextNumber)
+            additionalVolumeBytes = try Checked.add(additionalVolumeBytes, located.source.length)
             let next = try RAR5VolumeParser.parseVolume(
                 source: located.source,
                 volumeNumber: nextNumber,
@@ -262,7 +266,7 @@ enum RAR5EntryPublisher {
             archiveFlags: first.archiveFlags,
             recoverDamagedArchives: options.recoverDamagedArchives
         )
-        return (published.entries, published.records, resolvedPassword)
+        return (published.entries, published.records, resolvedPassword, additionalVolumeBytes)
     }
 
     private static func checkedMetadataRecordSum(

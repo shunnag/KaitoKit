@@ -10,7 +10,11 @@ final class ZipAESKeyLookAhead {
         private var result: WinZipAESDerivedKeys?
         var ticket: LeafDecodePool.Ticket?
 
-        init(key: WinZipAESKeyCacheKey) { self.key = key }
+        private let reservation: ParallelDecodeMemoryReservation
+        init(key: WinZipAESKeyCacheKey, reservation: ParallelDecodeMemoryReservation) {
+            self.key = key
+            self.reservation = reservation
+        }
 
         func run() {
             let result = try? WinZipAESDerivedKeys.derive(for: key)
@@ -56,6 +60,8 @@ final class ZipAESKeyLookAhead {
     static let scratchBytesPerJob = 4_096
     private let group = LeafDecodePool.Group()
     private var jobs: [Int: Job] = [:]
+    private let sharedBudget = ParallelDecodeMemoryBudget.active
+    private let bytesPerJob: Int
     private(set) var submittedCount = 0
     private(set) var servedCount = 0
     let capacity: Int
@@ -63,6 +69,7 @@ final class ZipAESKeyLookAhead {
     init(workers: Int, memoryBudget: Int, passwordBytes: Int) {
         let passwordCost = passwordBytes.multipliedReportingOverflow(by: 2)
         let cost = Self.scratchBytesPerJob.addingReportingOverflow(passwordCost.partialValue)
+        bytesPerJob = cost.partialValue
         capacity = passwordCost.overflow || cost.overflow ? 0 : min(max(0, workers - 1), 8,
             LeafDecodePool.shared.capacity, max(0, memoryBudget) / cost.partialValue)
     }
@@ -70,11 +77,13 @@ final class ZipAESKeyLookAhead {
     deinit { reset() }
 
     var count: Int { jobs.count }
+    var canSchedule: Bool { count < capacity && (sharedBudget?.availableBytes ?? Int.max) >= bytesPerJob }
     func contains(_ index: Int) -> Bool { jobs[index] != nil }
 
     func submit(index: Int, key: WinZipAESKeyCacheKey) {
-        guard jobs.count < capacity, jobs[index] == nil else { return }
-        let job = Job(key: key)
+        guard jobs.count < capacity, jobs[index] == nil,
+              let reservation = ParallelDecodeMemoryReservation(exactly: bytesPerJob, budget: sharedBudget) else { return }
+        let job = Job(key: key, reservation: reservation)
         jobs[index] = job
         submittedCount += 1
         job.ticket = LeafDecodePool.shared.submit(group: group) { job.run() }

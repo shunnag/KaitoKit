@@ -409,13 +409,9 @@ final class SevenZipFolderDecoderFactory {
             case .lzma2:
                 try requireArity(coder, inputs: 1)
                 let input = try byteInput(coder.firstInput)
-                // 高遅延入力の初回要求では走査しない。次の順方向要求が作った unit だけを使う。
+                // 高遅延入力の初回要求では走査しない。
                 if workers > 1, (!avoidsHeaderScans || resetIndexCache.parallelUnits != nil),
-                   let units = try parallelUnitsIfAvailable(),
-                   let parallel = ParallelIndependentDecompressor(
-                    units: units, limits: limits, workers: workers,
-                    diagnostics: parallelDiagnostics, coalescingReads: true, streamsFirstUnit: true
-                   ) {
+                   let parallel = try makeParallelDecoder() {
                     return .stream(parallel)
                 }
                 parallelDiagnostics?.serialFallback()
@@ -717,8 +713,17 @@ final class SevenZipFolderDecoderFactory {
         } catch KaitoError.limitExceeded { return nil }
     }
 
-    private func parallelUnitsIfAvailable() throws -> [ParallelIndependentDecompressor.Unit]? {
-        do { return try parallelUnits() }
+    private func makeParallelDecoder() throws -> ParallelIndependentDecompressor? {
+        let reservation = limits.reserveParallelDecodeMemory()
+        guard let units = try parallelUnitsIfAvailable(reservation: reservation) else { return nil }
+        return ParallelIndependentDecompressor(
+            units: units, limits: limits, workers: workers, diagnostics: parallelDiagnostics,
+            coalescingReads: true, streamsFirstUnit: true, reservation: reservation
+        )
+    }
+
+    private func parallelUnitsIfAvailable(reservation: ParallelDecodeMemoryReservation) throws -> [ParallelIndependentDecompressor.Unit]? {
+        do { return try parallelUnits(reservation: reservation) }
         catch is CancellationError { throw CancellationError() }
         catch {
             // index は最適化だけに使う。後続 chunk の破損・上限超過は元の decoder に
@@ -731,14 +736,18 @@ final class SevenZipFolderDecoderFactory {
     // 同じ隔離ドメインで同期実行し、観測 cache を worker と共有しない。
     func prepareDeferredParallelDecode() throws -> Bool {
         guard avoidsHeaderScans, workers > 1, resetIndexCache.parallelUnits == nil else { return false }
-        return try parallelUnitsIfAvailable() != nil
+        return try parallelUnitsIfAvailable(reservation: limits.reserveParallelDecodeMemory()) != nil
     }
 
-    func parallelUnits() throws -> [ParallelIndependentDecompressor.Unit]? {
+    func parallelUnits(reservation supplied: ParallelDecodeMemoryReservation? = nil) throws -> [ParallelIndependentDecompressor.Unit]? {
         if let units = resetIndexCache.parallelUnits { return try units.get() }
         do {
-            let units = try makeParallelUnits()
-            resetIndexCache.parallelUnits = .success(units)
+            let reservation = supplied ?? limits.reserveParallelDecodeMemory()
+            let units = try makeParallelUnits(budget: UInt64(reservation.amount))
+            // A partial grant may fit on a later request. Cache only permanent misses.
+            if units != nil || reservation.amount == limits.resolvedParallelDecodeMemory() {
+                resetIndexCache.parallelUnits = .success(units)
+            }
             return units
         } catch is CancellationError {
             throw CancellationError()
@@ -748,7 +757,7 @@ final class SevenZipFolderDecoderFactory {
         }
     }
 
-    private func makeParallelUnits() throws -> [ParallelIndependentDecompressor.Unit]? {
+    private func makeParallelUnits(budget: UInt64) throws -> [ParallelIndependentDecompressor.Unit]? {
         guard let coder = parallelLZMA2Coder, coder.properties.count == 1 else { return nil }
         let dictionarySize = try LZMA2Decoder.dictionarySize(for: coder.properties[0])
         try Checked.size(dictionarySize, limit: limits.maxDictionarySize)
@@ -757,7 +766,6 @@ final class SevenZipFolderDecoderFactory {
         // AES の一組の領域は各 decoder が所有し、unit cache には残さない。
         let aesScratch = isEncrypted ? UInt64(AESCBCRandomAccess.scratchBytes) : 0
         let scratch = try Checked.add(Checked.add(dictionarySize, 1_048_576), aesScratch)
-        let budget = UInt64(limits.resolvedParallelDecodeMemory())
         guard scratch <= budget / 3,
               let index = try makeDictionaryResetIndex(includingFilters: true, forParallelDecode: true) else { return nil }
         let points = index.filter(\.isRestartable)

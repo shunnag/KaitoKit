@@ -231,9 +231,9 @@ final class ParallelLZ4FrameDecompressor: Decompressor {
     private(set) var isFinished = false
 
     init?(units: [ParallelIndependentDecompressor.Unit], contentChecksum: UInt32?,
-          limits: ReadLimits, workers: Int) {
+          limits: ReadLimits, workers: Int, reservation: ParallelDecodeMemoryReservation, retainedInputBytes: Int) {
         guard let decoder = ParallelIndependentDecompressor(
-            units: units, limits: limits, workers: workers
+            units: units, limits: limits, workers: workers, reservation: reservation, retainedInputBytes: retainedInputBytes
         ) else { return nil }
         self.decoder = decoder
         expectedChecksum = contentChecksum
@@ -367,6 +367,7 @@ private final class LZ4FrameBlockDecompressor: DirectIndependentDataDecoding {
 private struct LZ4ParallelFramePlan {
     let units: [ParallelIndependentDecompressor.Unit]
     let contentChecksum: UInt32?
+    let memoryReservation: ParallelDecodeMemoryReservation
 }
 
 extension LZ4FrameDecompressor {
@@ -375,7 +376,8 @@ extension LZ4FrameDecompressor {
     static func parallel(source: any ByteSource, limits: ReadLimits, workers: Int) throws -> any Decompressor {
         if workers > 1, let plan = try? parallelPlan(source: source, limits: limits, workers: workers),
            let decoder = ParallelLZ4FrameDecompressor(
-               units: plan.units, contentChecksum: plan.contentChecksum, limits: limits, workers: workers
+               units: plan.units, contentChecksum: plan.contentChecksum, limits: limits, workers: workers,
+               reservation: plan.memoryReservation, retainedInputBytes: Int(source.length)
            ) {
             return decoder
         }
@@ -435,7 +437,8 @@ extension LZ4FrameDecompressor {
     }
 
     private static func parallelPlan(source: any ByteSource, limits: ReadLimits, workers: Int) throws -> LZ4ParallelFramePlan? {
-        let encodedBudget = min(UInt64(256 * 1_024 * 1_024), UInt64(limits.resolvedParallelDecodeMemory() / 2))
+        let reservation = limits.reserveParallelDecodeMemory()
+        let encodedBudget = min(UInt64(256 * 1_024 * 1_024), UInt64(reservation.amount / 2))
         guard source.length <= encodedBudget else { return nil }
         let input = try LZ4FrameInput(source: source, offset: 0, size: source.length)
         guard try input.integer(4) == magic else { return nil }
@@ -503,7 +506,9 @@ extension LZ4FrameDecompressor {
             }
         }
         guard header.contentSize == nil || header.contentSize == total else { return nil }
-        return LZ4ParallelFramePlan(units: try batchedUnits(units), contentChecksum: contentChecksum)
+        return LZ4ParallelFramePlan(
+            units: try batchedUnits(units), contentChecksum: contentChecksum, memoryReservation: reservation
+        )
     }
 
     private static func batchedUnits(_ units: [ParallelIndependentDecompressor.Unit]) throws

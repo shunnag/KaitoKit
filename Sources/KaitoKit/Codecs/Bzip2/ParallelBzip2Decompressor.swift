@@ -67,7 +67,9 @@ final class ParallelBzip2Decompressor: Decompressor {
         let diagnostics: Diagnostics?
         let outputLimit: Int
 
-        init(outputLimit: Int, diagnostics: Diagnostics?) {
+        private let reservation: ParallelDecodeMemoryReservation
+        init(outputLimit: Int, diagnostics: Diagnostics?, reservation: ParallelDecodeMemoryReservation) {
+            self.reservation = reservation
             self.outputLimit = outputLimit; self.diagnostics = diagnostics
         }
         var isAbandoned: Bool {
@@ -163,7 +165,7 @@ final class ParallelBzip2Decompressor: Decompressor {
     private let concatenatedStreams: Bool
     private let recorder: CompressedTarMapRecorder?
     private let workerCount: Int
-    private let workers: Workers
+    private var workers: Workers?
     private let diagnostics: Diagnostics?
     private var scannerReservation: Reservation?
     private var scanner: Bzip2BlockScanner?
@@ -172,6 +174,7 @@ final class ParallelBzip2Decompressor: Decompressor {
     private var scanningFinished = false
     private var fallbackOffset: UInt64?
     private var scanningError: (any Error)?
+    private var terminalError: (any Error)?
     private var serial: Bzip2Decompressor?
     private var serialSkip: UInt64 = 0
     private var outputStreamStart: UInt64?
@@ -180,7 +183,7 @@ final class ParallelBzip2Decompressor: Decompressor {
     private var currentOffset = 0
     private var finished = false
     /// Output capacity per worker, bounded independently of the compressed scanner.
-    var outputBufferLimit: Int { workers.outputLimit }
+    let outputBufferLimit: Int
 
     /// - Parameters:
     ///   - limits: 並列復号の保持 byte 予算。
@@ -201,21 +204,23 @@ final class ParallelBzip2Decompressor: Decompressor {
                                      Int(clamping: limits.maxEntrySize)))
         let scannerBytes = 4 * compressedLimit + Bzip2BlockScanner.readSize + Bzip2StreamLayout.headerLength
         let perJobBytes = compressedLimit + outputLimit
-        let budget = limits.resolvedParallelDecodeMemory()
-        self.workerCount = max(1, min(max(1, workers), max(0, budget - scannerBytes) / perJobBytes))
+        let reservation = limits.reserveParallelDecodeMemory()
+        outputBufferLimit = outputLimit
+        self.workerCount = max(1, min(max(1, workers), max(0, reservation.amount - scannerBytes) / perJobBytes))
         self.diagnostics = diagnostics
-        self.workers = Workers(outputLimit: outputLimit, diagnostics: diagnostics)
         if workerCount < 2 { try fallBack(at: 0); return }
+        self.workers = Workers(outputLimit: outputLimit, diagnostics: diagnostics, reservation: reservation)
         // 窓、再 framing の一時コピー、候補配列、読み込み領域を含む予約。
         self.scannerReservation = Reservation(scannerBytes, diagnostics: diagnostics)
         self.scanner = try Bzip2BlockScanner(source: source, compressedLimit: compressedLimit, outputLimit: outputLimit,
                                             recordsChecksum: recorder != nil, injectedCandidates: injectedCandidates,
                                             injectedBitCandidates: injectedBitCandidates, concatenatedStreams: concatenatedStreams)
     }
-    deinit { workers.abandon() }
+    deinit { workers?.abandon() }
     var isFinished: Bool { serial?.isFinished ?? finished }
 
     func read(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+        if let terminalError { throw terminalError }
         guard !buffer.isEmpty, !isFinished else { return 0 }
         do {
             while true {
@@ -234,12 +239,13 @@ final class ParallelBzip2Decompressor: Decompressor {
                     return count
                 }
                 current = nil; currentOffset = 0
-                try fillJobs()
+                guard let workers else { return 0 }
+                try fillJobs(using: workers)
                 if jobs.isEmpty {
                     if let fallbackOffset { try fallBack(at: fallbackOffset); continue }
                     if let scanningError { throw scanningError }
                     scanner = nil; scannerReservation = nil
-                    finished = true; return 0
+                    self.workers = nil; finished = true; return 0
                 }
                 let job = jobs.removeFirst()
                 switch try workers.take(job.id) {
@@ -256,14 +262,15 @@ final class ParallelBzip2Decompressor: Decompressor {
                 }
             }
         } catch {
-            workers.abandon()
+            terminalError = error
             current = nil; scanner = nil; scannerReservation = nil
+            workers?.abandon(); workers = nil
             throw error
         }
     }
 
     private func fallBack(at offset: UInt64) throws {
-        workers.abandon(); diagnostics?.fallback()
+        workers?.abandon(); workers = nil; diagnostics?.fallback()
         jobs = []; scanner = nil; scannerReservation = nil; current = nil; scanningError = nil
         serialSkip = outputStreamStart == offset ? streamOutput : 0
         serial = try Bzip2Decompressor(source: source, offset: offset, compressedSize: Checked.sub(source.length, offset),
@@ -284,7 +291,7 @@ final class ParallelBzip2Decompressor: Decompressor {
         }
     }
 
-    private func fillJobs() throws {
+    private func fillJobs(using workers: Workers) throws {
         // 消費済みの出力を解放してから、最大 W 区間までを投入する。
         while !scanningFinished, jobs.count < workerCount, let scanner {
             let next: Bzip2BlockScanner.Result

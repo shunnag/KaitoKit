@@ -4,7 +4,7 @@ import Foundation
 /// size 未宣言の entry は stream が実際に出した byte を index ごとに記録して加算する。
 /// 一度でも超えたら、その reader の以後の stream は全て limitExceeded。
 final class ArchiveOutputBudget {
-    private let limit: UInt64
+    let limit: UInt64
     private let declaredTotal: UInt64
     private var total: UInt64
     private var unknownEntrySizes: [Int: UInt64] = [:]

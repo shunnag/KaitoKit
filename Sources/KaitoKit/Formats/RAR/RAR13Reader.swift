@@ -25,6 +25,7 @@ final class RAR13Reader: FormatReader {
         var isSplit: Bool { firstFlags & 0x03 != 0 || lastFlags & 0x03 != 0 }
     }
 
+    private(set) var additionalVolumeBytes: UInt64 = 0
     let format: ArchiveFormat = .rar
     let entries: [ArchiveEntry]
     let nameEncoding: String.Encoding?
@@ -236,6 +237,7 @@ final class RAR13Reader: FormatReader {
                 throw KaitoError.unsupportedMethod("multi-volume from Data")
             }
             let next = try volumeLocator.locate(volumeNumber: volumeNumber + 1)
+            additionalVolumeBytes = try Checked.add(additionalVolumeBytes, next.source.length)
             volumeNumber += 1
             let nextMain = try Self.readMainHeader(source: next.source)
             guard nextMain.flags & 0x01 != 0 else {

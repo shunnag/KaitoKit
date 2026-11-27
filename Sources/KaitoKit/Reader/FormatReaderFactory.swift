@@ -247,10 +247,11 @@ enum FormatReaderFactory {
         // The expanded tar / cpio envelope is staging input, not a
         // published entry. Its stream uses maxEntrySize; the aggregate
         // budget ArchiveReader constructs afterwards applies to the inner reader's members.
-        let stream = try single.stagingStream(limits: options.limits, recorder: mapRecorder)
+        let stagingLimits = options.stagingLimits(forInputBytes: source.length)
+        let stream = try single.stagingStream(limits: stagingLimits, recorder: mapRecorder)
         let staged = try SingleFileMaterializer.materialize(
             stream,
-            limits: options.limits,
+            limits: stagingLimits,
             sizeHint: single.stagingSizeHint
         )
         switch container {

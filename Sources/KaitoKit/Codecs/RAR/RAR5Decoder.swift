@@ -172,7 +172,8 @@ final class RAR5Decoder: Decompressor {
         private let lock = NSLock()
         private let capacity: Int
         private let memoryBudget: Int
-        private var free: [SolidState] = []
+        private let sharedBudget = ParallelDecodeMemoryBudget.active
+        private var free: [(state: SolidState, reservation: ParallelDecodeMemoryReservation)] = []
         private var heldBytes = 0
 
         init(capacity: Int, memoryBudget: Int = Int.max) {
@@ -184,12 +185,12 @@ final class RAR5Decoder: Decompressor {
         func take(windowSize: Int) -> SolidState? {
             let state: SolidState? = lock.withLock {
                 var best: Int?
-                for index in free.indices where free[index].windowSize >= windowSize {
-                    if let current = best, free[current].windowSize <= free[index].windowSize { continue }
+                for index in free.indices where free[index].state.windowSize >= windowSize {
+                    if let current = best, free[current].state.windowSize <= free[index].state.windowSize { continue }
                     best = index
                 }
                 guard let best else { return nil }
-                let state = free.remove(at: best)
+                let state = free.remove(at: best).state
                 heldBytes -= Self.retainedBytes(state)
                 return state
             }
@@ -202,8 +203,9 @@ final class RAR5Decoder: Decompressor {
                   state.inputCapacity <= Self.maximumRecycledBytes else { return }
             let bytes = Self.retainedBytes(state)
             lock.withLock {
-                if free.count < capacity, bytes <= memoryBudget - heldBytes {
-                    free.append(state)
+                if free.count < capacity, bytes <= memoryBudget - heldBytes,
+                   let reservation = ParallelDecodeMemoryReservation(exactly: bytes, budget: sharedBudget) {
+                    free.append((state, reservation))
                     heldBytes += bytes
                 }
             }
@@ -439,6 +441,7 @@ final class RAR5Decoder: Decompressor {
     }
 
     private var blockPipeline: BlockPipeline?
+    private var blockPipelineMemoryReservation: ParallelDecodeMemoryReservation?
     private var activeBlockOffset = 0
     private var tokenOffset = 0
     private var literalRemaining = 0
@@ -618,10 +621,12 @@ final class RAR5Decoder: Decompressor {
             } else {
                 try readNextBlock()
                 if decodeThreads > 1, inputCount >= 64 * 1_024 {
-                    let budget = limits.resolvedParallelDecodeMemory()
+                    let reservation = limits.reserveParallelDecodeMemory()
+                    let budget = reservation.amount
                     // 再利用した入力は今回の size より大きいことがある。
                     let resident = state.windowSize + state.inputCapacity + (ownsInput ? allocationCount : 0)
                     if budget > resident {
+                        blockPipelineMemoryReservation = reservation
                         blockPipeline = BlockPipeline(
                             input: UnsafePointer(input), count: inputCount,
                             workers: decodeThreads, budget: min(32 * 1_024 * 1_024, budget - resident),
@@ -860,6 +865,7 @@ final class RAR5Decoder: Decompressor {
         while let pipeline = blockPipeline, capacity > 0, !rawFinished, failure == nil {
             guard let tokens = pipeline.tokens(at: activeBlockOffset) else {
                 blockPipeline = nil
+                blockPipelineMemoryReservation = nil
                 break
             }
             let count = applyTokens(

@@ -20,6 +20,12 @@ public struct ExtractionOptions: Sendable {
     /// Whether safe relative symbolic links are created.
     public var createSymbolicLinks: Bool
 
+    /// Bytes to leave available on the destination volume. Set this to opt in to
+    /// checking the filesystem’s maximum file size and free space before extraction.
+    /// Actual output size and available space are checked again during writes.
+    /// Other users of the volume may consume space between a check and the write.
+    public var destinationFreeSpaceReserve: UInt64? = nil
+
     /// Creates extraction options.
     public init(
         overwriteExisting: Bool = true,

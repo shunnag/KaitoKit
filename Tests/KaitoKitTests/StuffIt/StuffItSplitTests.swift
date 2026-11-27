@@ -194,8 +194,12 @@ final class StuffItSplitTests: XCTestCase {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let urls = try writeParts(forks, to: directory, names: names, cuts: cuts)
             XCTAssertEqual(urls.count, 12, label)
+            let inputSize = try urls.reduce(UInt64(0)) { try $0 + UInt64(Data(contentsOf: $1).count) }
+            var options = ReaderOptions()
+            options.expansionLimit = .init(minimumAllowance: 0, maximumRatio: 1024)
             for url in urls {
-                let reader = try ArchiveReader.open(url: url)
+                let reader = try ArchiveReader.open(url: url, options: options)
+                XCTAssertEqual(reader.maximumTotalOutputSize, inputSize * 1024)
                 XCTAssertEqual(try digests(reader), expected, "\(label) opened from \(url.lastPathComponent)")
             }
         }

@@ -182,6 +182,7 @@ struct RAR4ParsedVolume {
 
 /// The published entries of a whole volume set, with their read plans.
 struct RAR4ParsedArchive {
+    var additionalVolumeBytes: UInt64 = 0
     let entries: [ArchiveEntry]
     let records: [RAR4EntryRecord]
     let nameEncoding: String.Encoding?

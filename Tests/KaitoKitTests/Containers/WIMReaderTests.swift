@@ -68,7 +68,10 @@ final class WIMReaderTests: XCTestCase {
             if name == "stored.wim" {
                 let stream = try XCTUnwrap(reader.entries.first { $0.name == "readme.txt:Zone.Identifier" })
                 XCTAssertEqual(stream.formatSpecific["stream"], "Zone.Identifier")
-                XCTAssertEqual(try reader.read(stream), Data("[ZoneTransfer]\r\nZoneId=3\r\n".utf8))
+                let contents = Data("[ZoneTransfer]\r\nZoneId=3\r\n".utf8)
+                XCTAssertEqual(try reader.read(stream), contents)
+                XCTAssertEqual(stream.formatSpecific["sha1"],
+                               Insecure.SHA1.hash(data: contents).map { String(format: "%02x", $0) }.joined())
                 let link = try XCTUnwrap(reader.entries.first { $0.name == "link" })
                 XCTAssertEqual(link.kind, .symlink)
                 XCTAssertEqual(link.formatSpecific["linkPath"], "readme.txt")

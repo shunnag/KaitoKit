@@ -28,12 +28,17 @@ final class UDIFChunkCache: @unchecked Sendable {
         private let lock = NSLock()
         private var held = 0
         let diagnostics: Diagnostics?
-        init(_ capacity: Int, diagnostics: Diagnostics?) { self.capacity = capacity; self.diagnostics = diagnostics }
+        private let sharedBudget = ParallelDecodeMemoryBudget.active
+        init(_ capacity: Int, diagnostics: Diagnostics?) {
+            self.capacity = capacity
+            self.diagnostics = diagnostics
+        }
         func reserve(_ size: Int) -> Reservation? {
             lock.withLock {
-                guard size <= capacity - held else { return nil }
+                guard size <= capacity - held,
+                      let shared = ParallelDecodeMemoryReservation(exactly: size, budget: sharedBudget) else { return nil }
                 held += size
-                return Reservation(size: size, budget: self)
+                return Reservation(size: size, budget: self, shared: shared)
             }
         }
         func release(_ size: Int) { lock.withLock { held -= size } }
@@ -42,7 +47,9 @@ final class UDIFChunkCache: @unchecked Sendable {
     fileprivate final class Reservation: Sendable {
         let size: Int
         private let budget: Budget
-        fileprivate init(size: Int, budget: Budget) {
+        private let shared: ParallelDecodeMemoryReservation
+        fileprivate init(size: Int, budget: Budget, shared: ParallelDecodeMemoryReservation) {
+            self.shared = shared
             self.size = size; self.budget = budget; budget.diagnostics?.bytes(size)
         }
         deinit { budget.diagnostics?.bytes(-size); budget.release(size) }

@@ -216,7 +216,7 @@ final class ZipReader: FormatReader {
         // A fixed entry window also bounds scanning across directories and
         // unencrypted entries. ZIP has no aggregate KDF work budget in ReadLimits.
         for next in (index + 1)..<min(records.count, index + 1 + ahead.capacity) {
-            if ahead.count == ahead.capacity { break }
+            if !ahead.canSchedule { break }
             guard !ahead.contains(next), !entries[next].isIncomplete,
                   entries[next].kind != .directory,
                   case let .aes(metadata) = records[next].encryption else { continue }

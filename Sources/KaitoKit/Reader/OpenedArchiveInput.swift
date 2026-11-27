@@ -5,6 +5,9 @@ import Foundation
 struct OpenedArchiveInput {
     /// 組み立て後の source。分割セットは連結、`.cue` は data track の image、それ以外は開いた file 自身。
     let source: any ByteSource
+    /// StuffIt exposes its data fork as the source and its resource fork separately.
+    var inputByteCount: UInt64 { (source as? StuffItSplitSource)?.inputByteCount ?? source.length }
+
     /// 拡張子・単一 stream の名前・SFX 検出のヒント。`.001` セットでは `.001` を除く。
     let sourceURL: URL?
     /// 開いた file の親 directory。`.001` の連結セットでは nil。

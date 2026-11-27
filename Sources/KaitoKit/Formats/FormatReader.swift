@@ -4,6 +4,8 @@ import Foundation
 // wrapper（AppleDoubleReader）が内側へ転送する SPI（ZIP の生レコード・stream）は要件に置き、一つの形式に閉じた SPI
 // （LHA・7z・tar の配置）は ArchiveReader が具体型へ downcast して呼ぶ。
 protocol FormatReader: AnyObject {
+    /// Input bytes from additional volumes opened by the format parser.
+    var additionalVolumeBytes: UInt64 { get }
     var format: ArchiveFormat { get }
     var entries: [ArchiveEntry] { get }
     var nameEncoding: String.Encoding? { get }
@@ -24,6 +26,8 @@ protocol FormatReader: AnyObject {
 }
 
 extension FormatReader {
+    var additionalVolumeBytes: UInt64 { 0 }
+
     // 独立した生レコードの移動を検証していない形式は範囲を公開しない。
     func rawRecord(for entry: ArchiveEntry, limits: ReadLimits) throws -> RawEntryRecord? { nil }
     func zipRawRecordLayout(at index: Int, limits: ReadLimits) throws -> ZipRawRecordLayout? { nil }

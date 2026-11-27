@@ -111,6 +111,13 @@ final class CompressedCpioAliasTests: XCTestCase {
         XCTAssertThrowsError(try ArchiveReader.open(url: url, options: ReaderOptions(limits: ReadLimits(maxTotalUncompressedSize: total - 1)))) {
             guard case .limitExceeded = $0 as? KaitoError else { return XCTFail("Unexpected error: \($0)") }
         }
+        var relative = ReaderOptions()
+        let inputSize = UInt64(try Data(contentsOf: url).count)
+        let ratio = UInt64(sample.plain.count) / inputSize + 1
+        relative.expansionLimit = .init(minimumAllowance: 0, maximumRatio: ratio)
+        let compressed = try ArchiveReader.open(url: url, options: relative)
+        XCTAssertEqual(compressed.maximumTotalOutputSize, inputSize * ratio)
+        XCTAssertEqual(try compressed.reopen().maximumTotalOutputSize, inputSize * ratio)
         // 一時展開が memory / disk のどちらでも同じ結果。
         for threshold: UInt64 in [.max, 0] {
             let reader = try ArchiveReader.open(url: url, options: ReaderOptions(limits: ReadLimits(inMemorySingleFileLimit: threshold)))

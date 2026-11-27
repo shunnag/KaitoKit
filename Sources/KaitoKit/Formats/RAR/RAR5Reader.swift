@@ -15,6 +15,7 @@ final class RAR5Reader: FormatReader {
         let mismatchIsWrongPassword: Bool
     }
 
+    let additionalVolumeBytes: UInt64
     let format: ArchiveFormat = .rar
     private(set) var entries: [ArchiveEntry]
     let nameEncoding: String.Encoding? = nil
@@ -84,6 +85,7 @@ final class RAR5Reader: FormatReader {
             options: options,
             passwordSelection: keyCache.passwordSelection
         )
+        self.additionalVolumeBytes = parsed.additionalVolumeBytes
         self.entries = parsed.entries
         self.records = parsed.records
         self.quickOpenVerification = parsed.records.lazy.flatMap(\.headerGuards).compactMap { $0 }.first?.verification ?? RAR5QuickOpenVerification()
@@ -102,6 +104,7 @@ final class RAR5Reader: FormatReader {
             source: source,
             sourceURL: sourceURL,
             options: options,
+            additionalVolumeBytes: additionalVolumeBytes,
             entries: entries,
             records: records,
             quickOpenVerification: quickOpenVerification
@@ -114,6 +117,7 @@ final class RAR5Reader: FormatReader {
         source: any ByteSource,
         sourceURL: URL?,
         options: ReaderOptions,
+        additionalVolumeBytes: UInt64,
         entries: [ArchiveEntry],
         records: [RAR5EntryRecord],
         quickOpenVerification: RAR5QuickOpenVerification
@@ -123,6 +127,7 @@ final class RAR5Reader: FormatReader {
         self.options = options
         self.entryKDFBudget = KDFWorkBudget(limit: options.limits.maxRAR5EntryKDFWork,
                                           subject: "RAR5 entry KDF work")
+        self.additionalVolumeBytes = additionalVolumeBytes
         self.entries = entries
         self.records = records
         self.quickOpenVerification = quickOpenVerification
@@ -255,9 +260,9 @@ final class RAR5Reader: FormatReader {
             // Decoded ahead and BLAKE2sp-verified on a worker. The CRC-32 is
             // still checked by the stream below, exactly like the serial path.
             decompressor = try CopyDecompressor(
-                source: DataByteSource(data: prefetched),
+                source: prefetched,
                 offset: 0,
-                compressedSize: UInt64(prefetched.count)
+                compressedSize: prefetched.length
             )
             blake2spWasVerified = true
         } else {

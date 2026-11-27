@@ -139,7 +139,12 @@ final class RAR5VolumeTests: XCTestCase {
             second.lastPathComponent
         )
 
-        let reader = try ArchiveReader.open(url: first)
+        var options = ReaderOptions()
+        options.expansionLimit = .init(minimumAllowance: 0, maximumRatio: 2)
+        let reader = try ArchiveReader.open(url: first, options: options)
+        let combined = try Data(contentsOf: first).count + Data(contentsOf: second).count
+        XCTAssertEqual(reader.maximumTotalOutputSize, UInt64(combined) * 2)
+        XCTAssertEqual(try reader.reopen().maximumTotalOutputSize, reader.maximumTotalOutputSize)
         XCTAssertTrue(reader.entries.isEmpty)
         XCTAssertTrue(try reader.reopen().entries.isEmpty)
     }

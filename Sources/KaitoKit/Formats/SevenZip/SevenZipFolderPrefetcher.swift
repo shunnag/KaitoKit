@@ -49,10 +49,12 @@ final class SevenZipFolderPrefetcher: @unchecked Sendable {
     /// 検査済みの folder 出力。EntryStream は従来どおり長さと CRC を確かめる。
     final class FolderDecompressor: Decompressor {
         private let bytes: Data
+        private let reservations: Reservations
         private var position: Int
         private let end: Int
 
-        init(bytes: Data, range: Range<Int>) {
+        fileprivate init(bytes: Data, range: Range<Int>, reservations: Reservations) {
+            self.reservations = reservations
             self.bytes = bytes; position = range.lowerBound; end = range.upperBound
         }
 
@@ -74,7 +76,9 @@ final class SevenZipFolderPrefetcher: @unchecked Sendable {
         var remainingFolders: Set<Int>
         var ticket: LeafDecodePool.Ticket?
         var result: Decoded?
-        init(batch: Batch) {
+        let reservations: Reservations
+        init(batch: Batch, reservations: Reservations) {
+            self.reservations = reservations
             self.batch = batch
             remainingFolders = Set(batch.units.map(\.folderIndex))
         }
@@ -85,7 +89,9 @@ final class SevenZipFolderPrefetcher: @unchecked Sendable {
     private var batches: [Int: BatchState] = [:]
     private var folderToBatch: [Int: Int] = [:]
     private var nextBatchID = 0
-    private var held = 0
+    fileprivate typealias Reservations = (local: ParallelDecodeMemoryReservation, shared: ParallelDecodeMemoryReservation)
+    private let localBudget: ParallelDecodeMemoryBudget
+    private let sharedBudget = ParallelDecodeMemoryBudget.active
     private var served = 0
     private var inFlight = 0
     /// 保持中の batch の lastEntryIndex の最小値。それより後ろの entry を読むまで drop の走査を省く。
@@ -101,13 +107,14 @@ final class SevenZipFolderPrefetcher: @unchecked Sendable {
     init(workers: Int, memoryBudget: Int) {
         workerCount = min(max(1, workers), LeafDecodePool.shared.capacity)
         self.memoryBudget = memoryBudget
+        localBudget = ParallelDecodeMemoryBudget(capacity: UInt64(memoryBudget))
     }
 
     deinit { reset() }
 
     /// 投入済みで復号がまだ終わっていない batch の数。
     var inFlightBatchCount: Int { condition.withLock { inFlight } }
-    var heldBytes: Int { condition.withLock { held } }
+    var heldBytes: Int { memoryBudget - localBudget.availableBytes }
     /// 復号中の batch は worker 数まで、保持中（復号済みで未受領を含む）の batch はその 2 倍まで。
     /// 消費側が遅いときに復号済みの出力が予算いっぱいまで溜まらないようにする。
     var canSubmitMore: Bool { condition.withLock { hasWindowRoom } }
@@ -117,21 +124,24 @@ final class SevenZipFolderPrefetcher: @unchecked Sendable {
     @discardableResult
     func submit(_ batch: Batch) -> Bool {
         condition.lock()
-        guard held + batch.heldBytes <= memoryBudget, hasWindowRoom else {
+        guard hasWindowRoom,
+              let local = ParallelDecodeMemoryReservation(exactly: batch.heldBytes, budget: localBudget),
+              let shared = ParallelDecodeMemoryReservation(exactly: batch.heldBytes, budget: sharedBudget) else {
             condition.unlock(); return false
         }
         let id = nextBatchID
         nextBatchID += 1
-        let state = BatchState(batch: batch)
+        let reservations = (local, shared)
+        let state = BatchState(batch: batch, reservations: reservations)
         batches[id] = state
         for unit in batch.units { folderToBatch[unit.folderIndex] = id }
-        held += batch.heldBytes
         inFlight += 1
         lowestLastEntryIndex = min(lowestLastEntryIndex, batch.lastEntryIndex)
         let group = self.group
         condition.unlock()
 
         let ticket = LeafDecodePool.shared.submit(group: group) { [self] in
+            defer { withExtendedLifetime(reservations) {} }
             guard !isDropped(id) else { return }
             let decoded = Self.decode(batch, isDropped: { [self] in isDropped(id) })
             condition.lock()
@@ -170,7 +180,7 @@ final class SevenZipFolderPrefetcher: @unchecked Sendable {
                 if range != nil { served += 1 }
                 condition.unlock()
                 guard let range else { return nil }
-                return FolderDecompressor(bytes: decoded.bytes, range: range)
+                return FolderDecompressor(bytes: decoded.bytes, range: range, reservations: state.reservations)
             }
             let ticket = state.ticket
             condition.unlock()
@@ -214,7 +224,6 @@ final class SevenZipFolderPrefetcher: @unchecked Sendable {
         for folder in state.remainingFolders where folderToBatch[folder] == id {
             folderToBatch.removeValue(forKey: folder)
         }
-        held -= state.batch.heldBytes
         if state.result == nil { inFlight -= 1 }
         lowestLastEntryIndex = batches.values.map(\.batch.lastEntryIndex).min() ?? Int.max
     }

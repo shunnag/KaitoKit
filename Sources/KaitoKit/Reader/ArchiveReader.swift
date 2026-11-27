@@ -21,10 +21,14 @@ public final class ArchiveReader {
     private let options: ReaderOptions
     private let outputBudget: ArchiveOutputBudget
     private var extractionRootKey: String?
+    private let extractionDirectories = ExtractionDirectoryCache()
     private var extractedFiles: [Int: ExtractedFileIdentity] = [:]
 
     /// The detected archive format.
     public let format: ArchiveFormat
+
+    /// Aggregate output ceiling after applying the absolute and relative limits.
+    public var maximumTotalOutputSize: UInt64 { outputBudget.limit }
 
     /// Entries in archive order.
     public let entries: [ArchiveEntry]
@@ -49,7 +53,8 @@ public final class ArchiveReader {
     /// The password used for subsequent encrypted-entry operations.
     public var password: String?
 
-    private init(input: OpenedArchiveInput, options: ReaderOptions, openingOptions: ReaderOptions? = nil) throws {
+    private init(input: OpenedArchiveInput, options: ReaderOptions, openingOptions: ReaderOptions? = nil,
+                 originalOutputLimit: UInt64? = nil) throws {
         self.openingOptions = openingOptions ?? options
         let options = options.resolvingDecodeThreads().resolvingInputLatency(for: input.source)
         self.source = input.source
@@ -68,7 +73,8 @@ public final class ArchiveReader {
         self.tarEditingState = opened.tarEditingState
         self.outputBudget = try ArchiveOutputBudget(
             entries: entries,
-            limit: options.limits.maxTotalUncompressedSize
+            limit: try originalOutputLimit ?? options.outputLimit(forInputBytes:
+                Checked.add(input.inputByteCount, opened.reader.additionalVolumeBytes))
         )
     }
 
@@ -281,6 +287,7 @@ public final class ArchiveReader {
         let rootKey = Self.stableExtractionRootKey(directory)
         if extractionRootKey != rootKey {
             extractionRootKey = rootKey
+            extractionDirectories.reset()
             extractedFiles.removeAll(keepingCapacity: false)
         }
         let result = try Extractor.extract(
@@ -288,6 +295,7 @@ public final class ArchiveReader {
             from: self,
             to: directory,
             options: extractionOptions,
+            directoryCache: extractionDirectories,
             trustedTargets: extractedFiles
         )
         if let identity = result.fileIdentity {
@@ -334,6 +342,13 @@ public final class ArchiveReader {
         return try reopen(using: reopenedOptions)
     }
 
+    /// Creates an independent reader with a per-decoder share of a host's memory budget.
+    public func reopen(parallelDecodeMemory: UInt64) throws -> sending ArchiveReader {
+        var workerOptions = options
+        workerOptions.limits.parallelDecodeMemory = parallelDecodeMemory
+        return try reopen(using: workerOptions)
+    }
+
     private func reopen(using options: ReaderOptions) throws -> sending ArchiveReader {
         var reopenedOptions = options
         reopenedOptions.password = password
@@ -356,7 +371,7 @@ public final class ArchiveReader {
             return try ArchiveReader(
                 input: OpenedArchiveInput(source: stagedContainerSource, volumeSet: volumeSet),
                 options: reopenedOptions,
-                openingOptions: openingOptions
+                openingOptions: openingOptions, originalOutputLimit: maximumTotalOutputSize
             )
         }
         return try ArchiveReader(
@@ -424,13 +439,13 @@ public final class ArchiveReader {
         let single = try tarSpliceVerification(.framingMismatch) {
             try SingleFileReader(source: output, format: detected, options: options, fallbackFileName: sourceURL?.lastPathComponent)
         }
-        let verifier = try CompressedTarSpliceVerifier(output: output, base: base, splice: splice, limits: options.limits,
+        let verifier = try CompressedTarSpliceVerifier(output: output, base: base, splice: splice, limits: options.stagingLimits(forInputBytes: output.length),
                                                      gzipHeaderLength: single.tarSpliceGzipHeaderLength)
         let image = try verifier.materialize(policy: storagePolicy)
         var tarOptions = options
         tarOptions.recordsTarEditLayout = true
         let parsed = try AppleDoubleReader.wrap(TarReader(source: image, options: tarOptions), options: options)
-        let budget = try ArchiveOutputBudget(entries: parsed.entries, limit: options.limits.maxTotalUncompressedSize)
+        let budget = try ArchiveOutputBudget(entries: parsed.entries, limit: options.outputLimit(forInputBytes: output.length))
         if let identity, currentTarArchiveIdentity(output) != identity { throw TarSpliceVerificationError(.outputChanged) }
         let tar = parsed as? TarReader
         let snapshot = TarEditingSnapshot(container: base.container, image: image, archive: output,

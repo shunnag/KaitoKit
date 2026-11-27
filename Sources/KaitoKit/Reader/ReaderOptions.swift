@@ -84,6 +84,22 @@ public struct ReaderOptions: Sendable {
     /// The policy used to decode entry names.
     public var encodingPolicy: EncodingPolicy
 
+    /// Optional archive-wide output ceiling relative to the input length. Also
+    /// applies while staging a compressed container. Absolute limits still apply.
+    public var expansionLimit: ArchiveExpansionLimit? = nil
+
+    func outputLimit(forInputBytes bytes: UInt64) -> UInt64 {
+        min(limits.maxTotalUncompressedSize, expansionLimit?.maximumOutput(forInputBytes: bytes) ?? .max)
+    }
+
+    func stagingLimits(forInputBytes bytes: UInt64) -> ReadLimits {
+        var result = limits
+        if let expansionLimit {
+            result.maxEntrySize = min(result.maxEntrySize, expansionLimit.maximumOutput(forInputBytes: bytes))
+        }
+        return result
+    }
+
     /// Resource limits applied while parsing and reading.
     public var limits: ReadLimits
 
@@ -214,6 +230,7 @@ public struct ReaderOptions: Sendable {
         func requireUnchanged<T: Equatable>(_ original: T, _ replacement: T, _ name: String) throws {
             guard original == replacement else { throw KaitoError.unsupportedMethod("reopen cannot change \(name)") }
         }
+        try requireUnchanged(expansionLimit, proposed.expansionLimit, "expansionLimit")
         try requireUnchanged(fileAccessPolicy, proposed.fileAccessPolicy, "fileAccessPolicy")
         try requireUnchanged(rar5QuickOpenPolicy, proposed.rar5QuickOpenPolicy, "rar5QuickOpenPolicy")
         try requireUnchanged(recordsSevenZipEditLayout, proposed.recordsSevenZipEditLayout, "recordsSevenZipEditLayout")
